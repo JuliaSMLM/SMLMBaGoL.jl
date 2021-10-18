@@ -19,6 +19,6 @@ makedocs(;
 )
 
 deploydocs(;
-    repo="github.com/kalidke/SMLMBaGoL.jl",
+    repo="github.com/JuliaSMLM/SMLMBaGoL.jl",
     devbranch = "main"
 )
