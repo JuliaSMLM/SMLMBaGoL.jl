@@ -10,7 +10,7 @@ makedocs(;
     sitename="SMLMBaGoL.jl",
     format=Documenter.HTML(;
         prettyurls=get(ENV, "CI", "false") == "true",
-        canonical="https://kalidke.github.io/SMLMBaGoL.jl",
+        canonical="https://JuliaSMLM.github.io/SMLMBaGoL.jl",
         assets=String[],
     ),
     pages=[
