@@ -6,7 +6,7 @@ DocMeta.setdocmeta!(SMLMBaGoL, :DocTestSetup, :(using SMLMBaGoL); recursive=true
 makedocs(;
     modules=[SMLMBaGoL],
     authors="klidke@unm.edu",
-    repo="https://github.com/kalidke/SMLMBaGoL.jl/blob/{commit}{path}#{line}",
+    repo="https://github.com/JuliaSMLM/SMLMBaGoL.jl/blob/{commit}{path}#{line}",
     sitename="SMLMBaGoL.jl",
     format=Documenter.HTML(;
         prettyurls=get(ENV, "CI", "false") == "true",
