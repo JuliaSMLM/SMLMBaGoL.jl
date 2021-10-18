@@ -1,5 +1,5 @@
 module SMLMBaGoL
 
-# Write your package code here.
+include("constructpriors.jl")
 
 end
