@@ -38,9 +38,8 @@ function gensubregions(smld::SMLMData.SMLD2D, roisize::Int=5, roioverlap::Int=1)
         # first pixel).
         keepbool = (smld.y.>=(ystart[ii]-0.5)) .* (smld.y.<=(yend[ii]+0.5)) .*
             (smld.x.>=(xstart[jj]-0.5)) .* (smld.x.<=(xend[jj]+0.5))
-        println(any(keepbool))
         smld_subregions[ii, jj] = SMLMData.isolatesubregion(smld, keepbool)
     end
 
-    return smld_subregions
+    return smld_subregions, rois
 end
