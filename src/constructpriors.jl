@@ -8,7 +8,7 @@ using Optim
     α, β, clusterdata, nobservations = 
         constructprior_lambda(smld_preclustered::SMLD, forceexp::Bool)
 
-Pre-cluster localizations in `smld` and define a Gamma prior from the results.
+Fit a Gamma distribution to preclusters in smld_preclustered.
 
 # Description
 Localizations in the input structure `smld` are clustered together based on
@@ -59,7 +59,7 @@ end
 
 function expMLE(clusterdata, nobservations)
     alpha = 1.0
-    beta = 1/Statistics.mean(nobservations)
+    beta = 1 / Statistics.mean(nobservations)
 
     return alpha, beta
 end
