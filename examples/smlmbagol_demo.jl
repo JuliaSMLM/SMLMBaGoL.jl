@@ -16,7 +16,7 @@ smld.datasize = [32; 32]
 ## Split the data into subregions.
 roisize = 5
 roioverlap = 1
-smld_subregions = SMLMBaGoL.gensubregions(smld, roisize, roioverlap)
+smld_subregions, rois = SMLMBaGoL.gensubregions(smld, roisize, roioverlap)
 
 # smld_preclustered = FrameConnection.precluster(smld) # not meaningful, just to test!
 # alpha, beta = SMLMBaGoL.constructprior_lambda(smld_preclustered, false)
