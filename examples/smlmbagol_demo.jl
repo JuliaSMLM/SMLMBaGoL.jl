@@ -11,19 +11,22 @@ using SpecialFunctions
 ## Load some example data.
 data = DataFrames.DataFrame(CSV.File("C:\\Users\\David\\Documents\\GitHub\\example_data.csv"))
 smld = SMLMData.SMLD2D(data)
+smld.x *= 32
+smld.y *= 32
 smld.datasize = [32; 32]
 
 ## Split the data into subregions.
 roisize = 5
-roioverlap = 1
-smld_subregions, rois = SMLMBaGoL.gensubregions(smld, roisize, roioverlap)
+roioverlap = 0
+smld_subregions, rois, connectID = SMLMBaGoL.gensubregions(smld, roisize, roioverlap)
+
+## Remove outlier localizations.
 
 ## Perform hierarchical clustering.
 maxdist = 0.15 # pixels
 smld_preclustered = SMLMBaGoL.precluster_hierarchical.(smld_subregions, maxdist)
-smld_test = smld_preclustered[1]
-smld_test1 = SMLMData.isolatesmld(smld_test, smld_test.connectID .== 1)
-dist1 = SMLMBaGoL.pairwise_dist([smld_test1.x smld_test1.y])
+smld_test = deepcopy(smld_subregions)
+SMLMBaGoL.precluster_hierarchical!.(smld_test, maxdist)
 
 # smld_preclustered = FrameConnection.precluster(smld) # not meaningful, just to test!
 # alpha, beta = SMLMBaGoL.constructprior_lambda(smld_preclustered, false)
