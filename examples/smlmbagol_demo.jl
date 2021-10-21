@@ -32,15 +32,12 @@ smld_subregions, rois, connectID = SMLMBaGoL.gensubregions(smld,
 params.prethresholds.maxsigmadev_photons = 1.0
 params.prethresholds.n_min = 1
 params.prethresholds.r = 10.0
-smld_subregions = SMLMBaGoL.removeoutliers(smld_subregions, 
-                                          params.prethresholds)
+SMLMBaGoL.removeoutliers!(smld_subregions, params.prethresholds)
 
 ## Perform hierarchical clustering.
 params.preclustering.maxdist = 0.15 # pixels
 smld_preclustered = SMLMBaGoL.precluster_hierarchical.(smld_subregions, 
     params.preclustering.maxdist)
-smld_test = deepcopy(smld_subregions)
-SMLMBaGoL.precluster_hierarchical!.(smld_test, params.preclustering.maxdist)
 
 # smld_preclustered = FrameConnection.precluster(smld) # not meaningful, just to test!
 # alpha, beta = SMLMBaGoL.constructprior_lambda(smld_preclustered, false)
