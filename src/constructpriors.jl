@@ -18,7 +18,8 @@ per emitter.  The Gamma prior is defined using the convention with a shape
 parameter `α` and a rate parameter `β`.  The flag `forcexp` forces the shape
 parameter `α` to be 1 (corresponding to the exponential distribution). 
 """
-function constructprior_lambda(smld_preclustered::SMLMData.SMLD, forceexp::Bool=false)
+function constructprior_lambda(smld_preclustered::SMLMData.SMLD2D, 
+                               forceexp::Bool=false)
     # Determine the number of localizations per pre-cluster.
     clusterdata = FrameConnection.organizeclusters(smld_preclustered)
     _, nobservations = FrameConnection.computeclusterinfo(clusterdata)
