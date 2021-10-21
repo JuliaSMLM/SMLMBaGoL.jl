@@ -4,7 +4,7 @@ abstract type ParamStruct
 end
 
 """
-    SubregionParams(roisize::Int, roioverlap::Int)
+    SubregionParams(roisize, roioverlap)
 
 Structure of parameters defining subregion splitting of data.
 
@@ -12,15 +12,15 @@ Structure of parameters defining subregion splitting of data.
 The SubregionParams structure organizes parameters related to subregion
 splitting of data.
     roisize: Size of each subregion (region of interest, or ROI).
-        (Pixels)(Default = 5)
-    roioverlap: Size of the overlap between subregions. (Default = 1)(Pixels)
+        (Pixels)(Default = 5.0)
+    roioverlap: Size of the overlap between subregions. (Default = 1.0)(Pixels)
 """
 mutable struct SubregionParams <: ParamStruct
-    roisize::Int
-    roioverlap::Int
+    roisize
+    roioverlap
 end
 function SubregionParams()
-    return SubregionParams(5, 1)
+    return SubregionParams(5.0, 1.0)
 end
 
 """
