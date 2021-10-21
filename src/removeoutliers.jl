@@ -142,9 +142,10 @@ function removeisolated(smld::SMLMData.SMLD2D, n_min::Int, r::Float64)
     end
 
     # Find the nearest-neighbors to each localization.
-    smld_prethresh = deepcopy(smld)
     kdtree = NearestNeighbors.KDTree([smld.x smld.y]')
-    nnindices, nndist = NearestNeighbors.knn(kdtree, [smld.x smld.y]', n_min, true)
+    _, nndist = NearestNeighbors.knn(kdtree, [smld.x smld.y]', n_min+1, true)
+    keepbool = getindex.(nndist, n_min+1) .<= r
+    smld_prethresh = SMLMData.isolatesmld(smld, keepbool)
 
     return smld_prethresh
 end
