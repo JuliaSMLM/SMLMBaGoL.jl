@@ -8,25 +8,39 @@ using CSV
 using Plots
 using SpecialFunctions
 
-## Load some example data.
+## Load some example data and modify for the demonstration.
 data = DataFrames.DataFrame(CSV.File("C:\\Users\\David\\Documents\\GitHub\\example_data.csv"))
 smld = SMLMData.SMLD2D(data)
-smld.x *= 32
-smld.y *= 32
+smld.x = smld.x .- minimum(smld.x)
+smld.x = smld.x ./ maximum(smld.x)
+smld.y = smld.y .- minimum(smld.y)
+smld.y = smld.y ./ maximum(smld.y)
+smld.x = 32.0*smld.x .+ 0.5
+smld.y = 32.0*smld.y .+ 0.5
 smld.datasize = [32; 32]
 
+## Define the parameter structure.
+params = SMLMBaGoL.BaGoLParams()
+
 ## Split the data into subregions.
-roisize = 5
-roioverlap = 0
-smld_subregions, rois, connectID = SMLMBaGoL.gensubregions(smld, roisize, roioverlap)
+params.subregion.roisize = 5
+params.subregion.roioverlap = 0
+smld_subregions, rois, connectID = SMLMBaGoL.gensubregions(smld, 
+    params.subregion.roisize, params.subregion.roioverlap)
 
 ## Remove outlier localizations.
+params.prethresholds.maxsigmadev_photons = 1.0
+params.prethresholds.n_min = 1
+params.prethresholds.r = 10.0
+smld_subregions = SMLMBaGoL.removeoutliers(smld_subregions, 
+                                          params.prethresholds)
 
 ## Perform hierarchical clustering.
-maxdist = 0.15 # pixels
-smld_preclustered = SMLMBaGoL.precluster_hierarchical.(smld_subregions, maxdist)
+params.preclustering.maxdist = 0.15 # pixels
+smld_preclustered = SMLMBaGoL.precluster_hierarchical.(smld_subregions, 
+    params.preclustering.maxdist)
 smld_test = deepcopy(smld_subregions)
-SMLMBaGoL.precluster_hierarchical!.(smld_test, maxdist)
+SMLMBaGoL.precluster_hierarchical!.(smld_test, params.preclustering.maxdist)
 
 # smld_preclustered = FrameConnection.precluster(smld) # not meaningful, just to test!
 # alpha, beta = SMLMBaGoL.constructprior_lambda(smld_preclustered, false)
