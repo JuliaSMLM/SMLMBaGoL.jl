@@ -1,7 +1,7 @@
 using SMLMData
 
 """
-    smld_subregions, rois, connectID = gensubregions(smld::SMLD2D, 
+    smld_subregions, rois, connectID = gensubregions(smld::SMLMData.SMLD2D, 
                                                      roisize::Int = 5, 
                                                      roioverlap::Int = 1)
 
@@ -14,6 +14,13 @@ of size `roisize` overlapping by `roioverlap` pixels.  The output
 `rois` is an array of the ROIs explicitly written out (corresponding to each of
 `smld_subregions`) organized as [ystart, xstart, yend, xend].  The output 
 `connectID` stores the connectIDs of each localization placed in a subregion.
+
+# Inputs
+-`smld`: SMLD2D structure containing the localization data. (see SMLMData.jl)
+-`roisize`: Nominal size of the square regions of interest (subregion). 
+            (Pixels)
+-`roioverlap`: Size of the overlap region between neighboring subregions.
+               (Pixels)
 
 # Notes 
 The output `rois` has the regions defined as [ystart, xstart, yend, xend].
@@ -57,7 +64,7 @@ function gensubregions(smld::SMLMData.SMLD2D,
 end
 
 """
-    smld_subregions, rois, connectID = gensubregions(smld::SMLD2D, 
+    smld_subregions, rois, connectID = gensubregions(smld::SMLMData.SMLD2D, 
                                                      roisize::Float64, 
                                                      roioverlap::Float64)
 
@@ -70,6 +77,13 @@ of size `roisize` overlapping by `roioverlap` pixels.  The output
 `rois` is an array of the ROIs explicitly written out (corresponding to each of
 `smld_subregions`) organized as [ystart, xstart, yend, xend].  The output 
 `connectID` stores the connectIDs of each localization placed in a subregion.
+
+# Inputs
+-`smld`: SMLD2D structure containing the localization data. (see SMLMData.jl)
+-`roisize`: Nominal size of the square regions of interest (subregion). 
+            (Pixels)
+-`roioverlap`: Size of the overlap region between neighboring subregions.
+               (Pixels)
 
 # Notes 
 The output `rois` has the regions defined as [ystart, xstart, yend, xend].
