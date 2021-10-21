@@ -23,8 +23,8 @@ smld.datasize = [32; 32]
 params = SMLMBaGoL.BaGoLParams()
 
 ## Split the data into subregions.
-params.subregion.roisize = 5
-params.subregion.roioverlap = 0
+params.subregion.roisize = 1.1
+params.subregion.roioverlap = 0.15
 smld_subregions, rois, connectID = SMLMBaGoL.gensubregions(smld, 
     params.subregion.roisize, params.subregion.roioverlap)
 
