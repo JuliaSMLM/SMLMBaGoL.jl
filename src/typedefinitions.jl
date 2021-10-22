@@ -1,5 +1,11 @@
 # This file contains type definitions for types used in SMLMBaGoL.
 
+
+## Parameter types.
+"""
+    ParamStruct()
+Abstract type that parameter structures should inherit from.
+"""
 abstract type ParamStruct 
 end
 
@@ -78,8 +84,8 @@ end
 RJMCMC type structure specific to BaGoL.
 
 # Description
-The RJStruct structure organizes parameters, distributions, data, or other 
-info. related to RJMCMC.
+The RJStruct structure organizes parameters, distributions, or other info.
+related to RJMCMC.
 """
 mutable struct RJStruct <: ParamStruct
 end
@@ -90,7 +96,7 @@ end
 Structure of parameters defining the BaGoL workflow.
 
 # Description
-This structure organizes the parameter/data structures used in a typical BaGoL
+This structure organizes the parameter structures used in a typical BaGoL
 analysis.  The intention is that this structure plus the data represents a 
 complete description of the BaGoL analyses/results.
 """
@@ -101,4 +107,37 @@ mutable struct BaGoLParams <: ParamStruct
 end
 function BaGoLParams()
     return BaGoLParams(SubregionParams(), PreThreshParams(), PreclusterParams())
+end
+
+
+## Distribution types.
+"""
+    Prior()
+Abstract type that definitions of priors should inherit from.
+"""
+abstract type Prior
+end
+
+"""
+    PriorStruct1D()
+Basic structure defining a prior distribution and associated information.
+
+# Fields
+-`pdf`: 1D Prior distribution evaluated in the range defined by `θ_start` and
+        `θ_step`.
+-`θ_start`: Start of parameter range across which `pdf` was evaluated.
+-`θ_step`: Step size of the parameter `θ_start` defining the range spanned by
+           `pdf`.
+-`nsteps`: Number of steps made in the range of θ, stored for convenience since
+           this number is often needed.
+-`alias`: String describing the prior, e.g., "Gamma".  This should not be used
+          by code and should only serve as a reference/reminder for the user.
+
+"""
+mutable struct PriorStruct1D <: Prior
+    θ_start::Float64
+    θ_step::Float64
+    nsteps::Int
+    alias::String
+    pdf::Vector{Float64}
 end
