@@ -21,12 +21,6 @@ uuid = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
 [[Base64]]
 uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
 
-[[BenchmarkTools]]
-deps = ["JSON", "Logging", "Printf", "Profile", "Statistics", "UUIDs"]
-git-tree-sha1 = "61adeb0823084487000600ef8b1c00cc2474cd47"
-uuid = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
-version = "1.2.0"
-
 [[Bzip2_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
 git-tree-sha1 = "19a35467a82e236ff51bc17a3a44b69ef35185a2"
@@ -50,6 +44,12 @@ deps = ["Compat", "LinearAlgebra", "SparseArrays"]
 git-tree-sha1 = "8d954297bc51cc64f15937c2093799c3617b73e4"
 uuid = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
 version = "1.10.0"
+
+[[Clustering]]
+deps = ["Distances", "LinearAlgebra", "NearestNeighbors", "Printf", "SparseArrays", "Statistics", "StatsBase"]
+git-tree-sha1 = "75479b7df4167267d75294d14b58244695beb2ac"
+uuid = "aaaa29a8-35af-508c-8bc3-b662a17a0fe5"
+version = "0.14.2"
 
 [[ColorSchemes]]
 deps = ["ColorTypes", "Colors", "FixedPointNumbers", "Random"]
@@ -219,8 +219,8 @@ uuid = "f6369f11-7733-5829-9624-2563aa707210"
 version = "0.10.21"
 
 [[FrameConnection]]
-deps = ["BenchmarkTools", "CSV", "DataFrames", "Hungarian", "NearestNeighbors", "Optim", "StatsBase"]
-path = "../FrameConnection.jl"
+deps = ["CSV", "DataFrames", "Hungarian", "NearestNeighbors", "Optim", "Statistics", "StatsBase"]
+path = "C:\\Users\\David\\Documents\\GitHub\\FrameConnection.jl"
 uuid = "dd20badf-5146-4415-8cd8-8efc42f87a99"
 version = "0.1.0"
 
@@ -637,10 +637,6 @@ version = "1.2.2"
 deps = ["Unicode"]
 uuid = "de0858da-6303-5e67-8744-51eddeeeb8d7"
 
-[[Profile]]
-deps = ["Printf"]
-uuid = "9abbd945-dff8-562f-b5e8-e1ebf5ef1b79"
-
 [[Qt5Base_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Fontconfig_jll", "Glib_jll", "JLLWrappers", "Libdl", "Libglvnd_jll", "OpenSSL_jll", "Pkg", "Xorg_libXext_jll", "Xorg_libxcb_jll", "Xorg_xcb_util_image_jll", "Xorg_xcb_util_keysyms_jll", "Xorg_xcb_util_renderutil_jll", "Xorg_xcb_util_wm_jll", "Zlib_jll", "xkbcommon_jll"]
 git-tree-sha1 = "ad368663a5e20dbb8d6dc2fddeefe4dae0781ae8"
@@ -681,10 +677,8 @@ version = "1.1.3"
 uuid = "ea8e919c-243c-51af-8825-aaa63cd721ce"
 
 [[SMLMData]]
-deps = ["CSV"]
-git-tree-sha1 = "7e60e101b1ba753f4837152555824c55f6dd5fa6"
-repo-rev = "initial_testing"
-repo-url = "../SMLMData.jl"
+deps = ["CSV", "DataFrames"]
+path = "C:\\Users\\David\\Documents\\GitHub\\SMLMData.jl"
 uuid = "5488f106-40b8-4660-84c5-84a168990d1b"
 version = "0.1.0"
 
