@@ -123,38 +123,7 @@ mutable struct BaGoLParams
     preclustering::PreclusterParams
 end
 function BaGoLParams()
-    return BaGoLParams(SubregionParams(), PreThreshParams(), PreclusterParams())
-end
-
-
-## Distribution types.
-"""
-    Prior()
-Abstract type that definitions of priors should inherit from.
-"""
-abstract type Prior
-end
-
-"""
-    PriorStruct1D()
-Basic structure defining a prior distribution and associated information.
-
-# Fields
--`pdf`: 1D Prior distribution evaluated in the range defined by `θ_start` and
-        `θ_step`.
--`θ_start`: Start of parameter range across which `pdf` was evaluated.
--`θ_step`: Step size of the parameter `θ_start` defining the range spanned by
-           `pdf`.
--`nsteps`: Number of steps made in the range of θ, stored for convenience since
-           this number is often needed.
--`alias`: String describing the prior, e.g., "Gamma".  This should not be used
-          by code and should only serve as a reference/reminder for the user.
-
-"""
-mutable struct PriorStruct1D <: Prior
-    θ_start::Float64
-    θ_step::Float64
-    nsteps::Int
-    alias::String
-    pdf::Vector{Float64}
+    return BaGoLParams(SubregionParams2D(), 
+                       PreThreshParams2D(), 
+                       PreclusterParams2D())
 end
