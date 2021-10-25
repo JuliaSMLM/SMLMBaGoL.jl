@@ -3,19 +3,20 @@
 
 ## Parameter types.
 """
-    ParamStruct()
-Abstract type that parameter structures should inherit from.
+    SubregionParams
+
+Abstract type defining subregion splitting parameter structures.
 """
-abstract type ParamStruct 
+abstract type SubregionParams
 end
 
 """
-    SubregionParams(roisize, roioverlap)
+    SubregionParams2D(roisize, roioverlap)
 
 Structure of parameters defining subregion splitting of data.
 
 # Description
-The SubregionParams structure organizes parameters related to subregion
+The SubregionParams2D structure organizes parameters related to subregion
 splitting of data.
 
 # Fields
@@ -23,21 +24,29 @@ splitting of data.
             (Pixels)(Default = 5.0)
 -`roioverlap`: Size of the overlap between subregions. (Default = 1.0)(Pixels)
 """
-mutable struct SubregionParams <: ParamStruct
+mutable struct SubregionParams2D <: SubregionParams
     roisize
     roioverlap
 end
-function SubregionParams()
-    return SubregionParams(5.0, 1.0)
+function SubregionParams2D()
+    return SubregionParams2D(5.0, 1.0)
 end
 
 """
-    PreThreshParams(maxsigmadev_photons::Float64, n_min::Int, r::Float64)
+    PreThreshParams
+
+Abstract type defining preprocessing threshold parameter structures.
+"""
+abstract type PreThreshParams
+end
+
+"""
+    PreThreshParams2D(maxsigmadev_photons::Float64, n_min::Int, r::Float64)
 
 Structure of parameters defining preprocessing thresholds.
 
 # Description
-The PreThreshParams structure organizes parameters related to thresholds
+The PreThreshParams2D structure organizes parameters related to thresholds
 applied to data during preprocessing.
 
 # Fields
@@ -48,22 +57,30 @@ applied to data during preprocessing.
 -`r`: Distance defining the region within which `n_min` nearest neighbor 
       localizations must be present. (Pixels)(Default = 10.0)
 """
-mutable struct PreThreshParams <: ParamStruct
+mutable struct PreThreshParams2D <: PreThreshParams
     maxsigmadev_photons::Float64
     n_min::Int
     r::Float64
 end
-function PreThreshParams()
-    return PreThreshParams(Inf64, 0, 10.0)
+function PreThreshParams2D()
+    return PreThreshParams2D(Inf64, 0, 10.0)
 end
 
 """
-    PreclusterParams(maxdist::Float64)
+    PreclusterParams
+
+Abstract type defining preclustering parameter structures.
+"""
+abstract type PreclusterParams
+end
+
+"""
+    PreclusterParams2D(maxdist::Float64)
 
 Structure of parameters defining preclustering of localizations in subregions.
 
 # Description
-The PreclusterParams structure organizes parameters related to the
+The PreclusterParams2D structure organizes parameters related to the
 preclustering of localizations within each subregion.
 
 # Fields
@@ -71,11 +88,11 @@ preclustering of localizations within each subregion.
                      nearest-neighbor allowed in each precluster. 
                      (Default = 0.15)(Pixels)
 """
-mutable struct PreclusterParams <: ParamStruct
+mutable struct PreclusterParams2D <: PreclusterParams
     maxdist::Float64
 end
-function PreclusterParams()
-    return PreclusterParams(0.15)
+function PreclusterParams2D()
+    return PreclusterParams2D(0.15)
 end
 
 """
@@ -87,7 +104,7 @@ RJMCMC type structure specific to BaGoL.
 The RJStruct structure organizes parameters, distributions, or other info.
 related to RJMCMC.
 """
-mutable struct RJStruct <: ParamStruct
+mutable struct RJStruct
 end
 
 """
@@ -100,7 +117,7 @@ This structure organizes the parameter structures used in a typical BaGoL
 analysis.  The intention is that this structure plus the data represents a 
 complete description of the BaGoL analyses/results.
 """
-mutable struct BaGoLParams <: ParamStruct
+mutable struct BaGoLParams
     subregion::SubregionParams
     prethresholds::PreThreshParams
     preclustering::PreclusterParams
