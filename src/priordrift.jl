@@ -13,7 +13,5 @@ This method constructs a Normal prior on the 1D drift velocities of emitters.
 """
 function prior_drift(σ_a::Float64)
     # Prepare the Normal distribution.
-    prior = Distributions.Normal(0, σ_a)
-
-    return prior
+    return Distributions.Normal(0, σ_a)
 end

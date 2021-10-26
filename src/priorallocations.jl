@@ -17,7 +17,5 @@ has the same probability).
 """
 function prior_allocations(nloc::Int, kemitters::Int)
     # Prepare the distribution over the support [1, kemitters^nloc].
-    prior = Distributions.DiscreteUniform(1, kemitters^nloc)
-
-    return prior
+    return Distributions.DiscreteUniform(1, kemitters^nloc)
 end
