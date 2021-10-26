@@ -1,11 +1,12 @@
 using SMLMData
 using Distributions
+using LinearAlgebra
 
 """
     moveemitters(smld::SMLMData.SMLD2D, 
                  z::Vector{Int}, 
-                 nloc::Int,
-                 k::Int)
+                 nloc::Int = SMLMData.length(smld),
+                 k::Int = maximum(z))
 
 Sample the `k` emitter positions from the normal distribution.
 
@@ -21,17 +22,67 @@ normal distribution defined by the MLE position of the localizations in `smld`
 -`nloc`: Total number of localizations in `smld`.
 -`k`: Total number of emitters to which the `nloc` localizations are allocated.
 """
-function moveemitters(smld::SMLMData.SMLD2D, z::Vector{Int}, 
+function moveemitters(smld::SMLMData.SMLD2D, z::Vector{Int},
         nloc::Int = SMLMData.length(smld), k::Int = maximum(z))
     # Loop through the `k` emitters and sample new positions based on the
     # allocations of localizations in `smld` defined by `z`.
-    μ = Matrix{Float64}(undef, nloc, 2)
+    μ = Matrix{Float64}(undef, k, 2)
     for ii = 1:k
         currentbool = z .== ii
         μ[ii, 1] = posterior_emitterpos(smld.x[currentbool], 
-                                        smld.σ_x[currentbool]) 
+                                        smld.σ_x[currentbool])
+        println(smld.x[currentbool])
         μ[ii, 2] = posterior_emitterpos(smld.y[currentbool], 
                                         smld.σ_y[currentbool])
+    end
+
+    return μ
+end
+
+"""
+    moveemitters(smld::SMLMData.SMLD2D, 
+                 z::Vector{Int}, 
+                 σ_a::Float64,
+                 nloc::Int = SMLMData.length(smld),
+                 k::Int = maximum(z))
+
+Sample the `k` emitter positions from the normal distribution.
+
+# Description
+This function samples new positions for the `k` emitter positions from the
+normal distribution defined by the MLE position of the localizations in `smld`
+(allocated to emitters by `z`).
+
+# Inputs
+-`smld`: SMLMData.SMLD2D data structure containing localizations.
+-`z`: Allocations of the localizations in `smld` to emitters associated with
+      the indices `1:k`. (length `nloc` integer array)
+-`σ_a`: Standard deviation of the drift velocity. (same for each dimension)
+-`nloc`: Total number of localizations in `smld`.
+-`k`: Total number of emitters to which the `nloc` localizations are allocated.
+"""
+function moveemitters(smld::SMLMData.SMLD2D, z::Vector{Int}, σ_a::Float64,
+        nloc::Int = SMLMData.length(smld), k::Int = maximum(z))
+    # If σ_a isn't positive (e.g., 0.0) we should dispatch on the non-drift
+    # method of moveemitters.
+    if σ_a <= 0.0
+        return moveemitters(smld, z, nloc, k)
+    end
+
+    # Loop through the `k` emitters and sample new positions based on the
+    # allocations of localizations in `smld` defined by `z`.
+    μ = Matrix{Float64}(undef, k, 2)
+    a = Matrix{Float64}(undef, k, 2)
+    for ii = 1:k
+        currentbool = z .== ii
+        μ[ii, 1], a[ii, 1] = posterior_emitterpos(smld.x[currentbool], 
+                                                  smld.σ_x[currentbool], 
+                                                  smld.framenum[currentbool],
+                                                  σ_a)
+        μ[ii, 2], a[ii, 2] = posterior_emitterpos(smld.y[currentbool], 
+                                                  smld.σ_y[currentbool],
+                                                  smld.framenum[currentbool],
+                                                  σ_a)
     end
 
     return μ
@@ -41,6 +92,39 @@ end
     posterior_emitterpos(x::Vector{Float64}, 
                          σ_x::Vector{Float64})
 
+Construct a posterior distribution of emitter position along one dimension.
+
+# Description
+This function constructs a posterior distribution for the position of the
+emitter which generated the one dimensional localization coordinates `x`.
+
+# Inputs
+-`x`: Coordinate of a localization along one dimension. (pixels)(nlocx1)
+-`σ_x`: Standard error of the localization `x`. (pixels)(nlocx1)
+"""
+function posterior_emitterpos(x::Vector{Float64}, 
+                              σ_x::Vector{Float64})
+    # Estimate the location of the `kID`-th emitter based on the allocated
+    # localizations defined by `x` and `σ_x`.  `μ_mle` is the MLE of the true
+    # emitter position sampled by the length(x) Gaussians with mean `x` and 
+    # standard deviation `σ_x`. `σ_fisher` is the square root of the inverse
+    # Fisher information for `μ_mle`.
+    μ_num = sum(x ./ (σ_x.^2))
+    μ_denom = sum(1.0 ./ (σ_x.^2))
+    μ_mle = μ_num / μ_denom
+    σ_fisher = sqrt(1 / μ_denom)
+
+    # Sample a new position of the `kID`-th emitter from the Gaussian defined
+    # by `μ_mle` and `σ_fisher`.
+    return rand(Distributions.Normal(μ_mle, σ_fisher))
+end
+
+"""
+    posterior_emitterpos(x::Vector{Float64}, 
+                         σ_x::Vector{Float64},
+                         t::Float64,
+                         σ_a::Float64)
+
 Construct a posterior distribution of emitter position.
 
 # Description
@@ -48,22 +132,31 @@ This function constructs a posterior distribution for the position of the
 emitter which generated the localizations `x`.
 
 # Inputs
--`x`: Coordinate of a 2D localization. (pixels)([x; y])
--`σ_x`: Standard error of the localization `x`. (pixels)([x; y])
+-`x`: Coordinate of a localizations along one dimension. (pixels)(nlocx1)
+-`σ_x`: Standard error of the localizations `x`. (pixels)(nlocx1)
+-`t`: Time of observation of localizations `x`. (frame)(nlocx1)
+-`σ_a`: Standard deviation of the drift velocity. (pixels/frame)
 """
-function posterior_emitterpos(x::Vector{Float64}, 
-                              σ_x::Vector{Float64})
+function posterior_emitterpos(x::Vector{Float64},
+                              σ_x::Vector{Float64},
+                              t::Vector{Int},
+                              σ_a::Float64)
     # Estimate the location of the `kID`-th emitter based on the allocated
-    # localizations defined by `x` and `σ_x`.  `x_mle` is the MLE of the true
+    # localizations defined by `x` and `σ_x`.  `μ` is the MLE of the true
     # emitter position sampled by the length(x) Gaussians with mean `x` and 
-    # standard deviation `σ_x`. `σ_fisher` is the square root of the inverse
-    # Fisher information for `x_mle`.
-    x_num = sum(x ./ (σ_x.^2))
-    x_denom = sum(1.0 ./ (σ_x.^2))
-    x_mle = x_num / x_denom
-    σ_fisher = sqrt(1 / x_denom)
+    # standard deviation `σ_x`. `Ξ` is the inverse of the Fisher information
+    # for the estimate of `μ`.
+    var_x = σ_x .^ 2
+    A = sum(x ./ var_x)
+    B = sum(t ./ var_x)
+    C = sum(1.0 ./ var_x)
+    D = sum(t.^2 ./ var_x)
+    a = sum((C*x.-A)./(var_x./t)) / ((C/σ_a) + sum((C*t.-B)/(var_x./t)))
+    μ = (A-a*B) / C
+    Ξ = LinearAlgebra.pinv([A B; B D + 1.0./σ_a^2])
 
     # Sample a new position of the `kID`-th emitter from the Gaussian defined
-    # by `x_mle` and `σ_fisher`.
-    return rand(Distributions.Normal(x_mle, σ_fisher))
+    # by `μ` and `Ξ`.  Note that I'm forcing Ξ to be Hermitian, as it's often
+    # non-Hermitian due to floating-point errors.
+    return rand(Distributions.MvNormal([μ; a], Matrix(LinearAlgebra.Hermitian(Ξ))))
 end
