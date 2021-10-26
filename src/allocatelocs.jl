@@ -5,7 +5,7 @@ using NearestNeighbors
 """
     allocatelocs(smld::SMLMData.SMLD2D, 
                  μ::Matrix{Float64}, 
-                 α::Vector{Float64} = [0.0; 0.0])
+                 a::Vector{Float64} = [0.0; 0.0])
 
 Allocate localizations to emitters.
 
@@ -16,11 +16,11 @@ the positions `μ` at time t=0.
 # Inputs
 -`smld`: SMLMData.SMLD2D data structure containing localizations.
 -`μ`: Coordinates of the proposed emitter positions. (pixels)
--`α`: Drift velocity of the localizations in `smld`. (pixels/frame)
+-`a`: Drift velocity of the localizations in `smld`. (pixels/frame)
 """
 function allocatelocs(smld::SMLMData.SMLD2D, 
                       μ::Matrix{Float64}, 
-                      α::Vector{Float64} = [0.0; 0.0])
+                      a::Vector{Float64} = [0.0; 0.0])
     # Loop through localizations in `smld` and allocate to emitters using 
     # Gibbs sampling.
     nlocs = SMLMData.length(smld)
@@ -30,7 +30,7 @@ function allocatelocs(smld::SMLMData.SMLD2D,
                                                     [smld.σ_x[nn]; smld.σ_y[nn]], 
                                                     Float64(smld.framenum[nn]),
                                                     μ, 
-                                                    α)
+                                                    a)
         zprime[nn] = rand(posterior)
     end
 
@@ -42,7 +42,7 @@ end
                           σ_x::Vector{Float64}, 
                           t::Float64, 
                           μ::Matrix{Float64},
-                          α::Vector{Float64})
+                          a::Vector{Float64})
 
 Construct a posterior distribution of allocations of a localization.
 
@@ -56,17 +56,17 @@ positions `μ` at time t=0.
 -`σ_x`: Standard error of the localization `x`. (pixels)([x; y])
 -`t`: Time of observation of localization `x`. (frame)
 -`μ`: Coordinates of the proposed emitter positions. (pixels)([x y])
--`α`: Drift velocity of the localizations in `smld`. (pixels/frame)([α_x; α_y])
+-`a`: Drift velocity of the localizations in `smld`. (pixels/frame)([α_x; α_y])
 """
 function posterior_allocations(x::Vector{Float64}, 
                                σ_x::Vector{Float64}, 
                                t::Float64, 
                                μ::Matrix{Float64},
-                               α::Vector{Float64})
+                               a::Vector{Float64})
     # Construct a normalized posterior for the allocations that we can sample
     # from.
-    pmf = (1/sqrt(2*pi*σ_x[1]^2)) .* exp.(-(x[1].-μ[:, 1].-α[1]*t).^2 / (2*σ_x[1]^2)) .*
-          (1/sqrt(2*pi*σ_x[2]^2)) .* exp.(-(x[2].-μ[:, 2].-α[2]*t).^2 / (2*σ_x[2]^2))
+    pmf = (1/sqrt(2*pi*σ_x[1]^2)) .* exp.(-(x[1].-μ[:, 1].-a[1]*t).^2 / (2*σ_x[1]^2)) .*
+          (1/sqrt(2*pi*σ_x[2]^2)) .* exp.(-(x[2].-μ[:, 2].-a[2]*t).^2 / (2*σ_x[2]^2))
     pmf = pmf ./ sum(pmf)
     
     # If any of `pmf` is NaN, it was not normalizable numerically so we'll just
