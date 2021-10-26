@@ -15,7 +15,5 @@ of possible emitter positions (i.e., the range [0.5, roisize+0.5])
 """
 function prior_positions(roisize::Float64)
     # Prepare a distribution using the Distributions package.
-    prior = Distributions.Uniform(0.5, 0.5 + roisize)
-
-    return prior
+    return Distributions.Uniform(0.5, 0.5 + roisize)
 end

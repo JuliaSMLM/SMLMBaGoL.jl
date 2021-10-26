@@ -27,9 +27,7 @@ function prior_kemitters(nloc::Int, λ::Int)
     pmf = poissdist ./ sum(poissdist)
 
     # Create a distribution using the Distributions package using our pmf.
-    prior = Distributions.DiscreteNonParametric(kemitters, pmf)
-
-    return prior
+    return Distributions.DiscreteNonParametric(kemitters, pmf)
 end
 
 """
@@ -61,7 +59,5 @@ function prior_kemitters(nloc::Int, α::Float64, β::Float64)
     pmf = gammadist ./ sum(gammadist)
 
     # Create a distribution using the Distributions package using our pmf.
-    prior = Distributions.DiscreteNonParametric(kemitters, pmf)
-
-    return prior
+    return Distributions.DiscreteNonParametric(kemitters, pmf)
 end
