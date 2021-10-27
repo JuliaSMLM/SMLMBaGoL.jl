@@ -14,14 +14,14 @@ function makegaussim(smld::SMLMData.SMLD2D,
         
         # Loop through pixels of the image and add this emitter.
         ystart = max(1, Int(round(smld.y[nn]-nsigma*smld.σ_y[nn])))
-        yend = min(imagesize[1], 
+        yend = min(imagesize[1],
             Int(round(pixelsize * (smld.y[nn]+nsigma*smld.σ_y[nn]))))
         xstart = max(1, Int(round(smld.x[nn]-nsigma*smld.σ_x[nn])))
-        xend = min(imagesize[2], 
+        xend = min(imagesize[2],
             Int(round(pixelsize * (smld.x[nn]+nsigma*smld.σ_x[nn]))))
         for ii = ystart:yend, jj = xstart:xend
-            image[ii, jj] = image[ii, jj] + 
-                Distributions.pdf(distrib, [ii; jj] ./ pixelsize)
+            image[ii, jj] = image[ii, jj] +
+                Distributions.pdf(distrib, [ii; jj]/pixelsize .+ 0.5)
         end
     end
 
