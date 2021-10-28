@@ -1,6 +1,7 @@
 module SMLMBaGoL
 
 include("typedefinitions.jl")
+include("mathhelpers.jl")
 include("priorpositions.jl")
 include("priorallocations.jl")
 include("priorkemitters.jl")
