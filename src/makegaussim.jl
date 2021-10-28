@@ -1,6 +1,29 @@
 using SMLMData
 using Distributions
 
+"""
+    makegaussim(smld::SMLMData.SMLD2D, 
+                pxsize::Float64 = 0.1,
+                pxsizeGauss::Float64 = 0.01,
+                nsigma::Float64 = 5.0)
+
+Make a Gaussian image of the localizations in `smld`.
+
+# Description
+This function creates an image of the localizations in `smld` by placing a
+Gaussian truncated to `nsigma` at the localization coordinates, where the 
+standard deviation is given by `smld.σ_x` and `smld.σ_y`.  The image is then
+normalized such that it sums to 1.0.
+
+# Inputs
+-`smld`: SMLMData.SMLD2D data structure containing localizations.
+-`pxsize`: Pixel size corresponding to the localizations in `smld`. 
+           (micrometers)(Default = 0.1 micrometers)
+-`pxsizeGauss`: Approximate pixel size of the output image. 
+                (micrometers)(Default = 0.01 micrometers)
+-`nsigma`: Number of standard deviations from the localization coordinate at
+           which we truncate the Gaussian. (Default = 5.0)
+"""
 function makegaussim(smld::SMLMData.SMLD2D, 
                      pxsize::Float64 = 0.1,
                      pxsizeGauss::Float64 = 0.01,
@@ -28,6 +51,7 @@ function makegaussim(smld::SMLMData.SMLD2D,
                 Distributions.pdf(distrib, ([ii; jj].-0.5) / mag .+ 0.5)
         end
     end
+    image = image ./ sum(image)
 
     return image
 end
