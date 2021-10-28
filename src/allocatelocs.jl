@@ -81,65 +81,184 @@ function posterior_allocations(y::Vector{Float64},
     return Distributions.DiscreteNonParametric(1:length(pmf), pmf)
 end
 
+
+
+
+
+## Log-likelihood kernels of allocations.
 """
-N localizations 1 emitter
+    logLalloc_kernel(y::Matrix{Float64},
+                     σ::Matrix{Float64},
+                     t::Vector{Float64},
+                     μ::Matrix{Float64},
+                     a::Matrix{Float64},
+                     w::Vector{Float64})
+
+Compute the unnormalized log-likelihood of allocating `y` to emitters `μ`.
+
+# Description
+This method computes the unnormalized log-likelihood of allocating the
+localizations (`y`, `σ`, `t`) to the emitters at location `μ+at`.  I.e., this
+method computes the log of the kernel of the distribution P_alloc(Z).
+
+# Inputs
+-`y`: 2D coordinates of localizations. (pixels)(nlocx2)([x y])
+-`σ`: Standard deviations of the observation distributions. 
+      (pixels)(nlocx2)([x y])
+-`t`: Observation times corresponding to localizations `y`. (frames)(nlocx1)
+-`μ`: Location of the emitter. (pixels)(kx2)([x y])
+-`a`: Drift velocities of each emitter. (pixels/frame)(kx2)([x y])
+-`w`: Relative weighting of the emitters. (kx1)
 """
-function palloc(y::Matrix{Float64},
-                σ::Matrix{Float64},
-                t::Vector{Float64},
-                μ::Matrix{Float64},
-                a::Matrix{Float64},
-                w::Vector{Float64},
-                z::Vector{Int},
-                z_i::Int)
-    # Loop through all localizations allocated to the `z-th` emitter
-    # and account for their contribution to P_alloc.
+function logLalloc_kernel(y::Matrix{Float64},
+                          σ::Matrix{Float64},
+                          t::Vector{Float64},
+                          μ::Matrix{Float64},
+                          a::Matrix{Float64},
+                          w::Vector{Float64})
+    # Compute the unnormalized probabilites of allocating localizations to 
+    # the provided emitters.
+    p_kernel = Vector{Float64}(undef, size(y, 1))
+    for jj = 1:length(w)
+        p_kernel += palloc_kernel(y, σ, t, μ[jj, :], a[jj, :], w[jj])
+    end
+
+    # Return the log-likelihood of the given allocations.
+    return sum(log.(p_kernel))
+end
+
+
+
+
+
+## Probability kernels of allocations.
+"""
+    palloc_kernel(y::Matrix{Float64},
+                  σ::Matrix{Float64},
+                  t::Vector{Float64},
+                  μ::Matrix{Float64},
+                  a::Matrix{Float64},
+                  w::Vector{Float64})
+
+Compute the unnormalized probability of allocating `y` to emitters `μ`.
+
+# Description
+This method computes the unnormalized probability of allocating the
+localizations (`y`, `σ`, `t`) to the emitters at location `μ+at`.  I.e., this
+method computes the kernel of the distribution P_alloc(Z).
+
+# Inputs
+-`y`: 2D coordinates of localizations. (pixels)(nlocx2)([x y])
+-`σ`: Standard deviations of the observation distributions. 
+      (pixels)(nlocx2)([x y])
+-`t`: Observation times corresponding to localizations `y`. (frames)(nlocx1)
+-`μ`: Location of the emitter. (pixels)(kx2)([x y])
+-`a`: Drift velocities of each emitter. (pixels/frame)(kx2)([x y])
+-`w`: Relative weighting of the emitters. (kx1)
+"""
+function palloc_kernel(y::Matrix{Float64},
+                       σ::Matrix{Float64},
+                       t::Vector{Float64},
+                       μ::Matrix{Float64},
+                       a::Matrix{Float64},
+                       w::Vector{Float64})
+    # Compute the unnormalized probability of allocating localizations to the 
+    # provided emitters.
+    p_kernel = Vector{Float64}(undef, size(y, 1))
+    for jj = 1:length(w)
+        p_kernel += palloc_kernel(y, σ, t, μ[jj, :], a[jj, :], w[jj])
+    end
+
+    return prod(p_kernel)
+end
+
+"""
+    palloc_kernel(y::Matrix{Float64},
+                  σ::Matrix{Float64},
+                  t::Vector{Float64},
+                  μ::Vector{Float64},
+                  a::Vector{Float64},
+                  w::Float64)
+
+Compute the unnormalized probability of allocating `y` to emitter `μ`.
+
+# Description
+This method computes the unnormalized probabilities of allocating the
+localizations (`y`, `σ`, `t`) to the emitter at location `μ+at`.  I.e., this
+method computes the kernel of the distribution P_alloc(Z_i|j).
+
+# Inputs
+-`y`: 2D coordinates of localizations. (pixels)(nlocx2)([x y])
+-`σ`: Standard deviations of the observation distributions. 
+      (pixels)(nlocx2)([x y])
+-`t`: Observation times corresponding to localizations `y`. (frames)(nlocx1)
+-`μ`: Location of the emitter. (pixels)(2x1)([x; y])
+-`a`: Drift velocities of each emitter. (pixels/frame)(2x1)([x; y])
+-`w`: Relative weighting of the emitter.
+"""
+function palloc_kernel(y::Matrix{Float64},
+                       σ::Matrix{Float64},
+                       t::Vector{Float64},
+                       μ::Vector{Float64},
+                       a::Vector{Float64},
+                       w::Float64)
+    # Compute the unnormalized probability of allocating localizations to the 
+    # provided emitter.
     nloc = size(y, 1)
-    p = 1.0
-    loc_zi = findall(z .== z_i)
-    for ii in loc_zi
-        p *= palloc(y[ii, :], σ[ii, :], t[ii], μ, a, w, z_i)
+    p_kernel = Vector{Float64}(undef, nloc)
+    for ii = 1:nloc
+        p_kernel[ii] = palloc_kernel(y[ii, :], σ[ii, :], t[ii], μ, a, w)
     end
 
-    return p
+    return p_kernel
 end
 
 """
-1 localization 1 emitter
-"""
-function palloc(y::Vector{Float64},
-                σ::Vector{Float64},
-                t::Float64,
-                μ::Matrix{Float64},
-                a::Matrix{Float64},
-                w::Vector{Float64},
-                z_i::Int)
-    k = size(μ, 1)
-    num = w[z_i] * emitterlikelihood2D(y, σ, t, μ[z_i, :], a[z_i, :])
-    denom = 0.0
-    for jj = 1:k
-        denom += w[jj] * emitterlikelihood2D(y, σ, t, μ[jj, :], a[jj, :])
-    end
+    palloc_kernel(y::Vector{Float64},
+                  σ::Vector{Float64},
+                  t::Float64,
+                  μ::Vector{Float64},
+                  a::Vector{Float64},
+                  w::Float64)
 
-    return num / denom
+Compute the unnormalized probability of allocating `y` to emitter `μ`.
+
+# Description
+This method computes the unnormalized probability of allocating the
+localization (`y`, `σ`, `t`) to the emitter at location `μ+at`.  I.e., this
+method computes the kernel of the distribution P_alloc(Z_i=j) (the 
+normalization factor is the same for {j=1:k | P_alloc(Z_i=j)}).
+
+# Inputs
+-`y`: 2D coordinates of a localization. (pixels)(2x1)([x; y])
+-`σ`: Standard deviations of the observation distribution. 
+      (pixels)(2x1)([x; y])
+-`t`: Observation time corresponding to localization `y`. (frames)
+-`μ`: Location of the emitter. (pixels)(2x1)([x; y])
+-`a`: Drift velocities of each emitter. (pixels/frame)(2x1)([x; y])
+-`w`: Relative weighting of the emitter.
+"""
+function palloc_kernel(y::Vector{Float64},
+                       σ::Vector{Float64},
+                       t::Float64,
+                       μ::Vector{Float64},
+                       a::Vector{Float64},
+                       w::Float64)
+    # Compute the unnormalized probability of allocating this localization to
+    # the provided emitter.
+    p_kernel = w * emitterlikelihood2D(y, σ, t, μ, a)
+
+    return p_kernel
 end
 
-    # p_Alloc(SMD,Mu_X,Mu_Y,Alpha_X,Alpha_Y,Ws)
-    # X=SMD.X;
-    # Y=SMD.Y;
-    # T = repmat(SMD.FrameNum,[1,length(Mu_X)]);
-    # SigmaX=SMD.X_SE;
-    # SigmaY=SMD.Y_SE;
-    
-    # Lx = length(X);
-    # Lmu = length(Mu_X);
-    # LogL = log(sum(repmat(Ws,[Lx,1]).*normpdf(repmat(X,[1,Lmu]),...
-    #         repmat(Mu_X,[Lx,1])+repmat(Alpha_X,[Lx,1]).*T,...
-    #         repmat(SigmaX,[1,Lmu])).*normpdf(repmat(Y,[1,Lmu]),...
-    #         repmat(Mu_Y,[Lx,1])+repmat(Alpha_Y,[Lx,1]).*T,...
-    #         repmat(SigmaY,[1,Lmu])),2));
-   
-    # LogL = sum(LogL);
+
+
+
+
+
+
+
+## Likelihoods of emitters given localizations.
 
 """
     emitterlikelihood2D(smld::SMLMData.SMLD2D,
@@ -253,19 +372,19 @@ end
 Compute the likelihood of the emitters `μ` given localizations in `y`.
 
 # Description
-This function computes the likelihood that the localizations stored in 
-`y` arose from an emitter at location `μ` with standard deviations `σ` and
+This function computes the likelihood that the localization stored in 
+`y` arose from an emitter at location `μ` with standard deviation `σ` and
 drift velocities `a`.  This function is a wrapper for emitterlikelihood1D()
 that multiplies the likelihoods over the 2 spatial dimensions.  I.e., 
 likelihood for 1 localization of 1 emitter along 2 dimensions.
 
 # Inputs
--`y`: 2D coordinates of a set of localizations. (pixels)(1x2)([x y])
--`σ`: Standard deviations of the observation distributions. 
-      (pixels)(1x2)([x y])
--`t`: Observation time corresponding to localizations in `y`. (frames)
--`μ`: Location of the emitters. (pixels)(kx2)([x y])
--`a`: Drift velocities of each emitter. (pixels/frame)(kx2)([x y])
+-`y`: 2D coordinates of a localization. (pixels)(2x1)([x; y])
+-`σ`: Standard deviations of the observation distribution. 
+      (pixels)(2x1)([x; y])
+-`t`: Observation time corresponding to localization `y`. (frames)
+-`μ`: Location of the emitter. (pixels)(2x1)([x; y])
+-`a`: Drift velocities of each emitter. (pixels/frame)(2x1)([x; y])
 """
 function emitterlikelihood2D(y::Vector{Float64},
                              σ::Vector{Float64},
@@ -363,20 +482,7 @@ end
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+## Log-likelihoods of emitters given localizations.
 
 """
     emitterlogL2D(smld::SMLMData.SMLD2D,
@@ -459,15 +565,15 @@ This function computes the log-likelihood that the localizations stored in
 `y` arose from an emitter at location `μ` with standard deviations `σ` and
 drift velocities `a`.  This function is a wrapper for emitterlogL1D() which 
 sums the likelihoods over the 2 spatial dimensions.  I.e., log-likelihood for
-1 emitters along 2 dimensions.
+1 emitter along 2 dimensions.
 
 # Inputs
 -`y`: 2D coordinates of a set of localizations. (pixels)(nlocx2)([x y])
 -`σ`: Standard deviations of the observation distributions. 
       (pixels)(nlocx2)([x y])
 -`t`: Observation time corresponding to localizations in `y`. (frames)(nlocx1)
--`μ`: Location of the emitters. (pixels)(kx2)([x y])
--`a`: Drift velocities of each emitter. (pixels/frame)(kx2)([x y])
+-`μ`: Location of the emitters. (pixels)(2x1)([x; y])
+-`a`: Drift velocities of each emitter. (pixels/frame)(2x1)([x; y])
 """
 function emitterlogL2D(y::Matrix{Float64},
                        σ::Matrix{Float64},
@@ -475,9 +581,36 @@ function emitterlogL2D(y::Matrix{Float64},
                        μ::Vector{Float64},
                        a::Vector{Float64})
     # Compute the log-likelihood that the (2D) localization coordinates in `y`
-    # arose from the emitters located at `μ`.
+    # arose from the emitter located at `μ`.
     return emitterlogL1D(y[:, 1], σ[:, 1], μ[1] .+ a[1]*t) +
         emitterlogL1D(y[:, 2], σ[:, 2], μ[2] .+ a[2]*t)
+end
+
+"""
+# Description
+This function computes the log-likelihood that the localizations stored in 
+`y` arose from an emitter at location `μ` with standard deviations `σ` and
+drift velocities `a`.  This function is a wrapper for emitterlogL1D() which 
+sums the likelihoods over the 2 spatial dimensions.  I.e., log-likelihood for
+1 localizations of 1 emitter along 2 dimensions.
+
+# Inputs
+-`y`: 2D coordinates of a localization. (pixels)(2x1)([x; y])
+-`σ`: Standard deviations of the observation distributions. 
+        (pixels)(2x1)([x; y])
+-`t`: Observation time corresponding to the localization in `y`. (frames)
+-`μ`: Location of the emitters. (pixels)(2x1)([x; y])
+-`a`: Drift velocities of each emitter. (pixels/frame)(2x1)([x; y])
+"""
+function emitterlogL2D(y::Vector{Float64},
+                       σ::Vector{Float64},
+                       t::Float64,
+                       μ::Vector{Float64},
+                       a::Vector{Float64})
+    # Compute the log-likelihood that the (2D) localization in `y`
+    # arose from the emitter located at `μ`.
+    return emitterlogL1D(y[1], σ[1], μ[1] .+ a[1]*t) +
+        emitterlogL1D(y[2], σ[2], μ[2] .+ a[2]*t)
 end
 
 """
@@ -552,8 +685,32 @@ function emitterlogL1D(y::Vector{Float64},
     # arose from the emitter located at `μ(t)`.
     logL = 0.0
     for ii = 1:length(y)
-        logL += -0.5 * (log(2.0*pi*σ[ii]^2) + ((y[ii]-μt[ii])^2)/(σ[ii]^2))
+        logL += emitterlogL1D(y[ii], σ[ii], μt[ii])
     end
 
     return logL
+end
+
+"""
+    emitterlogL1D(y::Float64, 
+                  σ::Float64,
+                  μt::Float64}
+
+Compute the log-likelihood of the emitter `μt` given localization `y`.
+
+# Description
+This function computes the log-likelihood that the localization `y` arose from
+the emitter at position `μt(t)`, assuming that observations of the emitter are
+normally distributed. I.e., log-likelihood for 1 localization of 1 emitter 
+along 1 dimension.
+
+# Inputs
+-`y`: 1D coordinate of a set of localizations. (pixels)
+-`σ`: Standard deviations of the observation distribution. (pixels)
+-`μt`: Location of the emitter over time. (pixels)
+"""
+function emitterlogL1D(y::Float64, 
+                       σ::Float64,
+                       μt::Float64)
+    return -0.5 * (log(2.0*pi*σ^2) + ((y-μt)^2)/(σ^2))
 end

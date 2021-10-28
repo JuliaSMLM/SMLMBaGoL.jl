@@ -39,6 +39,40 @@ params.preclustering.maxdist = 0.15 # pixels
 smld_preclustered = SMLMBaGoL.precluster_hierarchical.(smld_subregions, 
     params.preclustering.maxdist)
 
+##
+nloc = 2
+smld_test = SMLMData.isolatesmld(smld, 1:nloc)
+kinit = 2
+zinit = collect(1:kinit)
+zprime = SMLMBaGoL.allocatelocs(smld_test, [smld.x[zinit] smld.y[zinit]])
+muprime = SMLMBaGoL.moveemitters(smld_test, zprime, nloc, kinit)
+# muprime, _ = SMLMBaGoL.moveemitters(smld_test, zprime, 1e-5, nloc, kinit)
+
+##
+smld_test = SMLMData.SMLD2D()
+smld_test.framenum = [100; 700; 200; 500]
+smld_test.x = [1.1; 1.3; 5.6; 5.5]
+smld_test.y = [2.1; 2.3; 8.6; 8.5]
+smld_test.σ_x = [0.11; 0.1; 0.12; 0.13]
+smld_test.σ_y = [0.1; 0.13; 0.11; 0.11]
+μ = [1.2 2.2; 5.55 8.55]
+a = [0.0 0.0; 0.0 0.0]
+w = ones(size(μ, 1)) / size(μ, 1)
+z = SMLMBaGoL.allocatelocs(smld_test, μ)
+logLy = SMLMBaGoL.emitterlogL1D(smld_test.y, smld_test.σ_y, Float64.(smld_test.framenum), μ[:, 2], a[:, 2], z)
+logLx = SMLMBaGoL.emitterlogL1D(smld_test.x, smld_test.σ_x, Float64.(smld_test.framenum), μ[:, 1], a[:, 1], z)
+logL = SMLMBaGoL.emitterlogL2D(smld_test, μ, a, z)
+logL1 = SMLMBaGoL.emitterlogL2D([smld_test.x[1:2] smld_test.y[1:2]], [smld_test.σ_x[1:2] smld_test.σ_y[1:2]], Float64.(smld_test.framenum[1:2]), μ[1, :], a[1, :])
+logL2 = SMLMBaGoL.emitterlogL2D([smld_test.x[3:4] smld_test.y[3:4]], [smld_test.σ_x[3:4] smld_test.σ_y[3:4]], Float64.(smld_test.framenum[3:4]), μ[2, :], a[2, :])
+logLtest = log(SMLMBaGoL.emitterlikelihood1D(smld_test.y, smld_test.σ_y, Float64.(smld_test.framenum), μ[:, 2], a[:, 2], z))
+
+palloc = SMLMBaGoL.palloc_kernel([smld_test.x smld_test.y], [smld_test.σ_x smld_test.σ_y], Float64.(smld_test.framenum), μ[1, :], a[1, :], w[1])
+
+palloc = SMLMBaGoL.palloc_kernel([smld_test.x smld_test.y], [smld_test.σ_x smld_test.σ_y], Float64.(smld_test.framenum), μ, a, w)
+
+logLalloc = SMLMBaGoL.logLalloc_kernel([smld_test.x smld_test.y], [smld_test.σ_x smld_test.σ_y], Float64.(smld_test.framenum), μ, a, w)
+
+
 # smld_preclustered = FrameConnection.precluster(smld) # not meaningful, just to test!
 # alpha, beta = SMLMBaGoL.constructprior_lambda(smld_preclustered, false)
 
