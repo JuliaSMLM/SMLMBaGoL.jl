@@ -89,28 +89,28 @@ function moveemitters(smld::SMLMData.SMLD2D, z::Vector{Int}, σ_a::Float64,
 end
 
 """
-    posterior_emitterpos(x::Vector{Float64}, 
-                         σ_x::Vector{Float64})
+    posterior_emitterpos(y::Vector{Float64}, 
+                         σ_y::Vector{Float64})
 
 Construct a posterior distribution of emitter position along one dimension.
 
 # Description
 This function constructs a posterior distribution for the position of the
-emitter which generated the one dimensional localization coordinates `x`.
+emitter which generated the one dimensional localization coordinates `y`.
 
 # Inputs
--`x`: Coordinate of a localization along one dimension. (pixels)(nlocx1)
--`σ_x`: Standard error of the localization `x`. (pixels)(nlocx1)
+-`y`: Coordinate of a localization along one dimension. (pixels)(nlocx1)
+-`σ_y`: Standard error of the localization `x`. (pixels)(nlocx1)
 """
-function posterior_emitterpos(x::Vector{Float64}, 
-                              σ_x::Vector{Float64})
+function posterior_emitterpos(y::Vector{Float64}, 
+                              σ_y::Vector{Float64})
     # Estimate the location of the `kID`-th emitter based on the allocated
-    # localizations defined by `x` and `σ_x`.  `μ_mle` is the MLE of the true
-    # emitter position sampled by the length(x) Gaussians with mean `x` and 
-    # standard deviation `σ_x`. `σ_fisher` is the square root of the inverse
+    # localizations defined by `y` and `σ_y`.  `μ_mle` is the MLE of the true
+    # emitter position sampled by the length(y) Gaussians with mean `y` and 
+    # standard deviation `σ_y`. `σ_fisher` is the square root of the inverse
     # Fisher information for `μ_mle`.
-    μ_num = sum(x ./ (σ_x.^2))
-    μ_denom = sum(1.0 ./ (σ_x.^2))
+    μ_num = sum(y ./ (σ_y.^2))
+    μ_denom = sum(1.0 ./ (σ_y.^2))
     μ_mle = μ_num / μ_denom
     σ_fisher = sqrt(1 / μ_denom)
 
@@ -120,8 +120,8 @@ function posterior_emitterpos(x::Vector{Float64},
 end
 
 """
-    posterior_emitterpos(x::Vector{Float64}, 
-                         σ_x::Vector{Float64},
+    posterior_emitterpos(y::Vector{Float64}, 
+                         σ_y::Vector{Float64},
                          t::Float64,
                          σ_a::Float64)
 
@@ -129,29 +129,29 @@ Construct a posterior distribution of emitter position.
 
 # Description
 This function constructs a posterior distribution for the position of the
-emitter which generated the localizations `x`.
+emitter which generated the localizations `y`.
 
 # Inputs
--`x`: Coordinate of a localizations along one dimension. (pixels)(nlocx1)
--`σ_x`: Standard error of the localizations `x`. (pixels)(nlocx1)
--`t`: Time of observation of localizations `x`. (frame)(nlocx1)
+-`y`: Coordinate of a localizations along one dimension. (pixels)(nlocx1)
+-`σ_y`: Standard error of the localizations `y`. (pixels)(nlocx1)
+-`t`: Time of observation of localizations `y`. (frame)(nlocx1)
 -`σ_a`: Standard deviation of the drift velocity. (pixels/frame)
 """
-function posterior_emitterpos(x::Vector{Float64},
-                              σ_x::Vector{Float64},
+function posterior_emitterpos(y::Vector{Float64},
+                              σ_y::Vector{Float64},
                               t::Vector{Int},
                               σ_a::Float64)
     # Estimate the location of the `kID`-th emitter based on the allocated
-    # localizations defined by `x` and `σ_x`.  `μ` is the MLE of the true
-    # emitter position sampled by the length(x) Gaussians with mean `x` and 
-    # standard deviation `σ_x`. `Ξ` is the inverse of the Fisher information
+    # localizations defined by `y` and `σ_y`.  `μ` is the MLE of the true
+    # emitter position sampled by the length(y) Gaussians with mean `y` and 
+    # standard deviation `σ_y`. `Ξ` is the inverse of the Fisher information
     # for the estimate of `μ`.
-    var_x = σ_x .^ 2
-    A = sum(x ./ var_x)
-    B = sum(t ./ var_x)
-    C = sum(1.0 ./ var_x)
-    D = sum(t.^2 ./ var_x)
-    a = sum((C*x.-A)./(var_x./t)) / ((C/σ_a) + sum((C*t.-B)/(var_x./t)))
+    var_y = σ_y .^ 2
+    A = sum(y ./ var_y)
+    B = sum(t ./ var_y)
+    C = sum(1.0 ./ var_y)
+    D = sum(t.^2 ./ var_y)
+    a = sum((C*y.-A)./(var_y./t)) / ((C/σ_a) + sum((C*t.-B)/(var_y./t)))
     μ = (A-a*B) / C
     Ξ = LinearAlgebra.pinv([A B; B D + 1.0./σ_a^2])
 
