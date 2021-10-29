@@ -1,6 +1,9 @@
+using SMLMData
+
 # This file contains misc. math helpers/common distributions/statistics that
 # find usage in specific contexts in the BaGoL analysis, so having BaGoL
-# specific helpers might be useful.
+# specific helpers (as opposed to using, e.g., the Distributions package) might
+# be useful.
 
 ## Likelihoods of emitters given localizations.
 
@@ -160,8 +163,8 @@ I.e., likelihood for k emitters along 1 dimension.
 -`y`: 1D coordinate of a set of localizations. (pixels)(nlocx1)
 -`σ`: Standard deviations of the observation distributions. (pixels)(nlocx1)
 -`t`: Observation time corresponding to localizations in `y`. (frames)(nlocx1)
--`μ`: Location of the emitters. (pixels)(kx1)
--`a`: Drift velocities of each emitter. (pixels/frame)(kx2)([x y])
+-`μ`: 1D location of the emitters. (pixels)(kx1)
+-`a`: Drift velocities of each emitter. (pixels/frame)(kx1)
 -`z`: Allocations of the `nloc` localizations to the `k` emittters. (nlocx1)
 """
 function emitterlikelihood1D(y::Vector{Float64},

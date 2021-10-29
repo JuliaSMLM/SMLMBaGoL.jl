@@ -1,7 +1,9 @@
+using Distributions
+
 # This file contains type definitions for types used in SMLMBaGoL.
 
 
-## Parameter types.
+## Parameter structures.
 """
     SubregionParams
 
@@ -96,15 +98,39 @@ function PreclusterParams2D()
 end
 
 """
-    RJStruct()
+    MCParams
+
+Abstract type defining RJMCMC parameters.
+"""
+abstract type MCParams
+end
+
+"""
+    MCParams()
 
 RJMCMC type structure specific to BaGoL.
 
 # Description
-The RJStruct structure organizes parameters, distributions, or other info.
+The MCParams structure organizes parameters, distributions, or other info.
 related to RJMCMC.
 """
-mutable struct RJStruct
+mutable struct MCParams2D <: MCParams
+    α::Float64
+    β::Float64
+    σ_a::Float64
+    n_chain::Int
+    n_burn::Int
+    p_jump::Vector{Float64}
+    srmag::Float64
+    nsigma::Float64
+    area::Float64
+    imdistrib::Distributions.Distribution
+    pkdistrib::Distributions.Distribution
+    priork::Distributions.Distribution
+    priorz::Distributions.Distribution
+    priorμ::Vector{Distributions.Distribution}
+    priora::Vector{Distributions.Distribution}
+    MCParams2D() = new()
 end
 
 """
@@ -121,9 +147,25 @@ mutable struct BaGoLParams
     subregion::SubregionParams
     prethresholds::PreThreshParams
     preclustering::PreclusterParams
+    mcparams::MCParams
 end
 function BaGoLParams()
     return BaGoLParams(SubregionParams2D(), 
                        PreThreshParams2D(), 
-                       PreclusterParams2D())
+                       PreclusterParams2D(), 
+                       MCParams2D())
+end
+
+
+## Data structures.
+
+abstract type MarkovChain
+end
+
+mutable struct BaGoLChain <: MarkovChain
+    k::Vector{Int}
+    w::Vector{Vector{Float64}}
+    μ::Vector{Matrix{Float64}}
+    a::Vector{Matrix{Float64}}
+    z::Vector{Vector{Float64}}
 end
