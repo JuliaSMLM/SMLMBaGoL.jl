@@ -13,5 +13,6 @@ include("allocatelocs.jl")
 include("moveemitters.jl")
 include("runRJMCMC.jl")
 include("runbagol.jl")
+include("removeoverlap.jl")
 
 end
