@@ -7,25 +7,29 @@ function runRJMCMC!(smld::Matrix{SMLMData.SMLD2D},
                     mcparams::MCParams2D)
     # Loop over subregions in `smld` and perform RJMCMC.
     smldsize = size(smld)
+    chain = Matrix{Vector{SMLMBaGoL.BaGoLChain}}(undef, smldsize)
     for ii = 1:smldsize[1], jj = 1:smldsize[2]
         # Generate a distinct SMLD2D for each precluster.
         smldclusters, _ = SMLMData.isolateconnected(smld[ii, jj])
 
         # Run RJMCMC on each precluster.
         mcparams.roi = rois[ii, jj]
-        runRJMCMC!(smldclusters, mcparams)
+        chain[ii, jj] = runRJMCMC!(smldclusters, mcparams)
     end
 
+    return chain
 end
 
 function runRJMCMC!(smld::Vector{SMLMData.SMLD2D}, 
                     mcparams::MCParams2D)
     # Loop over preclusters and perform RJMCMC on each of them.
     nclusters = Base.length(smld)
+    chain = Vector{SMLMBaGoL.BaGoLChain}(undef, nclusters)
     for nn = 1:nclusters
-        runRJMCMC!(smld[nn], mcparams)
+        chain[nn] = runRJMCMC!(smld[nn], mcparams)
     end
     
+    return chain
 end
 
 function runRJMCMC!(smld::SMLMData.SMLD2D, 
@@ -53,13 +57,17 @@ function runRJMCMC!(smld::SMLMData.SMLD2D,
 
     # Run the chain for the burn-in iterations.
     initchain = SMLMBaGoL.BaGoLChain([k], [μ], [a], [z])
-    chain = SMLMBaGoL.burnin(smld, initchain, mcparams)
-    # chain = SMLMBaGoL.BaGoLChain(mcparams.n_chain)
+    SMLMBaGoL.burnin!(smld, initchain, mcparams)
+    
+    # Run the chain for the remaining true iterations.
+    chain = SMLMBaGoL.buildchain(smld, SMLMBaGoL.getstate(initchain), mcparams)
+
+    return chain
 end
 
-function burnin(smld::SMLMData.SMLD2D, 
-                initchain::SMLMBaGoL.BaGoLChain,
-                mcparams::SMLMBaGoL.MCParams2D)
+function burnin!(smld::SMLMData.SMLD2D, 
+                 initchain::SMLMBaGoL.BaGoLChain,
+                 mcparams::SMLMBaGoL.MCParams2D)
     # Run the chain for the burn-in iterations.
     for ii = 1:mcparams.n_burnin
         # If there is only one emitter, allocate all localizations to that 
@@ -82,6 +90,35 @@ function burnin(smld::SMLMData.SMLD2D,
         # Update the chain based on the jump.
         SMLMBaGoL.updatechain!(smld, initchain, mcparams, jumptype)
     end
+end
+
+function buildchain(smld::SMLMData.SMLD2D, 
+                    chain::SMLMBaGoL.BaGoLChain,
+                    mcparams::SMLMBaGoL.MCParams2D)
+    # Run the chain for the true (not burn-in) iterations.
+    for ii = 1:mcparams.n_chain
+        # If there is only one emitter, allocate all localizations to that 
+        # emitter.
+        if chain.k[end] == 1
+            chain.z[end] = ones(Int, Base.length(chain.z[end]))
+        end
+
+        # If any emitters in the chain have no allocations, remove them before
+        # proceeding.
+        for kk in chain.k[end]:-1:1
+            if !any(chain.z[end] .== kk)
+                SMLMBaGoL.removeemitter!(chain, kk)
+            end
+        end
+
+        # Select a jump.
+        jumptype = Distributions.rand(mcparams.jumpdistrib)
+
+        # Update the chain based on the jump.
+        SMLMBaGoL.updatechain!(smld, chain, mcparams, jumptype)
+    end
+
+    return chain
 end
 
 function updatechain!(smld::SMLMData.SMLD2D, 
