@@ -1,4 +1,5 @@
 using Distributions
+using Base
 
 # This file contains functions defining the BaGoL priors.
 
@@ -67,18 +68,17 @@ end
 Generate a prior on the allocations of localizations to emitters.
 
 # Description
-This method constructs a categorical prior on the allocations per emitter,
-where the probability of allocation to each emitter is assumed to be equal. As
-such, we can just use the discrete uniform distribution (since each category
-has the same probability).
+This method returns the probability of any given allocation assuming the
+weights (of the categorical prior being used) are all equal.  Preparing the
+full distribution as done with the other priors is not feasible in this case.
 
 # Inputs
 -`nloc`: Total number of localizations.
 -`kemitters`: Total number of emitters.
 """
 function prior_allocations(nloc::Int, kemitters::Int)
-    # Prepare the distribution over the support [1, kemitters^nloc].
-    return Distributions.DiscreteUniform(1, kemitters^nloc)
+    # Return the probability of allocation.
+    return 1 / (kemitters^nloc)
 end
 
 """
@@ -98,13 +98,39 @@ the range [0.5, roisize+0.5]).
 """
 function prior_positions(roisize::Vector{Int})
     # Prepare the distributions using the Distributions package.
-    ndim = length(roisize)
+    ndim = Base.length(roisize)
     prior = Vector{Distributions.Distribution}(undef, ndim)
     for ii = 1:ndim
         prior[ii] = prior_positions(roisize[ii])
     end
 
     return prior 
+end
+
+"""
+    sample = rand(distrib::Vector{Distributions.Distribution}, nsamples::Int)
+
+Sample the `distrib` distributions `nsamples` times.
+
+# Description
+This method makes random samples from the distributions in `distrib` and stores
+the results in a matrix.  The intention is that `distrib` is a vector of 
+distributions each representing a different dimension, so our output matrix 
+can represent, e.g., random spatial coordinates.
+
+# Inputs
+-`distrib`: Vector of Distributions.Distribution types.
+-`nsamples`: Number of samples to be made from each of `distrib`.
+"""
+function rand(distrib::Vector{Distributions.Distribution}, nsamples::Int)
+    # Sample the n distributions in distrib.
+    ndistrib = Base.length(distrib)
+    sample = Matrix{Float64}(undef, nsamples, ndistrib)
+    for ii = 1:ndistrib
+        sample[:, ii] = Distributions.rand(distrib[ii], nsamples)
+    end
+
+    return sample
 end
 
 """
@@ -138,7 +164,7 @@ This method constructs normal priors on the 1D drift velocities of emitters.
 """
 function prior_drift(σ_a::Vector{Float64})
     # Prepare the distributions.
-    ndim = length(σ_a)
+    ndim = Base.length(σ_a)
     prior = Vector{Distributions.Distribution}(undef, ndim)
     for ii = 1:ndim
         prior[ii] = SMLMBaGoL.prior_drift(σ_a[ii])

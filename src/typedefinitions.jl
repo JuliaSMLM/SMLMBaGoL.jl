@@ -1,4 +1,5 @@
 using Distributions
+using Base
 
 # This file contains type definitions for types used in SMLMBaGoL.
 
@@ -106,7 +107,7 @@ abstract type MCParams
 end
 
 """
-    MCParams()
+    MCParams2D
 
 RJMCMC type structure specific to BaGoL.
 
@@ -119,18 +120,28 @@ mutable struct MCParams2D <: MCParams
     β::Float64
     σ_a::Float64
     n_chain::Int
-    n_burn::Int
+    n_burnin::Int
     p_jump::Vector{Float64}
     srmag::Float64
+    srimsize::Vector{Int}
+    roi::Vector{Float64}
     nsigma::Float64
     area::Float64
+    jumpdistrib::Distributions.Distribution
     imdistrib::Distributions.Distribution
-    pkdistrib::Distributions.Distribution
     priork::Distributions.Distribution
-    priorz::Distributions.Distribution
+    priorz # we probably can't return the full distribution for this prior
     priorμ::Vector{Distributions.Distribution}
     priora::Vector{Distributions.Distribution}
     MCParams2D() = new()
+end
+
+"""
+    BaGoLParams
+
+Abstract type defining RJMCMC parameters.
+"""
+abstract type BaGoLParams
 end
 
 """
@@ -143,17 +154,17 @@ This structure organizes the parameter structures used in a typical BaGoL
 analysis.  The intention is that this structure plus the data represents a 
 complete description of the BaGoL analyses/results.
 """
-mutable struct BaGoLParams
+mutable struct BaGoLParams2D <: BaGoLParams
     subregion::SubregionParams
     prethresholds::PreThreshParams
     preclustering::PreclusterParams
     mcparams::MCParams
 end
-function BaGoLParams()
-    return BaGoLParams(SubregionParams2D(), 
-                       PreThreshParams2D(), 
-                       PreclusterParams2D(), 
-                       MCParams2D())
+function BaGoLParams2D()
+    return BaGoLParams2D(SubregionParams2D(), 
+                         PreThreshParams2D(), 
+                         PreclusterParams2D(), 
+                         MCParams2D())
 end
 
 
@@ -164,8 +175,21 @@ end
 
 mutable struct BaGoLChain <: MarkovChain
     k::Vector{Int}
-    w::Vector{Vector{Float64}}
     μ::Vector{Matrix{Float64}}
     a::Vector{Matrix{Float64}}
-    z::Vector{Vector{Float64}}
+    z::Vector{Vector{Int}}
 end
+function BaGoLChain(n_chain::Int)
+    # Initialize a chain structure of length `n_chain`.
+    return BaGoLChain(Vector{Int}(undef, n_chain), 
+        Vector{Matrix{Float64}}(undef, n_chain),
+        Vector{Matrix{Float64}}(undef, n_chain),
+        Vector{Vector{Int}}(undef, n_chain))
+end
+function BaGoLChain(k::Int, 
+                    μ::Matrix{Float64},
+                    a::Matrix{Float64},
+                    z::Vector{Int})
+    return BaGoLChain([k], [μ], [a], [z])
+end
+length(chain::BaGoLChain) = Base.length(chain.k)

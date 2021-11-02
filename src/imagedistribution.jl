@@ -1,10 +1,12 @@
 using SMLMData
 using Distributions
+using Base
 
 """
     imagedistribution(smld::SMLMData.SMLD2D, 
                       mag::Float64 = 20.0, 
-                      nsigma::Float64 = 5.0)
+                      nsigma::Float64 = 5.0,
+                      roi::Vector{Float64} = [1.0; 1.0])
 
 Generate an approximate emitter distribution from `smld` coordinates.
 
@@ -21,14 +23,26 @@ Distributions package.
         (Default = 20.0)
 -`nsigma`: Number of standard deviations from the localization coordinate at
            which we truncate the Gaussians in the image. (Default = 5.0)
+-`roi`: Region of interest corresponding to `smld` localizations. 
+        (pixels)(Default = [1.0; 1.0])
+        ([ystart; xstart; yend; xend] or just [ystart; xstart])
 """
 function imagedistribution(smld::SMLMData.SMLD2D, 
                            mag::Float64 = 20.0, 
-                           nsigma::Float64 = 5.0)
+                           nsigma::Float64 = 5.0, 
+                           roi::Vector{Float64} = [1.0; 1.0])
+    # Shift the coordinates in `smld` so that they are in the range defined by 
+    # `roi` (i.e., `smld` and `roi` might represent a subregion of a full 
+    # image, so we need to shift the coordinates before preparing the Gaussian 
+    # image).
+    smld = deepcopy(smld)
+    smld.y .-= roi[1] - 1.0
+    smld.x .-= roi[2] - 1.0
+
     # Prepare the Gaussian image and then compute the distribution.
     image = makegaussim(smld, mag, nsigma)
     
-    return SMLMBaGoL.imagedistribution(image)
+    return SMLMBaGoL.imagedistribution(image), collect(size(image))
 end
 
 """
@@ -44,11 +58,38 @@ function imagedistribution(image::Matrix{Float64})
     # package.
     pmf = image[:] ./ sum(image)
     
-    return Distributions.DiscreteNonParametric(1:length(pmf), pmf)
+    return Distributions.DiscreteNonParametric(1:Base.length(pmf), pmf)
 end
 
 """
-    samplecoords(imdistrib::Distributions.Distribution, imrows::Int)
+    samplecoords2D(imdistrib::Distributions.Distribution, 
+                   imrows::Int, 
+                   nsamples::Int)
+
+Sample grid coordinates from the distribution `imdistrib`.
+
+# Inputs
+-`imdistrib`: Distribution of coordinates "stacked" from 2D to a 1D 
+              distribution.  E.g., a normalized gaussian image stacked into
+              a column vector might define the PMF of this distribution.
+-`imrows`: Number of rows in the grid.
+-`nsamples`: Number of coordinates to sample.
+"""
+function samplecoords2D(imdistrib::Distributions.Distribution, 
+                        imrows::Int, 
+                        nsamples::Int)
+    # Sample the `nsamples` positions.
+    sampleind = Vector{Int}(undef, nsamples)
+    coords = Matrix{Float64}(undef, nsamples, 2)
+    for nn = 1:nsamples
+        coords[nn, :], sampleind[nn] = SMLMBaGoL.samplecoords2D(imdistrib, imrows)
+    end
+
+    return coords, sampleind
+end
+
+"""
+    samplecoords2D(imdistrib::Distributions.Distribution, imrows::Int)
 
 Sample grid coordinates from the distribution `imdistrib`.
 
@@ -58,12 +99,13 @@ Sample grid coordinates from the distribution `imdistrib`.
               a column vector might define the PMF of this distribution.
 -`imrows`: Number of rows in the grid.
 """
-function samplecoords2D(imdistrib::Distributions.Distribution, imrows::Int)
+function samplecoords2D(imdistrib::Distributions.Distribution, 
+                        imrows::Int)
     # Sample a new emitter position, adding uniform random noise to ensure the
     # position can be anywhere within a pixel.
     sampleind = Distributions.rand(imdistrib)
-    coords = [mod(sampleind, imrows); ceil(sampleind / imrows)]
-    coords .+= rand(2) .- 0.5
+    coords = [mod(sampleind, imrows) + 1.0; ceil(sampleind / imrows)]
+    coords .+= Base.rand(2) .- 0.5
 
     return coords, sampleind
 end
@@ -79,7 +121,8 @@ Make a Gaussian image of the localizations in `smld`.
 This function creates an image of the localizations in `smld` by placing a
 Gaussian truncated to `nsigma` at the localization coordinates, where the 
 standard deviation is given by `smld.σ_x` and `smld.σ_y`.  The image is then
-normalized such that it sums to 1.0.
+normalized such that it sums to 1.0.  The background signal is not accounted
+for in this method.
 
 # Inputs
 -`smld`: SMLMData.SMLD2D data structure containing localizations.
@@ -88,12 +131,12 @@ normalized such that it sums to 1.0.
 -`nsigma`: Number of standard deviations from the localization coordinate at
            which we truncate the Gaussian. (Default = 5.0)
 """
-function makegaussim(smld::SMLMData.SMLD2D, 
-                     mag::Float64,
+function makegaussim(smld::SMLMData.SMLD2D,
+                     mag::Float64 = 20.0,
                      nsigma::Float64 = 5.0)
     # Loop through emitters and add them to our output Gaussian image.
     imagesize = Int.(round.(smld.datasize * mag))
-    image = zeros(imagesize[1], imagesize[2])
+    image = zeros(Float64, imagesize[1], imagesize[2])
     for nn = 1:SMLMData.length(smld)
         # Prepare a normal distribution for this emitter.
         distrib = Distributions.MvNormal([smld.y[nn]; smld.x[nn]], 
@@ -109,9 +152,16 @@ function makegaussim(smld::SMLMData.SMLD2D,
         xend = min(imagesize[2], 
             Int(round(mag * (smld.x[nn]+nsigma*smld.σ_x[nn]))))
         for ii = ystart:yend, jj = xstart:xend
-            image[ii, jj] = image[ii, jj] +
+            image[ii, jj] += smld.photons[nn] * 
                 Distributions.pdf(distrib, ([ii; jj].-0.5) / mag .+ 0.5)
         end
+    end
+
+    # Normalize the image to sum to 1.0.  If any image values are NaN, set them
+    # to 0.0.
+    nanpixels = isnan.(image)
+    if any(nanpixels)
+        image[nanpixles] .= 0.0
     end
     image = image ./ sum(image)
 

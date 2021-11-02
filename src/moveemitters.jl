@@ -5,7 +5,6 @@ using LinearAlgebra
 """
     moveemitters(smld::SMLMData.SMLD2D, 
                  z::Vector{Int}, 
-                 nloc::Int = SMLMData.length(smld),
                  k::Int = maximum(z))
 
 Sample the `k` emitter positions from the normal distribution.
@@ -19,21 +18,18 @@ normal distribution defined by the MLE position of the localizations in `smld`
 -`smld`: SMLMData.SMLD2D data structure containing localizations.
 -`z`: Allocations of the localizations in `smld` to emitters associated with
       the indices `1:k`. (length `nloc` integer array)
--`nloc`: Total number of localizations in `smld`.
 -`k`: Total number of emitters to which the `nloc` localizations are allocated.
 """
-function moveemitters(smld::SMLMData.SMLD2D, z::Vector{Int},
-        nloc::Int = SMLMData.length(smld), k::Int = maximum(z))
+function moveemitters(smld::SMLMData.SMLD2D, z::Vector{Int}, k::Int = maximum(z))
     # Loop through the `k` emitters and sample new positions based on the
     # allocations of localizations in `smld` defined by `z`.
     μ = Matrix{Float64}(undef, k, 2)
     for ii = 1:k
         currentbool = z .== ii
-        μ[ii, 1] = posterior_emitterpos(smld.x[currentbool], 
-                                        smld.σ_x[currentbool])
-        println(smld.x[currentbool])
-        μ[ii, 2] = posterior_emitterpos(smld.y[currentbool], 
-                                        smld.σ_y[currentbool])
+        μ[ii, 1] = SMLMBaGoL.posterior_emitterpos(smld.y[currentbool], 
+                                                  smld.σ_y[currentbool])
+        μ[ii, 2] = SMLMBaGoL.posterior_emitterpos(smld.x[currentbool], 
+                                                  smld.σ_x[currentbool])
     end
 
     return μ
@@ -43,7 +39,6 @@ end
     moveemitters(smld::SMLMData.SMLD2D, 
                  z::Vector{Int}, 
                  σ_a::Float64,
-                 nloc::Int = SMLMData.length(smld),
                  k::Int = maximum(z))
 
 Sample the `k` emitter positions from the normal distribution.
@@ -58,15 +53,16 @@ normal distribution defined by the MLE position of the localizations in `smld`
 -`z`: Allocations of the localizations in `smld` to emitters associated with
       the indices `1:k`. (length `nloc` integer array)
 -`σ_a`: Standard deviation of the drift velocity. (same for each dimension)
--`nloc`: Total number of localizations in `smld`.
 -`k`: Total number of emitters to which the `nloc` localizations are allocated.
 """
-function moveemitters(smld::SMLMData.SMLD2D, z::Vector{Int}, σ_a::Float64,
-        nloc::Int = SMLMData.length(smld), k::Int = maximum(z))
+function moveemitters(smld::SMLMData.SMLD2D, 
+                      z::Vector{Int}, 
+                      σ_a::Float64, 
+                      k::Int = maximum(z))
     # If σ_a isn't positive (e.g., 0.0) we should dispatch on the non-drift
     # method of moveemitters.
     if σ_a <= 0.0
-        return moveemitters(smld, z, nloc, k)
+        return moveemitters(smld, z, k), zeros(Float64, k, 2)
     end
 
     # Loop through the `k` emitters and sample new positions based on the
@@ -75,17 +71,13 @@ function moveemitters(smld::SMLMData.SMLD2D, z::Vector{Int}, σ_a::Float64,
     a = Matrix{Float64}(undef, k, 2)
     for ii = 1:k
         currentbool = z .== ii
-        μ[ii, 1], a[ii, 1] = posterior_emitterpos(smld.x[currentbool], 
-                                                  smld.σ_x[currentbool], 
-                                                  smld.framenum[currentbool],
-                                                  σ_a)
-        μ[ii, 2], a[ii, 2] = posterior_emitterpos(smld.y[currentbool], 
-                                                  smld.σ_y[currentbool],
-                                                  smld.framenum[currentbool],
-                                                  σ_a)
+        μ[ii, 1], a[ii, 1] = SMLMBaGoL.posterior_emitterpos(smld.y[currentbool], 
+            smld.σ_y[currentbool], smld.framenum[currentbool], σ_a)
+        μ[ii, 2], a[ii, 2] = SMLMBaGoL.posterior_emitterpos(smld.x[currentbool], 
+            smld.σ_x[currentbool], smld.framenum[currentbool], σ_a)
     end
 
-    return μ
+    return μ, a
 end
 
 """
@@ -116,7 +108,7 @@ function posterior_emitterpos(y::Vector{Float64},
 
     # Sample a new position of the `kID`-th emitter from the Gaussian defined
     # by `μ_mle` and `σ_fisher`.
-    return rand(Distributions.Normal(μ_mle, σ_fisher))
+    return Distributions.rand(Distributions.Normal(μ_mle, σ_fisher))
 end
 
 """
@@ -158,5 +150,6 @@ function posterior_emitterpos(y::Vector{Float64},
     # Sample a new position of the `kID`-th emitter from the Gaussian defined
     # by `μ` and `Ξ`.  Note that I'm forcing Ξ to be Hermitian, as it's often
     # non-Hermitian due to floating-point errors.
-    return rand(Distributions.MvNormal([μ; a], Matrix(LinearAlgebra.Hermitian(Ξ))))
+    return Distributions.rand(Distributions.MvNormal([μ; a], 
+                              Matrix(LinearAlgebra.Hermitian(Ξ))))
 end

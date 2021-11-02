@@ -18,8 +18,8 @@ the positions `μ` at time t=0.
 
 # Inputs
 -`smld`: SMLMData.SMLD2D data structure containing localizations.
--`μ`: Coordinates of the proposed emitter positions. (pixels)([x y])
--`a`: Drift velocity of the emitters `μ`. (pixels/frame)([a_x a_y])
+-`μ`: Coordinates of the proposed emitter positions. (pixels)([y x])
+-`a`: Drift velocity of the emitters `μ`. (pixels/frame)([a_y a_x])
 """
 function allocatelocs(smld::SMLMData.SMLD2D, 
                       μ::Matrix{Float64}, 
@@ -29,8 +29,8 @@ function allocatelocs(smld::SMLMData.SMLD2D,
     nlocs = SMLMData.length(smld)
     zprime = Vector{Int}(undef, nlocs)
     for nn = 1:nlocs
-        posterior = SMLMBaGoL.posterior_allocations([smld.x[nn]; smld.y[nn]], 
-                                                    [smld.σ_x[nn]; smld.σ_y[nn]], 
+        posterior = SMLMBaGoL.posterior_allocations([smld.y[nn]; smld.x[nn]], 
+                                                    [smld.σ_y[nn]; smld.σ_x[nn]], 
                                                     Float64(smld.framenum[nn]),
                                                     μ, 
                                                     a)
@@ -55,11 +55,11 @@ the localization defined by `y`, `σ_x`, and `t` to the emitters at
 positions `μ` at time t=0.
 
 # Inputs
--`y`: Coordinates of a 2D localization. (pixels)([x; y])
--`σ_y`: Standard error of the localization `y`. (pixels)([x; y])
+-`y`: Coordinates of a 2D localization. (pixels)([y; x])
+-`σ_y`: Standard error of the localization `y`. (pixels)([y; x])
 -`t`: Time of observation of localization `y`. (frame)
--`μ`: Coordinates of the proposed emitter positions. (pixels)([x y])
--`a`: Drift velocity of the emitters `μ`. (pixels/frame)([a_x a_y])
+-`μ`: Coordinates of the proposed emitter positions. (pixels)([y x])
+-`a`: Drift velocity of the emitters `μ`. (pixels/frame)([a_y a_x])
 """
 function posterior_allocations(y::Vector{Float64}, 
                                σ_y::Vector{Float64}, 
@@ -72,16 +72,20 @@ function posterior_allocations(y::Vector{Float64},
           (1/sqrt(2*pi*σ_y[2]^2)) .* exp.(-(y[2].-μ[:, 2].-a[:, 2]*t).^2 / (2*σ_y[2]^2))
     pmf = pmf ./ sum(pmf)
     
-    # If any of `pmf` is NaN, it was not normalizable numerically so we'll just
-    # allocate the localization to its nearest-neighbor emitter.
+    # If any of `pmf` is NaN, we'll just allocate the localization to its
+    # nearest-neighbor emitter.  If the `pmf` is not normalizable, we'll 
+    # instead...? not sure yet!
     if any(isnan.(pmf))
         kdtree = NearestNeighbors.KDTree(μ')
         nnindex, _ = NearestNeighbors.knn(kdtree, y, 1, true)
-        pmf = zeros(Float64, length(pmf))
+        pmf = zeros(Float64, Base.length(pmf))
         pmf[nnindex[1]] = 1.0
+    elseif !isapprox(sum(pmf), 1.0)
+        println(sum(pmf))
+        println("not normalizable")
     end
 
-    return Distributions.DiscreteNonParametric(1:length(pmf), pmf)
+    return Distributions.DiscreteNonParametric(1:Base.length(pmf), pmf)
 end
 
 
@@ -105,12 +109,12 @@ localizations (`y`, `σ`, `t`) to the emitters at location `μ+at`.  I.e., this
 method computes the log of the kernel of the distribution P_alloc(Z).
 
 # Inputs
--`y`: 2D coordinates of localizations. (pixels)(nlocx2)([x y])
+-`y`: 2D coordinates of localizations. (pixels)(nlocx2)([y x])
 -`σ`: Standard deviations of the observation distributions. 
-      (pixels)(nlocx2)([x y])
+      (pixels)(nlocx2)([y x])
 -`t`: Observation times corresponding to localizations `y`. (frames)(nlocx1)
--`μ`: Location of the emitter. (pixels)(kx2)([x y])
--`a`: Drift velocities of each emitter. (pixels/frame)(kx2)([x y])
+-`μ`: Location of the emitter. (pixels)(kx2)([y x])
+-`a`: Drift velocities of each emitter. (pixels/frame)(kx2)([y x])
 -`w`: Relative weighting of the emitters. (kx1)
 """
 function logLalloc_kernel(y::Matrix{Float64},
@@ -151,12 +155,12 @@ localizations (`y`, `σ`, `t`) to the emitters at location `μ+at`.  I.e., this
 method computes the kernel of the distribution P_alloc(Z).
 
 # Inputs
--`y`: 2D coordinates of localizations. (pixels)(nlocx2)([x y])
+-`y`: 2D coordinates of localizations. (pixels)(nlocx2)([y x])
 -`σ`: Standard deviations of the observation distributions. 
-      (pixels)(nlocx2)([x y])
+      (pixels)(nlocx2)([y x])
 -`t`: Observation times corresponding to localizations `y`. (frames)(nlocx1)
--`μ`: Location of the emitter. (pixels)(kx2)([x y])
--`a`: Drift velocities of each emitter. (pixels/frame)(kx2)([x y])
+-`μ`: Location of the emitter. (pixels)(kx2)([y x])
+-`a`: Drift velocities of each emitter. (pixels/frame)(kx2)([y x])
 -`w`: Relative weighting of the emitters. (kx1)
 """
 function palloc_kernel(y::Matrix{Float64},
@@ -168,7 +172,7 @@ function palloc_kernel(y::Matrix{Float64},
     # Compute the unnormalized probability of allocating localizations to the 
     # provided emitters.
     p_kernel = Vector{Float64}(undef, size(y, 1))
-    for jj = 1:length(w)
+    for jj = 1:Base.length(w)
         p_kernel += palloc_kernel(y, σ, t, μ[jj, :], a[jj, :], w[jj])
     end
 
@@ -191,12 +195,12 @@ localizations (`y`, `σ`, `t`) to the emitter at location `μ+at`.  I.e., this
 method computes the kernel of the distribution P_alloc(Z_i|j).
 
 # Inputs
--`y`: 2D coordinates of localizations. (pixels)(nlocx2)([x y])
+-`y`: 2D coordinates of localizations. (pixels)(nlocx2)([y x])
 -`σ`: Standard deviations of the observation distributions. 
-      (pixels)(nlocx2)([x y])
+      (pixels)(nlocx2)([y x])
 -`t`: Observation times corresponding to localizations `y`. (frames)(nlocx1)
--`μ`: Location of the emitter. (pixels)(2x1)([x; y])
--`a`: Drift velocities of each emitter. (pixels/frame)(2x1)([x; y])
+-`μ`: Location of the emitter. (pixels)(2x1)([y; x])
+-`a`: Drift velocities of each emitter. (pixels/frame)(2x1)([y; x])
 -`w`: Relative weighting of the emitter.
 """
 function palloc_kernel(y::Matrix{Float64},
@@ -233,12 +237,12 @@ method computes the kernel of the distribution P_alloc(Z_i=j) (the
 normalization factor is the same for {j=1:k | P_alloc(Z_i=j)}).
 
 # Inputs
--`y`: 2D coordinates of a localization. (pixels)(2x1)([x; y])
+-`y`: 2D coordinates of a localization. (pixels)(2x1)([y; x])
 -`σ`: Standard deviations of the observation distribution. 
-      (pixels)(2x1)([x; y])
+      (pixels)(2x1)([y; x])
 -`t`: Observation time corresponding to localization `y`. (frames)
--`μ`: Location of the emitter. (pixels)(2x1)([x; y])
--`a`: Drift velocities of each emitter. (pixels/frame)(2x1)([x; y])
+-`μ`: Location of the emitter. (pixels)(2x1)([y; x])
+-`a`: Drift velocities of each emitter. (pixels/frame)(2x1)([y; x])
 -`w`: Relative weighting of the emitter.
 """
 function palloc_kernel(y::Vector{Float64},
