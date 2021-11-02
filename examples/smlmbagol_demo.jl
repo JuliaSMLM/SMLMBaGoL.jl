@@ -81,21 +81,32 @@ smld.datasize = [32; 32]
 # smld_test.σ_y = [0.1; 0.13; 0.11; 0.11]
 # smld_test.datasize = [8.0; 8.0]
 
-params = SMLMBaGoL.BaGoLParams()
+params = SMLMBaGoL.BaGoLParams2D()
 params.subregion.roisize = 5
 params.subregion.roioverlap = 1
 params.prethresholds.maxsigmadev_photons = 1.0
 params.prethresholds.n_min = 1
 params.prethresholds.r = 10.0
 params.preclustering.maxdist = 0.15
+params.mcparams.n_burnin
 params.mcparams.σ_a = 0.0
 params.mcparams.α = 1.0
 params.mcparams.β = 5.0
 params.mcparams.srmag = 10.0
 params.mcparams.nsigma = 5.0
+params.mcparams.p_jump = [1.0; 1.0; 1.0; 1.0]
+params.mcparams.p_jump = params.mcparams.p_jump / sum(params.mcparams.p_jump)
+params.mcparams.n_burnin = 100
+params.mcparams.n_chain = 100
 SMLMBaGoL.runbagol!(smld, params)
 
-
+smld_subregions, rois, connectID = SMLMBaGoL.gensubregions(smld, 
+    params.subregion.roisize, params.subregion.roioverlap)
+smld_preclustered = SMLMBaGoL.precluster_hierarchical.(smld_subregions, 
+    params.preclustering.maxdist)
+smldclusters, _ = SMLMData.isolateconnected(smld_preclustered[1,1])
+params.mcparams.roi = [1; 1; 5; 5]
+SMLMBaGoL.runRJMCMC!(smldclusters[1], params.mcparams)
 
 # smld_preclustered = FrameConnection.precluster(smld) # not meaningful, just to test!
 # alpha, beta = SMLMBaGoL.constructprior_lambda(smld_preclustered, false)

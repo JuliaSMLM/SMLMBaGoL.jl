@@ -42,7 +42,7 @@ function gensubregions(smld::SMLMData.SMLD2D,
     
     # Loop through `smld` and split into subregions.
     smld_subregions = Matrix{SMLMData.SMLD2D}(undef, tuple(nsplit...))
-    rois = Matrix{Vector{Int}}(undef, tuple(nsplit...))
+    rois = Matrix{Vector{Float64}}(undef, tuple(nsplit...))
     connectID = Matrix{Vector{Int}}(undef, tuple(nsplit...))
     ystart = 1 .+ (roisize-roioverlap)*collect(0:(nsplit[1]-1))
     yend = min.(ystart .+ roisize .- 1, datasize[1])
@@ -57,6 +57,7 @@ function gensubregions(smld::SMLMData.SMLD2D,
         keepbool = (smld.y.>=(ystart[ii]-0.5)) .* (smld.y.<=(yend[ii]+0.5)) .*
             (smld.x.>=(xstart[jj]-0.5)) .* (smld.x.<=(xend[jj]+0.5))
         smld_subregions[ii, jj] = SMLMData.isolatesmld(smld, keepbool)
+        smld_subregions[ii, jj].datasize = [roisize; roisize]
         connectID[ii, jj] = smld_subregions[ii, jj].connectID
     end
 

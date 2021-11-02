@@ -1,6 +1,7 @@
 using SMLMData
 using Statistics
 using NearestNeighbors
+using Base
 
 """
     smld_thresh = removeoutliers(smld::SMLMData.SMLD2D, 
@@ -74,7 +75,7 @@ function removeoutliers(smld::Matrix{SMLMData.SMLD2D},
                         thresholds::PreThreshParams)
     # Threshold each of the SMLMData.SMLD2D structures in `smld`.
     smld_thresh = deepcopy(smld)
-    for ii = 1:length(smld)
+    for ii = 1:SMLMData.length(smld)
         smld_thresh[ii] = removeoutliers(smld[ii], thresholds)
     end
 
@@ -101,7 +102,7 @@ removeoutliers.(smld, thresholds) to work...
 function removeoutliers!(smld::Matrix{SMLMData.SMLD2D}, 
                         thresholds::PreThreshParams)
     # Threshold each of the SMLMData.SMLD2D structures in `smld`.
-    for ii = 1:length(smld)
+    for ii = 1:Base.length(smld)
         removeoutliers!(smld[ii], thresholds)
     end
 end
@@ -175,7 +176,7 @@ localizations that have fewer than `n_min` localizations within `r` pixels.
 function removeisolated(smld::SMLMData.SMLD2D, n_min::Int, r::Float64)
     # If there are fewer than `n_min+1` localizations, we can return an empty
     # SMLD2D structure immediately.
-    if length(smld.framenum) < (n_min+1)
+    if SMLMData.length(smld) < (n_min+1)
         return SMLD2D()
     end
 
@@ -206,7 +207,7 @@ localizations that have fewer than `n_min` localizations within `r` pixels.
 function removeisolated!(smld::SMLMData.SMLD2D, n_min::Int, r::Float64)
     # If there are fewer than `n_min+1` localizations, we can return an empty
     # SMLD2D structure immediately.
-    if length(smld.framenum) < (n_min+1)
+    if SMLMData.length(smld) < (n_min+1)
         return SMLD2D()
     end
 
