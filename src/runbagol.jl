@@ -13,8 +13,7 @@ function runbagol!(smld::SMLMData.SMLD2D, params::SMLMBaGoL.BaGoLParams2D)
         params.preclustering.maxdist)
 
     # Perform RJMCMC on each precluster.
-    SMLMBaGoL.runRJMCMC!(smld_preclustered, rois, params.mcparams)
+    chain = SMLMBaGoL.runRJMCMC!(smld_preclustered, rois, params.mcparams)
 
-
-
+    return chain
 end
