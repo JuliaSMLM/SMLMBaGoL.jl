@@ -112,7 +112,7 @@ end
 
 """
     makegaussim(smld::SMLMData.SMLD2D, 
-                mag::Float64, 
+                mag::Float64 = 20.0, 
                 nsigma::Float64 = 5.0)
 
 Make a Gaussian image of the localizations in `smld`.
@@ -166,4 +166,68 @@ function makegaussim(smld::SMLMData.SMLD2D,
     image = image ./ sum(image)
 
     return image
+end
+
+"""
+    makehistim(coords::Matrix{Float64}, 
+               datasize::Vector{Float64},
+               mag::Float64 = 20.0)
+
+Make a histogram style image of the localizations in `coords`.
+
+# Description
+This function creates an image of the localizations in `coords` by placing a
+hot pixel at the coordinates of each localization.
+
+# Inputs
+-`coords`: Localization coordinates. ([y x])
+-`datasize`: Size of the data image. ([ysize xsize])
+-`mag`: Approximate magnfication from data coordinates to SR coordinates. 
+        (Default = 20.0)
+
+# Outputs
+-`image`: Matrix{Float64} histogram image.
+"""
+function makehistim(coords::Matrix{Float64},
+                    datasize::Vector{Int},
+                    mag::Float64 = 20.0)
+    # Loop through localizations and add them to our output histogram image.
+    imagesize = Int.(round.(datasize * mag))
+    image = zeros(Float64, imagesize[1], imagesize[2])
+    inds = max.(1.0, (coords.-0.5)*mag)
+    inds[:, 1] = min.(imagesize[1], inds[:, 1])
+    inds[:, 2] = min.(imagesize[2], inds[:, 2])
+    inds = Int.(round.(inds))
+    for nn = 1:size(coords, 1)
+        image[inds[nn, 1], inds[nn, 2]] = 1.0
+    end
+
+    # Normalize the image to sum to 1.0.
+    image = image ./ min(sum(image), 1.0)
+
+    return image
+end
+
+"""
+    makehistim(smld::SMLMData.SMLD2D, 
+               mag::Float64 = 20.0)
+
+Make a histogram style image of the localizations in `smld`.
+
+# Description
+This function creates an image of the localizations in `smld` by placing a
+hot pixel at the coordinates of each localization.
+
+# Inputs
+-`smld`: SMLMData.SMLD2D data structure containing localizations.
+-`mag`: Approximate magnfication from data coordinates to SR coordinates. 
+        (Default = 20.0)
+
+# Outputs
+-`image`: Matrix{Float64} histogram image.
+"""
+function makehistim(smld::SMLMData.SMLD2D,
+                    mag::Float64 = 20.0)
+    coords = [smld.y smld.x]
+    return makehistim(coords, smld.datasize, mag)
 end
