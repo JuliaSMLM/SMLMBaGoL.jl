@@ -10,6 +10,12 @@ Generate a distribution of jump choices from the provided `jumppmf`.
 This function generates a distribution of the jump probabilities that can be 
 sampled to propose a jump labeled by an index in the range [1, length(jumppmf)]
 using rand(distribution).
+
+# Inputs
+-`jumppmf`: Probability mass function defining the jump distribution.
+
+# Outputs
+-`distribution`: Distributions.Distribution defined by input `jumppmf`.
 """
 function jumpdistrib(jumppmf::Vector{Float64})
     # Create a distribution for the jumps using the Distributions package.

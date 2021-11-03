@@ -3,8 +3,7 @@ using Distributions
 using Base
 
 """
-    runRJMCMC!(smld::Matrix{SMLMData.SMLD2D}, 
-               mcparams::MCParams2D)
+    chain = runRJMCMC!(smld::Matrix{SMLMData.SMLD2D}, mcparams::MCParams2D)
 
 Perform reversible jump Markov chain monte carle (RJMCMC).
 
@@ -40,8 +39,7 @@ function runRJMCMC!(smld::Matrix{SMLMData.SMLD2D},
 end
 
 """
-    runRJMCMC!(smld::Vector{SMLMData.SMLD2D}, 
-               mcparams::MCParams2D)
+    chain = runRJMCMC!(smld::Vector{SMLMData.SMLD2D}, mcparams::MCParams2D)
 
 Perform reversible jump Markov chain monte carle (RJMCMC).
 
@@ -71,8 +69,7 @@ function runRJMCMC!(smld::Vector{SMLMData.SMLD2D},
 end
 
 """
-    runRJMCMC!(smld::SMLMData.SMLD2D, 
-               mcparams::MCParams2D)
+    chain = runRJMCMC!(smld::SMLMData.SMLD2D, mcparams::MCParams2D)
 
 Perform reversible jump Markov chain monte carle (RJMCMC).
 
@@ -121,10 +118,10 @@ function runRJMCMC!(smld::SMLMData.SMLD2D,
 end
 
 """
-    buildchain(smld::SMLMData.SMLD2D, 
-               initstate::SMLMBaGoL.BaGoLState2D,
-               mcparams::SMLMBaGoL.MCParams2D,
-               burnin::Bool = false) 
+    chain = buildchain(smld::SMLMData.SMLD2D, 
+                       initstate::SMLMBaGoL.BaGoLState2D,
+                       mcparams::SMLMBaGoL.MCParams2D,
+                       burnin::Bool = false) 
 
 Build an RJMCMC chain starting with state `initstate`.
 
@@ -190,10 +187,10 @@ function buildchain(smld::SMLMData.SMLD2D,
 end
 
 """
-    buildchain(smld::SMLMData.SMLD2D, 
-               initchain::SMLMBaGoL.BaGoLChain2D,
-               mcparams::SMLMBaGoL.MCParams2D,
-               burnin::Bool = false) 
+    chain = buildchain(smld::SMLMData.SMLD2D, 
+                       initchain::SMLMBaGoL.BaGoLChain2D,
+                       mcparams::SMLMBaGoL.MCParams2D,
+                       burnin::Bool = false) 
 
 Build an RJMCMC chain starting with chain `initchain`.
 
@@ -222,10 +219,10 @@ function buildchain(smld::SMLMData.SMLD2D,
 end
 
 """
-    updatestate(smld::SMLMData.SMLD2D, 
-                state::SMLMBaGoL.BaGoLState2D,
-                mcparams::SMLMBaGoL.MCParams2D, 
-                jumptype::Int)  
+    state, accepted = updatestate(smld::SMLMData.SMLD2D, 
+                                  state::SMLMBaGoL.BaGoLState2D,
+                                  mcparams::SMLMBaGoL.MCParams2D, 
+                                  jumptype::Int)  
 
 Propose and accept/reject a jump of type `jumptype`.
 
@@ -276,9 +273,9 @@ function updatestate(smld::SMLMData.SMLD2D,
 end
 
 """
-    move(smld::SMLMData.SMLD2D, 
-         state::SMLMBaGoL.BaGoLState2D,
-         mcparams::SMLMBaGoL.MCParams2D)
+    state, accepted = move(smld::SMLMData.SMLD2D, 
+                           state::SMLMBaGoL.BaGoLState2D,
+                           mcparams::SMLMBaGoL.MCParams2D)
 
 Return a state with the emitters in `state` moved to new positions.
 
@@ -304,7 +301,8 @@ function move(smld::SMLMData.SMLD2D,
 end
 
 """
-    reallocate(smld::SMLMData.SMLD2D, state::SMLMBaGoL.BaGoLState2D)
+    state, accepted = reallocate(smld::SMLMData.SMLD2D, 
+                                 state::SMLMBaGoL.BaGoLState2D)
 
 Return a state with `smld` localizations reallocated to emitters in `state`.
 
@@ -327,9 +325,9 @@ function reallocate(smld::SMLMData.SMLD2D,
 end
 
 """
-    birth(smld::SMLMData.SMLD2D, 
-          state::SMLMBaGoL.BaGoLState2D,
-          mcparams::SMLMBaGoL.MCParams2D)
+    state, accepted = birth(smld::SMLMData.SMLD2D, 
+                            state::SMLMBaGoL.BaGoLState2D,
+                            mcparams::SMLMBaGoL.MCParams2D)
 
 Propose and determine acceptance of a birth move.
 
@@ -373,9 +371,9 @@ function birth(smld::SMLMData.SMLD2D,
 end
 
 """
-    death(smld::SMLMData.SMLD2D, 
-          state::SMLMBaGoL.BaGoLState2D,
-          mcparams::SMLMBaGoL.MCParams2D)
+    state, accepted = death(smld::SMLMData.SMLD2D, 
+                            state::SMLMBaGoL.BaGoLState2D,
+                            mcparams::SMLMBaGoL.MCParams2D)
 
 Propose and determine acceptance of a death move.
 

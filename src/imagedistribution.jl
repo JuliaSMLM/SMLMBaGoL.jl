@@ -2,11 +2,13 @@ using SMLMData
 using Distributions
 using Base
 
+# This file contains functions/methods useful for defining image distributions.
+
 """
-    imagedistribution(smld::SMLMData.SMLD2D, 
-                      mag::Float64 = 20.0, 
-                      nsigma::Float64 = 5.0,
-                      roi::Vector{Float64} = [1.0; 1.0])
+    imdistrib, imsize = imagedistribution(smld::SMLMData.SMLD2D, 
+                                          mag::Float64 = 20.0, 
+                                          nsigma::Float64 = 5.0,
+                                          roi::Vector{Float64} = [1.0; 1.0])
 
 Generate an approximate emitter distribution from `smld` coordinates.
 
@@ -17,7 +19,7 @@ deviation given by the localization error), converts the Gaussian image into a
 1D probability mass function, and finally prepares a distribution using the
 Distributions package.
 
-# Inputs:
+# Inputs
 -`smld`: SMLD2D structure containing emitter localizations.
 -`mag`: Approximate magnfication from data coordinates to SR coordinates. 
         (Default = 20.0)
@@ -26,6 +28,11 @@ Distributions package.
 -`roi`: Region of interest corresponding to `smld` localizations. 
         (pixels)(Default = [1.0; 1.0])
         ([ystart; xstart; yend; xend] or just [ystart; xstart])
+
+# Outputs
+-`imdstrib`: 1D distribution describing the approximate emitter distribution
+             estimated from a Gaussian image of `smld` localizations.
+-`imsize`: Size of the Gaussian image used to compute `imdistrib`.
 """
 function imagedistribution(smld::SMLMData.SMLD2D, 
                            mag::Float64 = 20.0, 
@@ -46,12 +53,15 @@ function imagedistribution(smld::SMLMData.SMLD2D,
 end
 
 """
-    imagedistribution(image::Matrix{Float64})
+    imdistrib = imagedistribution(image::Matrix{Float64})
 
 Convert the provided `image` into a distribution.
 
-# Inputs:
+# Inputs
 -`image`: N-dimensional image stored as a matrix.
+
+# Outputs
+-`imdstrib`: 1D distribution describing the input `image`.
 """
 function imagedistribution(image::Matrix{Float64})
     # Normalize the image and prepare a distribution using the Distributions
@@ -62,9 +72,9 @@ function imagedistribution(image::Matrix{Float64})
 end
 
 """
-    samplecoords2D(imdistrib::Distributions.Distribution, 
-                   imrows::Int, 
-                   nsamples::Int)
+    coords, sampleind = samplecoords2D(imdistrib::Distributions.Distribution, 
+                                       imrows::Int, 
+                                       nsamples::Int)
 
 Sample grid coordinates from the distribution `imdistrib`.
 
@@ -74,6 +84,10 @@ Sample grid coordinates from the distribution `imdistrib`.
               a column vector might define the PMF of this distribution.
 -`imrows`: Number of rows in the grid.
 -`nsamples`: Number of coordinates to sample.
+
+# Outputs
+-`coords`: Coordinates sampled from `imdistrib`. (nsamplesx2)([y x])
+-`sampleind`: Linear index used to sample `imdistrib`.
 """
 function samplecoords2D(imdistrib::Distributions.Distribution, 
                         imrows::Int, 
@@ -89,7 +103,8 @@ function samplecoords2D(imdistrib::Distributions.Distribution,
 end
 
 """
-    samplecoords2D(imdistrib::Distributions.Distribution, imrows::Int)
+    coords, sampleind = samplecoords2D(imdistrib::Distributions.Distribution, 
+                                       imrows::Int)
 
 Sample grid coordinates from the distribution `imdistrib`.
 
@@ -98,6 +113,10 @@ Sample grid coordinates from the distribution `imdistrib`.
               distribution.  E.g., a normalized gaussian image stacked into
               a column vector might define the PMF of this distribution.
 -`imrows`: Number of rows in the grid.
+
+# Outputs
+-`coords`: Coordinates sampled from `imdistrib`. (2x1)([y; x])
+-`sampleind`: Linear index used to sample `imdistrib`.
 """
 function samplecoords2D(imdistrib::Distributions.Distribution, 
                         imrows::Int)
@@ -111,9 +130,9 @@ function samplecoords2D(imdistrib::Distributions.Distribution,
 end
 
 """
-    makegaussim(smld::SMLMData.SMLD2D, 
-                mag::Float64 = 20.0, 
-                nsigma::Float64 = 5.0)
+    image = makegaussim(smld::SMLMData.SMLD2D, 
+                        mag::Float64 = 20.0, 
+                        nsigma::Float64 = 5.0)
 
 Make a Gaussian image of the localizations in `smld`.
 
@@ -130,6 +149,10 @@ for in this method.
         (Default = 20.0)
 -`nsigma`: Number of standard deviations from the localization coordinate at
            which we truncate the Gaussian. (Default = 5.0)
+
+# Outputs
+-`image`: Matrix{Float64} Gaussian image in which each localization in `smld`
+          is plotted as a Gaussian.
 """
 function makegaussim(smld::SMLMData.SMLD2D,
                      mag::Float64 = 20.0,
@@ -169,9 +192,9 @@ function makegaussim(smld::SMLMData.SMLD2D,
 end
 
 """
-    makebinim(coords::Matrix{Float64}, 
-              datasize::Vector{Float64},
-              mag::Float64 = 20.0)
+    image = makebinim(coords::Matrix{Float64}, 
+                      datasize::Vector{Float64},
+                      mag::Float64 = 20.0)
 
 Make a binary image of the localizations in `coords`.
 
@@ -209,8 +232,7 @@ function makebinim(coords::Matrix{Float64},
 end
 
 """
-    makebinim(smld::SMLMData.SMLD2D, 
-              mag::Float64 = 20.0)
+    image = makebinim(smld::SMLMData.SMLD2D, mag::Float64 = 20.0)
 
 Make a binary image of the localizations in `smld`.
 

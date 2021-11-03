@@ -9,10 +9,10 @@ using Base
 ## Likelihoods of emitters given localizations.
 
 """
-    emitterlikelihood2D(smld::SMLMData.SMLD2D,
-                        μ::Matrix{Float64},
-                        a::Matrix{Float64},
-                        z::Vector{Int})
+    likelihood = emitterlikelihood2D(smld::SMLMData.SMLD2D,
+                                     μ::Matrix{Float64},
+                                     a::Matrix{Float64},
+                                     z::Vector{Int})
 
 Compute the likelihood of the emitters `μ` given localizations in `smld`.
 
@@ -26,6 +26,9 @@ drift velocities `a`.  I.e., likelihood for k emitters along 2 dimensions.
 -`μ`: Location of the emitters. (pixels)(kx1)
 -`a`: Drift velocities of each emitter. (pixels/frame)(kx2)([y x])
 -`z`: Allocations of the `nloc` localizations to the `k` emittters. (nlocx1)
+
+# Outputs
+-`likelihood`: Likelihood of the emitters given the localizations.
 """
 function emitterlikelihood2D(smld::SMLMData.SMLD2D,
                              μ::Matrix{Float64},
@@ -38,12 +41,12 @@ function emitterlikelihood2D(smld::SMLMData.SMLD2D,
 end
 
 """
-    emitterlikelihood2D(y::Matrix{Float64},
-                        σ::Matrix{Float64},
-                        t::Vector{Float64},
-                        μ::Matrix{Float64},
-                        a::Matrix{Float64},
-                        z::Vector{Int})
+    likelihood = emitterlikelihood2D(y::Matrix{Float64},
+                                     σ::Matrix{Float64},
+                                     t::Vector{Float64},
+                                     μ::Matrix{Float64},
+                                     a::Matrix{Float64},
+                                     z::Vector{Int})
 
 Compute the likelihood of the emitters `μ` given localizations in `y`.
 
@@ -62,6 +65,9 @@ likelihood for k emitters along 2 dimensions.
 -`μ`: Location of the emitters. (pixels)(kx2)([y x])
 -`a`: Drift velocities of each emitter. (pixels/frame)(kx2)([y x])
 -`z`: Allocations of the `nloc` localizations to the `k` emittters. (nlocx1)
+
+# Outputs
+-`likelihood`: Likelihood of the emitters given the localizations.
 """
 function emitterlikelihood2D(y::Matrix{Float64},
                              σ::Matrix{Float64},
@@ -76,11 +82,11 @@ function emitterlikelihood2D(y::Matrix{Float64},
 end
 
 """
-    emitterlikelihood2D(y::Matrix{Float64},
-                        σ::Matrix{Float64},
-                        t::Vector{Float64},
-                        μ::Vector{Float64},
-                        a::Vector{Float64})
+    likelihood = emitterlikelihood2D(y::Matrix{Float64},
+                                     σ::Matrix{Float64},
+                                     t::Vector{Float64},
+                                     μ::Vector{Float64},
+                                     a::Vector{Float64})
 
 Compute the likelihood of the emitters `μ` given localizations in `y`.
 
@@ -98,6 +104,9 @@ likelihood for 1 emitter along 2 dimensions.
 -`t`: Observation time corresponding to localizations in `y`. (frames)(nlocx1)
 -`μ`: Location of the emitters. (pixels)(kx2)([y x])
 -`a`: Drift velocities of each emitter. (pixels/frame)(kx2)([y x])
+
+# Outputs
+-`likelihood`: Likelihood of the emitter given the localizations.
 """
 function emitterlikelihood2D(y::Matrix{Float64},
                              σ::Matrix{Float64},
@@ -111,11 +120,11 @@ function emitterlikelihood2D(y::Matrix{Float64},
 end
 
 """
-    emitterlikelihood2D(y::Vector{Float64},
-                        σ::Vector{Float64},
-                        t::Float64,
-                        μ::Vector{Float64},
-                        a::Vector{Float64})
+    likelihood = emitterlikelihood2D(y::Vector{Float64},
+                                     σ::Vector{Float64},
+                                     t::Float64,
+                                     μ::Vector{Float64},
+                                     a::Vector{Float64})
 
 Compute the likelihood of the emitters `μ` given localizations in `y`.
 
@@ -133,6 +142,9 @@ likelihood for 1 localization of 1 emitter along 2 dimensions.
 -`t`: Observation time corresponding to localization `y`. (frames)
 -`μ`: Location of the emitter. (pixels)(2x1)([y; x])
 -`a`: Drift velocities of each emitter. (pixels/frame)(2x1)([y; x])
+
+# Outputs
+-`likelihood`: Likelihood of the emitter given the localization.
 """
 function emitterlikelihood2D(y::Vector{Float64},
                              σ::Vector{Float64},
@@ -146,12 +158,12 @@ function emitterlikelihood2D(y::Vector{Float64},
 end
 
 """
-    emitterlikelihood1D(y::Vector{Float64},
-                        σ::Vector{Float64},
-                        t::Vector{Float64},
-                        μ::Vector{Float64},
-                        a::Vector{Float64},
-                        z::Vector{Int})
+    likelihood = emitterlikelihood1D(y::Vector{Float64},
+                                     σ::Vector{Float64},
+                                     t::Vector{Float64},
+                                     μ::Vector{Float64},
+                                     a::Vector{Float64},
+                                     z::Vector{Int})
 
 Compute the likelihood of the emitters `μ` given localizations `y`.
 
@@ -167,6 +179,9 @@ I.e., likelihood for k emitters along 1 dimension.
 -`μ`: 1D location of the emitters. (pixels)(kx1)
 -`a`: Drift velocities of each emitter. (pixels/frame)(kx1)
 -`z`: Allocations of the `nloc` localizations to the `k` emittters. (nlocx1)
+
+# Outputs
+-`likelihood`: Likelihood of the emitters given the localizations.
 """
 function emitterlikelihood1D(y::Vector{Float64},
                              σ::Vector{Float64},
@@ -194,9 +209,9 @@ function emitterlikelihood1D(y::Vector{Float64},
 end
 
 """
-    emitterlikelihood1D(y::Vector{Float64}, 
-                        σ::Vector{Float64},
-                        μt::Vector{Float64})
+    likelihood = emitterlikelihood1D(y::Vector{Float64}, 
+                                     σ::Vector{Float64},
+                                     μt::Vector{Float64})
 
 Compute the likelihood of the emitter `μt` given localizations `y`.
 
@@ -209,6 +224,9 @@ normally distributed. I.e., likelihood for 1 emitter along 1 dimension.
 -`y`: 1D coordinate of a set of localizations. (pixels)(nlocx1)
 -`σ`: Standard deviations of the observation distribution. (pixels)
 -`μt`: Location of the emitter over time. (pixels)(nframesx1)
+
+# Outputs
+-`likelihood`: Likelihood of the emitter given the localizations.
 """
 function emitterlikelihood1D(y::Vector{Float64}, 
                              σ::Vector{Float64},
@@ -227,10 +245,10 @@ end
 ## Log-likelihoods of emitters given localizations.
 
 """
-    emitterlogL2D(smld::SMLMData.SMLD2D,
-                  μ::Matrix{Float64},
-                  a::Matrix{Float64},
-                  z::Vector{Int})
+    logL = emitterlogL2D(smld::SMLMData.SMLD2D,
+                         μ::Matrix{Float64},
+                         a::Matrix{Float64},
+                         z::Vector{Int})
 
 Compute the log-likelihood of the emitters `μ` given localizations in `smld`.
 
@@ -244,6 +262,9 @@ drift velocities `a`.  I.e., log-likelihood for k emitters along 2 dimensions.
 -`μ`: Location of the emitters. (pixels)(kx1)
 -`a`: Drift velocities of each emitter. (pixels/frame)(kx2)([y x])
 -`z`: Allocations of the `nloc` localizations to the `k` emittters. (nlocx1)
+
+# Outputs
+-`logL`: Log-likelihood of the emitters given the localizations.
 """
 function emitterlogL2D(smld::SMLMData.SMLD2D,
                        μ::Matrix{Float64},
@@ -256,12 +277,12 @@ function emitterlogL2D(smld::SMLMData.SMLD2D,
 end
 
 """
-    emitterlogL2D(y::Matrix{Float64},
-                  σ::Matrix{Float64},
-                  t::Vector{Float64},
-                  μ::Matrix{Float64},
-                  a::Matrix{Float64},
-                  z::Vector{Int})
+    logL = emitterlogL2D(y::Matrix{Float64},
+                         σ::Matrix{Float64},
+                         t::Vector{Float64},
+                         μ::Matrix{Float64},
+                         a::Matrix{Float64},
+                         z::Vector{Int})
 
 Compute the log-likelihood of the emitters `μ` given localizations in `y`.
 
@@ -280,6 +301,9 @@ k emitters along 2 dimensions.
 -`μ`: Location of the emitters. (pixels)(kx2)([y x])
 -`a`: Drift velocities of each emitter. (pixels/frame)(kx2)([y x])
 -`z`: Allocations of the `nloc` localizations to the `k` emittters. (nlocx1)
+
+# Outputs
+-`logL`: Log-likelihood of the emitters given the localizations.
 """
 function emitterlogL2D(y::Matrix{Float64},
                        σ::Matrix{Float64},
@@ -294,11 +318,11 @@ function emitterlogL2D(y::Matrix{Float64},
 end
 
 """
-    emitterlogL2D(y::Matrix{Float64},
-                  σ::Matrix{Float64},
-                  t::Vector{Float64},
-                  μ::Matrix{Float64},
-                  a::Matrix{Float64})
+    logL = emitterlogL2D(y::Matrix{Float64},
+                         σ::Matrix{Float64},
+                         t::Vector{Float64},
+                         μ::Vector{Float64},
+                         a::Vector{Float64})
 
 Compute the log-likelihood of the emitters `μ` given localizations in `y`.
 
@@ -316,6 +340,9 @@ sums the likelihoods over the 2 spatial dimensions.  I.e., log-likelihood for
 -`t`: Observation time corresponding to localizations in `y`. (frames)(nlocx1)
 -`μ`: Location of the emitters. (pixels)(2x1)([y; x])
 -`a`: Drift velocities of each emitter. (pixels/frame)(2x1)([y; x])
+
+# Outputs
+-`logL`: Log-likelihood of the emitter given the localizations.
 """
 function emitterlogL2D(y::Matrix{Float64},
                        σ::Matrix{Float64},
@@ -329,12 +356,20 @@ function emitterlogL2D(y::Matrix{Float64},
 end
 
 """
+    logL = emitterlogL2D(y::Vector{Float64},
+                         σ::Vector{Float64},
+                         t::Float64,
+                         μ::Vector{Float64},
+                         a::Vector{Float64})
+
+Compute the log-likelihood of the emitters `μ` given localizations in `y`.
+
 # Description
 This function computes the log-likelihood that the localizations stored in 
 `y` arose from an emitter at location `μ` with standard deviations `σ` and
 drift velocities `a`.  This function is a wrapper for emitterlogL1D() which 
 sums the likelihoods over the 2 spatial dimensions.  I.e., log-likelihood for
-1 localizations of 1 emitter along 2 dimensions.
+1 localization of 1 emitter along 2 dimensions.
 
 # Inputs
 -`y`: 2D coordinates of a localization. (pixels)(2x1)([y; x])
@@ -343,6 +378,9 @@ sums the likelihoods over the 2 spatial dimensions.  I.e., log-likelihood for
 -`t`: Observation time corresponding to the localization in `y`. (frames)
 -`μ`: Location of the emitters. (pixels)(2x1)([y; x])
 -`a`: Drift velocities of each emitter. (pixels/frame)(2x1)([y; x])
+
+# Outputs
+-`logL`: Log-likelihood of the emitter given the localization.
 """
 function emitterlogL2D(y::Vector{Float64},
                        σ::Vector{Float64},
@@ -356,12 +394,12 @@ function emitterlogL2D(y::Vector{Float64},
 end
 
 """
-    emitterlogL1D(y::Vector{Float64},
-                  σ::Vector{Float64},
-                  t::Vector{Float64},
-                  μ::Vector{Float64},
-                  a::Vector{Float64},
-                  z::Vector{Int})
+    logL = emitterlogL1D(y::Vector{Float64},
+                         σ::Vector{Float64},
+                         t::Vector{Float64},
+                         μ::Vector{Float64},
+                         a::Vector{Float64},
+                         z::Vector{Int})
 
 Compute the log-likelihood of the emitters `μ` given localizations `y`.
 
@@ -377,6 +415,9 @@ I.e., log-likelihood for k emitters along 1 dimension.
 -`μ`: Location of the emitters. (pixels)(kx1)
 -`a`: Drift velocities of each emitter. (pixels/frame)(kx1)
 -`z`: Allocations of the `nloc` localizations to the `k` emittters. (nlocx1)
+
+# Outputs
+-`logL`: Log-likelihood of the emitters given the localizations.
 """
 function emitterlogL1D(y::Vector{Float64},
                        σ::Vector{Float64},
@@ -403,12 +444,10 @@ function emitterlogL1D(y::Vector{Float64},
     return logL
 end
 
-## Log-likelihoods of emitters given localizations.
-
 """
-    emitterlogL1D(y::Vector{Float64}, 
-                  σ::Vector{Float64},
-                  μt::Vector{Float64})
+    logL = emitterlogL1D(y::Vector{Float64}, 
+                         σ::Vector{Float64},
+                         μt::Vector{Float64})
 
 Compute the log-likelihood of the emitter `μt` given localizations `y`.
 
@@ -421,6 +460,9 @@ normally distributed. I.e., log-likelihood for 1 emitter along 1 dimension.
 -`y`: 1D coordinate of a set of localizations. (pixels)(nlocx1)
 -`σ`: Standard deviations of the observation distribution. (pixels)
 -`μt`: Location of the emitter over time. (pixels)(nframesx1)
+
+# Outputs
+-`logL`: Log-likelihood of the emitter given the localizations.
 """
 function emitterlogL1D(y::Vector{Float64}, 
                        σ::Vector{Float64},
@@ -436,9 +478,9 @@ function emitterlogL1D(y::Vector{Float64},
 end
 
 """
-    emitterlogL1D(y::Float64, 
-                  σ::Float64,
-                  μt::Float64}
+    logL = emitterlogL1D(y::Float64, 
+                         σ::Float64,
+                         μt::Float64}
 
 Compute the log-likelihood of the emitter `μt` given localization `y`.
 
@@ -452,6 +494,9 @@ along 1 dimension.
 -`y`: 1D coordinate of a set of localizations. (pixels)
 -`σ`: Standard deviations of the observation distribution. (pixels)
 -`μt`: Location of the emitter over time. (pixels)
+
+# Outputs
+-`logL`: Log-likelihood of the emitter given the localization.
 """
 function emitterlogL1D(y::Float64, 
                        σ::Float64,

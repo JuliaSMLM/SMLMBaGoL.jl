@@ -44,6 +44,10 @@ between emitters placed in the same precluster.
 -`smld`: SMLD2D structure containing the localization data. (see SMLMData.jl)
 -`maxdist`: Maximum distance from one localization to its nearest-neighbor 
             allowed in each precluster. (Pixels)
+
+# Outputs:
+-`smld_preclustered`: Copy of input `smld` with an updated field `connectID`
+                      reflecting cluster membership.
 """
 function precluster_hierarchical(smld::SMLMData.SMLD2D, maxdist::Float64=0.15)
     # Compute the separations between all localizations in `smld`.
@@ -60,7 +64,7 @@ end
 """
 dist = pairwise_dist(data::Matrix{Float64})
 
-Compute the pairwise distance between rows of data.
+Compute the pairwise distance between rows of `data`.
 
 # Description
 This method computes the Euclidean distance between pairs of data organized as
@@ -70,6 +74,10 @@ rows of the input matrix `data`.
 -`data`: Matrix of coordinates between which the pairwise distance will be
          computed, organized with coordinates along rows, e.g., [x y] where
          x and y are both columns of coordinates.
+
+# Outputs
+-`dist`: Pairwise distance between rows of input `data`, saved as an
+         upper-triangular matrix to avoid redundant computations.
 """
 function pairwise_dist(data::Matrix{Float64})
     # Compute the distance between rows of `data`.
