@@ -190,42 +190,16 @@ end
 
 mutable struct BaGoLChain2D <: MarkovChain
     states::Vector{SMLMBaGoL.BaGoLState2D}
-    n::Int
-    jumptypes::Vector{Int}
     accept::Vector{Bool}
+    n::Int
+end
+function BaGoLChain2D(state::SMLMBaGoL.BaGoLState2D, accepted::Bool = true)
+    # Initialize a chain structure with the given state.
+    return BaGoLChain2D([state], [accepted], 1)
 end
 function BaGoLChain2D(n_chain::Int)
     # Initialize a chain structure of length `n_chain`.
     return BaGoLChain2D(Vector{SMLMBaGoL.BaGoLState2D}(undef, n_chain),
-                        n_chain, 
-                        Vector{Int}(undef, n_chain),
-                        Vector{Bool}(undef, n_chain))
+                        Vector{Bool}(undef, n_chain),
+                        n_chain)
 end
-length(chain::BaGoLChain2D) = chain.n_chain
-
-
-
-
-
-
-
-# mutable struct BaGoLChain <: MarkovChain
-#     k::Vector{Int}
-#     μ::Vector{Matrix{Float64}}
-#     a::Vector{Matrix{Float64}}
-#     z::Vector{Vector{Int}}
-# end
-# function BaGoLChain(n_chain::Int)
-#     # Initialize a chain structure of length `n_chain`.
-#     return BaGoLChain(Vector{Int}(undef, n_chain), 
-#         Vector{Matrix{Float64}}(undef, n_chain),
-#         Vector{Matrix{Float64}}(undef, n_chain),
-#         Vector{Vector{Int}}(undef, n_chain))
-# end
-# function BaGoLChain(k::Int, 
-#                     μ::Matrix{Float64},
-#                     a::Matrix{Float64},
-#                     z::Vector{Int})
-#     return BaGoLChain([k], [μ], [a], [z])
-# end
-# length(chain::BaGoLChain) = Base.length(chain.k)

@@ -98,16 +98,20 @@ function acceptdeath(smld::SMLMData.SMLD2D,
         proposal, positionind, currentstate, mcparams)
 end
 
-function removeemitter!(chain::SMLMBaGoL.BaGoLChain2D, k::Int)
-    # Remove the k-th emitter from the end of the chain, ensuring we update
-    # the allocations array `z` to consist of integers 1:k
-    keepind = setdiff(1:chain.k[end], k)
-    chain.k[end] -= 1
-    chain.μ[end] = chain.μ[end][keepind, :]
-    chain.a[end] = chain.a[end][keepind, :]
-    chain.z[end][chain.z[end] .> chain.k[end]] .-= 1
+function addstate!(chain::SMLMBaGoL.BaGoLChain2D, 
+                   state::SMLMBaGoL.BaGoLState2D, 
+                   accepted::Bool)
+    # Update the chain to include `state`.
+    push!(chain.states, state)
+    push!(chain.accept, accepted)
+    chain.n += 1
+end
 
-    return
+function removestate!(chain::SMLMBaGoL.BaGoLChain2D, remove)
+    # Update the chain remove the state `remove`.
+    deleteat!(chain.states, remove)
+    deleteat!(chain.accept, remove)
+    chain.n = Base.length(chain.states)
 end
 
 function removeemitter!(state::SMLMBaGoL.BaGoLState2D, k::Int)
@@ -117,23 +121,7 @@ function removeemitter!(state::SMLMBaGoL.BaGoLState2D, k::Int)
     state.μ = state.μ[keepind, :]
     state.a = state.a[keepind, :]
     state.z[state.z .> state.k] .-= 1
-
-    return
 end
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
