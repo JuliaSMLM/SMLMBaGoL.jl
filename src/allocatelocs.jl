@@ -2,13 +2,13 @@ using SMLMData
 using Distributions
 using NearestNeighbors
 
-## This file contains functions related to the allocation of localizations to
-## emitters, including 
+# This file contains functions related to the allocation of localizations to
+# emitters, including 
 
 """
-    allocatelocs(smld::SMLMData.SMLD2D, 
-                 μ::Matrix{Float64}, 
-                 a::Matrix{Float64})
+    zprime = allocatelocs(smld::SMLMData.SMLD2D, 
+                          μ::Matrix{Float64}, 
+                          a::Matrix{Float64})
 
 Allocate localizations to emitters.
 
@@ -20,6 +20,12 @@ the positions `μ` at time t=0.
 -`smld`: SMLMData.SMLD2D data structure containing localizations.
 -`μ`: Coordinates of the proposed emitter positions. (pixels)([y x])
 -`a`: Drift velocity of the emitters `μ`. (pixels/frame)([a_y a_x])
+
+# Outputs
+-`zprime`: Array of emitter indices defining the allocations of `smld` 
+           localizations.  For example, if `zprime[n] = k`, the `n-th`
+           localization of `smld` was allocated to the `k-th` emitter
+           (i.e., row `k` of `μ`).
 """
 function allocatelocs(smld::SMLMData.SMLD2D, 
                       μ::Matrix{Float64}, 
@@ -41,11 +47,11 @@ function allocatelocs(smld::SMLMData.SMLD2D,
 end
 
 """
-    posterior_allocations(y::Vector{Float64}, 
-                          σ_y::Vector{Float64}, 
-                          t::Float64, 
-                          μ::Matrix{Float64},
-                          a::Matrix{Float64})
+    posterior = posterior_allocations(y::Vector{Float64}, 
+                                      σ_y::Vector{Float64}, 
+                                      t::Float64, 
+                                      μ::Matrix{Float64},
+                                      a::Matrix{Float64})
 
 Construct a posterior distribution of allocations of a localization.
 
@@ -60,6 +66,9 @@ positions `μ` at time t=0.
 -`t`: Time of observation of localization `y`. (frame)
 -`μ`: Coordinates of the proposed emitter positions. (pixels)([y x])
 -`a`: Drift velocity of the emitters `μ`. (pixels/frame)([a_y a_x])
+
+# Outputs
+-`posterior`: A Distributions.Distribution defining the allocation posterior.
 """
 function posterior_allocations(y::Vector{Float64}, 
                                σ_y::Vector{Float64}, 
@@ -80,9 +89,6 @@ function posterior_allocations(y::Vector{Float64},
         nnindex, _ = NearestNeighbors.knn(kdtree, y, 1, true)
         pmf = zeros(Float64, Base.length(pmf))
         pmf[nnindex[1]] = 1.0
-    elseif !isapprox(sum(pmf), 1.0)
-        println(sum(pmf))
-        println("not normalizable")
     end
 
     return Distributions.DiscreteNonParametric(1:Base.length(pmf), pmf)
@@ -94,12 +100,12 @@ end
 
 ## Log-likelihood kernels of allocations.
 """
-    logLalloc_kernel(y::Matrix{Float64},
-                     σ::Matrix{Float64},
-                     t::Vector{Float64},
-                     μ::Matrix{Float64},
-                     a::Matrix{Float64},
-                     w::Vector{Float64})
+    logL = logLalloc_kernel(y::Matrix{Float64},
+                            σ::Matrix{Float64},
+                            t::Vector{Float64},
+                            μ::Matrix{Float64},
+                            a::Matrix{Float64},
+                            w::Vector{Float64})
 
 Compute the unnormalized log-likelihood of allocating `y` to emitters `μ`.
 
@@ -116,6 +122,9 @@ method computes the log of the kernel of the distribution P_alloc(Z).
 -`μ`: Location of the emitter. (pixels)(kx2)([y x])
 -`a`: Drift velocities of each emitter. (pixels/frame)(kx2)([y x])
 -`w`: Relative weighting of the emitters. (kx1)
+
+# Outputs
+-`logL`: Log-likelihood kernel of the allocation distribution.
 """
 function logLalloc_kernel(y::Matrix{Float64},
                           σ::Matrix{Float64},
@@ -140,12 +149,12 @@ end
 
 ## Probability kernels of allocations.
 """
-    palloc_kernel(y::Matrix{Float64},
-                  σ::Matrix{Float64},
-                  t::Vector{Float64},
-                  μ::Matrix{Float64},
-                  a::Matrix{Float64},
-                  w::Vector{Float64})
+    p = palloc_kernel(y::Matrix{Float64},
+                      σ::Matrix{Float64},
+                      t::Vector{Float64},
+                      μ::Matrix{Float64},
+                      a::Matrix{Float64},
+                      w::Vector{Float64})
 
 Compute the unnormalized probability of allocating `y` to emitters `μ`.
 
@@ -162,6 +171,9 @@ method computes the kernel of the distribution P_alloc(Z).
 -`μ`: Location of the emitter. (pixels)(kx2)([y x])
 -`a`: Drift velocities of each emitter. (pixels/frame)(kx2)([y x])
 -`w`: Relative weighting of the emitters. (kx1)
+
+# Outputs
+-`p`: Probability kernel of the allocation probability.
 """
 function palloc_kernel(y::Matrix{Float64},
                        σ::Matrix{Float64},
@@ -180,12 +192,12 @@ function palloc_kernel(y::Matrix{Float64},
 end
 
 """
-    palloc_kernel(y::Matrix{Float64},
-                  σ::Matrix{Float64},
-                  t::Vector{Float64},
-                  μ::Vector{Float64},
-                  a::Vector{Float64},
-                  w::Float64)
+    p = palloc_kernel(y::Matrix{Float64},
+                      σ::Matrix{Float64},
+                      t::Vector{Float64},
+                      μ::Vector{Float64},
+                      a::Vector{Float64},
+                      w::Float64)
 
 Compute the unnormalized probability of allocating `y` to emitter `μ`.
 
@@ -202,6 +214,9 @@ method computes the kernel of the distribution P_alloc(Z_i|j).
 -`μ`: Location of the emitter. (pixels)(2x1)([y; x])
 -`a`: Drift velocities of each emitter. (pixels/frame)(2x1)([y; x])
 -`w`: Relative weighting of the emitter.
+
+# Outputs
+-`p`: Probability kernel of the allocation probability.
 """
 function palloc_kernel(y::Matrix{Float64},
                        σ::Matrix{Float64},
@@ -221,12 +236,12 @@ function palloc_kernel(y::Matrix{Float64},
 end
 
 """
-    palloc_kernel(y::Vector{Float64},
-                  σ::Vector{Float64},
-                  t::Float64,
-                  μ::Vector{Float64},
-                  a::Vector{Float64},
-                  w::Float64)
+    p = palloc_kernel(y::Vector{Float64},
+                      σ::Vector{Float64},
+                      t::Float64,
+                      μ::Vector{Float64},
+                      a::Vector{Float64},
+                      w::Float64)
 
 Compute the unnormalized probability of allocating `y` to emitter `μ`.
 
@@ -244,6 +259,9 @@ normalization factor is the same for {j=1:k | P_alloc(Z_i=j)}).
 -`μ`: Location of the emitter. (pixels)(2x1)([y; x])
 -`a`: Drift velocities of each emitter. (pixels/frame)(2x1)([y; x])
 -`w`: Relative weighting of the emitter.
+
+# Outputs
+-`p`: Probability kernel of the allocation probability.
 """
 function palloc_kernel(y::Vector{Float64},
                        σ::Vector{Float64},

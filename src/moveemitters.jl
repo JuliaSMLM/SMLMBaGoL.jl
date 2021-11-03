@@ -2,10 +2,12 @@ using SMLMData
 using Distributions
 using LinearAlgebra
 
+# This file contains functions/methods related to moving emitters.
+
 """
-    moveemitters(smld::SMLMData.SMLD2D, 
-                 z::Vector{Int}, 
-                 k::Int = maximum(z))
+    μ = moveemitters(smld::SMLMData.SMLD2D, 
+                     z::Vector{Int}, 
+                     k::Int = maximum(z))
 
 Sample the `k` emitter positions from the normal distribution.
 
@@ -19,6 +21,9 @@ normal distribution defined by the MLE position of the localizations in `smld`
 -`z`: Allocations of the localizations in `smld` to emitters associated with
       the indices `1:k`. (length `nloc` integer array)
 -`k`: Total number of emitters to which the `nloc` localizations are allocated.
+
+# Outputs
+-`μ`: New set of emitter positions. ([y x])
 """
 function moveemitters(smld::SMLMData.SMLD2D, z::Vector{Int}, k::Int = maximum(z))
     # Loop through the `k` emitters and sample new positions based on the
@@ -54,6 +59,9 @@ normal distribution defined by the MLE position of the localizations in `smld`
       the indices `1:k`. (length `nloc` integer array)
 -`σ_a`: Standard deviation of the drift velocity. (same for each dimension)
 -`k`: Total number of emitters to which the `nloc` localizations are allocated.
+
+# Outputs
+-`μ`: New set of emitter positions. ([y x])
 """
 function moveemitters(smld::SMLMData.SMLD2D, 
                       z::Vector{Int}, 
@@ -81,18 +89,21 @@ function moveemitters(smld::SMLMData.SMLD2D,
 end
 
 """
-    posterior_emitterpos(y::Vector{Float64}, 
-                         σ_y::Vector{Float64})
+    sample = posterior_emitterpos(y::Vector{Float64}, 
+                                  σ_y::Vector{Float64})
 
-Construct a posterior distribution of emitter position along one dimension.
+Sample a posterior distribution of emitter position along one dimension.
 
 # Description
-This function constructs a posterior distribution for the position of the
+This function samples a posterior distribution for the position of the
 emitter which generated the one dimensional localization coordinates `y`.
 
 # Inputs
 -`y`: Coordinate of a localization along one dimension. (pixels)(nlocx1)
 -`σ_y`: Standard error of the localization `x`. (pixels)(nlocx1)
+
+# Outputs
+-`sample`: Sample from the posterior emitter distribution.
 """
 function posterior_emitterpos(y::Vector{Float64}, 
                               σ_y::Vector{Float64})
@@ -112,28 +123,32 @@ function posterior_emitterpos(y::Vector{Float64},
 end
 
 """
-    posterior_emitterpos(y::Vector{Float64}, 
-                         σ_y::Vector{Float64},
-                         t::Float64,
-                         σ_a::Float64)
+    sample = posterior_emitterpos(y::Vector{Float64}, 
+                                  σ_y::Vector{Float64},
+                                  t::Float64,
+                                  σ_a::Float64)
 
-Construct a posterior distribution of emitter position.
+Sample the posterior of emitter position and drift along one dimension.
 
 # Description
-This function constructs a posterior distribution for the position of the
-emitter which generated the localizations `y`.
+This function samples a posterior distribution for the position of the
+emitter and its drift which generated the localizations `y`.
 
 # Inputs
 -`y`: Coordinate of a localizations along one dimension. (pixels)(nlocx1)
 -`σ_y`: Standard error of the localizations `y`. (pixels)(nlocx1)
 -`t`: Time of observation of localizations `y`. (frame)(nlocx1)
 -`σ_a`: Standard deviation of the drift velocity. (pixels/frame)
+
+# Outputs
+-`sample`: Sample from the posterior emitter and drift velocity
+           distribution. ([μ_sample; a_sample])
 """
 function posterior_emitterpos(y::Vector{Float64},
                               σ_y::Vector{Float64},
                               t::Vector{Int},
                               σ_a::Float64)
-    # Estimate the location of the `kID`-th emitter based on the allocated
+    # Estimate the location of the `k-th` emitter based on the allocated
     # localizations defined by `y` and `σ_y`.  `μ` is the MLE of the true
     # emitter position sampled by the length(y) Gaussians with mean `y` and 
     # standard deviation `σ_y`. `Ξ` is the inverse of the Fisher information
@@ -147,7 +162,7 @@ function posterior_emitterpos(y::Vector{Float64},
     μ = (A-a*B) / C
     Ξ = LinearAlgebra.pinv([A B; B D + 1.0./σ_a^2])
 
-    # Sample a new position of the `kID`-th emitter from the Gaussian defined
+    # Sample a new position of the `k-th` emitter from the Gaussian defined
     # by `μ` and `Ξ`.  Note that I'm forcing Ξ to be Hermitian, as it's often
     # non-Hermitian due to floating-point errors.
     return Distributions.rand(Distributions.MvNormal([μ; a], 

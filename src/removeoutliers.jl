@@ -3,6 +3,9 @@ using Statistics
 using NearestNeighbors
 using Base
 
+# This file contains functions/methods used to remove localizations deemed to
+# be outliers.
+
 """
     smld_thresh = removeoutliers(smld::SMLMData.SMLD2D, 
                                  thresholds::PreThreshParams)
@@ -16,6 +19,9 @@ defined by `thresholds`.
 # Inputs
 -`smld`: SMLD2D structure containing the localization data. (see SMLMData.jl)
 -`thresholds`: Structure of preprocessing threshold parameters.
+
+# Outputs
+-`smld_thresh`: Input `smld` with the outliers removed.
 """
 function removeoutliers(smld::SMLMData.SMLD2D, thresholds::PreThreshParams)
     # Threshold localizations that are too bright (i.e., those which might be 
@@ -67,9 +73,8 @@ defined by `thresholds`.
 -`smld`: A matrix of SMLD2D structures. (see SMLMData.jl)
 -`thresholds`: Structure of preprocessing threshold parameters.
 
-# Notes
-This method exists because I couldn't figure out how to get something like
-removeoutliers.(smld, thresholds) to work...
+# Outputs
+-`smld_thresh`: Input `smld` with the outliers removed.
 """
 function removeoutliers(smld::Matrix{SMLMData.SMLD2D}, 
                         thresholds::PreThreshParams)
@@ -121,6 +126,9 @@ This method removes localizations from `smld` that are greater than
 -`smld`: SMLD2D structure containing the localization data. (see SMLMData.jl)
 -`maxsigmadev_photons`: Maximum number of standard deviations above the mean 
                         photons allowed for valid localizations.
+             
+# Outputs
+-`smld_thresh`: Input `smld` with the outliers removed.
 """
 function threshphotons(smld::SMLMData.SMLD2D, maxsigmadev_photons::Float64)
     # Threshold localizations that are too bright (i.e., those which might be 
@@ -172,6 +180,9 @@ localizations that have fewer than `n_min` localizations within `r` pixels.
 -`n_min`: Minimum number of nearest neighbors required within `r`. (Pixels)
 -`r`: Distance defining the region within which `n_min` nearest neighbor 
       localizations must be present. (Pixels)
+
+# Outputs
+-`smld_thresh`: Input `smld` with the isolated localizations removed.
 """
 function removeisolated(smld::SMLMData.SMLD2D, n_min::Int, r::Float64)
     # If there are fewer than `n_min+1` localizations, we can return an empty

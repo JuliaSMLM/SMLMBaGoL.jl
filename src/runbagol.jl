@@ -1,5 +1,23 @@
 using SMLMData
 
+"""
+    chain = runbagol!(smld::SMLMData.SMLD2D, params::SMLMBaGoL.BaGoLParams2D)
+
+Perform a typical BaGoL analysis based on localizations in `smld`.
+
+# Description
+This function is intended to be the main entry for users of the SMLMBaGoL.jl
+package, meaning that it will run the standard analysis workflow for Bayesian 
+Grouping of Localizations (BaGoL).
+
+# Inputs
+-`smld`: SMLD2D structure containing localizations.
+-`params`: Structure of parameter structures used/updated throughout the BaGoL
+           analysis.
+
+# Outputs
+-`chain`: An SMLMBaGoL.BaGoLChain2D RJMCMC chain.
+"""
 function runbagol!(smld::SMLMData.SMLD2D, params::SMLMBaGoL.BaGoLParams2D)
     # Split the data into subregions.
     smld_subregions, rois, _ = SMLMBaGoL.gensubregions(smld, 

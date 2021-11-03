@@ -8,9 +8,9 @@ using Base
 #       for allocation probabilities.
 
 """
-    proposemove(smld::SMLMData.SMLD2D,
-                currentstate::SMLMBaGoL.BaGoLState2D,
-                mcparams::SMLMBaGoL.MCParams)
+    proposal = proposemove(smld::SMLMData.SMLD2D,
+                           currentstate::SMLMBaGoL.BaGoLState2D,
+                           mcparams::SMLMBaGoL.MCParams)
         
 Propose a move of emitters.
 
@@ -40,8 +40,8 @@ function proposemove(smld::SMLMData.SMLD2D,
 end
 
 """
-    proposeallocation(smld::SMLMData.SMLD2D,
-                      currentstate::SMLMBaGoL.BaGoLState2D)
+    proposal = proposeallocation(smld::SMLMData.SMLD2D,
+                                 currentstate::SMLMBaGoL.BaGoLState2D)
         
 Propose a reallocation of localizations to emitters.
 
@@ -67,9 +67,9 @@ function proposeallocation(smld::SMLMData.SMLD2D,
 end
 
 """
-    proposebirth(smld::SMLMData.SMLD2D,
-                 currentstate::SMLMBaGoL.BaGoLState2D,
-                 mcparams::SMLMBaGoL.MCParams)
+    proposal, p_im = proposebirth(smld::SMLMData.SMLD2D,
+                                  currentstate::SMLMBaGoL.BaGoLState2D,
+                                  mcparams::SMLMBaGoL.MCParams)
         
 Propose a new emitter.
 
@@ -109,9 +109,9 @@ function proposebirth(smld::SMLMData.SMLD2D,
 end
 
 """
-    proposedeath(smld::SMLMData.SMLD2D,
-                 currentstate::SMLMBaGoL.BaGoLState2D,
-                 mcparams::SMLMBaGoL.MCParams)
+    proposal, p_im = proposedeath(smld::SMLMData.SMLD2D,
+                                  currentstate::SMLMBaGoL.BaGoLState2D,
+                                  mcparams::SMLMBaGoL.MCParams)
         
 Propose the death of an existing emitter.
 
@@ -151,11 +151,11 @@ function proposedeath(smld::SMLMData.SMLD2D,
 end
 
 """
-    acceptbirth(smld::SMLMData.SMLD2D,
-                proposal::SMLMBaGoL.BaGoLState2D,
-                p_im::Float64,
-                currentstate::SMLMBaGoL.BaGoLState2D,
-                mcparams::SMLMBaGoL.MCParams)
+    α = acceptbirth(smld::SMLMData.SMLD2D,
+                    proposal::SMLMBaGoL.BaGoLState2D,
+                    p_im::Float64,
+                    currentstate::SMLMBaGoL.BaGoLState2D,
+                    mcparams::SMLMBaGoL.MCParams)
         
 Compute the acceptance probability of accepting the proposed emitter birth.
 
@@ -174,7 +174,9 @@ in `currentstate`.
 -`mcparams`: Structure of MCMC parameters/distributions.
 
 # Outputs
--`accept`: Acceptance probability of accepting the proposed state change.
+-`α`: Acceptance probability of accepting the proposed state change.
+      NOTE: I'm not enforcing `α`<=1.0 in this output, so care must be taken
+            when using it elsewhere!
 """
 function acceptbirth(smld::SMLMData.SMLD2D,
                      proposal::SMLMBaGoL.BaGoLState2D,
@@ -206,11 +208,11 @@ function acceptbirth(smld::SMLMData.SMLD2D,
 end
 
 """
-    acceptdeath(smld::SMLMData.SMLD2D,
-                proposal::SMLMBaGoL.BaGoLState2D,
-                p_im::Float64,
-                currentstate::SMLMBaGoL.BaGoLState2D,
-                mcparams::SMLMBaGoL.MCParams)
+    α = acceptdeath(smld::SMLMData.SMLD2D,
+                    proposal::SMLMBaGoL.BaGoLState2D,
+                    p_im::Float64,
+                    currentstate::SMLMBaGoL.BaGoLState2D,
+                    mcparams::SMLMBaGoL.MCParams)
         
 Compute the acceptance probability of accepting the proposed emitter death.
 
