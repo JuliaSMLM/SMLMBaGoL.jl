@@ -2,6 +2,25 @@ using SMLMData
 using Distributions
 using Base
 
+"""
+    runRJMCMC!(smld::Matrix{SMLMData.SMLD2D}, 
+               mcparams::MCParams2D)
+
+Perform reversible jump Markov chain monte carle (RJMCMC).
+
+# Description
+This function performs RJMCMC analysis by preparing some distributions and
+parameters and then building the RJMCMC chain.  This function dispatches on
+the vector `smld` version of runRJMCMC!() on each entry of the matrix input 
+`smld`.
+
+# Inputs
+-`smld`: Matrix of SMLD2D structures.
+-`mcparams`: Structure of MCMC parameters.
+
+# Outputs
+-`chain`: An SMLMBaGoL.BaGoLChain2D RJMCMC chain.
+"""
 function runRJMCMC!(smld::Matrix{SMLMData.SMLD2D}, 
                     rois::Matrix{Vector{Float64}}, 
                     mcparams::MCParams2D)
@@ -20,6 +39,25 @@ function runRJMCMC!(smld::Matrix{SMLMData.SMLD2D},
     return chain
 end
 
+"""
+    runRJMCMC!(smld::Vector{SMLMData.SMLD2D}, 
+               mcparams::MCParams2D)
+
+Perform reversible jump Markov chain monte carle (RJMCMC).
+
+# Description
+This function performs RJMCMC analysis by preparing some distributions and
+parameters and then building the RJMCMC chain.  This function dispatches on
+the single `smld` version of runRJMCMC!() on each entry of the vector input 
+`smld`.
+
+# Inputs
+-`smld`: Vector of SMLD2D structures.
+-`mcparams`: Structure of MCMC parameters.
+
+# Outputs
+-`chain`: An SMLMBaGoL.BaGoLChain2D RJMCMC chain.
+"""
 function runRJMCMC!(smld::Vector{SMLMData.SMLD2D}, 
                     mcparams::MCParams2D)
     # Loop over preclusters and perform RJMCMC on each of them.
@@ -32,6 +70,23 @@ function runRJMCMC!(smld::Vector{SMLMData.SMLD2D},
     return chain
 end
 
+"""
+    runRJMCMC!(smld::SMLMData.SMLD2D, 
+               mcparams::MCParams2D)
+
+Perform reversible jump Markov chain monte carle (RJMCMC).
+
+# Description
+This function performs RJMCMC analysis by preparing some distributions and
+parameters and then building the RJMCMC chain.
+
+# Inputs
+-`smld`: SMLD2D structure containing the localizations.
+-`mcparams`: Structure of MCMC parameters.
+
+# Outputs
+-`chain`: An SMLMBaGoL.BaGoLChain2D RJMCMC chain.
+"""
 function runRJMCMC!(smld::SMLMData.SMLD2D, 
                     mcparams::MCParams2D)
     # Prepare an emitter distribution from the provided localizations 
@@ -65,6 +120,29 @@ function runRJMCMC!(smld::SMLMData.SMLD2D,
     return chain
 end
 
+"""
+    buildchain(smld::SMLMData.SMLD2D, 
+               initstate::SMLMBaGoL.BaGoLState2D,
+               mcparams::SMLMBaGoL.MCParams2D,
+               burnin::Bool = false) 
+
+Build an RJMCMC chain starting with state `initstate`.
+
+# Description
+This function constructs an RJMCMC chain starting with the provided initial
+state in `initstate`.
+
+# Inputs
+-`smld`: SMLD2D structure containing the localizations.
+-`initstate`: Initializing state of the chain.
+-`mcparams`: Structure of MCMC parameters.
+-`burnin`: Boolean indicating whether or not a burn-in phase is being
+           requested.  When true, only the final state of the chain is
+           retained.
+
+# Outputs
+-`chain`: An SMLMBaGoL.BaGoLChain2D RJMCMC chain.
+"""
 function buildchain(smld::SMLMData.SMLD2D, 
                     initstate::SMLMBaGoL.BaGoLState2D,
                     mcparams::SMLMBaGoL.MCParams2D,
@@ -111,6 +189,30 @@ function buildchain(smld::SMLMData.SMLD2D,
     end
 end
 
+"""
+    buildchain(smld::SMLMData.SMLD2D, 
+               initchain::SMLMBaGoL.BaGoLChain2D,
+               mcparams::SMLMBaGoL.MCParams2D,
+               burnin::Bool = false) 
+
+Build an RJMCMC chain starting with chain `initchain`.
+
+# Description
+This function constructs an RJMCMC chain starting with the provided initial
+state in at the end of `initchain`.  This method is just used to dispatch on
+the version of buildchain() with an initial state input.
+
+# Inputs
+-`smld`: SMLD2D structure containing the localizations.
+-`initchain`: Chain whose last state is used to initialize the chain.
+-`mcparams`: Structure of MCMC parameters.
+-`burnin`: Boolean indicating whether or not a burn-in phase is being
+           requested.  When true, only the final state of the chain is
+           retained.
+
+# Outputs
+-`chain`: An SMLMBaGoL.BaGoLChain2D RJMCMC chain.
+"""
 function buildchain(smld::SMLMData.SMLD2D, 
                     initchain::SMLMBaGoL.BaGoLChain2D,
                     mcparams::SMLMBaGoL.MCParams2D,
@@ -119,6 +221,30 @@ function buildchain(smld::SMLMData.SMLD2D,
     return buildchain(smld, initchain.states[end], mcparams, burnin)
 end
 
+"""
+    updatestate(smld::SMLMData.SMLD2D, 
+                state::SMLMBaGoL.BaGoLState2D,
+                mcparams::SMLMBaGoL.MCParams2D, 
+                jumptype::Int)  
+
+Propose and accept/reject a jump of type `jumptype`.
+
+# Description
+This function moves proposes a jump of type `jumptype` and then either returns
+an updated state (jump accepted) or the input `state` (jump rejected).
+
+# Inputs
+-`smld`: SMLD2D structure containing the localizations.
+-`state`: Current state of the Markov chain.
+-`mcparams`: Structure of MCMC parameters.
+-`jumptype`: Index of the jump to be proposed.
+             (1=move, 2=reallocate, 3=birth, 4=death)
+
+# Outputs
+-`state`: A proposed state with the moved emitters.
+-`accepted`: Boolean indicating whether or not the move was accepted, which is 
+             always true since moves use Gibbs sampling.
+"""
 function updatestate(smld::SMLMData.SMLD2D, 
                      state::SMLMBaGoL.BaGoLState2D,
                      mcparams::SMLMBaGoL.MCParams2D, 
@@ -149,6 +275,27 @@ function updatestate(smld::SMLMData.SMLD2D,
     return state, accepted
 end
 
+"""
+    move(smld::SMLMData.SMLD2D, 
+         state::SMLMBaGoL.BaGoLState2D,
+         mcparams::SMLMBaGoL.MCParams2D)
+
+Return a state with the emitters in `state` moved to new positions.
+
+# Description
+This function moves emitters in `state` to new positions sampled from the 
+position posterior distribution.
+
+# Inputs
+-`smld`: SMLD2D structure containing the localizations.
+-`state`: Current state of the Markov chain.
+-`mcparams`: Structure of MCMC parameters.
+
+# Outputs
+-`state`: A proposed state with the moved emitters.
+-`accepted`: Boolean indicating whether or not the move was accepted, which is 
+             always true since moves use Gibbs sampling.
+"""
 function move(smld::SMLMData.SMLD2D, 
               state::SMLMBaGoL.BaGoLState2D,
               mcparams::SMLMBaGoL.MCParams2D)
@@ -156,22 +303,60 @@ function move(smld::SMLMData.SMLD2D,
     return SMLMBaGoL.proposemove(smld, state, mcparams), true
 end
 
+"""
+    reallocate(smld::SMLMData.SMLD2D, state::SMLMBaGoL.BaGoLState2D)
+
+Return a state with `smld` localizations reallocated to emitters in `state`.
+
+# Description
+This function reallocates localizations in `smld` to emitters in `state`.
+
+# Inputs
+-`smld`: SMLD2D structure containing the localizations.
+-`state`: Current state of the Markov chain.
+
+# Outputs
+-`state`: A proposed state with the (potentially) redefined allocations.
+-`accepted`: Boolean indicating whether or not the move was accepted, which is 
+             always true since allocations use Gibbs sampling.
+"""
 function reallocate(smld::SMLMData.SMLD2D, 
                     state::SMLMBaGoL.BaGoLState2D)
     # Propose an allocation and accept it (allocations are always accepted).
     return SMLMBaGoL.proposeallocation(smld, state), true
 end
 
+"""
+    birth(smld::SMLMData.SMLD2D, 
+          state::SMLMBaGoL.BaGoLState2D,
+          mcparams::SMLMBaGoL.MCParams2D)
+
+Propose and determine acceptance of a birth move.
+
+# Description
+This function proposes the birth of an emitter and then determines if it should
+be accepted into the Markov chain.
+
+# Inputs
+-`smld`: SMLD2D structure containing the localizations.
+-`state`: Current state of the Markov chain.
+-`mcparams`: Structure of MCMC parameters.
+
+# Outputs
+-`state`: A proposed state with one more emitter (if the move was accepted) or
+          the input state `state`.
+-`accepted`: Boolean indicating whether or not the proposal was accepted.
+"""
 function birth(smld::SMLMData.SMLD2D, 
                state::SMLMBaGoL.BaGoLState2D,
                mcparams::SMLMBaGoL.MCParams2D)
     # Propose a birth of a new emitter (unless there are as many emitters as
     # localizations, in which case we'll return the input `state`).
     if state.k < SMLMData.length(smld)
-        proposal, positionind = SMLMBaGoL.proposebirth(smld, state, mcparams)
+        proposal, p_im = SMLMBaGoL.proposebirth(smld, state, mcparams)
         acceptance = SMLMBaGoL.acceptbirth(smld, 
                                            proposal, 
-                                           positionind, 
+                                           p_im, 
                                            state, 
                                            mcparams)
     else
@@ -187,22 +372,43 @@ function birth(smld::SMLMData.SMLD2D,
     end
 end
 
+"""
+    death(smld::SMLMData.SMLD2D, 
+          state::SMLMBaGoL.BaGoLState2D,
+          mcparams::SMLMBaGoL.MCParams2D)
+
+Propose and determine acceptance of a death move.
+
+# Description
+This function proposes the death of an emitter and then determines if it should
+be accepted into the Markov chain.
+
+# Inputs
+-`smld`: SMLD2D structure containing the localizations.
+-`state`: Current state of the Markov chain.
+-`mcparams`: Structure of MCMC parameters.
+
+# Outputs
+-`state`: A proposed state with one less emitter (if the move was accepted) or
+          the input state `state`.
+-`accepted`: Boolean indicating whether or not the proposal was accepted.
+"""
 function death(smld::SMLMData.SMLD2D, 
                state::SMLMBaGoL.BaGoLState2D,
                mcparams::SMLMBaGoL.MCParams2D)
     # Propose the death of a random emitter (unless there is only 1 emitter 
     # left, in which case we should return the current state).
-        if state.k == 1
-            proposal = deepcopy(state)
-            acceptance = 1.0
-        else
-            proposal, positionind = SMLMBaGoL.proposedeath(smld, state)
-            acceptance = SMLMBaGoL.acceptdeath(smld, 
-                                               proposal, 
-                                               positionind, 
-                                               state, 
-                                               mcparams)
-        end
+    if state.k == 1
+        proposal = deepcopy(state)
+        acceptance = 1.0
+    else
+        proposal, p_im = SMLMBaGoL.proposedeath(smld, state, mcparams)
+        acceptance = SMLMBaGoL.acceptdeath(smld, 
+                                           proposal, 
+                                           p_im, 
+                                           state, 
+                                           mcparams)
+    end
 
     # Determine whether or not we should accept emitter death.
     if Base.rand() <= acceptance

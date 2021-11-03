@@ -14,7 +14,7 @@ abstract type SubregionParams
 end
 
 """
-    SubregionParams2D(roisize, roioverlap)
+    SubregionParams2D(roisize::Float64, roioverlap::Float64)
 
 Structure of parameters defining subregion splitting of data.
 
@@ -28,8 +28,8 @@ splitting of data.
 -`roioverlap`: Size of the overlap between subregions. (Default = 1.0)(Pixels)
 """
 mutable struct SubregionParams2D <: SubregionParams
-    roisize
-    roioverlap
+    roisize::Float64
+    roioverlap::Float64
 end
 function SubregionParams2D()
     return SubregionParams2D(5.0, 1.0)
@@ -87,9 +87,8 @@ The PreclusterParams2D structure organizes parameters related to the
 preclustering of localizations within each subregion.
 
 # Fields
--`maxdist::Float64`: Maximum distance from one localization to its 
-                     nearest-neighbor allowed in each precluster. 
-                     (Default = 0.15)(Pixels)
+-`maxdist`: Maximum distance from one localization to its nearest-neighbor 
+            allowed in each precluster. (Default = 0.15)(Pixels)
 """
 mutable struct PreclusterParams2D <: PreclusterParams
     maxdist::Float64
@@ -114,6 +113,33 @@ RJMCMC type structure specific to BaGoL.
 # Description
 The MCParams structure organizes parameters, distributions, or other info.
 related to RJMCMC.
+
+# Fields
+-`α`: Shape parameter of Gamma distribution for localizations per emitter.
+-`β`: Rate parameter of Gamma distribtution for localizations per emitter.
+-`σ_a`: Standard deviation of drift velocties. (pixels/frame)
+-`n_chain`: Number of iterations for chain generation.
+-`n_burnin`: Number of burn-in iterations for the chain.
+-`p_jump`: Probability of making each jump type. 
+-`srmag`: Magnification of the Gaussian SR image used to generate `imdistrib`
+          with respect to the localization coordinate system.
+-`nsigma`: Number of standard deviations out to which we add a Gaussian at each
+           localization in the Gaussian image used to define `imdistrib`.
+-`srimsize`: Resulting size of the Gaussian SR image.
+-`area`: Area spanned by the localizations. (pixels^2)
+-`roi`: Region of interest in which the given localizations were observed.
+-`jumpdistrib`: Distribution defining the jumps to be made. 
+                (see jumpdistrib.jl)
+-`imdistrib`: Approximate emitter distribution defined by a normalized Gaussian
+              SR image of the localizations.
+-`priork`: Prior distribution on the number of emitters.
+-`priorz`: Probability of any given allocation of localizations to emitters.
+           (only the probability is stored, assuming all allocations are 
+           equally weighted, since returning a distribution seems unfeasible).
+-`priorμ`: Prior distributions on the emitter positions. (Not currently used, as 
+           I've instead been using `imdistrib`.) ([ydistrib; xdistrib])
+-`priora`: Prior distribution on the drift velocities. 
+           ([a_ydistrib; a_xdistrib])
 """
 mutable struct MCParams2D <: MCParams
     α::Float64
@@ -123,10 +149,10 @@ mutable struct MCParams2D <: MCParams
     n_burnin::Int
     p_jump::Vector{Float64}
     srmag::Float64
-    srimsize::Vector{Int}
-    roi::Vector{Float64}
     nsigma::Float64
+    srimsize::Vector{Int}
     area::Float64
+    roi::Vector{Float64}
     jumpdistrib::Distributions.Distribution
     imdistrib::Distributions.Distribution
     priork::Distributions.Distribution
@@ -145,7 +171,7 @@ abstract type BaGoLParams
 end
 
 """
-    BaGoLParams()
+    BaGoLParams
 
 Structure of parameters defining the BaGoL workflow.
 
@@ -168,11 +194,34 @@ function BaGoLParams2D()
 end
 
 
+
 ## Data structures.
 
+"""
+    State
+
+Abstract type defining a Markov chain state.
+"""
 abstract type State
 end
 
+"""
+    BaGoLState2D(k::Int,
+                 z::Vector{Int},
+                 μ::Matrix{Float64},
+                 a::Matrix{Float64})
+
+Structure of data pertaining to a state in a Markov chain.
+
+# Description
+This structure organizes some data retained during RJMCMC.
+
+# Fields
+-`k`: Number of emitters in the state.
+-`z`: Allocations of localizations to the `k` emitters.
+-`μ`: Positions of the `k` emitters. ([y x])
+-`a`: Drift velocities of the `k` emitters. ([a_y a_x])
+"""
 mutable struct BaGoLState2D <: State
     k::Int
     z::Vector{Int}
@@ -184,10 +233,29 @@ BaGoLState2D() = SMLMBaGoL.BaGoLState2D(1,
     Matrix{Float64}(undef, 2, 1),
     Matrix{Float64}(undef, 2, 1))
 
+"""
+    MarkovChain
 
+Abstract type defining a Markov chain.
+"""
 abstract type MarkovChain
 end
 
+"""
+    BaGoLChain2D(states::Vector{SMLMBaGoL.BaGoLState2D},
+                 accept::Vector{Bool},
+                 n::Int)
+
+Structure of states forming a Markov chain.
+
+# Description
+This structure organizes some data retained during RJMCMC.
+
+# Fields
+-`states`: States of the chain at each iteration.
+-`accept`: Jump acceptance at each iteration.
+-`n`: Number of states in the chain.
+"""
 mutable struct BaGoLChain2D <: MarkovChain
     states::Vector{SMLMBaGoL.BaGoLState2D}
     accept::Vector{Bool}

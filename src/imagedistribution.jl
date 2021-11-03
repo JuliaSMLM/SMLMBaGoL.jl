@@ -169,11 +169,11 @@ function makegaussim(smld::SMLMData.SMLD2D,
 end
 
 """
-    makehistim(coords::Matrix{Float64}, 
-               datasize::Vector{Float64},
-               mag::Float64 = 20.0)
+    makebinim(coords::Matrix{Float64}, 
+              datasize::Vector{Float64},
+              mag::Float64 = 20.0)
 
-Make a histogram style image of the localizations in `coords`.
+Make a binary image of the localizations in `coords`.
 
 # Description
 This function creates an image of the localizations in `coords` by placing a
@@ -186,12 +186,12 @@ hot pixel at the coordinates of each localization.
         (Default = 20.0)
 
 # Outputs
--`image`: Matrix{Float64} histogram image.
+-`image`: Matrix{Float64} binary image of localizations.
 """
-function makehistim(coords::Matrix{Float64},
-                    datasize::Vector{Int},
-                    mag::Float64 = 20.0)
-    # Loop through localizations and add them to our output histogram image.
+function makebinim(coords::Matrix{Float64},
+                   datasize::Vector{Int},
+                   mag::Float64 = 20.0)
+    # Loop through localizations and add them to our output binary image.
     imagesize = Int.(round.(datasize * mag))
     image = zeros(Float64, imagesize[1], imagesize[2])
     inds = max.(1.0, (coords.-0.5)*mag)
@@ -209,10 +209,10 @@ function makehistim(coords::Matrix{Float64},
 end
 
 """
-    makehistim(smld::SMLMData.SMLD2D, 
-               mag::Float64 = 20.0)
+    makebinim(smld::SMLMData.SMLD2D, 
+              mag::Float64 = 20.0)
 
-Make a histogram style image of the localizations in `smld`.
+Make a binary image of the localizations in `smld`.
 
 # Description
 This function creates an image of the localizations in `smld` by placing a
@@ -224,10 +224,10 @@ hot pixel at the coordinates of each localization.
         (Default = 20.0)
 
 # Outputs
--`image`: Matrix{Float64} histogram image.
+-`image`: Matrix{Float64} binary image of localizations.
 """
-function makehistim(smld::SMLMData.SMLD2D,
-                    mag::Float64 = 20.0)
+function makebinim(smld::SMLMData.SMLD2D,
+                   mag::Float64 = 20.0)
     coords = [smld.y smld.x]
-    return makehistim(coords, smld.datasize, mag)
+    return makebinim(coords, smld.datasize, mag)
 end
