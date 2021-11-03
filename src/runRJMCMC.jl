@@ -75,7 +75,7 @@ function buildchain(smld::SMLMData.SMLD2D,
     niter = burnin ? mcparams.n_burnin : mcparams.n_chain
     state = deepcopy(initstate)
     accepted = true
-    chain = SMLMBaGoL.BaGoLChain2D([state], 1, [1; 2; 3; 4], [accepted])
+    chain = SMLMBaGoL.BaGoLChain2D(state, accepted)
     for ii = 1:niter
         # If there is only one emitter, allocate all localizations to that 
         # emitter.
@@ -105,7 +105,7 @@ function buildchain(smld::SMLMData.SMLD2D,
 
     # Determine what to return based on `burnin`.
     if burnin
-        return SMLMBaGoL.BaGoLChain2D([state], 1, [1; 2; 3; 4], [accepted])
+        return SMLMBaGoL.BaGoLChain2D(state)
     else
         return chain
     end
@@ -210,61 +210,4 @@ function death(smld::SMLMData.SMLD2D,
     else
         return state, false
     end
-end
-
-function addstate!(chain::SMLMBaGoL.BaGoLChain2D, 
-                   state::SMLMBaGoL.BaGoLState2D, 
-                   accepted::Bool)
-    # Update the chain to include `state`.
-    push!(chain.states, state)
-    push!(chain.accept, accepted)
-    chain.n += 1
-end
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function catchain!(chain1::SMLMBaGoL.BaGoLChain2D, chain2::SMLMBaGoL.BaGoLChain2D)
-    fields = fieldnames(SMLMBaGoL.BaGoLChain2D)
-    for ff in fields
-        setfield!(chain1, ff, [getfield(chain1, ff); getfield(chain2, ff)])
-    end
-end
-function catchain(chain1::SMLMBaGoL.BaGoLChain2D, chain2::SMLMBaGoL.BaGoLChain2D)
-    fields = fieldnames(SMLMBaGoL.BaGoLChain2D)
-    chain = SMLMBaGoL.BaGoLChain(SMLMBaGoL.length(chain1) 
-        + SMLMBaGoL.length(chain2))
-    for ff in fields
-        setfield!(chain, ff, [getfield(chain1, ff); getfield(chain2, ff)])
-    end
-
-    return chain
-end
-
-function keepstate!(chain::SMLMBaGoL.BaGoLChain2D)
-    fields = fieldnames(SMLMBaGoL.BaGoLChain2D)
-    for ff in fields
-        setfield!(chain, ff, [getfield(chain, ff); [getfield(chain, ff)[end]]])
-    end
-end
-
-function getstate(chain::SMLMBaGoL.BaGoLChain2D)
-    return SMLMBaGoL.BaGoLChain2D(chain.k[end], chain.μ[end], chain.a[end], chain.z[end])
-end
-function getstate(chain::SMLMBaGoL.BaGoLChain2D, ind::Vector{Int})
-    return SMLMBaGoL.BaGoLChain2D(chain.k[ind], chain.μ[ind], chain.a[ind], chain.z[ind])
-end
-function getstate(chain::SMLMBaGoL.BaGoLChain2D, ind::Int)
-    return SMLMBaGoL.BaGoLChain2D(chain.k[ind], chain.μ[ind], chain.a[ind], chain.z[ind])
 end
