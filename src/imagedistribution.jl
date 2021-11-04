@@ -272,7 +272,7 @@ is then scaled so that it sums to 1.0.
         (Default = 20.0)
 
 # Outputs
--`image`: Matrix{Float64} binary image of localizations.
+-`image`: Matrix{Float64} histogram image of localizations.
 """
 function makehistim(coords::Matrix{Float64},
                     datasize::Vector{Int},
@@ -310,7 +310,7 @@ is then scaled so that it sums to 1.0.
         (Default = 20.0)
 
 # Outputs
--`image`: Matrix{Float64} binary image of localizations.
+-`image`: Matrix{Float64} histogram image of localizations.
 """
 function makehistim(smld::SMLMData.SMLD2D, mag::Float64 = 20.0)
     coords = [smld.y smld.x]
