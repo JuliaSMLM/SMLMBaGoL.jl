@@ -187,6 +187,10 @@ function makegaussim(smld::SMLMData.SMLD2D,
         image[nanpixles] .= 0.0
     end
     image = image ./ sum(image)
+    if !isapprox(sum(image), 1.0)
+        @warn "Image is non-normalizable!  Returning flat image."
+        image = ones(Float64, imagesize[1], imagesize[2]) ./ prod(imagesize)
+    end
 
     return image
 end
@@ -227,6 +231,10 @@ function makebinim(coords::Matrix{Float64},
 
     # Normalize the image to sum to 1.0.
     image = image ./ max(sum(image), 1.0)
+    if !isapprox(sum(image), 1.0)
+        @warn "Image is non-normalizable!  Returning flat image."
+        image = ones(Float64, imagesize[1], imagesize[2]) ./ prod(imagesize)
+    end
 
     return image
 end
@@ -290,6 +298,10 @@ function makehistim(coords::Matrix{Float64},
 
     # Normalize the image to sum to 1.0.
     image = image ./ max(sum(image), 1.0)
+    if !isapprox(sum(image), 1.0)
+        @warn "Image is non-normalizable!  Returning flat image."
+        image = ones(Float64, imagesize[1], imagesize[2]) ./ prod(imagesize)
+    end
 
     return image
 end
