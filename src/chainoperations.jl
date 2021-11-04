@@ -90,7 +90,7 @@ end
 Concatenate `chain1` and `chain2`, with `chain2` added at the end of `chain1`.
 
 # Inputs
--`chain1`: Initial chain assumed to be from an earlier construction.
+-`chain1`: Initial chain.
 -`chain2`: Chain to be concatenated at the end of `chain1`.
 
 # Outputs
@@ -112,7 +112,7 @@ end
 Concatenate `chain1` and `chain2`, with `chain2` added at the end of `chain1`.
 
 # Inputs
--`chain1`: Initial chain assumed to be from an earlier construction.
+-`chain1`: Initial chain.
 -`chain2`: Chain to be concatenated at the end of `chain1`.
 
 # Outputs
@@ -121,6 +121,6 @@ Concatenate `chain1` and `chain2`, with `chain2` added at the end of `chain1`.
 function cat!(chain1::SMLMBaGoL.BaGoLChain2D, chain2::SMLMBaGoL.BaGoLChain2D)
     # Concatenate `chain2` at the end of `chain1`.
     chain1.states = [chain1.states; chain2.states]
-    chain1.accepted = [chain1.accept; chain2.accept]
+    chain1.accepted = [chain1.accepted; chain2.accepted]
     chain1.n = chain1.n + chain2.n
 end
