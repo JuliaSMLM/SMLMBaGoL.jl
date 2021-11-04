@@ -28,8 +28,9 @@ function findvalidemitters(μ::Matrix{Float64},
                            maxval::Matrix{Float64})
     # Determine which emitters fall within the valid region (i.e., within the
     # boundaries defined by `minval` and `maxval`).
-    valid = all(μ .>= repeat(minval, state.k), dims=2) .*
-        all(μ .<= repeat(maxval, state.k), dims=2)
+    k = size(μ, 1)
+    valid = all(μ .>= repeat(minval, k), dims=2) .*
+        all(μ .<= repeat(maxval, k), dims=2)
     
     # Convert `valid` to a set of emitter indices.
     # NOTE: There should certainly be a better way to do this... I just want an
