@@ -4,9 +4,9 @@ using Base
 # within subregion overlaps (see SMLMBaGoL.gensubregions()).
 
 """
-    validind = findvalidemitters(μ::Matrix{Float64},
-                                 minval::Matrix{Float64},
-                                 maxval::Matrix{Float64}))
+    validind, valid = findvalid(μ::Matrix{Float64},
+                                minval::Matrix{Float64},
+                                maxval::Matrix{Float64}))
 
 Find the indices of valid emitter locations in `μ`.
 
@@ -22,10 +22,12 @@ valid region, i.e., within the bounds defined by `minval` and `maxval`.
 # Outputs
 -`validind`: Row indices of input `μ` identifying emitters that fell within the
              prescribed boundaries.
+-`valid`: BitMatrix defining the valid emitters, returned for convenience since
+          it can be used to find the invalid indices if desired.
 """
-function findvalidemitters(μ::Matrix{Float64},
-                           minval::Matrix{Float64},
-                           maxval::Matrix{Float64})
+function findvalid(μ::Matrix{Float64}, 
+                   minval::Matrix{Float64}, 
+                   maxval::Matrix{Float64})
     # Determine which emitters fall within the valid region (i.e., within the
     # boundaries defined by `minval` and `maxval`).
     k = size(μ, 1)
@@ -38,19 +40,98 @@ function findvalidemitters(μ::Matrix{Float64},
     #       to do this.
     validind = findall(vec(.!iszero.(valid)))
 
-    return validind
+    return validind, valid
 end
 
 """
-    μ_valid = removeoverlap(chain::SMLMBaGoL.BaGoLChain2D, 
-                            minval::Matrix{Float64}, 
-                            maxval::Matrix{Float64})
+    invalidind, invalid = findinvalid(μ::Matrix{Float64},
+                                      minval::Matrix{Float64},
+                                      maxval::Matrix{Float64}))
+
+Find the indices of emitter locations in `μ` that fall outisde the bounds.
+
+# Description
+This function finds the indices of emitters in `μ` which fall outside the
+valid region, i.e., outside the bounds defined by `minval` and `maxval`.
+
+# Inputs
+-`μ`: Matrix of emitter locations. ([y x])
+-`minval`: Matrix defining the minimum allowed value of `μ`. ([ymin xmin])
+-`maxval`: Matrix defining the maximum allowed value of `μ`. ([ymax xmax])
+
+# Outputs
+-`invalidind`: Row indices of input `μ` identifying emitters that fell outside
+               the prescribed boundaries.
+-`invalid`: BitMatrix defining the invalid emitters, returned for convenience 
+            since it can be used to find the valid indices if desired.
+"""
+function findinvalid(μ::Matrix{Float64}, 
+                     minval::Matrix{Float64}, 
+                     maxval::Matrix{Float64})
+    # Determine which emitters fall outside the valid region (i.e., outside the
+    # boundaries defined by `minval` and `maxval`).
+    k = size(μ, 1)
+    invalid = any(μ .< repeat(minval, k), dims=2) .+
+        any(μ .> repeat(maxval, k), dims=2)
+    
+    # Convert `invalid` to a set of emitter indices.
+    # NOTE: There should certainly be a better way to do this... I just want an
+    #       output of type Vector{Int}, but I'm struggling to find a nice way 
+    #       to do this.
+    invalidind = findall(vec(.!iszero.(invalid)))
+
+    return invalidind, invalid
+end
+
+"""
+    removeoverlap!(chain::SMLMBaGoL.BaGoLChain2D, 
+                   minval::Matrix{Float64}, 
+                   maxval::Matrix{Float64})
+
+Remove the emitters in `chain` that fall outside `minval` and `maxval`.
+
+# Description
+This method finds the emitters within `chain` that fall outside the valid 
+region defined by `minval` and `maxval` and deletes them from the chain.
+Note that the allocations in `state.z` are set to -1 for those emitters 
+which were removed.
+
+# Inputs
+-`chain`: Chain of states, with each state having a field `state.μ`.
+-`minval`: Matrix defining the minimum allowed value of `state.μ`. 
+           ([ymin xmin])
+-`maxval`: Matrix defining the maximum allowed value of `state.μ`. 
+           ([ymax xmax])
+"""
+function removeoverlap!(chain::SMLMBaGoL.BaGoLChain2D, 
+                        minval::Matrix{Float64}, 
+                        maxval::Matrix{Float64})
+    # Loop over the states in `chain` and remove emitters in the overlap region.
+    for ii in Base.length(chain.states):-1:1
+        # Determine which emitters should be kept.
+        invalidind, _ = SMLMBaGoL.findinvalid(chain.states[ii].μ, 
+                                              minval, maxval)
+
+        # If no emitters are kept, delete the entire state.  Otherwise, just
+        # delete the invalid emitters.
+        if Base.length(invalidind) == chain.states[ii].k
+            SMLMBaGoL.removestate!(chain, ii)
+        else
+            SMLMBaGoL.removeemitter!(chain.states[ii], invalidind)
+        end
+    end
+end
+
+"""
+    chain_out = removeoverlap(chain::SMLMBaGoL.BaGoLChain2D, 
+                              minval::Matrix{Float64}, 
+                              maxval::Matrix{Float64})
 
 Find the emitters in `chain` that fall within `minval` and `maxval`.
 
 # Description
-This method finds the emitter coordinates within `chain` that fall within the
-valid region defined by `minval` and `maxval`.
+This method finds the emitters within `chain` that fall within the valid region
+defined by `minval` and `maxval`.
 
 # Inputs
 -`chain`: Chain of states, with each state having a field `state.μ`.
@@ -60,27 +141,37 @@ valid region defined by `minval` and `maxval`.
            ([ymax xmax])
 
 # Outputs
--`μ_valid`: Matrix of emitter locations in `chain` that fell within the bounds.
+-`chain_out`: Chain with the invalid emitters removed.  Note that the 
+              allocations in `state.z` are replaced with `-1` to to indicate
+              allocations to emitters that were removed.
 """
 function removeoverlap(chain::SMLMBaGoL.BaGoLChain2D, 
                        minval::Matrix{Float64}, 
                        maxval::Matrix{Float64})
     # Loop over the states in `chain` and remove emitters in the overlap region.
-    μ_valid = Matrix{Float64}(undef, 0, 2)
-    for nn = 1:Base.length(chain.states)
-        validind = SMLMBaGoL.findvalidemitters(chain.states[nn].μ, 
-                                               minval, maxval)
-        μ_valid = [μ_valid; chain.states[nn].μ[validind, :]]
+    chain_out = deepcopy(chain)
+    for ii in Base.length(chain_out.states):-1:1
+        # Determine which emitters should be kept.
+        invalidind, _ = SMLMBaGoL.findinvalid(chain_out.states[ii].μ, 
+                                              minval, maxval)
+
+        # If no emitters are kept, delete the entire state.  Otherwise, just
+        # delete the invalid emitters.
+        if Base.length(invalidind) == chain_out.states[ii].k
+            SMLMBaGoL.removestate!(chain_out, ii)
+        else
+            SMLMBaGoL.removeemitter!(chain_out.states[ii], invalidind)
+        end
     end
 
-    return μ_valid
+    return chain_out
 end
 
 """
-    μ_valid = removeoverlap(chain::SMLMBaGoL.BaGoLChain2D,
-                            datasize::Vector{Int},
-                            roi::Vector{Float64},
-                            roioverlap::Float64)
+    out = removeoverlap(chain::SMLMBaGoL.BaGoLChain2D,
+                        datasize::Vector{Int},
+                        roi::Vector{Float64},
+                        roioverlap::Float64)
 
 Find the emitters in `chain` that fall within the valid exploration region.
 
@@ -100,18 +191,14 @@ will be retained, as these regions do not overlap with any other chain rois.
 -`roioverlap`: Overlap of neighboring chain rois.
 
 # Outputs
--`μ_valid`: Matrix of emitter locations in `chain` that fell within the bounds.
+-`out`: see return value of removeoverlap(chain::SMLMBaGoL.BaGoLChain2D, 
+#                                         minval::Matrix{Float64}, 
+#                                         maxval::Matrix{Float64})
 """
 function removeoverlap(chain::SMLMBaGoL.BaGoLChain2D,
                        datasize::Vector{Int},
                        roi::Vector{Float64},
                        roioverlap::Float64)
-    # Remove any parts of the `chain` contained within `roioverlap/2` of the 
-    # edge. If the chain is near an actual data boundary (e.g., if the raw
-    # data is 128 pixels wide, the edges [0.5; 128.5] are the data boundaries),
-    # we'll retain the chain along the edge (since that edge is not an overlap
-    # region!).
-
     # Define the minimum and maximum allowable coordinates for this `roi`.
     ymin = roi[1]>1.0 ? roi[1]-0.5+roioverlap/2 : 0.5
     ymax = roi[3]<datasize[1] ? roi[3]+0.5-roioverlap/2 : datasize[1]+0.5
@@ -124,16 +211,16 @@ function removeoverlap(chain::SMLMBaGoL.BaGoLChain2D,
 end
 
 """
-    μ_valid = removeoverlap(chain::Vector{SMLMBaGoL.BaGoLChain2D},
-                            datasize::Vector{Int},
-                            roi::Vector{Float64},
-                            roioverlap::Float64)
+    chain_out = removeoverlap(chain::Vector{SMLMBaGoL.BaGoLChain2D},
+                              datasize::Vector{Int},
+                              roi::Vector{Float64},
+                              roioverlap::Float64)
 
-Find the emitters in `chain` that fall within the valid exploration region.
+Remove the emitters in `chain` that fall outside the valid exploration region.
 
 # Description
-This method finds the emitter coordinates within `chain` that fall within the
-valid region of exploration.  That is, emitter locations that fell in the outer 
+This method removes the emitters in `chain` that fall outside the valid region
+of exploration.  That is, emitter locations that fell in the outer 
 `roioverlap/2` edge of the `roi+-0.5` will be discarded.  Emitters at the edge 
 of the data boundary defined by `datasize` (e.g., if datasize = [128; 128], the 
 data is 128 pixels wide, so the edges [0.5; 128.5] are the data boundaries) 
@@ -142,58 +229,64 @@ This method dispatches on removeoverlap(chain::SMLMBaGoL.BaGoLChain2D, ...)
 for each chain in the vector, concatenating the resulting valid positions.
 
 # Inputs
--`chain`: Vector of state chains, with each state having a field `state.μ`.
+-`chain`: Vector of state chains.
 -`datasize`: Size of the raw data matrix. ([ysize xsize])
 -`roi`: Region of interest explored by `chain`. ([ystart xstart yend xend])
 -`roioverlap`: Overlap of neighboring chain rois.
 
 # Outputs
--`μ_valid`: Matrix of emitter locations in `chain` that fell within the bounds.
+-`chain_out`: Chain with the invalid emitters removed, concatenated across
+              all chains in the input vector of chains.  Note that the 
+              allocations in `state.z` are replaced with `-1` to to indicate
+              allocations to emitters that were removed.
 """
 function removeoverlap(chain::Vector{SMLMBaGoL.BaGoLChain2D},
                        datasize::Vector{Int},
                        roi::Vector{Float64},
                        roioverlap::Float64)
 
-    # Loop over the provided chains and create a matrix of valid emitter
-    # coordinates.
-    μ_valid = Matrix{Float64}(undef, 0, 2)
+    # Loop over the provided chains and concatenate the valid states.
+    chain_out = SMLMBaGoL.BaGoLChain2D()
     for ii = 1:Base.length(chain)
-        μ_valid = [μ_valid; 
-            SMLMBaGoL.removeoverlap(chain[ii], datasize, roi, roioverlap)]
+        SMLMBaGoL.cat!(chain_out, 
+            SMLMBaGoL.removeoverlap(chain[ii], datasize, roi, roioverlap))
     end
 
-    return μ_valid
+    return chain_out
 end
 
 """
-    μ_valid = removeoverlap(chain::Matrix{Vector{SMLMBaGoL.BaGoLChain2D}},
-                            datasize::Vector{Int},
-                            rois::Matrix{Vector{Float64}},
-                            roioverlap::Float64)
+    chain_out = removeoverlap(chain::Matrix{Vector{SMLMBaGoL.BaGoLChain2D}},
+                              datasize::Vector{Int},
+                              rois::Matrix{Vector{Float64}},
+                              roioverlap::Float64)
 
-Find the emitters in `chain` that fall within the valid exploration region.
+Remove the emitters in `chain` that fall outside the valid exploration region.
 
 # Description
-This method finds the emitter coordinates within `chain` that fall within the
-valid region of exploration.  That is, emitter locations that fell in the outer 
+This method removes the emitters in `chain` that fall outside the valid region
+of exploration.  That is, emitter locations that fell in the outer 
 `roioverlap/2` edge of the `roi+-0.5` will be discarded.  Emitters at the edge 
 of the data boundary defined by `datasize` (e.g., if datasize = [128; 128], the 
 data is 128 pixels wide, so the edges [0.5; 128.5] are the data boundaries) 
 will be retained, as these regions do not overlap with any other chain rois.
+This method dispatches on removeoverlap(chain::SMLMBaGoL.BaGoLChain2D, ...)
+for each chain in the vector, concatenating the resulting valid positions.
 This method dispatches on
 removeoverlap(chain::Vector{SMLMBaGoL.BaGoLChain2D}, ...) for each entry of the
 matrix `chain`, concatenating the resulting valid positions.
 
 # Inputs
--`chain`: Matrix of vectors of state chains, with each state having a field 
-          `state.μ`.
+-`chain`: Matrix of vectors of state chains.
 -`datasize`: Size of the raw data matrix. ([ysize xsize])
 -`rois`: Matrix of rois, with indexing matching that of `chain`.
 -`roioverlap`: Overlap of neighboring chain rois.
 
 # Outputs
--`μ_valid`: Matrix of emitter locations in `chain` that fell within the bounds.
+-`chain_out`: Chain with the invalid emitters removed, concatenated across
+              all chains in the input matrix of chains.  Note that the 
+              allocations in `state.z` are replaced with `-1` to to indicate
+              allocations to emitters that were removed.
 """
 function removeoverlap(chain::Matrix{Vector{SMLMBaGoL.BaGoLChain2D}},
                        datasize::Vector{Int},
@@ -202,11 +295,142 @@ function removeoverlap(chain::Matrix{Vector{SMLMBaGoL.BaGoLChain2D}},
 
     # Loop over the provided chains and create a matrix of valid emitter
     # coordinates.
-    μ_valid = Matrix{Float64}(undef, 0, 2)
+    chain_out = SMLMBaGoL.BaGoLChain2D()
     for ii = 1:prod(size(chain))
-        μ_valid = [μ_valid; 
-            SMLMBaGoL.removeoverlap(chain[ii], datasize, rois[ii], roioverlap)]
+        SMLMBaGoL.cat!(chain_out, 
+            SMLMBaGoL.removeoverlap(chain[ii], datasize, rois[ii], roioverlap))
     end
 
-    return μ_valid
+    return chain_out
 end
+
+
+
+
+
+
+
+
+
+
+# """
+#     μ_valid = removeoverlap(chain::Vector{SMLMBaGoL.BaGoLChain2D},
+#                             datasize::Vector{Int},
+#                             roi::Vector{Float64},
+#                             roioverlap::Float64)
+
+# Find the emitters in `chain` that fall within the valid exploration region.
+
+# # Description
+# This method finds the emitter coordinates within `chain` that fall within the
+# valid region of exploration.  That is, emitter locations that fell in the outer 
+# `roioverlap/2` edge of the `roi+-0.5` will be discarded.  Emitters at the edge 
+# of the data boundary defined by `datasize` (e.g., if datasize = [128; 128], the 
+# data is 128 pixels wide, so the edges [0.5; 128.5] are the data boundaries) 
+# will be retained, as these regions do not overlap with any other chain rois.
+# This method dispatches on removeoverlap(chain::SMLMBaGoL.BaGoLChain2D, ...)
+# for each chain in the vector, concatenating the resulting valid positions.
+
+# # Inputs
+# -`chain`: Vector of state chains, with each state having a field `state.μ`.
+# -`datasize`: Size of the raw data matrix. ([ysize xsize])
+# -`roi`: Region of interest explored by `chain`. ([ystart xstart yend xend])
+# -`roioverlap`: Overlap of neighboring chain rois.
+
+# # Outputs
+# -`μ_valid`: Matrix of emitter locations in `chain` that fell within the bounds.
+# """
+# function removeoverlap(chain::Vector{SMLMBaGoL.BaGoLChain2D},
+#                        datasize::Vector{Int},
+#                        roi::Vector{Float64},
+#                        roioverlap::Float64)
+
+#     # Loop over the provided chains and create a matrix of valid emitter
+#     # coordinates.
+#     μ_valid = Matrix{Float64}(undef, 0, 2)
+#     for ii = 1:Base.length(chain)
+#         μ_valid = [μ_valid; 
+#             SMLMBaGoL.removeoverlap(chain[ii], datasize, roi, roioverlap)]
+#     end
+
+#     return μ_valid
+# end
+
+# """
+#     μ_valid = removeoverlap(chain::Matrix{Vector{SMLMBaGoL.BaGoLChain2D}},
+#                             datasize::Vector{Int},
+#                             rois::Matrix{Vector{Float64}},
+#                             roioverlap::Float64)
+
+# Find the emitters in `chain` that fall within the valid exploration region.
+
+# # Description
+# This method finds the emitter coordinates within `chain` that fall within the
+# valid region of exploration.  That is, emitter locations that fell in the outer 
+# `roioverlap/2` edge of the `roi+-0.5` will be discarded.  Emitters at the edge 
+# of the data boundary defined by `datasize` (e.g., if datasize = [128; 128], the 
+# data is 128 pixels wide, so the edges [0.5; 128.5] are the data boundaries) 
+# will be retained, as these regions do not overlap with any other chain rois.
+# This method dispatches on
+# removeoverlap(chain::Vector{SMLMBaGoL.BaGoLChain2D}, ...) for each entry of the
+# matrix `chain`, concatenating the resulting valid positions.
+
+# # Inputs
+# -`chain`: Matrix of vectors of state chains, with each state having a field 
+#           `state.μ`.
+# -`datasize`: Size of the raw data matrix. ([ysize xsize])
+# -`rois`: Matrix of rois, with indexing matching that of `chain`.
+# -`roioverlap`: Overlap of neighboring chain rois.
+
+# # Outputs
+# -`μ_valid`: Matrix of emitter locations in `chain` that fell within the bounds.
+# """
+# function removeoverlap(chain::Matrix{Vector{SMLMBaGoL.BaGoLChain2D}},
+#                        datasize::Vector{Int},
+#                        rois::Matrix{Vector{Float64}},
+#                        roioverlap::Float64)
+
+#     # Loop over the provided chains and create a matrix of valid emitter
+#     # coordinates.
+#     μ_valid = Matrix{Float64}(undef, 0, 2)
+#     for ii = 1:prod(size(chain))
+#         μ_valid = [μ_valid; 
+#             SMLMBaGoL.removeoverlap(chain[ii], datasize, rois[ii], roioverlap)]
+#     end
+
+#     return μ_valid
+# end
+
+# """
+#     μ_valid = removeoverlap(chain::SMLMBaGoL.BaGoLChain2D, 
+#                             minval::Matrix{Float64}, 
+#                             maxval::Matrix{Float64})
+
+# Find the emitters in `chain` that fall within `minval` and `maxval`.
+
+# # Description
+# This method finds the emitter coordinates within `chain` that fall within the
+# valid region defined by `minval` and `maxval`.
+
+# # Inputs
+# -`chain`: Chain of states, with each state having a field `state.μ`.
+# -`minval`: Matrix defining the minimum allowed value of `state.μ`. 
+#            ([ymin xmin])
+# -`maxval`: Matrix defining the maximum allowed value of `state.μ`. 
+#            ([ymax xmax])
+
+# # Outputs
+# -`μ_valid`: Matrix of emitter locations in `chain` that fell within the bounds.
+# """
+# function removeoverlap(chain::SMLMBaGoL.BaGoLChain2D, 
+#                        minval::Matrix{Float64}, 
+#                        maxval::Matrix{Float64})
+#     # Loop over the states in `chain` and remove emitters in the overlap region.
+#     μ_valid = Matrix{Float64}(undef, 0, 2)
+#     for nn = 1:Base.length(chain.states)
+#         validind, _ = SMLMBaGoL.findvalid(chain.states[nn].μ, minval, maxval)
+#         μ_valid = [μ_valid; chain.states[nn].μ[validind, :]]
+#     end
+
+#     return μ_valid
+# end

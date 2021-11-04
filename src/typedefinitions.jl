@@ -271,3 +271,9 @@ function BaGoLChain2D(n_chain::Int)
                         Vector{Bool}(undef, n_chain),
                         n_chain)
 end
+function BaGoLChain2D()
+    # Initialize an empty chain.
+    return BaGoLChain2D(Vector{SMLMBaGoL.BaGoLState2D}(undef, 0),
+                        Vector{Bool}(undef, 0),
+                        0)
+end
