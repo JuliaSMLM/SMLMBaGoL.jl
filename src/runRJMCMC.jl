@@ -98,7 +98,7 @@ function runRJMCMC!(smld::SMLMData.SMLD2D,
     mcparams.priork = SMLMBaGoL.prior_kemitters(nloc, mcparams.α, mcparams.β)
     k = Int(ceil(nloc / (mcparams.α*mcparams.β)))
     # mcparams.priorμ = SMLMBaGoL.prior_positions(smld.datasize)
-    # μ = SMLMBaGoL.rand(mcparams.priorμ, k) .+ repeat(transpose(roi[1:2]), k) .- 1.0
+    # μ = SMLMBaGoL.rand(mcparams.priorμ, k) .+ repeat(transpose(mcparams.roi[1:2]), k) .- 1.0
     μ, _ = SMLMBaGoL.samplecoords2D(mcparams.imdistrib, mcparams.srimsize[1], k)
     μ ./= mcparams.srmag
     μ .+= repeat(transpose(mcparams.roi[1:2]), k) .- 1.0
@@ -149,9 +149,12 @@ function buildchain(smld::SMLMData.SMLD2D,
     # state after each iteration.
     niter = burnin ? mcparams.n_burnin : mcparams.n_chain
     state = deepcopy(initstate)
-    accepted = true
-    chain = SMLMBaGoL.BaGoLChain2D(state, accepted)
-    for ii = 1:niter
+    if !burnin
+        chain = SMLMBaGoL.BaGoLChain2D(niter)
+        chain.states[1] = state
+        chain.accepted[1] = true
+    end
+    for ii = 2:niter
         # If there is only one emitter, allocate all localizations to that 
         # emitter.
         if state.k == 1
@@ -174,7 +177,8 @@ function buildchain(smld::SMLMData.SMLD2D,
 
         # If needed, store this state in the output chain.
         if !burnin
-            SMLMBaGoL.addstate!(chain, state, accepted)
+            chain.states[ii] = state
+            chain.accepted[ii] = accepted
         end
     end
 
@@ -270,148 +274,4 @@ function updatestate(smld::SMLMData.SMLD2D,
     end
 
     return state, accepted
-end
-
-"""
-    state, accepted = move(smld::SMLMData.SMLD2D, 
-                           state::SMLMBaGoL.BaGoLState2D,
-                           mcparams::SMLMBaGoL.MCParams2D)
-
-Return a state with the emitters in `state` moved to new positions.
-
-# Description
-This function moves emitters in `state` to new positions sampled from the 
-position posterior distribution.
-
-# Inputs
--`smld`: SMLD2D structure containing the localizations.
--`state`: Current state of the Markov chain.
--`mcparams`: Structure of MCMC parameters.
-
-# Outputs
--`state`: A proposed state with the moved emitters.
--`accepted`: Boolean indicating whether or not the move was accepted, which is 
-             always true since moves use Gibbs sampling.
-"""
-function move(smld::SMLMData.SMLD2D, 
-              state::SMLMBaGoL.BaGoLState2D,
-              mcparams::SMLMBaGoL.MCParams2D)
-    # Propose a move and accept it (emitter moves are always accepted).
-    return SMLMBaGoL.proposemove(smld, state, mcparams), true
-end
-
-"""
-    state, accepted = reallocate(smld::SMLMData.SMLD2D, 
-                                 state::SMLMBaGoL.BaGoLState2D)
-
-Return a state with `smld` localizations reallocated to emitters in `state`.
-
-# Description
-This function reallocates localizations in `smld` to emitters in `state`.
-
-# Inputs
--`smld`: SMLD2D structure containing the localizations.
--`state`: Current state of the Markov chain.
-
-# Outputs
--`state`: A proposed state with the (potentially) redefined allocations.
--`accepted`: Boolean indicating whether or not the move was accepted, which is 
-             always true since allocations use Gibbs sampling.
-"""
-function reallocate(smld::SMLMData.SMLD2D, 
-                    state::SMLMBaGoL.BaGoLState2D)
-    # Propose an allocation and accept it (allocations are always accepted).
-    return SMLMBaGoL.proposeallocation(smld, state), true
-end
-
-"""
-    state, accepted = birth(smld::SMLMData.SMLD2D, 
-                            state::SMLMBaGoL.BaGoLState2D,
-                            mcparams::SMLMBaGoL.MCParams2D)
-
-Propose and determine acceptance of a birth move.
-
-# Description
-This function proposes the birth of an emitter and then determines if it should
-be accepted into the Markov chain.
-
-# Inputs
--`smld`: SMLD2D structure containing the localizations.
--`state`: Current state of the Markov chain.
--`mcparams`: Structure of MCMC parameters.
-
-# Outputs
--`state`: A proposed state with one more emitter (if the move was accepted) or
-          the input state `state`.
--`accepted`: Boolean indicating whether or not the proposal was accepted.
-"""
-function birth(smld::SMLMData.SMLD2D, 
-               state::SMLMBaGoL.BaGoLState2D,
-               mcparams::SMLMBaGoL.MCParams2D)
-    # Propose a birth of a new emitter (unless there are as many emitters as
-    # localizations, in which case we'll return the input `state`).
-    if state.k < SMLMData.length(smld)
-        proposal, p_im = SMLMBaGoL.proposebirth(smld, state, mcparams)
-        acceptance = SMLMBaGoL.acceptbirth(smld, 
-                                           proposal, 
-                                           p_im, 
-                                           state, 
-                                           mcparams)
-    else
-        proposal = deepcopy(state)
-        acceptance = 1.0
-    end
-
-    # Determine whether or not we should accept the new emitter.
-    if Base.rand() <= acceptance
-        return proposal, true
-    else
-        return state, false
-    end
-end
-
-"""
-    state, accepted = death(smld::SMLMData.SMLD2D, 
-                            state::SMLMBaGoL.BaGoLState2D,
-                            mcparams::SMLMBaGoL.MCParams2D)
-
-Propose and determine acceptance of a death move.
-
-# Description
-This function proposes the death of an emitter and then determines if it should
-be accepted into the Markov chain.
-
-# Inputs
--`smld`: SMLD2D structure containing the localizations.
--`state`: Current state of the Markov chain.
--`mcparams`: Structure of MCMC parameters.
-
-# Outputs
--`state`: A proposed state with one less emitter (if the move was accepted) or
-          the input state `state`.
--`accepted`: Boolean indicating whether or not the proposal was accepted.
-"""
-function death(smld::SMLMData.SMLD2D, 
-               state::SMLMBaGoL.BaGoLState2D,
-               mcparams::SMLMBaGoL.MCParams2D)
-    # Propose the death of a random emitter (unless there is only 1 emitter 
-    # left, in which case we should return the current state).
-    if state.k == 1
-        proposal = deepcopy(state)
-        acceptance = 1.0
-    else
-        proposal, p_im = SMLMBaGoL.proposedeath(smld, state, mcparams)
-        acceptance = SMLMBaGoL.acceptdeath(smld, 
-                                           proposal, 
-                                           p_im, 
-                                           state, 
-                                           mcparams)
-    end
-
-    # Determine whether or not we should accept emitter death.
-    if Base.rand() <= acceptance
-        return proposal, true
-    else
-        return state, false
-    end
 end

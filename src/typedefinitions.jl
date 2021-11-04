@@ -253,12 +253,12 @@ This structure organizes some data retained during RJMCMC.
 
 # Fields
 -`states`: States of the chain at each iteration.
--`accept`: Jump acceptance at each iteration.
+-`accepted`: Jump acceptance at each iteration.
 -`n`: Number of states in the chain.
 """
 mutable struct BaGoLChain2D <: MarkovChain
     states::Vector{SMLMBaGoL.BaGoLState2D}
-    accept::Vector{Bool}
+    accepted::Vector{Bool}
     n::Int
 end
 function BaGoLChain2D(state::SMLMBaGoL.BaGoLState2D, accepted::Bool = true)
