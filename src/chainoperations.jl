@@ -124,3 +124,78 @@ function cat!(chain1::SMLMBaGoL.BaGoLChain2D, chain2::SMLMBaGoL.BaGoLChain2D)
     chain1.accepted = [chain1.accepted; chain2.accepted]
     chain1.n = chain1.n + chain2.n
 end
+
+"""
+    μ, a = catfields(chain::SMLMBaGoL.BaGoLChain2D)
+
+Extract fields `μ` and `a` from each state of the `chain` and concatenate
+them into matrices representing all states.
+
+# Inputs
+-`chain`: Chain from which we'll extract the fields of each state.
+
+# Outputs
+-`μ`: `state.μ` concatenated across all states in `chain`.
+-`a`: `state.a` concatenated across all states in `chain`.
+"""
+function catfields(chain::SMLMBaGoL.BaGoLChain2D)
+    μ = Matrix{Float64}(undef, 0, 2)
+    a = Matrix{Float64}(undef, 0, 2)
+    for ii = 1:chain.n
+        μ = Base.vcat(μ, chain.states[ii].μ)
+        a = Base.vcat(a, chain.states[ii].a)
+    end
+
+    return μ, a
+end
+
+"""
+    μ, a = catfields(chain::Vector{SMLMBaGoL.BaGoLChain2D})
+
+Extract fields `μ` and `a` from each state of `chain` and concatenate
+them into matrices representing all states.  
+
+# Inputs
+-`chain`: Vector of chains from which we'll extract the fields of each state.
+
+# Outputs
+-`μ`: `state.μ` concatenated across all states in `chain`.
+-`a`: `state.a` concatenated across all states in `chain`.
+"""
+function catfields(chain::Vector{SMLMBaGoL.BaGoLChain2D})
+    μ = Matrix{Float64}(undef, 0, 2)
+    a = Matrix{Float64}(undef, 0, 2)
+    for ii = 1:Base.length(chain)
+        μnew, anew = SMLMBaGoL.catfields(chain[ii])
+        μ = Base.vcat(μ, μnew)
+        a = Base.vcat(a, anew)
+    end
+
+    return μ, a
+end
+
+"""
+    μ, a = catfields(chain::Matrix{Vector{SMLMBaGoL.BaGoLChain2D}})
+
+Extract fields `μ` and `a` from each state of `chain` and concatenate
+them into matrices representing all states.  
+
+# Inputs
+-`chain`: Matrix of vectorsof chains from which we'll extract the fields of 
+          each state.
+
+# Outputs
+-`μ`: `state.μ` concatenated across all states in `chain`.
+-`a`: `state.a` concatenated across all states in `chain`.
+"""
+function catfields(chain::Matrix{Vector{SMLMBaGoL.BaGoLChain2D}})
+    μ = Matrix{Float64}(undef, 0, 2)
+    a = Matrix{Float64}(undef, 0, 2)
+    for ii = 1:prod(size(chain))
+        μnew, anew = SMLMBaGoL.catfields(chain[ii])
+        μ = Base.vcat(μ, μnew)
+        a = Base.vcat(a, anew)
+    end
+
+    return μ, a
+end
