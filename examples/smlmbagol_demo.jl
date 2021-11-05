@@ -100,14 +100,10 @@ params.mcparams.n_burnin = 100
 params.mcparams.n_chain = 100
 chain = SMLMBaGoL.runbagol(smld, params)
 
-smld_subregions, rois, connectID = SMLMBaGoL.gensubregions(smld, 
+rois = SMLMBaGoL.genrois(Float64.(smld.datasize), 
     params.subregion.roisize, params.subregion.roioverlap)
-smld_preclustered = SMLMBaGoL.precluster_hierarchical.(smld_subregions, 
-    params.preclustering.maxdist)
-smldclusters, _ = SMLMData.isolateconnected(smld_preclustered[1,1])
-params.mcparams.roi = [1; 1; 5; 5]
-testchain = SMLMBaGoL.runRJMCMC!(smldclusters[1], params.mcparams)
-μ = SMLMBaGoL.removeoverlap(testchain, smld.datasize, params.mcparams.roi, params.subregion.roioverlap)
+validchain = SMLMBaGoL.removeoverlap(chain, smld.datasize, rois, params.subregion.roioverlap)
+# μvalid, _, _ = SMLMBaGoL.catfields(validchain)
 
 # smld_preclustered = FrameConnection.precluster(smld) # not meaningful, just to test!
 # alpha, beta = SMLMBaGoL.constructprior_lambda(smld_preclustered, false)
