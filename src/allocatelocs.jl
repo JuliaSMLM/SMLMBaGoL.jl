@@ -32,7 +32,7 @@ function allocatelocs(smld::SMLMData.SMLD2D,
                       a::Matrix{Float64})
     # Loop through localizations in `smld` and allocate to emitters using 
     # Gibbs sampling.
-    nlocs = SMLMData.length(smld)
+    nlocs = Base.length(smld)
     zprime = Vector{Int}(undef, nlocs)
     for nn = 1:nlocs
         posterior = SMLMBaGoL.posterior_allocations([smld.y[nn]; smld.x[nn]], 
@@ -135,7 +135,7 @@ function logLalloc_kernel(y::Matrix{Float64},
     # Compute the unnormalized probabilites of allocating localizations to 
     # the provided emitters.
     p_kernel = Vector{Float64}(undef, size(y, 1))
-    for jj = 1:length(w)
+    for jj = 1:Base.length(w)
         p_kernel += palloc_kernel(y, σ, t, μ[jj, :], a[jj, :], w[jj])
     end
 

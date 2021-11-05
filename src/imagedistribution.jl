@@ -160,7 +160,7 @@ function makegaussim(smld::SMLMData.SMLD2D,
     # Loop through emitters and add them to our output Gaussian image.
     imagesize = Int.(round.(smld.datasize * mag))
     image = zeros(Float64, imagesize[1], imagesize[2])
-    for nn = 1:SMLMData.length(smld)
+    for nn = 1:Base.length(smld)
         # Prepare a normal distribution for this emitter.
         distrib = Distributions.MvNormal([smld.y[nn]; smld.x[nn]], 
             [smld.σ_y[nn]^2 0.0; 0.0 smld.σ_x[nn]^2])

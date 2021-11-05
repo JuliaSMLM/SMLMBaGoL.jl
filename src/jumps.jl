@@ -217,13 +217,14 @@ function acceptbirth(smld::SMLMData.SMLD2D,
     # Compute the probability ratio for the number of emitters.
     # NOTE: The death proposal uses this same function, so the proposed `k`
     #       can be smaller than the current value (hence the k=min(...) below).
-    nloc = SMLMData.length(smld)
+    nloc = Base.length(smld)
     k = min(currentstate.k, proposal.k)
     mcparams.priork = SMLMBaGoL.prior_kemitters(nloc, mcparams.α, mcparams.β)
     pkratio = mcparams.priork.p[k+1] / mcparams.priork.p[k]
 
     # Compute the complete proposal ratio.
     pjumpratio = mcparams.p_jump[3] / mcparams.p_jump[4]
+    # return pallocratio * pkratio * pjumpratio / (p_im*mcparams.area)
     return pallocratio * pkratio * ((k/(k+1))^nloc) * pjumpratio / 
         (p_im*mcparams.area)
 end
@@ -342,7 +343,7 @@ function birth(smld::SMLMData.SMLD2D,
                mcparams::SMLMBaGoL.MCParams2D)
     # Propose a birth of a new emitter (unless there are as many emitters as
     # localizations, in which case we'll return the input `state`).
-    if state.k < SMLMData.length(smld)
+    if state.k < Base.length(smld)
         proposal, p_im = SMLMBaGoL.proposebirth(smld, state, mcparams)
         acceptance = SMLMBaGoL.acceptbirth(smld, 
                                            proposal, 

@@ -94,7 +94,7 @@ function runRJMCMC!(smld::SMLMData.SMLD2D,
     
     # Prepare some distributions (e.g., priors) and define initial states.
     mcparams.jumpdistrib = SMLMBaGoL.jumpdistrib(mcparams.p_jump)
-    nloc = SMLMData.length(smld)
+    nloc = Base.length(smld)
     mcparams.priork = SMLMBaGoL.prior_kemitters(nloc, mcparams.α, mcparams.β)
     k = Int(ceil(nloc / (mcparams.α*mcparams.β)))
     # mcparams.priorμ = SMLMBaGoL.prior_positions(smld.datasize)
