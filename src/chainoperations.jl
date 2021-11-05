@@ -96,7 +96,7 @@ Concatenate `chain1` and `chain2`, with `chain2` added at the end of `chain1`.
 # Outputs
 -`chain`: Concatenation of `chain1` and `chain2`.
 """
-function cat(chain1::SMLMBaGoL.BaGoLChain2D, chain2::SMLMBaGoL.BaGoLChain2D)
+function Base.cat(chain1::SMLMBaGoL.BaGoLChain2D, chain2::SMLMBaGoL.BaGoLChain2D)
     # Concatenate `chain2` at the end of `chain1`.
     chain = SMLMBaGoL.BaGoLChain2D(chain1.n + chain2.n)
     chain.states = [chain1.states; chain2.states]
@@ -107,7 +107,7 @@ function cat(chain1::SMLMBaGoL.BaGoLChain2D, chain2::SMLMBaGoL.BaGoLChain2D)
 end
 
 """
-    chain = cat(chain1::SMLMBaGoL.BaGoLChain2D, chain2::SMLMBaGoL.BaGoLChain2D)
+    chain = cat!(chain1::SMLMBaGoL.BaGoLChain2D, chain2::SMLMBaGoL.BaGoLChain2D)
 
 Concatenate `chain1` and `chain2`, with `chain2` added at the end of `chain1`.
 
@@ -126,10 +126,37 @@ function cat!(chain1::SMLMBaGoL.BaGoLChain2D, chain2::SMLMBaGoL.BaGoLChain2D)
 end
 
 """
-    μ, a = catfields(chain::SMLMBaGoL.BaGoLChain2D)
+    μ, a, k = catfields(states::Vector{SMLMBaGoL.BaGoLState2D})
 
-Extract fields `μ` and `a` from each state of the `chain` and concatenate
-them into matrices representing all states.
+Extract fields from each state in the vector `states` and concatenate.
+
+# Inputs
+-`states`: Vector of states from which we'll extract the fields and 
+           concatenate.
+
+# Outputs
+-`μ`: `state.μ` concatenated across all states in `states`.
+-`a`: `state.a` concatenated across all states in `states`.
+-`k`: `state.k` concatenated across all states in `states`.
+"""
+function catfields(states::Vector{SMLMBaGoL.BaGoLState2D})
+    μ = Matrix{Float64}(undef, 0, 2)
+    a = Matrix{Float64}(undef, 0, 2)
+    k = Vector{Float64}(undef, Base.length(states))
+    for ii = 1:Base.length(states)
+        μ = vcat(μ, states[ii].μ)
+        a = vcat(a, states[ii].a)
+        k[ii] = states[ii].k
+    end
+
+    return μ, a, k
+end
+
+"""
+    μ, a, k = catfields(chain::SMLMBaGoL.BaGoLChain2D)
+
+Extract fields from each state of the `chain` and concatenate them into arrays
+representing all states.
 
 # Inputs
 -`chain`: Chain from which we'll extract the fields of each state.
@@ -137,23 +164,17 @@ them into matrices representing all states.
 # Outputs
 -`μ`: `state.μ` concatenated across all states in `chain`.
 -`a`: `state.a` concatenated across all states in `chain`.
+-`k`: `state.k` concatenated across all states in `chain`.
 """
 function catfields(chain::SMLMBaGoL.BaGoLChain2D)
-    μ = Matrix{Float64}(undef, 0, 2)
-    a = Matrix{Float64}(undef, 0, 2)
-    for ii = 1:chain.n
-        μ = Base.vcat(μ, chain.states[ii].μ)
-        a = Base.vcat(a, chain.states[ii].a)
-    end
-
-    return μ, a
+    return catfields(chain.states)
 end
 
 """
-    μ, a = catfields(chain::Vector{SMLMBaGoL.BaGoLChain2D})
+    μ, a, k = catfields(chain::Vector{SMLMBaGoL.BaGoLChain2D})
 
-Extract fields `μ` and `a` from each state of `chain` and concatenate
-them into matrices representing all states.  
+Extract fields from each state of the `chain` and concatenate them into arrays
+representing all states.
 
 # Inputs
 -`chain`: Vector of chains from which we'll extract the fields of each state.
@@ -161,24 +182,27 @@ them into matrices representing all states.
 # Outputs
 -`μ`: `state.μ` concatenated across all states in `chain`.
 -`a`: `state.a` concatenated across all states in `chain`.
+-`k`: `state.k` concatenated across all states in `chain`.
 """
 function catfields(chain::Vector{SMLMBaGoL.BaGoLChain2D})
     μ = Matrix{Float64}(undef, 0, 2)
     a = Matrix{Float64}(undef, 0, 2)
+    k = Vector{Float64}(undef, 0)
     for ii = 1:Base.length(chain)
-        μnew, anew = SMLMBaGoL.catfields(chain[ii])
-        μ = Base.vcat(μ, μnew)
-        a = Base.vcat(a, anew)
+        μnew, anew, knew = SMLMBaGoL.catfields(chain[ii])
+        μ = vcat(μ, μnew)
+        a = vcat(a, anew)
+        k = vcat(k, knew)
     end
 
-    return μ, a
+    return μ, a, k
 end
 
 """
-    μ, a = catfields(chain::Matrix{Vector{SMLMBaGoL.BaGoLChain2D}})
+    μ, a, k = catfields(chain::Matrix{Vector{SMLMBaGoL.BaGoLChain2D}})
 
-Extract fields `μ` and `a` from each state of `chain` and concatenate
-them into matrices representing all states.  
+Extract fields from each state of the `chain` and concatenate them into arrays
+representing all states.
 
 # Inputs
 -`chain`: Matrix of vectorsof chains from which we'll extract the fields of 
@@ -187,15 +211,18 @@ them into matrices representing all states.
 # Outputs
 -`μ`: `state.μ` concatenated across all states in `chain`.
 -`a`: `state.a` concatenated across all states in `chain`.
+-`k`: `state.k` concatenated across all states in `chain`.
 """
 function catfields(chain::Matrix{Vector{SMLMBaGoL.BaGoLChain2D}})
     μ = Matrix{Float64}(undef, 0, 2)
     a = Matrix{Float64}(undef, 0, 2)
+    k = Vector{Float64}(undef, 0)
     for ii = 1:prod(size(chain))
-        μnew, anew = SMLMBaGoL.catfields(chain[ii])
-        μ = Base.vcat(μ, μnew)
-        a = Base.vcat(a, anew)
+        μnew, anew, knew = SMLMBaGoL.catfields(chain[ii])
+        μ = vcat(μ, μnew)
+        a = vcat(a, anew)
+        k = vcat(k, knew)
     end
 
-    return μ, a
+    return μ, a, k
 end
