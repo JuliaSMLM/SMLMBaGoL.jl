@@ -125,21 +125,6 @@ related to RJMCMC.
           with respect to the localization coordinate system.
 -`nsigma`: Number of standard deviations out to which we add a Gaussian at each
            localization in the Gaussian image used to define `imdistrib`.
--`srimsize`: Resulting size of the Gaussian SR image.
--`area`: Area spanned by the localizations. (pixels^2)
--`roi`: Region of interest in which the given localizations were observed.
--`jumpdistrib`: Distribution defining the jumps to be made. 
-                (see jumpdistrib.jl)
--`imdistrib`: Approximate emitter distribution defined by a normalized Gaussian
-              SR image of the localizations.
--`priork`: Prior distribution on the number of emitters.
--`priorz`: Probability of any given allocation of localizations to emitters.
-           (only the probability is stored, assuming all allocations are 
-           equally weighted, since returning a distribution seems unfeasible).
--`priorμ`: Prior distributions on the emitter positions. (Not currently used, as 
-           I've instead been using `imdistrib`.) ([ydistrib; xdistrib])
--`priora`: Prior distribution on the drift velocities. 
-           ([a_ydistrib; a_xdistrib])
 """
 mutable struct MCParams2D <: MCParams
     α::Float64
@@ -150,15 +135,6 @@ mutable struct MCParams2D <: MCParams
     p_jump::Vector{Float64}
     srmag::Float64
     nsigma::Float64
-    srimsize::Vector{Int}
-    area::Float64
-    roi::Vector{Float64}
-    jumpdistrib::Distributions.Distribution
-    imdistrib::Distributions.Distribution
-    priork::Distributions.Distribution
-    priorz # we probably can't return the full distribution for this prior
-    priorμ::Vector{Distributions.Distribution}
-    priora::Vector{Distributions.Distribution}
     MCParams2D() = new()
 end
 
@@ -171,14 +147,16 @@ abstract type BaGoLParams
 end
 
 """
-    BaGoLParams
+    BaGoLParams2D
 
-Structure of parameters defining the BaGoL workflow.
+Structure of user modified parameters defining the BaGoL workflow.
 
 # Description
 This structure organizes the parameter structures used in a typical BaGoL
 analysis.  The intention is that this structure plus the data represents a 
-complete description of the BaGoL analyses/results.
+complete description of the BaGoL analyses/results.  Other 
+parameters used internally will be defined in terms of these parameters and the
+data.
 """
 mutable struct BaGoLParams2D <: BaGoLParams
     subregion::SubregionParams
@@ -193,7 +171,46 @@ function BaGoLParams2D()
                          MCParams2D())
 end
 
+"""
+    Internals2D
 
+Structure of parameters/distributions modified within the BaGoL analysis.
+
+# Description
+This structure organizes some distributions (e.g., priors) and parameters that
+might be internally updated within a typical BaGoL analysis/are defined in 
+terms of the other user set parameters in BaGoLParams2D.
+
+# Fields
+-`roi`: Region of interest for the current set of data. 
+        ([ystart; xstart; yend; xend])
+-`srimsize`: Resulting size of the Gaussian SR image.
+-`area`: Area spanned by the localizations. (pixels^2)
+-`jumpdistrib`: Distribution defining the jumps to be made. 
+                (see jumpdistrib.jl)
+-`imdistrib`: Approximate emitter distribution defined by a normalized Gaussian
+              SR image of the localizations.
+-`priork`: Prior distribution on the number of emitters.
+-`priorz`: Probability of any given allocation of localizations to emitters.
+           (only the probability is stored, assuming all allocations are 
+           equally weighted, since returning a distribution seems unfeasible).
+-`priorμ`: Prior distributions on the emitter positions. (Not currently used, as 
+           I've instead been using `imdistrib`.) ([ydistrib; xdistrib])
+-`priora`: Prior distribution on the drift velocities. 
+           ([a_ydistrib; a_xdistrib])
+"""
+mutable struct Internals2D <: BaGoLParams
+    roi::Vector{Float64}
+    srimsize::Vector{Int}
+    area::Float64
+    jumpdistrib::Distributions.Distribution
+    imdistrib::Distributions.Distribution
+    priork::Distributions.Distribution
+    priorz # we probably can't return the full distribution for this prior
+    priorμ::Vector{Distributions.Distribution}
+    priora::Vector{Distributions.Distribution}
+    Internals2D() = new()
+end
 
 ## Data structures.
 
@@ -261,9 +278,11 @@ mutable struct BaGoLChain2D <: MarkovChain
     accepted::Vector{Bool}
     n::Int
 end
-function BaGoLChain2D(state::SMLMBaGoL.BaGoLState2D, accepted::Bool = true)
-    # Initialize a chain structure with the given state.
-    return BaGoLChain2D([state], [accepted], 1)
+function BaGoLChain2D()
+    # Initialize an empty chain.
+    return BaGoLChain2D(Vector{SMLMBaGoL.BaGoLState2D}(undef, 0),
+                        Vector{Bool}(undef, 0),
+                        0)
 end
 function BaGoLChain2D(n_chain::Int)
     # Initialize a chain structure of length `n_chain`.
@@ -271,9 +290,7 @@ function BaGoLChain2D(n_chain::Int)
                         Vector{Bool}(undef, n_chain),
                         n_chain)
 end
-function BaGoLChain2D()
-    # Initialize an empty chain.
-    return BaGoLChain2D(Vector{SMLMBaGoL.BaGoLState2D}(undef, 0),
-                        Vector{Bool}(undef, 0),
-                        0)
+function BaGoLChain2D(state::SMLMBaGoL.BaGoLState2D, accepted::Bool = true)
+    # Initialize a chain structure with the given state.
+    return BaGoLChain2D([state], [accepted], 1)
 end

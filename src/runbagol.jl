@@ -1,7 +1,7 @@
 using SMLMData
 
 """
-    chain = runbagol!(smld::SMLMData.SMLD2D, params::SMLMBaGoL.BaGoLParams2D)
+    chain = runbagol(smld::SMLMData.SMLD2D, params::SMLMBaGoL.BaGoLParams2D)
 
 Perform a typical BaGoL analysis based on localizations in `smld`.
 
@@ -18,7 +18,7 @@ Grouping of Localizations (BaGoL).
 # Outputs
 -`chain`: An SMLMBaGoL.BaGoLChain2D RJMCMC chain.
 """
-function runbagol!(smld::SMLMData.SMLD2D, params::SMLMBaGoL.BaGoLParams2D)
+function runbagol(smld::SMLMData.SMLD2D, params::SMLMBaGoL.BaGoLParams2D)
     # Split the data into subregions.
     smld_subregions, rois, _ = SMLMBaGoL.gensubregions(smld, 
         params.subregion.roisize, params.subregion.roioverlap)
@@ -31,7 +31,7 @@ function runbagol!(smld::SMLMData.SMLD2D, params::SMLMBaGoL.BaGoLParams2D)
         params.preclustering.maxdist)
 
     # Perform RJMCMC on each precluster.
-    chain = SMLMBaGoL.runRJMCMC!(smld_preclustered, rois, params.mcparams)
+    chain = SMLMBaGoL.runRJMCMC(smld_preclustered, rois, params.mcparams)
 
     return chain
 end
