@@ -3,7 +3,92 @@ using Distributions
 using NearestNeighbors
 
 # This file contains functions related to the allocation of localizations to
-# emitters, including 
+# emitters.
+
+"""
+    zvalid, zunique, k = validifyallocs(z::Vector{Int})
+
+Compress the range of `z` to consist only of the integers `1:k`.
+
+# Inputs
+-`z`: Set of allocations to emitters associated to integer indices.
+
+# Outputs
+-`zvalid`: Set of allocations to emitters where integer indices are 
+           compressed to the range `1:k`.
+-`zunique`: Equivalent to `unique(z)`, returned for convenience since it is
+            computed internally but often used outside of this method.
+-`k`: Number of emitters with valid allocations.
+"""
+function validifyallocs(z::Vector{Int})
+    # Ensure that the allocations in `z` are "complete", i.e., each of the
+    # `k` emitters was allocated at least one localization.
+    zvalid, zunique = SMLMBaGoL.compressrange(z)
+    k = maximum(zvalid)
+
+    return zvalid, zunique, k
+end
+
+"""
+    zvalid, μvalid, avalid, k = isolateuseful(z::Vector{Int}, 
+                                              μ::Matrix{Float64}, 
+                                              a::Matrix{Float64})
+
+Keep only those emitters in `μ` and `a` with allocated localizations.
+
+# Inputs
+-`z`: Set of allocations to emitters associated to integer indices.
+-`μ`: Positions of emitters indexed by entries of `z`. ([y x])
+-`a`: Drift velocities of emitters indexed by entries of `z`. ([v_y v_x])
+
+# Outputs
+-`zvalid`: Set of allocations to emitters where integer indices are 
+           compressed to the range `1:k`.
+-`μvalid`: Positions of emitters with localizations allocated to them.
+-`avalid`: Drift velocities of emitters with localizations allocated to them.
+-`k`: Number of emitters with valid allocations.
+"""
+function isolateuseful(z::Vector{Int}, μ::Matrix{Float64}, a::Matrix{Float64})
+    # Determine which emitters should be kept (i.e., which ones have 
+    # localizations allocated to them).
+    zvalid, zunique, k = SMLMBaGoL.validifyallocs(z)
+
+    return zvalid, μ[zunique, :], a[zunique, :], k
+end
+
+"""
+    statevalid = isolateuseful(state::SMLMBaGoL.BaGoLState2D)
+
+Keep only those emitters in `state` with allocated localizations.
+
+# Inputs
+-`state`: State with fields `μ`, `z`, and `a`.
+
+# Outputs
+-`statevalid`: Set of emitters from the input `state` which had allocations.
+"""
+function isolateuseful(state::SMLMBaGoL.BaGoLState2D)
+    # Determine which emitters should be kept (i.e., which ones have 
+    # localizations allocated to them).
+    zvalid, μvalid, avalid, k = SMLMBaGoL.isolateuseful(state.z, state.μ, state.a)
+
+    return SMLMBaGoL.BaGoLState2D(k, zvalid, μvalid, avalid)
+end
+
+"""
+    isolateuseful!(state::SMLMBaGoL.BaGoLState2D)
+
+Keep only those emitters in `state` with allocated localizations.
+
+# Inputs
+-`state`: State with fields `μ`, `z`, and `a`.
+"""
+function isolateuseful!(state::SMLMBaGoL.BaGoLState2D)
+    # Determine which emitters should be kept (i.e., which ones have 
+    # localizations allocated to them).
+    state.z, state.μ, state.a, state.k = SMLMBaGoL.isolateuseful(
+        state.z, state.μ, state.a)
+end
 
 """
     zprime = allocatelocs(smld::SMLMData.SMLD2D, 
