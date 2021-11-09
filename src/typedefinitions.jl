@@ -206,7 +206,7 @@ mutable struct Internals2D <: BaGoLParams
     jumpdistrib::Distributions.Distribution
     imdistrib::Distributions.Distribution
     priork::Distributions.Distribution
-    priorz # we probably can't return the full distribution for this prior
+    priorz::Float64 # we probably can't return the full distribution for this prior
     priorμ::Vector{Distributions.Distribution}
     priora::Vector{Distributions.Distribution}
     Internals2D() = new()

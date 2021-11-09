@@ -130,6 +130,78 @@ function samplecoords2D(imdistrib::Distributions.Distribution,
 end
 
 """
+    image = makegaussim(μ::Matrix{Float64},
+                        σ_μ::Matrix{Float64}, 
+                        photons::Vector{Float64},
+                        datasize::Vector{Float64},
+                        mag::Float64 = 20.0, 
+                        nsigma::Float64 = 5.0)
+
+Make a Gaussian image of the localizations in `μ`.
+
+# Description
+This function creates an image of the localizations defined by `μ` and `σ_μ`
+in which Gaussians with standard deviations `σ_μ` are added at positions `μ`.
+
+# Inputs
+-`μ`: Positions of the Gaussians. (pixels)([y x])
+-`σ_μ`: Standard errors of `μ` estimates. (pixels)([y x])
+-`photons`: Photons attributed to each row of `μ`.
+-`datasize`: Size of the region of data collection. (pixels)([y; x])
+-`mag`: Approximate magnfication from data coordinates to SR coordinates. 
+        (Default = 20.0)
+-`nsigma`: Number of standard deviations from the localization coordinate at
+           which we truncate the Gaussian. (Default = 5.0)
+
+# Outputs
+-`image`: Matrix{Float64} Gaussian image in which each localization in `smld`
+          is plotted as a Gaussian.
+"""
+function makegaussim(μ::Matrix{Float64},
+                     σ_μ::Matrix{Float64}, 
+                     photons::Vector{Float64},
+                     datasize::Vector{Float64},
+                     mag::Float64 = 20.0,
+                     nsigma::Float64 = 5.0)
+    # Loop through emitters and add them to our output Gaussian image.
+    imagesize = Int.(round.(datasize * mag))
+    image = zeros(Float64, imagesize[1], imagesize[2])
+    for nn = 1:size(μ, 1)
+        # Prepare a normal distribution for this emitter.
+        distrib = Distributions.MvNormal(μ[nn, :], 
+            [σ_μ[nn, 1]^2 0.0; 0.0 σ_μ[nn, 2]^2])
+        
+        # Loop through pixels of the image and add this emitter.
+        ystart = max(1, 
+            Int(round(mag * (μ[nn, 1]-nsigma*σ_μ[nn, 2]-0.5))))
+        yend = min(imagesize[1], 
+            Int(round(mag * (μ[nn, 1]+nsigma*σ_μ[nn, 2]))))
+        xstart = max(1, 
+            Int(round(mag * (μ[nn, 2]-nsigma*σ_μ[nn, 1]-0.5))))
+        xend = min(imagesize[2], 
+            Int(round(mag * (μ[nn, 2]+nsigma*σ_μ[nn, 1]))))
+        for ii = ystart:yend, jj = xstart:xend
+            image[ii, jj] += photons[nn] * 
+                Distributions.pdf(distrib, ([ii; jj].-0.5) / mag .+ 0.5)
+        end
+    end
+
+    # Normalize the image to sum to 1.0.  If any image values are NaN, set them
+    # to 0.0.
+    nanpixels = isnan.(image)
+    if any(nanpixels)
+        image[nanpixles] .= 0.0
+    end
+    image = image ./ sum(image)
+    if !isapprox(sum(image), 1.0)
+        @warn "Image is non-normalizable!  Returning flat image."
+        image = ones(Float64, imagesize[1], imagesize[2]) ./ prod(imagesize)
+    end
+
+    return image
+end
+
+"""
     image = makegaussim(smld::SMLMData.SMLD2D, 
                         mag::Float64 = 20.0, 
                         nsigma::Float64 = 5.0)
