@@ -168,8 +168,11 @@ function makegaussim(μ::Matrix{Float64},
     image = zeros(Float64, imagesize[1], imagesize[2])
     for nn = 1:size(μ, 1)
         # Prepare a normal distribution for this emitter.
-        distrib = Distributions.MvNormal(μ[nn, :], 
-            [σ_μ[nn, 1]^2 0.0; 0.0 σ_μ[nn, 2]^2])
+        if !all(σ_μ[nn, :] .> 0.0)
+            continue
+        end
+        Σ = [σ_μ[nn, 1]^2 0.0; 0.0 σ_μ[nn, 2]^2]
+        distrib = Distributions.MvNormal(μ[nn, :], Σ)
         
         # Loop through pixels of the image and add this emitter.
         ystart = max(1, 
