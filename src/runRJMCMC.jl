@@ -35,19 +35,19 @@ function runRJMCMC(smld::SMLMData.SMLD2D,
     
     # Prepare some distributions (e.g., priors) and define initial states.
     internals.jumpdistrib = SMLMBaGoL.jumpdistrib(mcparams.p_jump)
+    internals.priora = SMLMBaGoL.prior_drift(mcparams.σ_a * [1.0; 1.0])
     nloc = Base.length(smld)
     internals.priork = SMLMBaGoL.prior_kemitters(nloc, mcparams.α, mcparams.β)
     k = Int(ceil(nloc / (mcparams.α*mcparams.β)))
     μ, _ = SMLMBaGoL.samplecoords2D(internals.imdistrib, internals.srimsize[1], k)
     μ ./= mcparams.srmag
     μ .+= repeat(transpose(internals.roi[1:2]), k) .- 1.0
-    internals.priora = SMLMBaGoL.prior_drift(mcparams.σ_a * [1.0; 1.0])
     a = zeros(Float64, k, 2)
-    internals.priorz = SMLMBaGoL.prior_allocations(nloc, k)
     z = SMLMBaGoL.allocatelocs(smld, μ, a)
 
     # Run the chain for the burn-in iterations.
     initstate = SMLMBaGoL.BaGoLState2D(k, z, μ, a)
+    SMLMBaGoL.isolateuseful!(initstate)
     initchain = SMLMBaGoL.buildchain(smld, initstate, mcparams, internals, true)
     
     # Run the chain for the remaining true iterations.
@@ -170,20 +170,6 @@ function buildchain(smld::SMLMData.SMLD2D,
         chain.accepted[1] = true
     end
     for ii = 2:niter
-        # If there is only one emitter, allocate all localizations to that 
-        # emitter.
-        if state.k == 1
-            state.z = ones(Int, Base.length(state.z))
-        end
-
-        # If any emitters in the chain have no allocations, remove them before
-        # proceeding.
-        for kk in state.k:-1:1
-            if !any(state.z .== kk)
-                SMLMBaGoL.removeemitter!(state, kk)
-            end
-        end
-
         # Select a jump.
         jumptype = Distributions.rand(internals.jumpdistrib)
 
@@ -243,7 +229,7 @@ end
 
 """
     state, accepted = updatestate(smld::SMLMData.SMLD2D, 
-                                  state::SMLMBaGoL.BaGoLState2D,
+                                  currentstate::SMLMBaGoL.BaGoLState2D,
                                   mcparams::SMLMBaGoL.MCParams2D,
                                   internals::SMLMBaGoL.Internals2D,
                                   jumptype::Int)  
@@ -256,7 +242,7 @@ an updated state (jump accepted) or the input `state` (jump rejected).
 
 # Inputs
 -`smld`: SMLD2D structure containing the localizations.
--`state`: Current state of the Markov chain.
+-`currentstate`: Current state of the Markov chain.
 -`mcparams`: Structure of MCMC parameters.
 -`internals`: Structure of distributions/parameters (e.g., priors).
 -`jumptype`: Index of the jump to be proposed.
@@ -268,7 +254,7 @@ an updated state (jump accepted) or the input `state` (jump rejected).
              always true since moves use Gibbs sampling.
 """
 function updatestate(smld::SMLMData.SMLD2D, 
-                     state::SMLMBaGoL.BaGoLState2D,
+                     currentstate::SMLMBaGoL.BaGoLState2D,
                      mcparams::SMLMBaGoL.MCParams2D, 
                      internals::SMLMBaGoL.Internals2D,
                      jumptype::Int)  
@@ -276,27 +262,33 @@ function updatestate(smld::SMLMData.SMLD2D,
     if jumptype == 1
         # Jump type 1 is a move of the existing emitters.
         # Move jumps are done by Gibbs sampling so are always accepted. 
-        state, accepted = SMLMBaGoL.move(smld, state, mcparams)
+        state, accepted = SMLMBaGoL.move(smld, currentstate, mcparams)
     elseif jumptype == 2
         # Jump type 2 is a reallocation of localizations to emitters.
         # Reallocation jumps are done by Gibbs sampling so are always accepted.
-        state, accepted = SMLMBaGoL.reallocate(smld, state)
+        state, accepted = SMLMBaGoL.reallocate(smld, currentstate)
     elseif jumptype == 3
         # Jump type 3 is a birth of new emitter.  If there are already 
         # as many emitters as localizations, we'll just return the current
         # state.
-        state, accepted = SMLMBaGoL.birth(smld, state, mcparams, internals)
+        state, accepted = SMLMBaGoL.birth(smld, currentstate, mcparams, internals)
     elseif jumptype == 4
         # Jump type 4 is a death of an existing emitter.  If there is only 1
         # emitter, we don't want to remove it so we'll return the current
         # state.
-        state, accepted = SMLMBaGoL.death(smld, state, mcparams, internals)
+        state, accepted = SMLMBaGoL.death(smld, currentstate, mcparams, internals)
     else
         error("Unknown jump type!")
     end
 
+    # Make sure the updated state contains useful emitters (i.e., all emitters 
+    # in the state have localizations allocated to them).
+    SMLMBaGoL.isolateuseful!(state)
+
     return state, accepted
 end
 
-function updatemcparams!(mcparams::SMLMBaGoL.MCParams2D)
+"""
+"""
+function initchain()
 end
