@@ -5,12 +5,39 @@ using Clustering
 # This file contains functions/methods related to computing maximum a 
 # posteriori estimates (MAP) of quantities related to BaGoL analysis.
 
+"""
+    μ, σ_μ, a, σ_a, nalloc = mapn(chain::SMLMBaGoL.BaGoLChain2D)
 
-function mapn(smld::SMLMData.SMLD2D,
-              chain::SMLMBaGoL.BaGoLChain2D)
+This method computes the MAPN emitter position estimates.
+
+# Description
+This method finds the mode of the number of emitters in `chain` and then
+performs k-means clustering on the proposed emitter positions for all states
+with `k=mode(k)`.  The resulting `k` clusters are each averaged to estimate 
+the positions, drift velocities, and associated uncertainties of the `k` 
+emitters.
+
+# Inputs
+-`chain`: Chain of Markov states.
+
+# Outputs
+-`μ`: Position estimates of the MAPN emitters. (kx2)([y x])
+-`σ_μ`: Uncertainties in the positions `μ`. (kx2)([y x])
+-`a`: Drift velocities of the MAPN emitters. (kx2)([y x])
+-`σ_a`: Uncertainties in the velocities `a`. (kx2)([y x])
+-`nalloc`: Number of localizations allocated to each emitter. (kx1)
+"""
+function mapn(chain::SMLMBaGoL.BaGoLChain2D)
     # Determine the mode number of emitters in this chain.
-    μ, a, k = SMLMBaGoL.catfields(chain)
-    n = StatsBase.mode(k)
+    _, _, k = SMLMBaGoL.catfields(chain)
+    if isempty(k)
+        return Matrix{Float64}(undef, 0, 2),
+            Matrix{Float64}(undef, 0, 2),
+            Matrix{Float64}(undef, 0, 2),
+            Matrix{Float64}(undef, 0, 2),
+            Vector{Int}(undef, 0)
+    end
+    n = Int(StatsBase.mode(k))
 
     # Extract all states with `n` emitters.
     mapnbool = k .== n
@@ -18,10 +45,100 @@ function mapn(smld::SMLMData.SMLD2D,
     μmapn, amapn, _ = SMLMBaGoL.catfields(mapnstates)
 
     # Perform k-means clustering on the states with `n` emitters.
-    # Clustering.kmeans(transpose(μmapn)
+    mapnresults = Clustering.kmeans(transpose(μmapn), n)
+
+    # Estimate emitter positions from the kmeans results.
+    μout = Matrix{Float64}(undef, n, 2)
+    σ_μout = Matrix{Float64}(undef, n, 2)
+    aout = Matrix{Float64}(undef, n, 2)
+    σ_aout = Matrix{Float64}(undef, n, 2)
+    nalloc = Vector{Int}(undef, n)
+    for nn = 1:n
+        nnmembers = mapnresults.assignments .== nn
+        μout[nn, :] = mean(μmapn[nnmembers, :], dims = 1)
+        σ_μout[nn, :] = std(μmapn[nnmembers, :], dims = 1)
+        aout[nn, :] = mean(amapn[nnmembers, :], dims = 1)
+        σ_aout[nn, :] = std(amapn[nnmembers, :], dims = 1)
+        nalloc[nn] = sum(nnmembers)
+    end
+
+    return μout, σ_μout, aout, σ_aout, nalloc
 end
 
-function mapn(smld::SMLMData.SMLD2D,
-              chain::Matrix{Vector{SMLMBaGoL.BaGoLChain2D}})
-    
+"""
+    μ, σ_μ, a, σ_a, nalloc = mapn(chain::Vector{SMLMBaGoL.BaGoLChain2D})
+
+This method computes the MAPN emitter position estimates.
+
+# Description
+This method loops through each entry of `chain` and dispatches on 
+mapn(chain::SMLMBaGoL.BaGoLChain2D), concatenating the results across all
+chains.
+
+# Inputs
+-`chain`: Vector of chains of Markov states.
+
+# Outputs
+-`μ`: Position estimates of the MAPN emitters. (kx2)([y x])
+-`σ_μ`: Uncertainties in the positions `μ`. (kx2)([y x])
+-`a`: Drift velocities of the MAPN emitters. (kx2)([y x])
+-`σ_a`: Uncertainties in the velocities `a`. (kx2)([y x])
+-`nalloc`: Number of localizations allocated to each emitter. (kx1)
+"""
+function mapn(chain::Vector{SMLMBaGoL.BaGoLChain2D})
+    # Loop over entries in `chain` and dispatch on the single chain mapn().
+    μout = Matrix{Float64}(undef, 0, 2)
+    σ_μout = Matrix{Float64}(undef, 0, 2)
+    aout = Matrix{Float64}(undef, 0, 2)
+    σ_aout = Matrix{Float64}(undef, 0, 2)
+    nallocout = Vector{Int}(undef, 0)
+    for ii = 1:length(chain)
+        μ, σ_μ, a, σ_a, nalloc = SMLMBaGoL.mapn(chain[ii])
+        μout = [μout; μ]
+        σ_μout = [σ_μout; σ_μ]
+        aout = [aout; a]
+        σ_aout = [σ_aout; σ_a]
+        nallocout = [nallocout; nalloc]
+    end
+
+    return μout, σ_μout, aout, σ_aout, nallocout
+end
+
+"""
+    μ, σ_μ, a, σ_a, nalloc = mapn(chain::Matrix{Vector{SMLMBaGoL.BaGoLChain2D}})
+
+This method computes the MAPN emitter position estimates.
+
+# Description
+This method loops through each entry of `chain` and dispatches on 
+mapn(chain::Vector{SMLMBaGoL.BaGoLChain2D}), concatenating the results across 
+all chains.
+
+# Inputs
+-`chain`: Matrix of vectors of chains of Markov states.
+
+# Outputs
+-`μ`: Position estimates of the MAPN emitters. (kx2)([y x])
+-`σ_μ`: Uncertainties in the positions `μ`. (kx2)([y x])
+-`a`: Drift velocities of the MAPN emitters. (kx2)([y x])
+-`σ_a`: Uncertainties in the velocities `a`. (kx2)([y x])
+-`nalloc`: Number of localizations allocated to each emitter. (kx1)
+"""
+function mapn(chain::Matrix{Vector{SMLMBaGoL.BaGoLChain2D}})
+    # Loop over entries in `chain` and dispatch on the single chain mapn().
+    μout = Matrix{Float64}(undef, 0, 2)
+    σ_μout = Matrix{Float64}(undef, 0, 2)
+    aout = Matrix{Float64}(undef, 0, 2)
+    σ_aout = Matrix{Float64}(undef, 0, 2)
+    nallocout = Vector{Int}(undef, 0)
+    for ii = 1:prod(size(chain))
+        μ, σ_μ, a, σ_a, nalloc = SMLMBaGoL.mapn(chain[ii])
+        μout = [μout; μ]
+        σ_μout = [σ_μout; σ_μ]
+        aout = [aout; a]
+        σ_aout = [σ_aout; σ_a]
+        nallocout = [nallocout; nalloc]
+    end
+
+    return μout, σ_μout, aout, σ_aout, nallocout
 end
