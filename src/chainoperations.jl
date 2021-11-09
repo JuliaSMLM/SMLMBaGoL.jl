@@ -45,19 +45,21 @@ end
 """
     removeemitter!(state::SMLMBaGoL.BaGoLState2D, k::Int)
         
-Remove the emitter indexed as `k` from the given `state`.
+Remove the emitter indexed as `k` from the given `state`.  Note that no 
+reallocation is performed, so if an emitter is removed which has localizations
+allocated to it, `state.z` is set to -1 for those localizations.
 
 # Inputs
 -`state`: State of a Markov chain.
--`k`: Emitter index of the emitter to be removed from `state`.
+-`k`: Emitter index of emitter to be removed from `state`.
 """
 function removeemitter!(state::SMLMBaGoL.BaGoLState2D, k::Int)
     # Remove the k-th emitter and ensure `z` consists of integers 1:k_emitters.
     keepind = setdiff(1:state.k, k)
-    state.k -= 1
+    state.k = Base.length(keepind)
     state.μ = state.μ[keepind, :]
     state.a = state.a[keepind, :]
-    state.z[state.z .> state.k] .-= 1
+    state.z[state.z .== k] .= -1
 end
 
 """
@@ -71,8 +73,8 @@ allocated to it, `state.z` is set to -1 for those localizations.
 -`state`: State of a Markov chain.
 -`k`: Emitter indices of emitters to be removed from `state`.
 """
-function removeemitter!(state::SMLMBaGoL.BaGoLState2D, k)
-    # Remove the k-th emitter and ensure `z` consists of integers 1:k_emitters.
+function removeemitter!(state::SMLMBaGoL.BaGoLState2D, k::Vector{Int})
+    # Remove the emitters and ensure `z` consists of integers 1:k_emitters.
     keepind = setdiff(1:state.k, k)
     state.k = Base.length(keepind)
     state.μ = state.μ[keepind, :]
