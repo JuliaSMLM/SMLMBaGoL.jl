@@ -55,10 +55,10 @@ function mapn(chain::SMLMBaGoL.BaGoLChain2D)
     nalloc = Vector{Int}(undef, n)
     for nn = 1:n
         nnmembers = mapnresults.assignments .== nn
-        μout[nn, :] = mean(μmapn[nnmembers, :], dims = 1)
-        σ_μout[nn, :] = std(μmapn[nnmembers, :], dims = 1)
-        aout[nn, :] = mean(amapn[nnmembers, :], dims = 1)
-        σ_aout[nn, :] = std(amapn[nnmembers, :], dims = 1)
+        μout[nn, :] = StatsBase.mean(μmapn[nnmembers, :], dims = 1)
+        σ_μout[nn, :] = StatsBase.std(μmapn[nnmembers, :], dims = 1)
+        aout[nn, :] = StatsBase.mean(amapn[nnmembers, :], dims = 1)
+        σ_aout[nn, :] = StatsBase.std(amapn[nnmembers, :], dims = 1)
         nalloc[nn] = sum(nnmembers)
     end
 
