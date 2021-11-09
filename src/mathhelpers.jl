@@ -503,3 +503,50 @@ function emitterlogL1D(y::Float64,
                        μt::Float64)
     return -0.5 * (log(2.0*pi*σ^2) + ((y-μt)^2)/(σ^2))
 end
+
+"""
+    compressrange!(ints::Vector{Int})
+
+Compress the set of `ints` to consist of integers 1:length(unique(ints))
+
+# Inputs
+-`ints`: Vector of integers to be compressed.
+
+# Example 
+ints = [2; 4; 4; 7; 4; 11]
+compressrange!(ints)
+    -> ints = [1; 2; 2; 3; 2; 4]
+"""
+function compressrange!(ints::Vector{Int})
+    # Loop through entries of `ints` and modify as needed.
+    intsunique = unique(ints)
+    for nn = 1:length(intsunique)
+        ints[ints .== intsunique[nn]] .= nn
+    end
+
+    return ints
+end
+
+"""
+    intscomp, intsunique = compressrange(ints::Vector{Int})
+
+Compress the set of `ints` to consist of integers 1:length(unique(ints))
+
+# Inputs
+-`ints`: Vector of integers.
+
+# Outputs
+-`intscomp`: Input `ints` with entries modified to consist of the integers
+             1:length(unique(ints)).
+-`intsunique`: Equivalent to `unique(ints)`, returned for convenience.
+"""
+function compressrange(ints::Vector{Int})
+    # Loop through entries of `ints` and modify as needed.
+    intsunique = unique(ints)
+    intscomp = Vector{Int}(undef, length(ints))
+    for nn = 1:length(intsunique)
+        intscomp[ints .== intsunique[nn]] .= nn
+    end
+
+    return intscomp, intsunique
+end
