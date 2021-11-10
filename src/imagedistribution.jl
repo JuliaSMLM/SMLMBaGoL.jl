@@ -133,7 +133,7 @@ end
     image = makegaussim(μ::Matrix{Float64},
                         σ_μ::Matrix{Float64}, 
                         photons::Vector{Float64},
-                        datasize::Vector{Float64},
+                        datasize::Vector{Int},
                         mag::Float64 = 20.0, 
                         nsigma::Float64 = 5.0)
 
@@ -160,7 +160,7 @@ in which Gaussians with standard deviations `σ_μ` are added at positions `μ`.
 function makegaussim(μ::Matrix{Float64},
                      σ_μ::Matrix{Float64}, 
                      photons::Vector{Float64},
-                     datasize::Vector{Float64},
+                     datasize::Vector{Int},
                      mag::Float64 = 20.0,
                      nsigma::Float64 = 5.0)
     # Loop through emitters and add them to our output Gaussian image.
@@ -341,10 +341,10 @@ end
                        datasize::Vector{Int},
                        mag::Float64 = 20.0)
 
-Make a histogram image of the localizations in `smld`.
+Make a histogram image of the localizations in `coords`.
 
 # Description
-This function creates an image of the localizations in `smld` by adding 1.0
+This function creates an image of the localizations in `coords` by adding 1.0
 to a pixel for each localization present within that pixel.  The final image
 is then scaled so that it sums to 1.0.
 
@@ -402,4 +402,67 @@ is then scaled so that it sums to 1.0.
 function makehistim(smld::SMLMData.SMLD2D, mag::Float64 = 20.0)
     coords = [smld.y smld.x]
     return makehistim(coords, smld.datasize, mag)
+end
+
+"""
+    image = makecircleim(coords::Matrix{Float64},
+                         σ::Vector{Float64},
+                         datasize::Vector{Int},
+                         mag::Float64 = 20.0)
+
+Make a circle image of the localizations in `coords`.
+
+# Description
+This function creates an image of the localizations in `coords` by adding a
+circle centered at the locations `coords` with radii `σ`.
+
+# Inputs
+-`coords`: Localization coordinates. ([y x])
+-`σ`: Standard error of localizations in `coords`. (nlocx1)
+-`datasize`: Size of the data image. ([ysize xsize])
+-`mag`: Approximate magnfication from data coordinates to SR coordinates. 
+        (Default = 20.0)
+
+# Outputs
+-`image`: Matrix{Float64} histogram image of localizations.
+"""
+function makecircleim(coords::Matrix{Float64},
+                      σ::Vector{Float64},
+                      datasize::Vector{Int},
+                      mag::Float64 = 20.0)
+    # Rescale the coordinates based on `mag`.
+    coords = mag*(coords.-0.5) .+ 0.5
+    σ *= mag
+
+    # Loop through localizations and add them to our output image.
+    imagesize = Int.(round.(datasize * mag))
+    image = zeros(Float64, imagesize[1], imagesize[2])
+    for nn = 1:size(coords, 1)
+        # If σ[nn] isn't positive, skip this localization.
+        if !(σ[nn] > 0.0)
+            continue
+        end
+
+        # Define the pixel locations that fall along the circle.
+        # NOTE: The extra factor of 4 improves circle appearance.
+        θ = range(0, 2*pi, length = max(4, Int(ceil(4 * (2*pi*σ[nn])))))
+        rows = Int.(round.(coords[nn, 1] .+ σ[nn]*sin.(θ)))
+        cols = Int.(round.(coords[nn, 2] .+ σ[nn]*cos.(θ)))
+        validind = findall((rows.>=1) .* (rows.<imagesize[1]) .*
+            (cols.>=1) .* (cols.<imagesize[1]))
+
+        # Set the pixels of the output image to 1.0 wherever met by the circle.
+        for ii in validind
+            image[rows[ii], cols[ii]] = 1.0
+        end
+    end
+
+    # Normalize the image to sum to 1.0.
+    image = image ./ max(sum(image), 1.0)
+    if !isapprox(sum(image), 1.0)
+        @warn "Image is non-normalizable!  Returning flat image."
+        image = ones(Float64, imagesize[1], imagesize[2]) ./ prod(imagesize)
+    end
+
+    return image
 end
