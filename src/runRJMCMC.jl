@@ -31,7 +31,8 @@ function runRJMCMC(smld::SMLMData.SMLD2D,
     internals.roi = roi
     internals.imdistrib, internals.srimsize = SMLMBaGoL.imagedistribution(smld, 
         mcparams.srmag, mcparams.nsigma, internals.roi)
-    internals.area = Float64(prod(smld.datasize[1:2]))
+    internals.area = (roi[4]-roi[2]+1.0) * (roi[3]-roi[1]+1.0)
+    # internals.area = Float64(prod(smld.datasize[1:2]))
     
     # Prepare some distributions (e.g., priors) and define initial states.
     internals.jumpdistrib = SMLMBaGoL.jumpdistrib(mcparams.p_jump)
@@ -39,8 +40,8 @@ function runRJMCMC(smld::SMLMData.SMLD2D,
     nloc = Base.length(smld)
     internals.priork = SMLMBaGoL.prior_kemitters(nloc, mcparams.α, mcparams.β)
     k = Int(ceil(nloc / (mcparams.α*mcparams.β)))
-    μ, _ = SMLMBaGoL.samplecoords2D(internals.imdistrib, internals.srimsize[1], k)
-    μ ./= mcparams.srmag
+    μ_SR, _ = SMLMBaGoL.samplecoords2D(internals.imdistrib, internals.srimsize[1], k)
+    μ = ((μ_SR.-0.5) ./ mcparams.srmag) .+ 0.5
     μ .+= repeat(transpose(internals.roi[1:2]), k) .- 1.0
     a = zeros(Float64, k, 2)
     z = SMLMBaGoL.allocatelocs(smld, μ, a)
@@ -92,9 +93,9 @@ function runRJMCMC(smld::Vector{SMLMData.SMLD2D},
 end
 
 """
-    chain = runRJMCMC!(smld::Matrix{SMLMData.SMLD2D}, 
-                       rois::Matrix{Vector{Float64}}
-                       mcparams::MCParams2D)
+    chain = runRJMCMC(smld::Matrix{SMLMData.SMLD2D}, 
+                      rois::Matrix{Vector{Float64}}
+                      mcparams::MCParams2D)
 
 Perform reversible jump Markov chain monte carle (RJMCMC).
 
@@ -286,9 +287,4 @@ function updatestate(smld::SMLMData.SMLD2D,
     SMLMBaGoL.isolateuseful!(state)
 
     return state, accepted
-end
-
-"""
-"""
-function initchain()
 end

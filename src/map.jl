@@ -29,7 +29,7 @@ emitters.
 """
 function mapn(chain::SMLMBaGoL.BaGoLChain2D)
     # Determine the mode number of emitters in this chain.
-    _, _, k = SMLMBaGoL.catfields(chain)
+    k, _ = SMLMBaGoL.catfields(chain)
     if isempty(k)
         return Matrix{Float64}(undef, 0, 2),
             Matrix{Float64}(undef, 0, 2),
@@ -42,7 +42,7 @@ function mapn(chain::SMLMBaGoL.BaGoLChain2D)
     # Extract all states with `n` emitters.
     mapnbool = k .== n
     mapnstates = deepcopy(chain.states[mapnbool])
-    μmapn, amapn, _ = SMLMBaGoL.catfields(mapnstates)
+    _, zmapn, μmapn, amapn = SMLMBaGoL.catfields(mapnstates)
 
     # Perform k-means clustering on the states with `n` emitters.
     mapnresults = Clustering.kmeans(transpose(μmapn), n)
@@ -59,7 +59,7 @@ function mapn(chain::SMLMBaGoL.BaGoLChain2D)
         σ_μout[nn, :] = StatsBase.std(μmapn[nnmembers, :], dims = 1)
         aout[nn, :] = StatsBase.mean(amapn[nnmembers, :], dims = 1)
         σ_aout[nn, :] = StatsBase.std(amapn[nnmembers, :], dims = 1)
-        nalloc[nn] = sum(nnmembers)
+        nalloc[nn] = sum(zmapn[nnmembers] .== nn)
     end
 
     return μout, σ_μout, aout, σ_aout, nalloc
