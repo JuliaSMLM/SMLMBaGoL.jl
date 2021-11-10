@@ -188,12 +188,12 @@ function removeisolated(smld::SMLMData.SMLD2D, n_min::Int, r::Float64)
     # If there are fewer than `n_min+1` localizations, we can return an empty
     # SMLD2D structure immediately.
     if length(smld) < (n_min+1)
-        return SMLD2D()
+        return SMLMData.SMLD2D()
     end
 
     # Find the nearest-neighbors to each localization.
-    kdtree = NearestNeighbors.KDTree([smld.x smld.y]')
-    _, nndist = NearestNeighbors.knn(kdtree, [smld.x smld.y]', n_min+1, true)
+    kdtree = NearestNeighbors.KDTree([smld.y smld.x]')
+    _, nndist = NearestNeighbors.knn(kdtree, [smld.y smld.x]', n_min+1, true)
     keepbool = getindex.(nndist, n_min+1) .<= r
     smld_prethresh = SMLMData.isolatesmld(smld, keepbool)
 
@@ -219,12 +219,12 @@ function removeisolated!(smld::SMLMData.SMLD2D, n_min::Int, r::Float64)
     # If there are fewer than `n_min+1` localizations, we can return an empty
     # SMLD2D structure immediately.
     if length(smld) < (n_min+1)
-        return SMLD2D()
+        return SMLMData.SMLD2D()
     end
 
     # Find the nearest-neighbors to each localization.
-    kdtree = NearestNeighbors.KDTree([smld.x smld.y]')
-    _, nndist = NearestNeighbors.knn(kdtree, [smld.x smld.y]', n_min+1, true)
+    kdtree = NearestNeighbors.KDTree([smld.y smld.x]')
+    _, nndist = NearestNeighbors.knn(kdtree, [smld.y smld.x]', n_min+1, true)
     keepbool = getindex.(nndist, n_min+1) .<= r
     smld = SMLMData.isolatesmld(smld, keepbool)
 end
