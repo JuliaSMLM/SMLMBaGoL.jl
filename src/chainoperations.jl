@@ -124,7 +124,7 @@ Extract fields from each state in the vector `states` and concatenate.
 -`a`: `state.a` concatenated across all states in `states`.
 """
 function catfields(states::Vector{SMLMBaGoL.BaGoLState2D})
-    k = Vector{Float64}(undef, Base.length(states))
+    k = Vector{Int}(undef, Base.length(states))
     z = Vector{Vector{Int}}(undef, Base.length(states))
     μ = Matrix{Float64}(undef, 0, 2)
     a = Matrix{Float64}(undef, 0, 2)
@@ -173,7 +173,7 @@ representing all states.
 -`a`: `state.a` concatenated across all states in `states`.
 """
 function catfields(chain::Vector{SMLMBaGoL.BaGoLChain2D})
-    k = Vector{Float64}(undef, 0)
+    k = Vector{Int}(undef, 0)
     z = Vector{Vector{Int}}(undef, 0)
     μ = Matrix{Float64}(undef, 0, 2)
     a = Matrix{Float64}(undef, 0, 2)
@@ -205,7 +205,7 @@ representing all states.
 -`a`: `state.a` concatenated across all states in `states`.
 """
 function catfields(chain::Matrix{Vector{SMLMBaGoL.BaGoLChain2D}})
-    k = Vector{Float64}(undef, 0)
+    k = Vector{Int}(undef, 0)
     z = Vector{Vector{Int}}(undef, 0)
     μ = Matrix{Float64}(undef, 0, 2)
     a = Matrix{Float64}(undef, 0, 2)
