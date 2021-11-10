@@ -32,7 +32,6 @@ function runRJMCMC(smld::SMLMData.SMLD2D,
     internals.imdistrib, internals.srimsize = SMLMBaGoL.imagedistribution(smld, 
         mcparams.srmag, mcparams.nsigma, internals.roi)
     internals.area = (roi[4]-roi[2]+1.0) * (roi[3]-roi[1]+1.0)
-    # internals.area = Float64(prod(smld.datasize[1:2]))
     
     # Prepare some distributions (e.g., priors) and define initial states.
     internals.jumpdistrib = SMLMBaGoL.jumpdistrib(mcparams.p_jump)
@@ -67,7 +66,7 @@ Perform reversible jump Markov chain monte carle (RJMCMC).
 # Description
 This function performs RJMCMC analysis by preparing some distributions and
 parameters and then building the RJMCMC chain.  This function dispatches on
-the single `smld` version of runRJMCMC!() on each entry of the vector input 
+the single `smld` version of runRJMCMC() on each entry of the vector input 
 `smld`.
 
 # Inputs
@@ -102,7 +101,7 @@ Perform reversible jump Markov chain monte carle (RJMCMC).
 # Description
 This function performs RJMCMC analysis by preparing some distributions and
 parameters and then building the RJMCMC chain.  This function dispatches on
-the vector `smld` version of runRJMCMC!() on each entry of the matrix input 
+the vector `smld` version of runRJMCMC() on each entry of the matrix input 
 `smld`.
 
 # Inputs
