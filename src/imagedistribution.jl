@@ -466,3 +466,26 @@ function makecircleim(coords::Matrix{Float64},
 
     return image
 end
+
+"""
+    image = makecircleim(smld::SMLMData.SMLD2D, mag::Float64 = 20.0)
+
+Make a circle image of the localizations in `smld`.
+
+# Description
+This function creates an image of the localizations in `smld` by adding a
+circle for each localization.
+
+# Inputs
+-`smld`: SMLMData.SMLD2D data structure containing localizations.
+-`mag`: Approximate magnfication from data coordinates to SR coordinates. 
+        (Default = 20.0)
+
+# Outputs
+-`image`: Matrix{Float64} circle image of localizations.
+"""
+function makecircleim(smld::SMLMData.SMLD2D, mag::Float64 = 20.0)
+    coords = [smld.y smld.x]
+    σ = vec(mean([smld.σ_y smld.σ_x], dims = 2))
+    return SMLMBaGoL.makecircleim(coords, σ, smld.datasize, mag)
+end
