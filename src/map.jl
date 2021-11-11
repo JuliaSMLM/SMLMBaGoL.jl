@@ -47,19 +47,23 @@ function mapn(chain::SMLMBaGoL.BaGoLChain2D)
     # Perform k-means clustering on the states with `n` emitters.
     mapnresults = Clustering.kmeans(transpose(μmapn), n)
 
-    # Estimate emitter positions from the kmeans results.
+    # Estimate emitter positions from the kmeans results and determine how many
+    # localizations were allocated to each emitter in each state.
     μout = Matrix{Float64}(undef, n, 2)
     σ_μout = Matrix{Float64}(undef, n, 2)
     aout = Matrix{Float64}(undef, n, 2)
     σ_aout = Matrix{Float64}(undef, n, 2)
-    nalloc = Vector{Int}(undef, n)
+    nalloc = Vector{Vector{Int}}(undef, n)
     for nn = 1:n
         nnmembers = mapnresults.assignments .== nn
         μout[nn, :] = StatsBase.mean(μmapn[nnmembers, :], dims = 1)
         σ_μout[nn, :] = StatsBase.std(μmapn[nnmembers, :], dims = 1)
         aout[nn, :] = StatsBase.mean(amapn[nnmembers, :], dims = 1)
         σ_aout[nn, :] = StatsBase.std(amapn[nnmembers, :], dims = 1)
-        nalloc[nn] = sum(zmapn[nnmembers] .== nn)
+        nalloc[nn] = Vector{Int}(undef, length(zmapn))
+        for ii = 1:length(zmapn)
+            nalloc[nn][ii] = Int(sum(zmapn[ii] .== nn))
+        end
     end
 
     return μout, σ_μout, aout, σ_aout, nalloc
