@@ -232,42 +232,8 @@ for in this method.
 function makegaussim(smld::SMLMData.SMLD2D,
                      mag::Float64 = 20.0,
                      nsigma::Float64 = 5.0)
-    # Loop through emitters and add them to our output Gaussian image.
-    imagesize = Int.(round.(smld.datasize * mag))
-    image = zeros(Float64, imagesize[1], imagesize[2])
-    for nn = 1:Base.length(smld)
-        # Prepare a normal distribution for this emitter.
-        distrib = Distributions.MvNormal([smld.y[nn]; smld.x[nn]], 
-            [smld.σ_y[nn]^2 0.0; 0.0 smld.σ_x[nn]^2])
-        
-        # Loop through pixels of the image and add this emitter.
-        ystart = max(1, 
-            Int(round(mag * (smld.y[nn]-nsigma*smld.σ_y[nn]-0.5))))
-        yend = min(imagesize[1], 
-            Int(round(mag * (smld.y[nn]+nsigma*smld.σ_y[nn]))))
-        xstart = max(1, 
-            Int(round(mag * (smld.x[nn]-nsigma*smld.σ_x[nn]-0.5))))
-        xend = min(imagesize[2], 
-            Int(round(mag * (smld.x[nn]+nsigma*smld.σ_x[nn]))))
-        for ii = ystart:yend, jj = xstart:xend
-            image[ii, jj] += smld.photons[nn] * 
-                Distributions.pdf(distrib, ([ii; jj].-0.5) / mag .+ 0.5)
-        end
-    end
-
-    # Normalize the image to sum to 1.0.  If any image values are NaN, set them
-    # to 0.0.
-    nanpixels = isnan.(image)
-    if any(nanpixels)
-        image[nanpixles] .= 0.0
-    end
-    image = image ./ sum(image)
-    if !isapprox(sum(image), 1.0)
-        @warn "Image is non-normalizable!  Returning flat image."
-        image = ones(Float64, imagesize[1], imagesize[2]) ./ prod(imagesize)
-    end
-
-    return image
+    return SMLMBaGoL.makegaussim([smld.y smld.x], [smld.σ_y smld.σ_x], 
+        smld.photons, smld.datasize, mag, nsigma)
 end
 
 """
@@ -332,8 +298,7 @@ hot pixel at the coordinates of each localization.
 -`image`: Matrix{Float64} binary image of localizations.
 """
 function makebinim(smld::SMLMData.SMLD2D, mag::Float64 = 20.0)
-    coords = [smld.y smld.x]
-    return makebinim(coords, smld.datasize, mag)
+    return makebinim([smld.y smld.x], smld.datasize, mag)
 end
 
 """
@@ -400,8 +365,7 @@ is then scaled so that it sums to 1.0.
 -`image`: Matrix{Float64} histogram image of localizations.
 """
 function makehistim(smld::SMLMData.SMLD2D, mag::Float64 = 20.0)
-    coords = [smld.y smld.x]
-    return makehistim(coords, smld.datasize, mag)
+    return makehistim([smld.y smld.x], smld.datasize, mag)
 end
 
 """
