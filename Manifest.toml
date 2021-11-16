@@ -842,7 +842,9 @@ uuid = "ea8e919c-243c-51af-8825-aaa63cd721ce"
 
 [[SMLMData]]
 deps = ["CSV", "DataFrames", "MAT", "PlotlyJS"]
-path = "C:\\Users\\David\\Documents\\GitHub\\SMLMData.jl"
+git-tree-sha1 = "6ea0f01269fdf66740a02d0bcd743e1fc2c46613"
+repo-rev = "main"
+repo-url = "https://github.com/JuliaSMLM/SMLMData.jl"
 uuid = "5488f106-40b8-4660-84c5-84a168990d1b"
 version = "0.1.0"
 
