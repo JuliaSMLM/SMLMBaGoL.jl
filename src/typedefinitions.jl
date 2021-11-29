@@ -293,3 +293,6 @@ function BaGoLChain2D(state::SMLMBaGoL.BaGoLState2D, accepted::Bool = true)
     # Initialize a chain structure with the given state.
     return BaGoLChain2D([state], [accepted], 1)
 end
+function Base.length(chain::SMLMBaGoL.BaGoLChain2D)
+    return Base.length(chain.states)
+end
