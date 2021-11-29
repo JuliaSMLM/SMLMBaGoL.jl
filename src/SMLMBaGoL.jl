@@ -1,5 +1,13 @@
 module SMLMBaGoL
 
+using Base
+using SMLMData
+using Distributions
+using NearestNeighbors
+using StatsBase
+using Clustering
+using LinearAlgebra
+
 include("typedefinitions.jl")
 include("mathhelpers.jl")
 include("chainoperations.jl")
