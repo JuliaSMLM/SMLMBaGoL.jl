@@ -49,14 +49,9 @@ between emitters placed in the same precluster.
 -`smld_preclustered`: Copy of input `smld` with an updated field `connectID`
                       reflecting cluster membership.
 """
-function precluster_hierarchical(smld::SMLMData.SMLD2D, maxdist::Float64=0.15)
-    # Compute the separations between all localizations in `smld`.
-    dist = SMLMBaGoL.pairwise_dist([smld.x smld.y])
-
-    # Perform hierarchical clustering based on `dist`.
-    htree = Clustering.hclust(dist; uplo=:U)
+function precluster_hierarchical(smld::SMLMData.SMLD2D, maxdist::Float64 = 0.15)
     smld_preclustered = deepcopy(smld)
-    smld_preclustered.connectID = Clustering.cutree(htree; h=maxdist)
+    SMLMBaGoL.precluster_hierarchical!(smld_preclustered, maxdist)
 
     return smld_preclustered
 end
