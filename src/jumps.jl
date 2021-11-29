@@ -231,7 +231,6 @@ function acceptbirth(smld::SMLMData.SMLD2D,
     # Compute the complete proposal ratio.
     nloc = Base.length(smld)
     pjumpratio = mcparams.p_jump[3] / mcparams.p_jump[4]
-    # return pallocratio * pkratio * pjumpratio / (p_im*mcparams.area)
     return pallocratio * pkratio * ((k/(k+1))^nloc) * pjumpratio / 
         (p_im*internals.area)
 end
