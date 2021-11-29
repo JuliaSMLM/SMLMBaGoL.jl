@@ -35,6 +35,7 @@ function mapn(chain::SMLMBaGoL.BaGoLChain2D)
             Matrix{Float64}(undef, 0, 2),
             Matrix{Float64}(undef, 0, 2),
             Matrix{Float64}(undef, 0, 2),
+            Vector{Int}(undef, 0),
             Vector{Int}(undef, 0)
     end
     n = Int(StatsBase.mode(k))
@@ -66,7 +67,7 @@ function mapn(chain::SMLMBaGoL.BaGoLChain2D)
         end
     end
 
-    return μout, σ_μout, aout, σ_aout, nalloc
+    return μout, σ_μout, aout, σ_aout, nalloc, n
 end
 
 """
@@ -96,16 +97,18 @@ function mapn(chain::Vector{SMLMBaGoL.BaGoLChain2D})
     aout = Matrix{Float64}(undef, 0, 2)
     σ_aout = Matrix{Float64}(undef, 0, 2)
     nallocout = Vector{Int}(undef, 0)
+    nout = Vector{Int}(undef, 0)
     for ii = 1:length(chain)
-        μ, σ_μ, a, σ_a, nalloc = SMLMBaGoL.mapn(chain[ii])
+        μ, σ_μ, a, σ_a, nalloc, n = SMLMBaGoL.mapn(chain[ii])
         μout = [μout; μ]
         σ_μout = [σ_μout; σ_μ]
         aout = [aout; a]
         σ_aout = [σ_aout; σ_a]
         nallocout = [nallocout; nalloc]
+        nout = [nout; n]
     end
-
-    return μout, σ_μout, aout, σ_aout, nallocout
+    
+    return μout, σ_μout, aout, σ_aout, nallocout, nout
 end
 
 """
@@ -135,14 +138,16 @@ function mapn(chain::Matrix{Vector{SMLMBaGoL.BaGoLChain2D}})
     aout = Matrix{Float64}(undef, 0, 2)
     σ_aout = Matrix{Float64}(undef, 0, 2)
     nallocout = Vector{Int}(undef, 0)
+    nout = Vector{Int}(undef, 0)
     for ii = 1:prod(size(chain))
-        μ, σ_μ, a, σ_a, nalloc = SMLMBaGoL.mapn(chain[ii])
+        μ, σ_μ, a, σ_a, nalloc, n = SMLMBaGoL.mapn(chain[ii])
         μout = [μout; μ]
         σ_μout = [σ_μout; σ_μ]
         aout = [aout; a]
         σ_aout = [σ_aout; σ_a]
         nallocout = [nallocout; nalloc]
+        nout = [nout; n]
     end
 
-    return μout, σ_μout, aout, σ_aout, nallocout
+    return μout, σ_μout, aout, σ_aout, nallocout, nout
 end
