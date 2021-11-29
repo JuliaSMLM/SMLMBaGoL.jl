@@ -5,7 +5,7 @@ using Base
 # This file contains functions/methods useful for defining image distributions.
 
 """
-    imdistrib, imsize = imagedistribution(smld::SMLMData.SMLD2D, 
+    imdistrib, imsize = imagedistribution(smld::SMLMData.SMLD2D;
                                           mag::Float64 = 20.0, 
                                           nsigma::Float64 = 5.0,
                                           roi::Vector{Float64} = [1.0; 1.0])
@@ -34,7 +34,7 @@ Distributions package.
              estimated from a Gaussian image of `smld` localizations.
 -`imsize`: Size of the Gaussian image used to compute `imdistrib`.
 """
-function imagedistribution(smld::SMLMData.SMLD2D, 
+function imagedistribution(smld::SMLMData.SMLD2D;
                            mag::Float64 = 20.0, 
                            nsigma::Float64 = 5.0, 
                            roi::Vector{Float64} = [1.0; 1.0])
@@ -47,7 +47,7 @@ function imagedistribution(smld::SMLMData.SMLD2D,
     smld.x .-= roi[2] - 1.0
 
     # Prepare the Gaussian image and then compute the distribution.
-    image = SMLMData.makegaussim(smld, mag, nsigma)
+    image = SMLMData.makegaussim(smld; mag=mag, nsigma=nsigma)
     
     return SMLMBaGoL.imagedistribution(image), collect(size(image))
 end

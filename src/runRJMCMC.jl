@@ -29,8 +29,8 @@ function runRJMCMC(smld::SMLMData.SMLD2D,
     # (approximated as the normalized Gaussian image of localizations).
     internals = SMLMBaGoL.Internals2D()
     internals.roi = roi
-    internals.imdistrib, internals.srimsize = SMLMBaGoL.imagedistribution(smld, 
-        mcparams.srmag, mcparams.nsigma, internals.roi)
+    internals.imdistrib, internals.srimsize = SMLMBaGoL.imagedistribution(smld; 
+        mag=mcparams.srmag, nsigma=mcparams.nsigma, roi=internals.roi)
     internals.area = (roi[4]-roi[2]+1.0) * (roi[3]-roi[1]+1.0)
     
     # Prepare some distributions (e.g., priors) and define initial states.
