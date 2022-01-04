@@ -2,116 +2,109 @@
 using Revise
 using SMLMBaGoL
 using SMLMData
-using FrameConnection
+using SMLMSim
 using DataFrames
 using CSV
 using Plots
 using SpecialFunctions
+using StatsBase
+using ImageView
 
-## Load some example data and modify for the demonstration.
-data = DataFrames.DataFrame(CSV.File("C:\\Users\\David\\Documents\\GitHub\\example_data.csv"))
-smld = SMLMData.SMLD2D(data)
-smld.x = smld.x .- minimum(smld.x)
-smld.x = smld.x ./ maximum(smld.x)
-smld.y = smld.y .- minimum(smld.y)
-smld.y = smld.y ./ maximum(smld.y)
-smld.x = 32.0*smld.x .+ 0.5
-smld.y = 32.0*smld.y .+ 0.5
-smld.datasize = [32; 32]
+# ## Load some example data and modify for the demonstration.
+# filepath = "C:\\Users\\David\\Documents\\work_stuff\\bagol"
+# filename = "uniformSMD.mat"
+# filenameGT = "uniformSMDGT.mat"
+# smld = SMLMData.SMLD2D(SMLMData.SMITEsmd(filepath, filename))
+# smldgt = SMLMData.SMLD2D(SMLMData.SMITEsmd(filepath, filenameGT))
 
-# ## Define the parameter structure.
-# params = SMLMBaGoL.BaGoLParams()
+# Simulate some data.
+γ = 1e5 # Fluorophore emission rate
+q = [0 1
+    1e-3 0] # Fluorophore blinking rates
+n = 6 # Nmer rank
+d = 0.3 # Nmer diameter
+ρ = 0.1 # density of Nmers 
+xsize = 25.6 # image size
+ysize = 25.6
+nframes = 50000 # number of frames
+ndatasets = 1
+framerate = 1.0 # set to 1.0 to keep things in physical units
+σ_psf = 1.3 # psf sigma used for uncertainty calcs
+minphotons = 500 # minimum number of photons per frame accepted
 
-# ## Split the data into subregions.
-# params.subregion.roisize = 5
-# params.subregion.roioverlap = 1
-# smld_subregions, rois, connectID = SMLMBaGoL.gensubregions(smld, 
-#     params.subregion.roisize, params.subregion.roioverlap)
-
-# ## Remove outlier localizations.
-# params.prethresholds.maxsigmadev_photons = 1.0
-# params.prethresholds.n_min = 1
-# params.prethresholds.r = 10.0
-# SMLMBaGoL.removeoutliers!(smld_subregions, params.prethresholds)
-
-# ## Perform hierarchical clustering.
-# params.preclustering.maxdist = 0.15 # pixels
-# smld_preclustered = SMLMBaGoL.precluster_hierarchical.(smld_subregions, 
-#     params.preclustering.maxdist)
-
-# ##
-# nloc = 2
-# smld_test = SMLMData.isolatesmld(smld, 1:nloc)
-# kinit = 2
-# zinit = collect(1:kinit)
-# zprime = SMLMBaGoL.allocatelocs(smld_test, [smld.x[zinit] smld.y[zinit]])
-# muprime = SMLMBaGoL.moveemitters(smld_test, zprime, nloc, kinit)
-# # muprime, _ = SMLMBaGoL.moveemitters(smld_test, zprime, 1e-5, nloc, kinit)
-
-# ##
-# smld_test = SMLMData.SMLD2D()
-# smld_test.framenum = [100; 700; 200; 500]
-# smld_test.x = [1.1; 1.3; 5.6; 5.5]
-# smld_test.y = [2.1; 2.3; 8.6; 8.5]
-# smld_test.σ_x = [0.11; 0.1; 0.12; 0.13]
-# smld_test.σ_y = [0.1; 0.13; 0.11; 0.11]
-# μ = [1.2 2.2; 5.55 8.55]
-# a = [0.0 0.0; 0.0 0.0]
-# w = ones(size(μ, 1)) / size(μ, 1)
-# z = SMLMBaGoL.allocatelocs(smld_test, μ)
-# logLy = SMLMBaGoL.emitterlogL1D(smld_test.y, smld_test.σ_y, Float64.(smld_test.framenum), μ[:, 2], a[:, 2], z)
-# logLx = SMLMBaGoL.emitterlogL1D(smld_test.x, smld_test.σ_x, Float64.(smld_test.framenum), μ[:, 1], a[:, 1], z)
-# logL = SMLMBaGoL.emitterlogL2D(smld_test, μ, a, z)
-# logL1 = SMLMBaGoL.emitterlogL2D([smld_test.x[1:2] smld_test.y[1:2]], [smld_test.σ_x[1:2] smld_test.σ_y[1:2]], Float64.(smld_test.framenum[1:2]), μ[1, :], a[1, :])
-# logL2 = SMLMBaGoL.emitterlogL2D([smld_test.x[3:4] smld_test.y[3:4]], [smld_test.σ_x[3:4] smld_test.σ_y[3:4]], Float64.(smld_test.framenum[3:4]), μ[2, :], a[2, :])
-# logLtest = log(SMLMBaGoL.emitterlikelihood1D(smld_test.y, smld_test.σ_y, Float64.(smld_test.framenum), μ[:, 2], a[:, 2], z))
-
-# palloc = SMLMBaGoL.palloc_kernel([smld_test.x smld_test.y], [smld_test.σ_x smld_test.σ_y], Float64.(smld_test.framenum), μ[1, :], a[1, :], w[1])
-
-# palloc = SMLMBaGoL.palloc_kernel([smld_test.x smld_test.y], [smld_test.σ_x smld_test.σ_y], Float64.(smld_test.framenum), μ, a, w)
-
-# logLalloc = SMLMBaGoL.logLalloc_kernel([smld_test.x smld_test.y], [smld_test.σ_x smld_test.σ_y], Float64.(smld_test.framenum), μ, a, w)
-
-##
-# smld_test = SMLMData.SMLD2D()
-# smld_test.framenum = [100; 700; 200; 500]
-# smld_test.x = [1.1; 1.3; 5.6; 5.5]
-# smld_test.y = [2.1; 2.3; 8.4; 8.5]
-# smld_test.σ_x = [0.11; 0.1; 0.12; 0.13]
-# smld_test.σ_y = [0.1; 0.13; 0.11; 0.11]
-# smld_test.datasize = [8.0; 8.0]
+# Simulation sequence
+f = SMLMSim.GenericFluor(γ, q)
+pattern = SMLMSim.Nmer2D(n, d)
+smld_true = SMLMSim.uniform2D(ρ, pattern, xsize, ysize)
+smld_model = SMLMSim.kineticmodel(smld_true, f, nframes, framerate; ndatasets = ndatasets, minphotons = minphotons)
+smld = SMLMSim.noise(smld_model, σ_psf)
 
 params = SMLMBaGoL.BaGoLParams2D()
-params.subregion.roisize = 5.0
-params.subregion.roioverlap = 1.0
+params.subregion.on = true
+params.subregion.roisize = 2.0
+params.subregion.roioverlap = 0.5
 params.prethresholds.maxsigmadev_photons = 1.0
 params.prethresholds.n_min = 1
 params.prethresholds.r = 10.0
+params.preclustering.on = true
 params.preclustering.maxdist = 0.15
-params.mcparams.n_burnin
 params.mcparams.σ_a = 0.0
-params.mcparams.α = 1.0
-params.mcparams.β = 0.1
+params.mcparams.α = length(smld_model) / length(smld_true)
+params.mcparams.β = 1.0
+# params.mcparams.α = 1.0
+# params.mcparams.β = length(smld_true) / length(smld_model)
 params.mcparams.srmag = 10.0
 params.mcparams.nsigma = 5.0
 params.mcparams.p_jump = [1.0; 1.0; 1.0; 1.0]
 params.mcparams.p_jump = params.mcparams.p_jump / sum(params.mcparams.p_jump)
-params.mcparams.n_burnin = 100
-params.mcparams.n_chain = 100
-chain = SMLMBaGoL.runbagol(smld, params)
+params.mcparams.n_burnin = 2000
+params.mcparams.n_chain = 3000
+chain, rois, roioverlap = SMLMBaGoL.runbagol(smld, params);
+validchain = SMLMBaGoL.removeoverlap(chain, smld.datasize, rois, roioverlap)
+mapnout = SMLMBaGoL.mapn(validchain)
+Plots.histogram(mean.(mapnout[5]))
+Plots.histogram(mapnout[6])
 
-rois = SMLMBaGoL.genrois(Float64.(smld.datasize), 
-    params.subregion.roisize, params.subregion.roioverlap)
-validchain = SMLMBaGoL.removeoverlap(chain, smld.datasize, rois, params.subregion.roioverlap)
-# μvalid, _, _ = SMLMBaGoL.catfields(validchain)
+srmag = 100.0
+gaussim = SMLMData.makegaussim(mapnout[1], mapnout[2], smld.datasize)
+circleim_mapn = SMLMData.makecircleim(mapnout[1], vec(mean(mapnout[2], dims = 2)), smld.datasize, srmag)
+coords = [smld.y smld.x]
+σ_coords = [smld.σ_y smld.σ_x]
+circleim = SMLMData.makecircleim(coords, vec(mean(σ_coords, dims = 2)), smld.datasize, srmag)
+circleim ./= maximum(circleim)
+circleim_mapn ./= maximum(circleim_mapn)
+testim = RGB.(circleim, circleim_mapn, circleim)
+plt = plot(testim)
+ImageView.imshow(testim)
 
-# smld_preclustered = FrameConnection.precluster(smld) # not meaningful, just to test!
-# alpha, beta = SMLMBaGoL.constructprior_lambda(smld_preclustered, false)
+binimgt = SMLMData.makebinim(smld_true, srmag)
+binimgt ./= maximum(binimgt)
+testim = RGB.(binimgt, circleim_mapn, binimgt)
+plot(testim)
 
-# clusterdata = FrameConnection.organizeclusters(smld_preclustered)
-# _, nobservations = FrameConnection.computeclusterinfo(clusterdata)
-# histogram(nobservations, normalize=:probability)
-# x = LinRange(1.0, 6.0, Int64(1e3))
-# gammadist(x) = (beta^alpha / SpecialFunctions.gamma(alpha)) *
-#     x.^(alpha-1.0) .* exp.(-beta*x)
-# plot!(x, gammadist(x))
+testim = RGB.(binimgt, circleim, binimgt)
+plot(testim)
+
+testim = RGB.(circleim_mapn, circleim, circleim_mapn .+ binimgt)
+plot(testim)
+
+circleimGT = SMLMData.makecircleim(smld_true, srmag)
+circleimGT ./= maximum(circleimGT)
+testim = RGB.(circleim * 0, circleim_mapn, circleimGT)
+plot(testim)
+
+# smld_subregions, rois, _ = SMLMBaGoL.gensubregions(smld, 
+#     params.subregion.roisize, params.subregion.roioverlap)
+# SMLMBaGoL.removeoutliers!(smld_subregions, params.prethresholds)
+# smld_preclustered = SMLMBaGoL.precluster_hierarchical.(smld_subregions, 
+#     params.preclustering.maxdist)
+# smldclusters, _ = SMLMData.isolateconnected(smld_preclustered[1])
+# smld = deepcopy(smldclusters[4])
+# chain = SMLMBaGoL.runRJMCMC(smld, rois[1], params.mcparams)
+# μ = SMLMBaGoL.catfields(chain)
+
+# chain2 = SMLMBaGoL.runRJMCMC(smldclusters, rois[1], params.mcparams)
+# μ2 = SMLMBaGoL.catfields(chain2)
+
+# chain3 = SMLMBaGoL.runRJMCMC(smld_preclustered, rois, params.mcparams)
+# μ3 = SMLMBaGoL.catfields(chain)
