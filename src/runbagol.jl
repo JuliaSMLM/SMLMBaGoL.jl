@@ -20,12 +20,17 @@ Grouping of Localizations (BaGoL).
 -`rois`: Subregion ROIs used. (Matrix{Vector{Float64}})
 -`roioverlap`: ROI overlap used in subregion generation. (Float64)
 """
-function runbagol(smld::SMLMData.SMLD2D, params::SMLMBaGoL.BaGoLParams2D)
+function runbagol(smld::SMLMData.SMLD2D;
+    subregion_params::SMLMBaGoL.SubregionParams2D = SMLMBaGoL.SubregionParams2D(),
+    prethresholds::SMLMBaGoL.PreThreshParams2D = SMLMBaGoL.PreThreshParams2D(),
+    preclustering_params::SMLMBaGoL.PreclusterParams2D = SMLMBaGoL.PreclusterParams2D(),
+    mcparams::SMLMBaGoL.MCParams2D = SMLMBaGoL.MCParams2D())
+
     # Split the data into subregions.
-    if params.subregion.on
-        roioverlap = deepcopy(params.subregion.roioverlap)
+    if subregion_params.on
+        roioverlap = deepcopy(subregion_params.roioverlap)
         smld_subregions, rois, _ = SMLMBaGoL.gensubregions(smld,
-            params.subregion.roisize, roioverlap)
+            subregion_params.roisize, roioverlap)
     else
         roioverlap = 0.0
         smld_subregions, rois, _ = SMLMBaGoL.gensubregions(smld,
@@ -33,12 +38,12 @@ function runbagol(smld::SMLMData.SMLD2D, params::SMLMBaGoL.BaGoLParams2D)
     end
 
     # Remove outlier localizations.
-    SMLMBaGoL.removeoutliers!(smld_subregions, params.prethresholds)
+    SMLMBaGoL.removeoutliers!(smld_subregions, prethresholds)
 
     # Perform hierarchical clustering on the subregions.
-    if params.preclustering.on
+    if preclustering_params.on
         smld_preclustered = SMLMBaGoL.precluster_hierarchical.(smld_subregions,
-            params.preclustering.maxdist)
+            preclustering_params.maxdist)
     else
         smld_preclustered = deepcopy(smld_subregions)
         for ii = 1:prod(size(smld_preclustered))
@@ -48,7 +53,7 @@ function runbagol(smld::SMLMData.SMLD2D, params::SMLMBaGoL.BaGoLParams2D)
     end
 
     # Perform RJMCMC on each precluster.
-    chain = SMLMBaGoL.runRJMCMC(smld_preclustered, rois, params.mcparams)
+    chain = SMLMBaGoL.runRJMCMC(smld_preclustered, rois, mcparams)
 
     return chain, rois, roioverlap
 end
