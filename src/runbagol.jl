@@ -17,21 +17,38 @@ Grouping of Localizations (BaGoL).
 
 # Outputs
 -`chain`: An SMLMBaGoL.BaGoLChain2D RJMCMC chain.
+-`rois`: Subregion ROIs used. (Matrix{Vector{Float64}})
+-`roioverlap`: ROI overlap used in subregion generation. (Float64)
 """
 function runbagol(smld::SMLMData.SMLD2D, params::SMLMBaGoL.BaGoLParams2D)
     # Split the data into subregions.
-    smld_subregions, rois, _ = SMLMBaGoL.gensubregions(smld, 
-        params.subregion.roisize, params.subregion.roioverlap)
+    if params.subregion.on
+        roioverlap = deepcopy(params.subregion.roioverlap)
+        smld_subregions, rois, _ = SMLMBaGoL.gensubregions(smld,
+            params.subregion.roisize, roioverlap)
+    else
+        roioverlap = 0.0
+        smld_subregions, rois, _ = SMLMBaGoL.gensubregions(smld,
+            Float64.(maximum(smld.datasize)), roioverlap)
+    end
 
     # Remove outlier localizations.
     SMLMBaGoL.removeoutliers!(smld_subregions, params.prethresholds)
 
     # Perform hierarchical clustering on the subregions.
-    smld_preclustered = SMLMBaGoL.precluster_hierarchical.(smld_subregions, 
-        params.preclustering.maxdist)
+    if params.preclustering.on
+        smld_preclustered = SMLMBaGoL.precluster_hierarchical.(smld_subregions,
+            params.preclustering.maxdist)
+    else
+        smld_preclustered = deepcopy(smld_subregions)
+        for ii = 1:prod(size(smld_preclustered))
+            smld_preclustered[ii].connectID =
+                collect(1:Base.length(smld_preclustered[ii].framenum))
+        end
+    end
 
     # Perform RJMCMC on each precluster.
     chain = SMLMBaGoL.runRJMCMC(smld_preclustered, rois, params.mcparams)
 
-    return chain
+    return chain, rois, roioverlap
 end

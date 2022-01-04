@@ -10,11 +10,10 @@ using Base
 
 Abstract type defining subregion splitting parameter structures.
 """
-abstract type SubregionParams
-end
+abstract type SubregionParams end
 
 """
-    SubregionParams2D(roisize::Float64, roioverlap::Float64)
+    SubregionParams2D(roisize::Float64, roioverlap::Float64, on::Bool)
 
 Structure of parameters defining subregion splitting of data.
 
@@ -26,13 +25,16 @@ splitting of data.
 -`roisize`: Size of each subregion (region of interest, or ROI). 
             (Pixels)(Default = 5.0)
 -`roioverlap`: Size of the overlap between subregions. (Default = 1.0)(Pixels)
+-`on`: Flag indicating data should be split into subregions when using
+       runbagol() (Default = true)
 """
 mutable struct SubregionParams2D <: SubregionParams
     roisize::Float64
     roioverlap::Float64
+    on::Bool
 end
 function SubregionParams2D()
-    return SubregionParams2D(5.0, 1.0)
+    return SubregionParams2D(5.0, 1.0, true)
 end
 
 """
@@ -40,8 +42,7 @@ end
 
 Abstract type defining preprocessing threshold parameter structures.
 """
-abstract type PreThreshParams
-end
+abstract type PreThreshParams end
 
 """
     PreThreshParams2D(maxsigmadev_photons::Float64, n_min::Int, r::Float64)
@@ -74,11 +75,10 @@ end
 
 Abstract type defining preclustering parameter structures.
 """
-abstract type PreclusterParams
-end
+abstract type PreclusterParams end
 
 """
-    PreclusterParams2D(maxdist::Float64)
+    PreclusterParams2D(maxdist::Float64, on::Bool)
 
 Structure of parameters defining preclustering of localizations in subregions.
 
@@ -89,12 +89,15 @@ preclustering of localizations within each subregion.
 # Fields
 -`maxdist`: Maximum distance from one localization to its nearest-neighbor 
             allowed in each precluster. (Default = 0.15)(Pixels)
+-`on`: Flag indicating pre-clustering should be applied when using runbagol().
+       (Default = true)
 """
 mutable struct PreclusterParams2D <: PreclusterParams
     maxdist::Float64
+    on::Bool
 end
 function PreclusterParams2D()
-    return PreclusterParams2D(0.15)
+    return PreclusterParams2D(0.15, true)
 end
 
 """
@@ -102,8 +105,7 @@ end
 
 Abstract type defining RJMCMC parameters.
 """
-abstract type MCParams
-end
+abstract type MCParams end
 
 """
     MCParams2D
@@ -143,8 +145,7 @@ end
 
 Abstract type defining RJMCMC parameters.
 """
-abstract type BaGoLParams
-end
+abstract type BaGoLParams end
 
 """
     BaGoLParams2D
@@ -165,10 +166,10 @@ mutable struct BaGoLParams2D <: BaGoLParams
     mcparams::MCParams
 end
 function BaGoLParams2D()
-    return BaGoLParams2D(SubregionParams2D(), 
-                         PreThreshParams2D(), 
-                         PreclusterParams2D(), 
-                         MCParams2D())
+    return BaGoLParams2D(SubregionParams2D(),
+        PreThreshParams2D(),
+        PreclusterParams2D(),
+        MCParams2D())
 end
 
 """
@@ -218,8 +219,7 @@ end
 
 Abstract type defining a Markov chain state.
 """
-abstract type State
-end
+abstract type State end
 
 """
     BaGoLState2D(k::Int,
@@ -254,8 +254,7 @@ BaGoLState2D() = SMLMBaGoL.BaGoLState2D(1,
 
 Abstract type defining a Markov chain.
 """
-abstract type MarkovChain
-end
+abstract type MarkovChain end
 
 """
     BaGoLChain2D(states::Vector{SMLMBaGoL.BaGoLState2D},
@@ -280,14 +279,14 @@ end
 function BaGoLChain2D()
     # Initialize an empty chain.
     return BaGoLChain2D(Vector{SMLMBaGoL.BaGoLState2D}(undef, 0),
-                        Vector{Bool}(undef, 0),
-                        0)
+        Vector{Bool}(undef, 0),
+        0)
 end
 function BaGoLChain2D(n_chain::Int)
     # Initialize a chain structure of length `n_chain`.
     return BaGoLChain2D(Vector{SMLMBaGoL.BaGoLState2D}(undef, n_chain),
-                        Vector{Bool}(undef, n_chain),
-                        n_chain)
+        Vector{Bool}(undef, n_chain),
+        n_chain)
 end
 function BaGoLChain2D(state::SMLMBaGoL.BaGoLState2D, accepted::Bool = true)
     # Initialize a chain structure with the given state.
