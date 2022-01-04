@@ -25,12 +25,16 @@ function prior_kemitters(nloc::Int, α::Float64, β::Float64)
     # Define the prior on the number of emitters assuming the localizations per
     # emitter is gamma distributed.
     kemitters = collect(1:nloc)
-    gammadist = Vector{Float64}(undef, nloc)
-    for ii = 1:nloc
-        pdfcurrent = Distributions.Gamma(α, kemitters[ii] / β)
-        gammadist[ii] = Distributions.pdf(pdfcurrent, nloc)
+    if nloc > 1
+        gammadist = Vector{Float64}(undef, nloc)
+        for ii = 1:nloc
+            pdfcurrent = Distributions.Gamma(α, kemitters[ii] / β)
+            gammadist[ii] = Distributions.pdf(pdfcurrent, nloc)
+        end
+        pmf = gammadist ./ sum(gammadist)
+    else
+        pmf = [1.0]
     end
-    pmf = gammadist ./ sum(gammadist)
 
     # Create a distribution using the Distributions package using our pmf.
     return Distributions.DiscreteNonParametric(kemitters, pmf)
