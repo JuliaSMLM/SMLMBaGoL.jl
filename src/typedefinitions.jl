@@ -137,7 +137,44 @@ mutable struct MCParams2D <: MCParams
     p_jump::Vector{Float64}
     srmag::Float64
     nsigma::Float64
-    MCParams2D() = new()
+end
+function MCParams2D()
+    return MCParams2D(1.0, 1.0, 0.0, 2000, 3000, [0.25; 0.25; 0.25; 0.25], 10.0, 5.0)
+end
+
+"""
+    HBParams
+
+Abstract type defining hierarchical BaGoL parameters.
+"""
+abstract type HBParams end
+
+"""
+    HBParams2D
+
+Parameters related to 2D hierarchical BaGoL analysis.
+
+# Description
+The HBParams2D structure organizes parameters, distributions, or other info.
+related to hierarchical BaGoL analysis.
+
+# Fields
+-`nsamples`: Total number of hierarchical samples made for the parameters 
+             estimated from the hierarchical BaGoL analysis.
+-`α`: Shape parameter of Gamma distribution defining the prior on the 
+      hyperparameters η and γ.
+-`β`: Rate parameter of Gamma distribtution defining the prior on the 
+      hyperparameters η and γ.
+-`α_scaling`: Scale factor used in sampling hyperparameters.
+"""
+mutable struct HBParams2D <: HBParams
+    nsamples::Int
+    α::Float64
+    β::Float64
+    α_scaling::Float64
+end
+function HBParams2D()
+    return HBParams2D(10, 1.0, 100.0, 3000.0)
 end
 
 """
@@ -164,12 +201,14 @@ mutable struct BaGoLParams2D <: BaGoLParams
     prethresholds::PreThreshParams
     preclustering::PreclusterParams
     mcparams::MCParams
+    hbparams::HBParams
 end
 function BaGoLParams2D()
     return BaGoLParams2D(SubregionParams2D(),
         PreThreshParams2D(),
         PreclusterParams2D(),
-        MCParams2D())
+        MCParams2D(),
+        HBParams2D())
 end
 
 """
