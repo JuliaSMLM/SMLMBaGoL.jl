@@ -24,6 +24,7 @@ using rand(distribution).
 -`distribution`: Distributions.Distribution defined by input `jumppmf`.
 """
 function jumpdistrib(jumppmf::Vector{Float64})
+
     # Create a distribution for the jumps using the Distributions package.
     return Distributions.DiscreteNonParametric(1:Base.length(jumppmf), jumppmf)
 end
@@ -50,11 +51,12 @@ positions.
 -`proposal`: Proposal state containing the proposed emitter moves.
 """
 function proposemove(smld::SMLMData.SMLD2D,
-                     currentstate::SMLMBaGoL.BaGoLState2D,
-                     mcparams::SMLMBaGoL.MCParams)
+    currentstate::SMLMBaGoL.BaGoLState2D,
+    mcparams::SMLMBaGoL.MCParams)
+
     # Propose a move of the emitters.
     proposal = deepcopy(currentstate)
-    proposal.μ, proposal.a = SMLMBaGoL.moveemitters(smld, 
+    proposal.μ, proposal.a = SMLMBaGoL.moveemitters(smld,
         currentstate.z, mcparams.σ_a, currentstate.k)
 
     return proposal
@@ -79,7 +81,8 @@ in `smld` are reallocated to emitters in `currentstate`.
 -`proposal`: Proposal state containing the proposed emitter allocations.
 """
 function proposeallocation(smld::SMLMData.SMLD2D,
-                           currentstate::SMLMBaGoL.BaGoLState2D)
+    currentstate::SMLMBaGoL.BaGoLState2D)
+
     # Propose a reallocation of localizations to emitters.
     proposal = deepcopy(currentstate)
     proposal.z = SMLMBaGoL.allocatelocs(smld, currentstate.μ, currentstate.a)
@@ -111,13 +114,14 @@ is proposed, followed by a reallocation of localizations to emitters.
 -`p_im`: Probability of an emitter existing at the proposed emitter location.
 """
 function proposebirth(smld::SMLMData.SMLD2D,
-                      currentstate::SMLMBaGoL.BaGoLState2D,
-                      mcparams::SMLMBaGoL.MCParams,
-                      internals::SMLMBaGoL.Internals2D)
+    currentstate::SMLMBaGoL.BaGoLState2D,
+    mcparams::SMLMBaGoL.MCParams,
+    internals::SMLMBaGoL.Internals2D)
+
     # Propose a new emitter by treating a Gaussian SR image of the (raw) 
     # localizations as a density distribution.
-    coords, sampleind = SMLMBaGoL.samplecoords2D(internals.imdistrib, 
-                                                 internals.srimsize[1])
+    coords, sampleind = SMLMBaGoL.samplecoords2D(internals.imdistrib,
+        internals.srimsize[1])
     coords ./= mcparams.srmag
     coords .+= internals.roi[1:2] .- 1.0
     proposal = SMLMBaGoL.BaGoLState2D()
@@ -156,9 +160,10 @@ to the new emitter set.
 -`p_im`: Probability of an emitter existing at the removed emitter location.
 """
 function proposedeath(smld::SMLMData.SMLD2D,
-                      currentstate::SMLMBaGoL.BaGoLState2D,
-                      mcparams::SMLMBaGoL.MCParams,
-                      internals::SMLMBaGoL.Internals2D)
+    currentstate::SMLMBaGoL.BaGoLState2D,
+    mcparams::SMLMBaGoL.MCParams,
+    internals::SMLMBaGoL.Internals2D)
+
     # Randomly remove an emitter.
     proposal = deepcopy(currentstate)
     removeind = Base.rand(1:proposal.k)
@@ -169,10 +174,10 @@ function proposedeath(smld::SMLMData.SMLD2D,
 
     # Determine the probability of an emitter being at the location that was
     # removed.
-    coords_mag = mcparams.srmag .* (currentstate.μ[removeind, :].-0.5)
+    coords_mag = mcparams.srmag .* (currentstate.μ[removeind, :] .- 0.5)
     inds = Int.(round.(max.(min.(1.0, coords_mag), internals.srimsize)))
-    ind = (inds[2]-1)*internals.srimsize[1] + inds[1]
-    
+    ind = (inds[2] - 1) * internals.srimsize[1] + inds[1]
+
     return proposal, internals.imdistrib.p[ind]
 end
 
@@ -207,21 +212,22 @@ in `currentstate`.
             when using it elsewhere!
 """
 function acceptbirth(smld::SMLMData.SMLD2D,
-                     proposal::SMLMBaGoL.BaGoLState2D,
-                     p_im::Float64,
-                     currentstate::SMLMBaGoL.BaGoLState2D,
-                     mcparams::SMLMBaGoL.MCParams2D,
-                     internals::SMLMBaGoL.Internals2D)
+    proposal::SMLMBaGoL.BaGoLState2D,
+    p_im::Float64,
+    currentstate::SMLMBaGoL.BaGoLState2D,
+    mcparams::SMLMBaGoL.MCParams2D,
+    internals::SMLMBaGoL.Internals2D)
+
     # Compute the probability ratio for the allocations.
     t = Float64.(smld.framenum)
     logLallocprime = SMLMBaGoL.emitterlogL2D(
-        [smld.y smld.x], [smld.σ_y smld.σ_x], t, 
+        [smld.y smld.x], [smld.σ_y smld.σ_x], t,
         proposal.μ, proposal.a, proposal.z)
     logLalloc = SMLMBaGoL.emitterlogL2D(
-        [smld.y smld.x], [smld.σ_y smld.σ_x], t, 
+        [smld.y smld.x], [smld.σ_y smld.σ_x], t,
         currentstate.μ, currentstate.a, currentstate.z)
     pallocratio = exp(logLallocprime - logLalloc)
-         
+
     # Compute the probability ratio for the number of emitters.
     # NOTE: The death proposal uses this same function, so the proposed `k`
     #       can be smaller than the current value (hence the k=min(...) below).
@@ -231,8 +237,8 @@ function acceptbirth(smld::SMLMData.SMLD2D,
     # Compute the complete proposal ratio.
     nloc = Base.length(smld)
     pjumpratio = mcparams.p_jump[3] / mcparams.p_jump[4]
-    return pallocratio * pkratio * ((k/(k+1))^nloc) * pjumpratio / 
-        (p_im*internals.area)
+    return pallocratio * pkratio * ((k / (k + 1))^nloc) * pjumpratio /
+           (p_im * internals.area)
 end
 
 """
@@ -264,12 +270,13 @@ in `currentstate`.
 -`accept`: Acceptance probability of accepting the proposed state change.
 """
 function acceptdeath(smld::SMLMData.SMLD2D,
-                     proposal::SMLMBaGoL.BaGoLState2D,
-                     p_im::Float64,
-                     currentstate::SMLMBaGoL.BaGoLState2D,
-                     mcparams::SMLMBaGoL.MCParams2D,
-                     internals::SMLMBaGoL.Internals2D)
-    return 1.0 / SMLMBaGoL.acceptbirth(smld, 
+    proposal::SMLMBaGoL.BaGoLState2D,
+    p_im::Float64,
+    currentstate::SMLMBaGoL.BaGoLState2D,
+    mcparams::SMLMBaGoL.MCParams2D,
+    internals::SMLMBaGoL.Internals2D)
+
+    return 1.0 / SMLMBaGoL.acceptbirth(smld,
         proposal, p_im, currentstate, mcparams, internals)
 end
 
@@ -296,9 +303,10 @@ position posterior distribution.
 -`accepted`: Boolean indicating whether or not the move was accepted, which is 
              always true since moves use Gibbs sampling.
 """
-function move(smld::SMLMData.SMLD2D, 
-              state::SMLMBaGoL.BaGoLState2D,
-              mcparams::SMLMBaGoL.MCParams2D)
+function move(smld::SMLMData.SMLD2D,
+    state::SMLMBaGoL.BaGoLState2D,
+    mcparams::SMLMBaGoL.MCParams2D)
+
     # Propose a move and accept it (emitter moves are always accepted).
     return SMLMBaGoL.proposemove(smld, state, mcparams), true
 end
@@ -321,8 +329,9 @@ This function reallocates localizations in `smld` to emitters in `state`.
 -`accepted`: Boolean indicating whether or not the move was accepted, which is 
              always true since allocations use Gibbs sampling.
 """
-function reallocate(smld::SMLMData.SMLD2D, 
-                    state::SMLMBaGoL.BaGoLState2D)
+function reallocate(smld::SMLMData.SMLD2D,
+    state::SMLMBaGoL.BaGoLState2D)
+
     # Propose an allocation and accept it (allocations are always accepted).
     return SMLMBaGoL.proposeallocation(smld, state), true
 end
@@ -350,20 +359,21 @@ be accepted into the Markov chain.
           the input state `state`.
 -`accepted`: Boolean indicating whether or not the proposal was accepted.
 """
-function birth(smld::SMLMData.SMLD2D, 
-               state::SMLMBaGoL.BaGoLState2D,
-               mcparams::SMLMBaGoL.MCParams2D,
-               internals::SMLMBaGoL.Internals2D)
+function birth(smld::SMLMData.SMLD2D,
+    state::SMLMBaGoL.BaGoLState2D,
+    mcparams::SMLMBaGoL.MCParams2D,
+    internals::SMLMBaGoL.Internals2D)
+
     # Propose a birth of a new emitter (unless there are as many emitters as
     # localizations, in which case we'll return the input `state`).
     if state.k < Base.length(smld)
         proposal, p_im = SMLMBaGoL.proposebirth(smld, state, mcparams, internals)
-        acceptance = SMLMBaGoL.acceptbirth(smld, 
-                                           proposal, 
-                                           p_im, 
-                                           state, 
-                                           mcparams,
-                                           internals)
+        acceptance = SMLMBaGoL.acceptbirth(smld,
+            proposal,
+            p_im,
+            state,
+            mcparams,
+            internals)
     else
         proposal = deepcopy(state)
         acceptance = 1.0
@@ -400,10 +410,11 @@ be accepted into the Markov chain.
           the input state `state`.
 -`accepted`: Boolean indicating whether or not the proposal was accepted.
 """
-function death(smld::SMLMData.SMLD2D, 
-               state::SMLMBaGoL.BaGoLState2D,
-               mcparams::SMLMBaGoL.MCParams2D,
-               internals::SMLMBaGoL.Internals2D)
+function death(smld::SMLMData.SMLD2D,
+    state::SMLMBaGoL.BaGoLState2D,
+    mcparams::SMLMBaGoL.MCParams2D,
+    internals::SMLMBaGoL.Internals2D)
+
     # Propose the death of a random emitter (unless there is only 1 emitter 
     # left, in which case we should return the current state).
     if state.k == 1
@@ -411,12 +422,12 @@ function death(smld::SMLMData.SMLD2D,
         acceptance = 1.0
     else
         proposal, p_im = SMLMBaGoL.proposedeath(smld, state, mcparams, internals)
-        acceptance = SMLMBaGoL.acceptdeath(smld, 
-                                           proposal, 
-                                           p_im, 
-                                           state, 
-                                           mcparams,
-                                           internals)
+        acceptance = SMLMBaGoL.acceptdeath(smld,
+            proposal,
+            p_im,
+            state,
+            mcparams,
+            internals)
     end
 
     # Determine whether or not we should accept emitter death.
@@ -424,5 +435,97 @@ function death(smld::SMLMData.SMLD2D,
         return proposal, true
     else
         return state, false
+    end
+end
+
+"""
+    η, accepted = updateα(nloc::Vector{Int}, k::Vector{Int}, 
+                          mcparams::SMLMBaGoL.MCParams2D,
+                          hbparams::SMLMBaGoL.HBParams2D)
+
+Propose and determine acceptance of hyperparameter `α`.
+
+# Description
+This function proposes an update for hyperparameter `α` used in the 
+hierarchical BaGoL analysis scheme (in which the distribution for the blinks
+per emitter is estimated instead of provided as calibration).
+
+# Inputs
+-`nloc`: Number of localizations.
+-`k`: Number of emitters.
+-`mcparams`: Structure of parameters (see SMLMBaGoL.MCParams2D)
+-`hbparams`: Structure of parameters (see SMLMBaGoL.HBParams2D)
+
+# Outputs
+-`α`: proposed value for `α`.
+-`accepted`: Boolean indicating whether or not the proposal was accepted.
+"""
+function updateα(nloc::Vector{Int}, k::Vector{Int},
+    mcparams::SMLMBaGoL.MCParams2D,
+    hbparams::SMLMBaGoL.HBParams2D)
+
+    # Propose an update for α.
+    α = deepcopy(mcparams.α)
+    β = deepcopy(mcparams.β)
+    α_prop = Distributions.rand(Gamma(hbparams.α_scaling, α / hbparams.α_scaling))
+    llratio = sum(log.(SMLMBaGoL.gammapdf(k * α_prop, β, Float64.(nloc))) -
+                  log.(SMLMBaGoL.gammapdf(k * α, β, Float64.(nloc))))
+    lpriorratio = log(pdf(Gamma(hbparams.α, hbparams.β), α_prop)) -
+                  log(pdf(Gamma(hbparams.α, hbparams.β), α))
+    lpropratio = log(pdf(Gamma(hbparams.α_scaling, α_prop / hbparams.α_scaling), α)) -
+                 log(pdf(Gamma(hbparams.α_scaling, α_prop / hbparams.α_scaling), α_prop))
+    acceptance = llratio + lpriorratio + lpropratio
+
+    # Determine whether or not we should accept the update of α.
+    if log(Base.rand()) <= acceptance
+        return α_prop, true
+    else
+        return α_prop, false
+    end
+end
+
+"""
+    β, accepted = updateβ(nloc::Vector{Int}, k::Vector{Int}, 
+                          mcparams::SMLMBaGoL.MCParams2D,
+                          hbparams::SMLMBaGoL.HBParams2D)
+
+Propose and determine acceptance of hyperparameter `β`.
+
+# Description
+This function proposes an update for hyperparameter `β` used in the 
+hierarchical BaGoL analysis scheme (in which the distribution for the blinks
+per emitter is estimated instead of provided as calibration).
+
+# Inputs
+-`nloc`: Number of localizations.
+-`k`: Number of emitters.
+-`mcparams`: Structure of parameters (see SMLMBaGoL.MCParams2D)
+-`hbparams`: Structure of parameters (see SMLMBaGoL.HBParams2D)
+
+# Outputs
+-`β`: proposed value for `β`.
+-`accepted`: Boolean indicating whether or not the proposal was accepted.
+"""
+function updateβ(nloc::Vector{Int}, k::Vector{Int},
+    mcparams::SMLMBaGoL.MCParams2D,
+    hbparams::SMLMBaGoL.HBParams2D)
+
+    # Propose an update for β.
+    α = deepcopy(mcparams.α)
+    β = deepcopy(mcparams.β)
+    β_prop = Distributions.rand(Gamma(hbparams.α_scaling, β / hbparams.α_scaling))
+    llratio = sum(log.(SMLMBaGoL.gammapdf(k * α, β_prop, Float64.(nloc))) -
+                  log.(SMLMBaGoL.gammapdf(k * α, β, Float64.(nloc))))
+    lpriorratio = log(pdf(Gamma(hbparams.α, hbparams.β), β_prop)) -
+                  log(pdf(Gamma(hbparams.α, hbparams.β), β))
+    lpropratio = log(pdf(Gamma(hbparams.α_scaling, β_prop / hbparams.α_scaling), β)) -
+                 log(pdf(Gamma(hbparams.α_scaling, β / hbparams.α_scaling), β))
+    acceptance = llratio + lpriorratio + lpropratio
+
+    # Determine whether or not we should accept the proposed β.
+    if log(Base.rand()) <= acceptance
+        return β_prop, true
+    else
+        return β_prop, false
     end
 end
