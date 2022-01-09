@@ -439,14 +439,14 @@ function death(smld::SMLMData.SMLD2D,
 end
 
 """
-    η, accepted = updateα(nloc::Vector{Int}, k::Vector{Int}, 
+    η, accepted = updateη(nloc::Vector{Int}, k::Vector{Int}, 
                           mcparams::SMLMBaGoL.MCParams2D,
                           hbparams::SMLMBaGoL.HBParams2D)
 
-Propose and determine acceptance of hyperparameter `α`.
+Propose and determine acceptance of hyperparameter `η`.
 
 # Description
-This function proposes an update for hyperparameter `α` used in the 
+This function proposes an update for hyperparameter `η` used in the 
 hierarchical BaGoL analysis scheme (in which the distribution for the blinks
 per emitter is estimated instead of provided as calibration).
 
@@ -457,42 +457,42 @@ per emitter is estimated instead of provided as calibration).
 -`hbparams`: Structure of parameters (see SMLMBaGoL.HBParams2D)
 
 # Outputs
--`α`: proposed value for `α`.
+-`η`: proposed value for `η`.
 -`accepted`: Boolean indicating whether or not the proposal was accepted.
 """
-function updateα(nloc::Vector{Int}, k::Vector{Int},
+function updateη(nloc::Vector{Int}, k::Vector{Int},
     mcparams::SMLMBaGoL.MCParams2D,
     hbparams::SMLMBaGoL.HBParams2D)
 
-    # Propose an update for α.
-    α = deepcopy(mcparams.α)
-    β = deepcopy(mcparams.β)
-    α_prop = Distributions.rand(Gamma(hbparams.α_scaling, α / hbparams.α_scaling))
-    llratio = sum(log.(SMLMBaGoL.gammapdf(k * α_prop, β, Float64.(nloc))) -
-                  log.(SMLMBaGoL.gammapdf(k * α, β, Float64.(nloc))))
-    lpriorratio = log(pdf(Gamma(hbparams.α, hbparams.β), α_prop)) -
-                  log(pdf(Gamma(hbparams.α, hbparams.β), α))
-    lpropratio = log(pdf(Gamma(hbparams.α_scaling, α_prop / hbparams.α_scaling), α)) -
-                 log(pdf(Gamma(hbparams.α_scaling, α_prop / hbparams.α_scaling), α_prop))
+    # Propose an update for η.
+    η = deepcopy(mcparams.η)
+    γ = deepcopy(mcparams.γ)
+    η_prop = Distributions.rand(Gamma(hbparams.α_scaling, η / hbparams.α_scaling))
+    llratio = sum(log.(SMLMBaGoL.gammapdf(k * η_prop, γ, Float64.(nloc))) -
+                  log.(SMLMBaGoL.gammapdf(k * η, γ, Float64.(nloc))))
+    lpriorratio = log(pdf(Gamma(hbparams.α, hbparams.θ), η_prop)) -
+                  log(pdf(Gamma(hbparams.α, hbparams.θ), η))
+    lpropratio = log(pdf(Gamma(hbparams.α_scaling, η_prop / hbparams.α_scaling), η)) -
+                 log(pdf(Gamma(hbparams.α_scaling, η_prop / hbparams.α_scaling), η_prop))
     acceptance = llratio + lpriorratio + lpropratio
 
-    # Determine whether or not we should accept the update of α.
+    # Determine whether or not we should accept the update of η.
     if log(Base.rand()) <= acceptance
-        return α_prop, true
+        return η_prop, true
     else
-        return α_prop, false
+        return η_prop, false
     end
 end
 
 """
-    β, accepted = updateβ(nloc::Vector{Int}, k::Vector{Int}, 
+    γ, accepted = updateγ(nloc::Vector{Int}, k::Vector{Int}, 
                           mcparams::SMLMBaGoL.MCParams2D,
                           hbparams::SMLMBaGoL.HBParams2D)
 
-Propose and determine acceptance of hyperparameter `β`.
+Propose and determine acceptance of hyperparameter `γ`.
 
 # Description
-This function proposes an update for hyperparameter `β` used in the 
+This function proposes an update for hyperparameter `γ` used in the 
 hierarchical BaGoL analysis scheme (in which the distribution for the blinks
 per emitter is estimated instead of provided as calibration).
 
@@ -503,29 +503,29 @@ per emitter is estimated instead of provided as calibration).
 -`hbparams`: Structure of parameters (see SMLMBaGoL.HBParams2D)
 
 # Outputs
--`β`: proposed value for `β`.
+-`γ`: proposed value for `γ`.
 -`accepted`: Boolean indicating whether or not the proposal was accepted.
 """
-function updateβ(nloc::Vector{Int}, k::Vector{Int},
+function updateγ(nloc::Vector{Int}, k::Vector{Int},
     mcparams::SMLMBaGoL.MCParams2D,
     hbparams::SMLMBaGoL.HBParams2D)
 
-    # Propose an update for β.
-    α = deepcopy(mcparams.α)
-    β = deepcopy(mcparams.β)
-    β_prop = Distributions.rand(Gamma(hbparams.α_scaling, β / hbparams.α_scaling))
-    llratio = sum(log.(SMLMBaGoL.gammapdf(k * α, β_prop, Float64.(nloc))) -
-                  log.(SMLMBaGoL.gammapdf(k * α, β, Float64.(nloc))))
-    lpriorratio = log(pdf(Gamma(hbparams.α, hbparams.β), β_prop)) -
-                  log(pdf(Gamma(hbparams.α, hbparams.β), β))
-    lpropratio = log(pdf(Gamma(hbparams.α_scaling, β_prop / hbparams.α_scaling), β)) -
-                 log(pdf(Gamma(hbparams.α_scaling, β / hbparams.α_scaling), β))
+    # Propose an update for γ.
+    η = deepcopy(mcparams.η)
+    γ = deepcopy(mcparams.γ)
+    γ_prop = Distributions.rand(Gamma(hbparams.α_scaling, γ / hbparams.α_scaling))
+    llratio = sum(log.(SMLMBaGoL.gammapdf(k * η, γ_prop, Float64.(nloc))) -
+                  log.(SMLMBaGoL.gammapdf(k * η, γ, Float64.(nloc))))
+    lpriorratio = log(pdf(Gamma(hbparams.α, hbparams.θ), γ_prop)) -
+                  log(pdf(Gamma(hbparams.α, hbparams.θ), γ))
+    lpropratio = log(pdf(Gamma(hbparams.α_scaling, γ_prop / hbparams.α_scaling), γ)) -
+                 log(pdf(Gamma(hbparams.α_scaling, γ / hbparams.α_scaling), γ))
     acceptance = llratio + lpriorratio + lpropratio
 
-    # Determine whether or not we should accept the proposed β.
+    # Determine whether or not we should accept the proposed γ.
     if log(Base.rand()) <= acceptance
-        return β_prop, true
+        return γ_prop, true
     else
-        return β_prop, false
+        return γ_prop, false
     end
 end
