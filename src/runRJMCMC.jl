@@ -38,8 +38,8 @@ function runRJMCMC(smld::SMLMData.SMLD2D,
     internals.jumpdistrib = SMLMBaGoL.jumpdistrib(mcparams.p_jump)
     internals.priora = SMLMBaGoL.prior_drift(mcparams.σ_a * [1.0; 1.0])
     nloc = Base.length(smld)
-    internals.priork = SMLMBaGoL.prior_kemitters(nloc, mcparams.α, mcparams.β)
-    k = Int(ceil(nloc / (mcparams.α * mcparams.β)))
+    internals.priork = SMLMBaGoL.prior_kemitters(nloc, mcparams.η, mcparams.γ)
+    k = Int(ceil(nloc / (mcparams.η * mcparams.γ)))
     μ_SR, _ = SMLMBaGoL.samplecoords2D(internals.imdistrib, internals.srimsize[1], k)
     μ = ((μ_SR .- 0.5) ./ mcparams.srmag) .+ 0.5
     μ .+= repeat(transpose(internals.roi[1:2]), k) .- 1.0
@@ -221,7 +221,7 @@ function runRJMCMC(smld::Matrix{SMLMData.SMLD2D},
 
         # Sample new hyperparameters.
         mcparams_hb, _ = SMLMBaGoL.updatepriorλ(nloc, k, mcparams_hb, hbparams)
-        λchain[nn, :] = [mcparams_hb.α mcparams_hb.β]
+        λchain[nn, :] = [mcparams_hb.η mcparams_hb.γ]
     end
 
     return chain, λchain
@@ -419,10 +419,10 @@ function updatepriorλ(nloc::Vector{Int}, k::Vector{Int},
     # Proposed and accept/reject an update to the prior on λ.
     mcparams = deepcopy(mcparams)
     accepted = [false; false]
-    α_prop, accepted[1] = SMLMBaGoL.updateα(nloc, k, mcparams, hbparams)
-    mcparams.α = accepted[1] ? α_prop : mcparams.α
-    β_prop, accepted[2] = SMLMBaGoL.updateβ(nloc, k, mcparams, hbparams)
-    mcparams.β = accepted[2] ? β_prop : mcparams.β
+    η_prop, accepted[1] = SMLMBaGoL.updateη(nloc, k, mcparams, hbparams)
+    mcparams.η = accepted[1] ? η_prop : mcparams.η
+    γ_prop, accepted[2] = SMLMBaGoL.updateγ(nloc, k, mcparams, hbparams)
+    mcparams.γ = accepted[2] ? γ_prop : mcparams.γ
 
     return mcparams, accepted
 end

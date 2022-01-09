@@ -117,8 +117,8 @@ The MCParams structure organizes parameters, distributions, or other info.
 related to RJMCMC.
 
 # Fields
--`α`: Shape parameter of Gamma distribution for localizations per emitter.
--`β`: Rate parameter of Gamma distribtution for localizations per emitter.
+-`η`: Shape parameter of Gamma distribtution for localizations per emitter.
+-`γ`: Scale parameter of Gamma distribution for localizations per emitter.
 -`σ_a`: Standard deviation of drift velocties. (pixels/frame)
 -`n_chain`: Number of iterations for chain generation.
 -`n_burnin`: Number of burn-in iterations for the chain.
@@ -129,8 +129,8 @@ related to RJMCMC.
            localization in the Gaussian image used to define `imdistrib`.
 """
 mutable struct MCParams2D <: MCParams
-    α::Float64
-    β::Float64
+    η::Float64
+    γ::Float64
     σ_a::Float64
     n_chain::Int
     n_burnin::Int
@@ -163,14 +163,14 @@ related to hierarchical BaGoL analysis.
              estimated from the hierarchical BaGoL analysis.
 -`α`: Shape parameter of Gamma distribution defining the prior on the 
       hyperparameters η and γ.
--`β`: Rate parameter of Gamma distribtution defining the prior on the 
+-`θ`: Scale parameter of Gamma distribtution defining the prior on the 
       hyperparameters η and γ.
 -`α_scaling`: Scale factor used in sampling hyperparameters.
 """
 mutable struct HBParams2D <: HBParams
     nsamples::Int
     α::Float64
-    β::Float64
+    θ::Float64
     α_scaling::Float64
 end
 function HBParams2D()

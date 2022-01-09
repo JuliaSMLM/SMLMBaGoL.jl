@@ -4,7 +4,7 @@ using Base
 # This file contains functions defining the BaGoL priors.
 
 """
-    prior = prior_kemitters(nloc::Int, α::Float64, β::Float64)
+    prior = prior_kemitters(nloc::Int, η::Float64, γ::Float64)
 
 Generate a prior on the number of emitters assuming gamma loc. per emitter.
 
@@ -14,21 +14,21 @@ the number of localizations per emitter is gamma distributed.
 
 # Inputs
 -`nloc`: Total number of localizations.
--`α`: Shape parameter of the gamma distribution.
--`β`: Scale parameter of the gamma distribution.
+-`η`: Shape parameter of the gamma distribution.
+-`γ`: Scale parameter of the gamma distribution.
 
 # Outputs
 -`prior`: Distributions.Distribution defined by assuming a gamma prior for the
           number of blinks per emitter.
 """
-function prior_kemitters(nloc::Int, α::Float64, β::Float64)
+function prior_kemitters(nloc::Int, η::Float64, γ::Float64)
     # Define the prior on the number of emitters assuming the localizations per
     # emitter is gamma distributed.
     kemitters = collect(1:nloc)
     if nloc > 1
         gammadist = Vector{Float64}(undef, nloc)
         for ii = 1:nloc
-            pdfcurrent = Distributions.Gamma(α, kemitters[ii] / β)
+            pdfcurrent = Distributions.Gamma(kemitters[ii] * η, γ)
             gammadist[ii] = Distributions.pdf(pdfcurrent, nloc)
         end
         pmf = gammadist ./ sum(gammadist)
