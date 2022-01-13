@@ -173,12 +173,13 @@ function runRJMCMC(smld::Matrix{SMLMData.SMLD2D},
     # Perform the initial burn-in of the chain.
     mcparams_hb = deepcopy(mcparams)
     mcparams_hb.n_chain = 0
-    mcparams_hb.n_burnin = Int(floor(mcparams.n_burnin / hbparams.nsamples))
+    mcparams_hb.n_burnin = hbparams.nsamples
+    nsamples_λ = Int(floor(mcparams_hb.n_burnin / hbparams.nsamples))
     smldsize = size(smld)
     chain = Matrix{Vector{SMLMBaGoL.BaGoLChain2D}}(undef, smldsize)
     nloc = Int[]
     k = Int[]
-    for nn = 1:hbparams.nsamples
+    for nn = 1:nsamples_λ
         # Run the chain with the current set of hyperparameters.
         for ii = 1:smldsize[1], jj = 1:smldsize[2]
             # Generate a distinct SMLD2D for each precluster.
@@ -193,18 +194,21 @@ function runRJMCMC(smld::Matrix{SMLMData.SMLD2D},
         end
 
         # Sample new hyperparameters.
-        mcparams_hb, _ = SMLMBaGoL.updatepriorλ(nloc, k, mcparams_hb, hbparams)
+        for mm = 1:hbparams.nthinning
+            mcparams_hb, _ = SMLMBaGoL.updatepriorλ(nloc, k, mcparams_hb, hbparams)
+        end
     end
 
     # Loop over subregions in `smld` and perform RJMCMC, updating the 
     # hierarchical parameters every hbparams.nsamples samples in the chain.
-    mcparams_hb.n_chain = Int(floor(mcparams.n_chain / hbparams.nsamples))
+    mcparams_hb.n_chain = hbparams.nsamples
     mcparams_hb.n_burnin = 0
+    nsamples_λ = Int(floor(mcparams.n_chain / hbparams.nsamples))
     chain = Matrix{Vector{SMLMBaGoL.BaGoLChain2D}}(undef, smldsize)
-    λchain = Matrix{Float64}(undef, hbparams.nsamples, 2)
+    λchain = Matrix{Float64}(undef, nsamples_λ, 2)
     nloc = Int[]
     k = Int[]
-    for nn = 1:hbparams.nsamples
+    for nn = 1:nsamples_λ
         # For each hierarchical sample, we'll run the chain for mcparams_hb.n_chain 
         # samples, ensuring that no additional burn-in is made.
         for ii = 1:smldsize[1], jj = 1:smldsize[2]
@@ -212,7 +216,12 @@ function runRJMCMC(smld::Matrix{SMLMData.SMLD2D},
             smldclusters, _ = SMLMData.isolateconnected(smld[ii, jj])
 
             # Run RJMCMC on each precluster.
-            chain[ii, jj] = SMLMBaGoL.runRJMCMC(smldclusters, rois[ii, jj], mcparams_hb)
+            if nn > 1
+                chain[ii, jj] = Base.cat(chain[ii, jj], 
+                    SMLMBaGoL.runRJMCMC(smldclusters, rois[ii, jj], mcparams_hb))
+            else
+                chain[ii, jj] = SMLMBaGoL.runRJMCMC(smldclusters, rois[ii, jj], mcparams_hb)
+            end
             for kk = 1:length(smldclusters)
                 push!(nloc, length(smldclusters[kk]))
                 push!(k, chain[ii, jj][kk].states[end].k)
@@ -220,7 +229,9 @@ function runRJMCMC(smld::Matrix{SMLMData.SMLD2D},
         end
 
         # Sample new hyperparameters.
-        mcparams_hb, _ = SMLMBaGoL.updatepriorλ(nloc, k, mcparams_hb, hbparams)
+        for mm = 1:hbparams.nthinning
+            mcparams_hb, _ = SMLMBaGoL.updatepriorλ(nloc, k, mcparams_hb, hbparams)
+        end
         λchain[nn, :] = [mcparams_hb.η mcparams_hb.γ]
     end
 

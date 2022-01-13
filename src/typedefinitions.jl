@@ -159,22 +159,26 @@ The HBParams2D structure organizes parameters, distributions, or other info.
 related to hierarchical BaGoL analysis.
 
 # Fields
--`nsamples`: Total number of hierarchical samples made for the parameters 
-             estimated from the hierarchical BaGoL analysis.
+-`nsamples`: Length of chains ran before resampling the hyperparameters.
+             (e.g., if nsamples=10 and mcparams.n_chain=100, we'll make
+             a total of 9 meaningful samples of of the hyperparameters).
 -`α`: Shape parameter of Gamma distribution defining the prior on the 
       hyperparameters η and γ.
 -`θ`: Scale parameter of Gamma distribtution defining the prior on the 
       hyperparameters η and γ.
 -`α_scaling`: Scale factor used in sampling hyperparameters.
+-`nthinning`: Number of thinning iterations (i.e., hyperparameters are sampled
+              `nthinning` times before returning a value for the chain).
 """
 mutable struct HBParams2D <: HBParams
     nsamples::Int
     α::Float64
     θ::Float64
     α_scaling::Float64
+    nthinning::Int
 end
 function HBParams2D()
-    return HBParams2D(10, 1.0, 100.0, 3000.0)
+    return HBParams2D(10, 2.0, 100.0, 2000.0, 5)
 end
 
 """

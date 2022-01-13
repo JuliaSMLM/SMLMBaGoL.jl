@@ -473,8 +473,14 @@ function updateη(nloc::Vector{Int}, k::Vector{Int},
     lpriorratio = log(pdf(Gamma(hbparams.α, hbparams.θ), η_prop)) -
                   log(pdf(Gamma(hbparams.α, hbparams.θ), η))
     lpropratio = log(pdf(Gamma(hbparams.α_scaling, η_prop / hbparams.α_scaling), η)) -
-                 log(pdf(Gamma(hbparams.α_scaling, η_prop / hbparams.α_scaling), η_prop))
+                 log(pdf(Gamma(hbparams.α_scaling, η / hbparams.α_scaling), η_prop))
     acceptance = llratio + lpriorratio + lpropratio
+    # println(η_prop)
+    # println(llratio)
+    # println(lpriorratio)
+    # println(lpropratio)
+    # println(acceptance)
+    # println("___________")
 
     # Determine whether or not we should accept the update of η.
     if log(Base.rand()) <= acceptance
@@ -519,7 +525,7 @@ function updateγ(nloc::Vector{Int}, k::Vector{Int},
     lpriorratio = log(pdf(Gamma(hbparams.α, hbparams.θ), γ_prop)) -
                   log(pdf(Gamma(hbparams.α, hbparams.θ), γ))
     lpropratio = log(pdf(Gamma(hbparams.α_scaling, γ_prop / hbparams.α_scaling), γ)) -
-                 log(pdf(Gamma(hbparams.α_scaling, γ / hbparams.α_scaling), γ))
+                 log(pdf(Gamma(hbparams.α_scaling, γ / hbparams.α_scaling), γ_prop))
     acceptance = llratio + lpriorratio + lpropratio
 
     # Determine whether or not we should accept the proposed γ.
