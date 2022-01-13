@@ -109,6 +109,35 @@ function Base.cat(chain1::SMLMBaGoL.BaGoLChain2D, chain2::SMLMBaGoL.BaGoLChain2D
 end
 
 """
+    chain = cat(chain1::Vector{SMLMBaGoL.BaGoLChain2D}, 
+                chain2::Vector{SMLMBaGoL.BaGoLChain2D})
+
+Concatenate `chain1` and `chain2`, with `chain2` added at the end of `chain1`.
+
+# Inputs
+-`chain1`: Vector of chains with indices matching those of `chain2` (e.g., 
+           chain2[nn] will be concatenated with chain1[nn]).
+-`chain2`: Chains to be concatenated at the end of `chain1`.
+
+# Outputs
+-`chain`: Concatenation of `chain1` and `chain2`.
+"""
+function Base.cat(chain1::Vector{SMLMBaGoL.BaGoLChain2D}, 
+    chain2::Vector{SMLMBaGoL.BaGoLChain2D})
+
+    # Concatenate `chain2` at the end of `chain1`.
+    chain = Vector{SMLMBaGoL.BaGoLChain2D}(undef, length(chain1))
+    for ii = 1:length(chain1)
+        chain[ii] = SMLMBaGoL.BaGoLChain2D(chain1[ii].n + chain2[ii].n)
+        chain[ii].states = [chain1[ii].states; chain2[ii].states]
+        chain[ii].accepted = [chain1[ii].accepted; chain2[ii].accepted]
+        chain[ii].n = chain1[ii].n + chain2[ii].n
+    end
+
+    return chain
+end
+
+"""
     k, z, μ, a = catfields(states::Vector{SMLMBaGoL.BaGoLState2D})
 
 Extract fields from each state in the vector `states` and concatenate.
