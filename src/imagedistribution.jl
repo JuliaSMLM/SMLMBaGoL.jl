@@ -20,19 +20,19 @@ deviation given by the localization error), converts the Gaussian image into a
 Distributions package.
 
 # Inputs
--`smld`: SMLD2D structure containing emitter localizations.
--`mag`: Approximate magnfication from data coordinates to SR coordinates. 
-        (Default = 20.0)
--`nsigma`: Number of standard deviations from the localization coordinate at
-           which we truncate the Gaussians in the image. (Default = 5.0)
--`roi`: Region of interest corresponding to `smld` localizations. 
-        (pixels)(Default = [1.0; 1.0])
-        ([ystart; xstart; yend; xend] or just [ystart; xstart])
+- `smld`: SMLD2D structure containing emitter localizations.
+- `mag`: Approximate magnfication from data coordinates to SR coordinates. 
+         (Default = 20.0)
+- `nsigma`: Number of standard deviations from the localization coordinate at
+            which we truncate the Gaussians in the image. (Default = 5.0)
+- `roi`: Region of interest corresponding to `smld` localizations. 
+         (pixels)(Default = [1.0; 1.0])
+         ([ystart; xstart; yend; xend] or just [ystart; xstart])
 
 # Outputs
--`imdstrib`: 1D distribution describing the approximate emitter distribution
-             estimated from a Gaussian image of `smld` localizations.
--`imsize`: Size of the Gaussian image used to compute `imdistrib`.
+- `imdstrib`: 1D distribution describing the approximate emitter distribution
+              estimated from a Gaussian image of `smld` localizations.
+- `imsize`: Size of the Gaussian image used to compute `imdistrib`.
 """
 function imagedistribution(smld::SMLMData.SMLD2D;
                            mag::Float64 = 20.0, 
@@ -58,10 +58,10 @@ end
 Convert the provided `image` into a distribution.
 
 # Inputs
--`image`: N-dimensional image stored as a matrix.
+- `image`: N-dimensional image stored as a matrix.
 
 # Outputs
--`imdstrib`: 1D distribution describing the input `image`.
+- `imdstrib`: 1D distribution describing the input `image`.
 """
 function imagedistribution(image::Matrix{Float64})
     # Normalize the image and prepare a distribution using the Distributions
@@ -79,15 +79,15 @@ end
 Sample grid coordinates from the distribution `imdistrib`.
 
 # Inputs
--`imdistrib`: Distribution of coordinates "stacked" from 2D to a 1D 
-              distribution.  E.g., a normalized gaussian image stacked into
-              a column vector might define the PMF of this distribution.
--`imrows`: Number of rows in the grid.
--`nsamples`: Number of coordinates to sample.
+- `imdistrib`: Distribution of coordinates "stacked" from 2D to a 1D 
+               distribution.  E.g., a normalized gaussian image stacked into
+               a column vector might define the PMF of this distribution.
+- `imrows`: Number of rows in the grid.
+- `nsamples`: Number of coordinates to sample.
 
 # Outputs
--`coords`: Coordinates sampled from `imdistrib`. (nsamplesx2)([y x])
--`sampleind`: Linear index used to sample `imdistrib`.
+- `coords`: Coordinates sampled from `imdistrib`. (nsamplesx2)([y x])
+- `sampleind`: Linear index used to sample `imdistrib`.
 """
 function samplecoords2D(imdistrib::Distributions.Distribution, 
                         imrows::Int, 
@@ -109,14 +109,14 @@ end
 Sample grid coordinates from the distribution `imdistrib`.
 
 # Inputs
--`imdistrib`: Distribution of coordinates "stacked" from 2D to a 1D 
-              distribution.  E.g., a normalized gaussian image stacked into
-              a column vector might define the PMF of this distribution.
--`imrows`: Number of rows in the grid.
+- `imdistrib`: Distribution of coordinates "stacked" from 2D to a 1D 
+               distribution.  E.g., a normalized gaussian image stacked into
+               a column vector might define the PMF of this distribution.
+- `imrows`: Number of rows in the grid.
 
 # Outputs
--`coords`: Coordinates sampled from `imdistrib`. (2x1)([y; x])
--`sampleind`: Linear index used to sample `imdistrib`.
+- `coords`: Coordinates sampled from `imdistrib`. (2x1)([y; x])
+- `sampleind`: Linear index used to sample `imdistrib`.
 """
 function samplecoords2D(imdistrib::Distributions.Distribution, 
                         imrows::Int)

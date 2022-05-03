@@ -17,13 +17,13 @@ normal distribution defined by the MLE position of the localizations in `smld`
 (allocated to emitters by `z`).
 
 # Inputs
--`smld`: SMLMData.SMLD2D data structure containing localizations.
--`z`: Allocations of the localizations in `smld` to emitters associated with
-      the indices `1:k`. (length `nloc` integer array)
--`k`: Total number of emitters to which the `nloc` localizations are allocated.
+- `smld`: SMLMData.SMLD2D data structure containing localizations.
+- z`: Allocations of the localizations in `smld` to emitters associated with
+       the indices `1:k`. (length `nloc` integer array)
+- `k`: Total number of emitters to which the `nloc` localizations are allocated.
 
 # Outputs
--`μ`: New set of emitter positions. ([y x])
+- `μ`: New set of emitter positions. ([y x])
 """
 function moveemitters(smld::SMLMData.SMLD2D, z::Vector{Int}, k::Int = maximum(z))
     # Loop through the `k` emitters and sample new positions based on the
@@ -54,14 +54,14 @@ normal distribution defined by the MLE position of the localizations in `smld`
 (allocated to emitters by `z`).
 
 # Inputs
--`smld`: SMLMData.SMLD2D data structure containing localizations.
--`z`: Allocations of the localizations in `smld` to emitters associated with
-      the indices `1:k`. (length `nloc` integer array)
--`σ_a`: Standard deviation of the drift velocity. (same for each dimension)
--`k`: Total number of emitters to which the `nloc` localizations are allocated.
+- `smld`: SMLMData.SMLD2D data structure containing localizations.
+- `z`: Allocations of the localizations in `smld` to emitters associated with
+       the indices `1:k`. (length `nloc` integer array)
+- `σ_a`: Standard deviation of the drift velocity. (same for each dimension)
+- `k`: Total number of emitters to which the `nloc` localizations are allocated.
 
 # Outputs
--`μ`: New set of emitter positions. ([y x])
+- `μ`: New set of emitter positions. ([y x])
 """
 function moveemitters(smld::SMLMData.SMLD2D, 
                       z::Vector{Int}, 
@@ -99,11 +99,11 @@ This function samples a posterior distribution for the position of the
 emitter which generated the one dimensional localization coordinates `y`.
 
 # Inputs
--`y`: Coordinate of a localization along one dimension. (pixels)(nlocx1)
--`σ_y`: Standard error of the localization `x`. (pixels)(nlocx1)
+- `y`: Coordinate of a localization along one dimension. (pixels)(nlocx1)
+- `σ_y`: Standard error of the localization `x`. (pixels)(nlocx1)
 
 # Outputs
--`sample`: Sample from the posterior emitter distribution.
+- `sample`: Sample from the posterior emitter distribution.
 """
 function posterior_emitterpos(y::Vector{Float64}, 
                               σ_y::Vector{Float64})
@@ -135,14 +135,14 @@ This function samples a posterior distribution for the position of the
 emitter and its drift which generated the localizations `y`.
 
 # Inputs
--`y`: Coordinate of a localizations along one dimension. (pixels)(nlocx1)
--`σ_y`: Standard error of the localizations `y`. (pixels)(nlocx1)
--`t`: Time of observation of localizations `y`. (frame)(nlocx1)
--`σ_a`: Standard deviation of the drift velocity. (pixels/frame)
+- `y`: Coordinate of a localizations along one dimension. (pixels)(nlocx1)
+- `σ_y`: Standard error of the localizations `y`. (pixels)(nlocx1)
+- `t`: Time of observation of localizations `y`. (frame)(nlocx1)
+- `σ_a`: Standard deviation of the drift velocity. (pixels/frame)
 
 # Outputs
--`sample`: Sample from the posterior emitter and drift velocity
-           distribution. ([μ_sample; a_sample])
+- `sample`: Sample from the posterior emitter and drift velocity
+            distribution. ([μ_sample; a_sample])
 """
 function posterior_emitterpos(y::Vector{Float64},
                               σ_y::Vector{Float64},

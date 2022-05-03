@@ -9,7 +9,7 @@ using StatsBase
 
 # Simulate some data.
 smld_true, smld_model, smld = SMLMSim.sim(;
-    ρ=0.1, # emitters / pixel^2
+    ρ=0.1, # patterns / pixel^2
     σ_PSF=1.3, # pixels
     minphotons=50,
     ndatasets=10,

@@ -11,10 +11,10 @@ using Base
 Add `state` to the end of `chain`.
 
 # Inputs
--`chain`: Chain of states.
--`state`: State to be added at the end of `chain`.
--`accepted`: Boolean indicating acceptance of the `state` being added to
-             `chain`.
+- `chain`: Chain of states.
+- `state`: State to be added at the end of `chain`.
+- `accepted`: Boolean indicating acceptance of the `state` being added to
+              `chain`.
 """
 function addstate!(chain::SMLMBaGoL.BaGoLChain2D, 
                    state::SMLMBaGoL.BaGoLState2D, 
@@ -31,9 +31,9 @@ end
 Remove the state directed to by `remove` from the `chain`.
 
 # Inputs
--`chain`: Chain of states.
--`remove`: State to be removed from `chain`, defined in any way allowed by the
-           input `inds` in the Julia method deleteat!().
+- `chain`: Chain of states.
+- `remove`: State to be removed from `chain`, defined in any way allowed by the
+            input `inds` in the Julia method deleteat!().
 """
 function removestate!(chain::SMLMBaGoL.BaGoLChain2D, remove)
     # Update the chain remove the state `remove`.
@@ -50,8 +50,8 @@ reallocation is performed, so if an emitter is removed which has localizations
 allocated to it, `state.z` is set to -1 for those localizations.
 
 # Inputs
--`state`: State of a Markov chain.
--`k`: Emitter index of emitter to be removed from `state`.
+- `state`: State of a Markov chain.
+- `k`: Emitter index of emitter to be removed from `state`.
 """
 function removeemitter!(state::SMLMBaGoL.BaGoLState2D, k::Int)
     # Remove the k-th emitter and ensure `z` consists of integers 1:k_emitters.
@@ -70,8 +70,8 @@ reallocation is performed, so if an emitter is removed which has localizations
 allocated to it, `state.z` is set to -1 for those localizations.
 
 # Inputs
--`state`: State of a Markov chain.
--`k`: Emitter indices of emitters to be removed from `state`.
+- `state`: State of a Markov chain.
+- `k`: Emitter indices of emitters to be removed from `state`.
 """
 function removeemitter!(state::SMLMBaGoL.BaGoLState2D, k::Vector{Int})
     # Remove the emitters and ensure `z` consists of integers 1:k_emitters.
@@ -92,11 +92,11 @@ end
 Concatenate `chain1` and `chain2`, with `chain2` added at the end of `chain1`.
 
 # Inputs
--`chain1`: Initial chain.
--`chain2`: Chain to be concatenated at the end of `chain1`.
+- `chain1`: Initial chain.
+- `chain2`: Chain to be concatenated at the end of `chain1`.
 
 # Outputs
--`chain`: Concatenation of `chain1` and `chain2`.
+- `chain`: Concatenation of `chain1` and `chain2`.
 """
 function Base.cat(chain1::SMLMBaGoL.BaGoLChain2D, chain2::SMLMBaGoL.BaGoLChain2D)
     # Concatenate `chain2` at the end of `chain1`.
@@ -115,12 +115,12 @@ end
 Concatenate `chain1` and `chain2`, with `chain2` added at the end of `chain1`.
 
 # Inputs
--`chain1`: Vector of chains with indices matching those of `chain2` (e.g., 
-           chain2[nn] will be concatenated with chain1[nn]).
--`chain2`: Chains to be concatenated at the end of `chain1`.
+- `chain1`: Vector of chains with indices matching those of `chain2` (e.g., 
+            chain2[nn] will be concatenated with chain1[nn]).
+- `chain2`: Chains to be concatenated at the end of `chain1`.
 
 # Outputs
--`chain`: Concatenation of `chain1` and `chain2`.
+- `chain`: Concatenation of `chain1` and `chain2`.
 """
 function Base.cat(chain1::Vector{SMLMBaGoL.BaGoLChain2D}, 
     chain2::Vector{SMLMBaGoL.BaGoLChain2D})
@@ -143,14 +143,14 @@ end
 Extract fields from each state in the vector `states` and concatenate.
 
 # Inputs
--`states`: Vector of states from which we'll extract the fields and 
-           concatenate.
+- `states`: Vector of states from which we'll extract the fields and 
+            concatenate.
 
 # Outputs
--`k`: `state.k` concatenated across all states in `states`.
--`z`: `state.z` concatenated across all states in `states`.
--`μ`: `state.μ` concatenated across all states in `states`.
--`a`: `state.a` concatenated across all states in `states`.
+- `k`: `state.k` concatenated across all states in `states`.
+- `z`: `state.z` concatenated across all states in `states`.
+- `μ`: `state.μ` concatenated across all states in `states`.
+- `a`: `state.a` concatenated across all states in `states`.
 """
 function catfields(states::Vector{SMLMBaGoL.BaGoLState2D})
     k = Vector{Int}(undef, Base.length(states))
@@ -174,13 +174,13 @@ Extract fields from each state of the `chain` and concatenate them into arrays
 representing all states.
 
 # Inputs
--`chain`: Chain from which we'll extract the fields of each state.
+- `chain`: Chain from which we'll extract the fields of each state.
 
 # Outputs
--`k`: `state.k` concatenated across all states in `states`.
--`z`: `state.z` concatenated across all states in `states`.
--`μ`: `state.μ` concatenated across all states in `states`.
--`a`: `state.a` concatenated across all states in `states`.
+- `k`: `state.k` concatenated across all states in `states`.
+- `z`: `state.z` concatenated across all states in `states`.
+- `μ`: `state.μ` concatenated across all states in `states`.
+- `a`: `state.a` concatenated across all states in `states`.
 """
 function catfields(chain::SMLMBaGoL.BaGoLChain2D)
     return catfields(chain.states)
@@ -193,13 +193,13 @@ Extract fields from each state of the `chain` and concatenate them into arrays
 representing all states.
 
 # Inputs
--`chain`: Vector of chains from which we'll extract the fields of each state.
+- `chain`: Vector of chains from which we'll extract the fields of each state.
 
 # Outputs
--`k`: `state.k` concatenated across all states in `states`.
--`z`: `state.z` concatenated across all states in `states`.
--`μ`: `state.μ` concatenated across all states in `states`.
--`a`: `state.a` concatenated across all states in `states`.
+- `k`: `state.k` concatenated across all states in `states`.
+- `z`: `state.z` concatenated across all states in `states`.
+- `μ`: `state.μ` concatenated across all states in `states`.
+- `a`: `state.a` concatenated across all states in `states`.
 """
 function catfields(chain::Vector{SMLMBaGoL.BaGoLChain2D})
     k = Vector{Int}(undef, 0)
@@ -224,14 +224,14 @@ Extract fields from each state of the `chain` and concatenate them into arrays
 representing all states.
 
 # Inputs
--`chain`: Matrix of vectorsof chains from which we'll extract the fields of 
-          each state.
+- `chain`: Matrix of vectorsof chains from which we'll extract the fields of 
+           each state.
 
 # Outputs
--`k`: `state.k` concatenated across all states in `states`.
--`z`: `state.z` concatenated across all states in `states`.
--`μ`: `state.μ` concatenated across all states in `states`.
--`a`: `state.a` concatenated across all states in `states`.
+- `k`: `state.k` concatenated across all states in `states`.
+- `z`: `state.z` concatenated across all states in `states`.
+- `μ`: `state.μ` concatenated across all states in `states`.
+- `a`: `state.a` concatenated across all states in `states`.
 """
 function catfields(chain::Matrix{Vector{SMLMBaGoL.BaGoLChain2D}})
     k = Vector{Int}(undef, 0)

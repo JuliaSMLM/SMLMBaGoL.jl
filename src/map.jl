@@ -18,14 +18,14 @@ the positions, drift velocities, and associated uncertainties of the `k`
 emitters.
 
 # Inputs
--`chain`: Chain of Markov states.
+- `chain`: Chain of Markov states.
 
 # Outputs
--`μ`: Position estimates of the MAPN emitters. (kx2)([y x])
--`σ_μ`: Uncertainties in the positions `μ`. (kx2)([y x])
--`a`: Drift velocities of the MAPN emitters. (kx2)([y x])
--`σ_a`: Uncertainties in the velocities `a`. (kx2)([y x])
--`nalloc`: Number of localizations allocated to each emitter. (kx1)
+- `μ`: Position estimates of the MAPN emitters. (kx2)([y x])
+- `σ_μ`: Uncertainties in the positions `μ`. (kx2)([y x])
+- `a`: Drift velocities of the MAPN emitters. (kx2)([y x])
+- `σ_a`: Uncertainties in the velocities `a`. (kx2)([y x])
+- `nalloc`: Number of localizations allocated to each emitter. (kx1)
 """
 function mapn(chain::SMLMBaGoL.BaGoLChain2D)
     # Determine the mode number of emitters in this chain.
@@ -81,14 +81,14 @@ mapn(chain::SMLMBaGoL.BaGoLChain2D), concatenating the results across all
 chains.
 
 # Inputs
--`chain`: Vector of chains of Markov states.
+- `chain`: Vector of chains of Markov states.
 
 # Outputs
--`μ`: Position estimates of the MAPN emitters. (kx2)([y x])
--`σ_μ`: Uncertainties in the positions `μ`. (kx2)([y x])
--`a`: Drift velocities of the MAPN emitters. (kx2)([y x])
--`σ_a`: Uncertainties in the velocities `a`. (kx2)([y x])
--`nalloc`: Number of localizations allocated to each emitter. (kx1)
+- `μ`: Position estimates of the MAPN emitters. (kx2)([y x])
+- `σ_μ`: Uncertainties in the positions `μ`. (kx2)([y x])
+- `a`: Drift velocities of the MAPN emitters. (kx2)([y x])
+- `σ_a`: Uncertainties in the velocities `a`. (kx2)([y x])
+- `nalloc`: Number of localizations allocated to each emitter. (kx1)
 """
 function mapn(chain::Vector{SMLMBaGoL.BaGoLChain2D})
     # Loop over entries in `chain` and dispatch on the single chain mapn().
@@ -122,14 +122,14 @@ mapn(chain::Vector{SMLMBaGoL.BaGoLChain2D}), concatenating the results across
 all chains.
 
 # Inputs
--`chain`: Matrix of vectors of chains of Markov states.
+- `chain`: Matrix of vectors of chains of Markov states.
 
 # Outputs
--`μ`: Position estimates of the MAPN emitters. (kx2)([y x])
--`σ_μ`: Uncertainties in the positions `μ`. (kx2)([y x])
--`a`: Drift velocities of the MAPN emitters. (kx2)([y x])
--`σ_a`: Uncertainties in the velocities `a`. (kx2)([y x])
--`nalloc`: Number of localizations allocated to each emitter. (kx1)
+- `μ`: Position estimates of the MAPN emitters. (kx2)([y x])
+- `σ_μ`: Uncertainties in the positions `μ`. (kx2)([y x])
+- `a`: Drift velocities of the MAPN emitters. (kx2)([y x])
+- `σ_a`: Uncertainties in the velocities `a`. (kx2)([y x])
+- `nalloc`: Number of localizations allocated to each emitter. (kx1)
 """
 function mapn(chain::Matrix{Vector{SMLMBaGoL.BaGoLChain2D}})
     # Loop over entries in `chain` and dispatch on the single chain mapn().
