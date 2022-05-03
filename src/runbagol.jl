@@ -1,7 +1,7 @@
 using SMLMData
 
 """
-    chain = runbagol(smld::SMLMData.SMLD2D;
+    chain, rois, roioverlap = runbagol(smld::SMLMData.SMLD2D;
         subregion_params::SMLMBaGoL.SubregionParams2D = SMLMBaGoL.SubregionParams2D(),
         prethresholds::SMLMBaGoL.PreThreshParams2D = SMLMBaGoL.PreThreshParams2D(),
         preclustering_params::SMLMBaGoL.PreclusterParams2D = SMLMBaGoL.PreclusterParams2D(),
@@ -24,13 +24,14 @@ Grouping of Localizations (BaGoL).
 # Outputs
 -`chain`: An SMLMBaGoL.BaGoLChain2D RJMCMC chain.
 -`rois`: Subregion ROIs used. (Matrix{Vector{Float64}})
--`roioverlap`: ROI overlap used in subregion generation. (Float64)
+-`roioverlap`: ROI overlap used in subregion generation, which might be 
+               modified from the user set value. (Float64)
 """
 function runbagol(smld::SMLMData.SMLD2D;
-    subregion_params::SMLMBaGoL.SubregionParams2D = SMLMBaGoL.SubregionParams2D(),
-    prethresholds::SMLMBaGoL.PreThreshParams2D = SMLMBaGoL.PreThreshParams2D(),
-    preclustering_params::SMLMBaGoL.PreclusterParams2D = SMLMBaGoL.PreclusterParams2D(),
-    mcparams::SMLMBaGoL.MCParams2D = SMLMBaGoL.MCParams2D())
+    subregion_params::SMLMBaGoL.SubregionParams2D=SMLMBaGoL.SubregionParams2D(),
+    prethresholds::SMLMBaGoL.PreThreshParams2D=SMLMBaGoL.PreThreshParams2D(),
+    preclustering_params::SMLMBaGoL.PreclusterParams2D=SMLMBaGoL.PreclusterParams2D(),
+    mcparams::SMLMBaGoL.MCParams2D=SMLMBaGoL.MCParams2D())
 
     # Split the data into subregions.
     if subregion_params.on
@@ -65,7 +66,13 @@ function runbagol(smld::SMLMData.SMLD2D;
     # Perform RJMCMC on each precluster.
     chain = SMLMBaGoL.runRJMCMC(smld_preclustered, rois, mcparams)
 
-    return chain, rois, roioverlap
+    # Isolate the valid portions of the chain.
+    validchain = SMLMBaGoL.removeoverlap(chain, smld.datasize, rois, roioverlap)
+
+    # Compute the MAPN result.
+    mapnout = SMLMBaGoL.mapn(validchain)
+
+    return chain, validchain, mapnout, rois, roioverlap
 end
 
 """
@@ -97,13 +104,14 @@ emitter) during the RJMCMC process.
 -`λchain`: An array of the λ parameters that were used for each hierarchical 
            sample.
 -`rois`: Subregion ROIs used. (Matrix{Vector{Float64}})
--`roioverlap`: ROI overlap used in subregion generation. (Float64)
+-`roioverlap`: ROI overlap used in subregion generation, which might be 
+               modified from the user set value. (Float64)
 """
 function runbagol(smld::SMLMData.SMLD2D, hbparams::SMLMBaGoL.HBParams2D;
-    subregion_params::SMLMBaGoL.SubregionParams2D = SMLMBaGoL.SubregionParams2D(),
-    prethresholds::SMLMBaGoL.PreThreshParams2D = SMLMBaGoL.PreThreshParams2D(),
-    preclustering_params::SMLMBaGoL.PreclusterParams2D = SMLMBaGoL.PreclusterParams2D(),
-    mcparams::SMLMBaGoL.MCParams2D = SMLMBaGoL.MCParams2D())
+    subregion_params::SMLMBaGoL.SubregionParams2D=SMLMBaGoL.SubregionParams2D(),
+    prethresholds::SMLMBaGoL.PreThreshParams2D=SMLMBaGoL.PreThreshParams2D(),
+    preclustering_params::SMLMBaGoL.PreclusterParams2D=SMLMBaGoL.PreclusterParams2D(),
+    mcparams::SMLMBaGoL.MCParams2D=SMLMBaGoL.MCParams2D())
 
     # Split the data into subregions.
     if subregion_params.on
@@ -130,7 +138,7 @@ function runbagol(smld::SMLMData.SMLD2D, hbparams::SMLMBaGoL.HBParams2D;
         # separately.
         smld_preclustered = deepcopy(smld_subregions)
         for ii = 1:prod(size(smld_preclustered))
-            smld_preclustered[ii].connectID = 
+            smld_preclustered[ii].connectID =
                 ones(Float64, length(smld_preclustered[ii].framenum))
         end
     end
@@ -138,5 +146,11 @@ function runbagol(smld::SMLMData.SMLD2D, hbparams::SMLMBaGoL.HBParams2D;
     # Perform RJMCMC on each precluster.
     chain, λchain = SMLMBaGoL.runRJMCMC(smld_preclustered, rois, mcparams, hbparams)
 
-    return chain, λchain, rois, roioverlap
+    # Isolate the valid portions of the chain.
+    validchain = SMLMBaGoL.removeoverlap(chain, smld.datasize, rois, roioverlap)
+
+    # Compute the MAPN result.
+    mapnout = SMLMBaGoL.mapn(validchain)
+
+    return chain, validchain, mapnout, λchain, rois, roioverlap
 end

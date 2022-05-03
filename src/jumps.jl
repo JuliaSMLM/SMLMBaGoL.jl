@@ -475,12 +475,6 @@ function updateη(nloc::Vector{Int}, k::Vector{Int},
     lpropratio = log(pdf(Gamma(hbparams.α_scaling, η_prop / hbparams.α_scaling), η)) -
                  log(pdf(Gamma(hbparams.α_scaling, η / hbparams.α_scaling), η_prop))
     acceptance = llratio + lpriorratio + lpropratio
-    # println(η_prop)
-    # println(llratio)
-    # println(lpriorratio)
-    # println(lpropratio)
-    # println(acceptance)
-    # println("___________")
 
     # Determine whether or not we should accept the update of η.
     if log(Base.rand()) <= acceptance
