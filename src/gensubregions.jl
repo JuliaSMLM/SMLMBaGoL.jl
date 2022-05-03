@@ -15,15 +15,15 @@ This method generates `rois` splitting the frame defined by `datasize` into
 subregions of (maximum) size `roisize` with overlaps of `roioverlap`.
 
 # Inputs
--`datasize`: Size of the data frame. (pixels)([ysize; xsize])
--`roisize`: Nominal size of the square regions of interest (subregion). 
-            (pixels)
--`roioverlap`: Size of the overlap region between neighboring subregions.
-               (pixels)
+- `datasize`: Size of the data frame. (pixels)([ysize; xsize])
+- `roisize`: Nominal size of the square regions of interest (subregion). 
+             (pixels)
+- `roioverlap`: Size of the overlap region between neighboring subregions.
+                (pixels)
 
 # Outputs
--`rois`: Matrix of ROIs defining each subregion. ROIs are arranged as 
-         [ystart, xstart, yend, xend].
+- `rois`: Matrix of ROIs defining each subregion. ROIs are arranged as 
+          [ystart, xstart, yend, xend].
 
 # Notes 
 The output `rois` has the regions defined as [ystart, xstart, yend, xend].
@@ -74,19 +74,19 @@ of size `roisize` overlapping by `roioverlap` pixels.  The output
 `connectID` stores the connectIDs of each localization placed in a subregion.
 
 # Inputs
--`smld`: SMLD2D structure containing the localization data. (see SMLMData.jl)
--`roisize`: Nominal size of the square regions of interest (subregion). 
-            (Pixels)
--`roioverlap`: Size of the overlap region between neighboring subregions.
-               (Pixels)
+- `smld`: SMLD2D structure containing the localization data. (see SMLMData.jl)
+- `roisize`: Nominal size of the square regions of interest (subregion). 
+             (Pixels)
+- `roioverlap`: Size of the overlap region between neighboring subregions.
+                (Pixels)
 
 # Outputs
--`smld_subregions`: Matrix of SMLD2D structures corresponding to each 
-                    subregion.
--`rois`: Matrix of ROIs of each subregion, with indexing matching that of
-         `smld_subregions`. ROIs are arranged as [ystart, xstart, yend, xend].
--`inds`: Matrix of localization indices indicating which of `smld` were stored
-         in which subregion.
+- `smld_subregions`: Matrix of SMLD2D structures corresponding to each 
+                     subregion.
+- `rois`: Matrix of ROIs of each subregion, with indexing matching that of
+          `smld_subregions`. ROIs are arranged as [ystart, xstart, yend, xend].
+- `inds`: Matrix of localization indices indicating which of `smld` were stored
+          in which subregion.
 
 # Notes 
 The output `rois` has the regions defined as [ystart, xstart, yend, xend].
@@ -135,19 +135,19 @@ of size `roisize` overlapping by `roioverlap` pixels.  The output
 `connectID` stores the connectIDs of each localization placed in a subregion.
 
 # Inputs
--`smld`: SMLD2D structure containing the localization data. (see SMLMData.jl)
--`roisize`: Nominal size of the square regions of interest (subregion). 
-            (Pixels)
--`roioverlap`: Size of the overlap region between neighboring subregions.
-               (Pixels)
+- `smld`: SMLD2D structure containing the localization data. (see SMLMData.jl)
+- `roisize`: Nominal size of the square regions of interest (subregion). 
+             (Pixels)
+- `roioverlap`: Size of the overlap region between neighboring subregions.
+                (Pixels)
 
 # Outputs
--`smld_subregions`: Matrix of SMLD2D structures corresponding to each 
-                    subregion.
--`rois`: Matrix of ROIs of each subregion, with indexing matching that of
-         `smld_subregions`. ROIs are arranged as [ystart, xstart, yend, xend].
--`inds`: Matrix of localization indices indicating which of `smld` were stored
-         in which subregion.
+- `smld_subregions`: Matrix of SMLD2D structures corresponding to each 
+                     subregion.
+- `rois`: Matrix of ROIs of each subregion, with indexing matching that of
+          `smld_subregions`. ROIs are arranged as [ystart, xstart, yend, xend].
+- `inds`: Matrix of localization indices indicating which of `smld` were stored
+          in which subregion.
 
 # Notes 
 The output `rois` has the regions defined as [ystart, xstart, yend, xend].

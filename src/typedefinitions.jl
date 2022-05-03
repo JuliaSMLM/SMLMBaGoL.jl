@@ -22,10 +22,10 @@ The SubregionParams2D structure organizes parameters related to subregion
 splitting of data.
 
 # Fields
--`roisize`: Size of each subregion (region of interest, or ROI). 
+- `roisize`: Size of each subregion (region of interest, or ROI). 
             (Pixels)(Default = 5.0)
--`roioverlap`: Size of the overlap between subregions. (Default = 1.0)(Pixels)
--`on`: Flag indicating data should be split into subregions when using
+- `roioverlap`: Size of the overlap between subregions. (Default = 1.0)(Pixels)
+- `on`: Flag indicating data should be split into subregions when using
        runbagol() (Default = true)
 """
 mutable struct SubregionParams2D <: SubregionParams
@@ -54,11 +54,11 @@ The PreThreshParams2D structure organizes parameters related to thresholds
 applied to data during preprocessing.
 
 # Fields
--`maxsigmadev_photons`: Maximum number of standard deviations above the mean
+- `maxsigmadev_photons`: Maximum number of standard deviations above the mean
                         photons allowed. (Default = Inf64)
--`n_min`: Minimum number of nearest neighbors required within `r`. 
+- `n_min`: Minimum number of nearest neighbors required within `r`. 
           (Pixels)(Default = 1)
--`r`: Distance defining the region within which `n_min` nearest neighbor 
+- `r`: Distance defining the region within which `n_min` nearest neighbor 
       localizations must be present. (Pixels)(Default = 10.0)
 """
 mutable struct PreThreshParams2D <: PreThreshParams
@@ -87,9 +87,9 @@ The PreclusterParams2D structure organizes parameters related to the
 preclustering of localizations within each subregion.
 
 # Fields
--`maxdist`: Maximum distance from one localization to its nearest-neighbor 
+- `maxdist`: Maximum distance from one localization to its nearest-neighbor 
             allowed in each precluster. (Default = 0.15)(Pixels)
--`on`: Flag indicating pre-clustering should be applied when using runbagol().
+- `on`: Flag indicating pre-clustering should be applied when using runbagol().
        (Default = true)
 """
 mutable struct PreclusterParams2D <: PreclusterParams
@@ -117,16 +117,16 @@ The MCParams structure organizes parameters, distributions, or other info.
 related to RJMCMC.
 
 # Fields
--`η`: Shape parameter of Gamma distribtution for localizations per emitter.
--`γ`: Scale parameter of Gamma distribution for localizations per emitter.
--`σ_a`: Standard deviation of drift velocties. (pixels/frame)
--`n_chain`: Number of iterations for chain generation.
--`n_burnin`: Number of burn-in iterations for the chain.
--`p_jump`: Probability of making each jump type. 
--`srmag`: Magnification of the Gaussian SR image used to generate `imdistrib`
-          with respect to the localization coordinate system.
--`nsigma`: Number of standard deviations out to which we add a Gaussian at each
-           localization in the Gaussian image used to define `imdistrib`.
+- `η`: Shape parameter of Gamma distribtution for localizations per emitter.
+- `γ`: Scale parameter of Gamma distribution for localizations per emitter.
+- `σ_a`: Standard deviation of drift velocties. (pixels/frame)
+- `n_chain`: Number of iterations for chain generation.
+- `n_burnin`: Number of burn-in iterations for the chain.
+- `p_jump`: Probability of making each jump type. 
+- `srmag`: Magnification of the Gaussian SR image used to generate `imdistrib`
+           with respect to the localization coordinate system.
+- `nsigma`: Number of standard deviations out to which we add a Gaussian at each
+            localization in the Gaussian image used to define `imdistrib`.
 """
 mutable struct MCParams2D <: MCParams
     η::Float64
@@ -159,15 +159,15 @@ The HBParams2D structure organizes parameters, distributions, or other info.
 related to hierarchical BaGoL analysis.
 
 # Fields
--`nsamples`: Length of chains ran before resampling the hyperparameters.
-             (e.g., if nsamples=10 and mcparams.n_chain=100, we'll make
-             a total of 9 meaningful samples of of the hyperparameters).
--`α`: Shape parameter of Gamma distribution defining the prior on the 
-      hyperparameters η and γ.
--`θ`: Scale parameter of Gamma distribtution defining the prior on the 
-      hyperparameters η and γ.
--`α_scaling`: Scale factor used in sampling hyperparameters.
--`nthinning`: Number of thinning iterations (i.e., hyperparameters are sampled
+- `nsamples`: Length of chains ran before resampling the hyperparameters.
+              (e.g., if nsamples=10 and mcparams.n_chain=100, we'll make
+              a total of 9 meaningful samples of of the hyperparameters).
+- `α`: Shape parameter of Gamma distribution defining the prior on the 
+       hyperparameters η and γ.
+- `θ`: Scale parameter of Gamma distribtution defining the prior on the 
+       hyperparameters η and γ.
+- `α_scaling`: Scale factor used in sampling hyperparameters.
+- `nthinning`: Number of thinning iterations (i.e., hyperparameters are sampled
               `nthinning` times before returning a value for the chain).
 """
 mutable struct HBParams2D <: HBParams
@@ -226,22 +226,22 @@ might be internally updated within a typical BaGoL analysis/are defined in
 terms of the other user set parameters in BaGoLParams2D.
 
 # Fields
--`roi`: Region of interest for the current set of data. 
-        ([ystart; xstart; yend; xend])
--`srimsize`: Resulting size of the Gaussian SR image.
--`area`: Area spanned by the localizations. (pixels^2)
--`jumpdistrib`: Distribution defining the jumps to be made. 
-                (see jumpdistrib.jl)
--`imdistrib`: Approximate emitter distribution defined by a normalized Gaussian
-              SR image of the localizations.
--`priork`: Prior distribution on the number of emitters.
--`priorz`: Probability of any given allocation of localizations to emitters.
-           (only the probability is stored, assuming all allocations are 
-           equally weighted, since returning a distribution seems unfeasible).
--`priorμ`: Prior distributions on the emitter positions. (Not currently used, as 
-           I've instead been using `imdistrib`.) ([ydistrib; xdistrib])
--`priora`: Prior distribution on the drift velocities. 
-           ([a_ydistrib; a_xdistrib])
+- `roi`: Region of interest for the current set of data. 
+         ([ystart; xstart; yend; xend])
+- `srimsize`: Resulting size of the Gaussian SR image.
+- `area`: Area spanned by the localizations. (pixels^2)
+- `jumpdistrib`: Distribution defining the jumps to be made. 
+                 (see jumpdistrib.jl)
+- `imdistrib`: Approximate emitter distribution defined by a normalized Gaussian
+               SR image of the localizations.
+- `priork`: Prior distribution on the number of emitters.
+- `priorz`: Probability of any given allocation of localizations to emitters.
+            (only the probability is stored, assuming all allocations are 
+            equally weighted, since returning a distribution seems unfeasible).
+- `priorμ`: Prior distributions on the emitter positions. (Not currently used, as 
+            I've instead been using `imdistrib`.) ([ydistrib; xdistrib])
+- `priora`: Prior distribution on the drift velocities. 
+            ([a_ydistrib; a_xdistrib])
 """
 mutable struct Internals2D <: BaGoLParams
     roi::Vector{Float64}
@@ -276,10 +276,10 @@ Structure of data pertaining to a state in a Markov chain.
 This structure organizes some data retained during RJMCMC.
 
 # Fields
--`k`: Number of emitters in the state.
--`z`: Allocations of localizations to the `k` emitters.
--`μ`: Positions of the `k` emitters. ([y x])
--`a`: Drift velocities of the `k` emitters. ([a_y a_x])
+- `k`: Number of emitters in the state.
+- `z`: Allocations of localizations to the `k` emitters.
+- `μ`: Positions of the `k` emitters. ([y x])
+- `a`: Drift velocities of the `k` emitters. ([a_y a_x])
 """
 mutable struct BaGoLState2D <: State
     k::Int
@@ -310,9 +310,9 @@ Structure of states forming a Markov chain.
 This structure organizes some data retained during RJMCMC.
 
 # Fields
--`states`: States of the chain at each iteration.
--`accepted`: Jump acceptance at each iteration.
--`n`: Number of states in the chain.
+- `states`: States of the chain at each iteration.
+- `accepted`: Jump acceptance at each iteration.
+- `n`: Number of states in the chain.
 """
 mutable struct BaGoLChain2D <: MarkovChain
     states::Vector{SMLMBaGoL.BaGoLState2D}

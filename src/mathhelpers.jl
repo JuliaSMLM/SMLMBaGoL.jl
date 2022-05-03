@@ -22,13 +22,13 @@ This function computes the log-likelihood that the localizations stored in
 drift velocities `a`.  I.e., likelihood for k emitters along 2 dimensions.
 
 # Inputs
--`y`: 1D coordinate of a set of localizations. (pixels)(nlocx1)
--`μ`: Location of the emitters. (pixels)(kx1)
--`a`: Drift velocities of each emitter. (pixels/frame)(kx2)([y x])
--`z`: Allocations of the `nloc` localizations to the `k` emittters. (nlocx1)
+- `y`: 1D coordinate of a set of localizations. (pixels)(nlocx1)
+- `μ`: Location of the emitters. (pixels)(kx1)
+- `a`: Drift velocities of each emitter. (pixels/frame)(kx2)([y x])
+- `z`: Allocations of the `nloc` localizations to the `k` emittters. (nlocx1)
 
 # Outputs
--`likelihood`: Likelihood of the emitters given the localizations.
+- `likelihood`: Likelihood of the emitters given the localizations.
 """
 function emitterlikelihood2D(smld::SMLMData.SMLD2D,
     μ::Matrix{Float64},
@@ -58,16 +58,16 @@ which multiplies the likelihoods over the 2 spatial dimensions.  I.e.,
 likelihood for k emitters along 2 dimensions.
 
 # Inputs
--`y`: 2D coordinates of a set of localizations. (pixels)(nlocx2)([y x])
--`σ`: Standard deviations of the observation distributions. 
-      (pixels)(nlocx2)([y x])
--`t`: Observation time corresponding to localizations in `y`. (frames)(nlocx1)
--`μ`: Location of the emitters. (pixels)(kx2)([y x])
--`a`: Drift velocities of each emitter. (pixels/frame)(kx2)([y x])
--`z`: Allocations of the `nloc` localizations to the `k` emittters. (nlocx1)
+- `y`: 2D coordinates of a set of localizations. (pixels)(nlocx2)([y x])
+- `σ`: Standard deviations of the observation distributions. 
+       (pixels)(nlocx2)([y x])
+- `t`: Observation time corresponding to localizations in `y`. (frames)(nlocx1)
+- `μ`: Location of the emitters. (pixels)(kx2)([y x])
+- `a`: Drift velocities of each emitter. (pixels/frame)(kx2)([y x])
+- `z`: Allocations of the `nloc` localizations to the `k` emittters. (nlocx1)
 
 # Outputs
--`likelihood`: Likelihood of the emitters given the localizations.
+- `likelihood`: Likelihood of the emitters given the localizations.
 """
 function emitterlikelihood2D(y::Matrix{Float64},
     σ::Matrix{Float64},
@@ -98,15 +98,15 @@ that multiplies the likelihoods over the 2 spatial dimensions.  I.e.,
 likelihood for 1 emitter along 2 dimensions.
 
 # Inputs
--`y`: 2D coordinates of a set of localizations. (pixels)(nlocx2)([y x])
--`σ`: Standard deviations of the observation distributions. 
-      (pixels)(nlocx2)([y x])
--`t`: Observation time corresponding to localizations in `y`. (frames)(nlocx1)
--`μ`: Location of the emitters. (pixels)(kx2)([y x])
--`a`: Drift velocities of each emitter. (pixels/frame)(kx2)([y x])
+- `y`: 2D coordinates of a set of localizations. (pixels)(nlocx2)([y x])
+- `σ`: Standard deviations of the observation distributions. 
+       (pixels)(nlocx2)([y x])
+- `t`: Observation time corresponding to localizations in `y`. (frames)(nlocx1)
+- `μ`: Location of the emitters. (pixels)(kx2)([y x])
+- `a`: Drift velocities of each emitter. (pixels/frame)(kx2)([y x])
 
 # Outputs
--`likelihood`: Likelihood of the emitter given the localizations.
+- `likelihood`: Likelihood of the emitter given the localizations.
 """
 function emitterlikelihood2D(y::Matrix{Float64},
     σ::Matrix{Float64},
@@ -136,15 +136,15 @@ that multiplies the likelihoods over the 2 spatial dimensions.  I.e.,
 likelihood for 1 localization of 1 emitter along 2 dimensions.
 
 # Inputs
--`y`: 2D coordinates of a localization. (pixels)(2x1)([y; x])
--`σ`: Standard deviations of the observation distribution. 
-      (pixels)(2x1)([y; x])
--`t`: Observation time corresponding to localization `y`. (frames)
--`μ`: Location of the emitter. (pixels)(2x1)([y; x])
--`a`: Drift velocities of each emitter. (pixels/frame)(2x1)([y; x])
+- `y`: 2D coordinates of a localization. (pixels)(2x1)([y; x])
+- `σ`: Standard deviations of the observation distribution. 
+       (pixels)(2x1)([y; x])
+- `t`: Observation time corresponding to localization `y`. (frames)
+- `μ`: Location of the emitter. (pixels)(2x1)([y; x])
+- `a`: Drift velocities of each emitter. (pixels/frame)(2x1)([y; x])
 
 # Outputs
--`likelihood`: Likelihood of the emitter given the localization.
+- `likelihood`: Likelihood of the emitter given the localization.
 """
 function emitterlikelihood2D(y::Vector{Float64},
     σ::Vector{Float64},
@@ -173,15 +173,15 @@ the emitters they were allocated to (governed by `z`) at the locations `μ`.
 I.e., likelihood for k emitters along 1 dimension.
 
 # Inputs
--`y`: 1D coordinate of a set of localizations. (pixels)(nlocx1)
--`σ`: Standard deviations of the observation distributions. (pixels)(nlocx1)
--`t`: Observation time corresponding to localizations in `y`. (frames)(nlocx1)
--`μ`: 1D location of the emitters. (pixels)(kx1)
--`a`: Drift velocities of each emitter. (pixels/frame)(kx1)
--`z`: Allocations of the `nloc` localizations to the `k` emittters. (nlocx1)
+- `y`: 1D coordinate of a set of localizations. (pixels)(nlocx1)
+- `σ`: Standard deviations of the observation distributions. (pixels)(nlocx1)
+- `t`: Observation time corresponding to localizations in `y`. (frames)(nlocx1)
+- `μ`: 1D location of the emitters. (pixels)(kx1)
+- `a`: Drift velocities of each emitter. (pixels/frame)(kx1)
+- `z`: Allocations of the `nloc` localizations to the `k` emittters. (nlocx1)
 
 # Outputs
--`likelihood`: Likelihood of the emitters given the localizations.
+- `likelihood`: Likelihood of the emitters given the localizations.
 """
 function emitterlikelihood1D(y::Vector{Float64},
     σ::Vector{Float64},
@@ -221,12 +221,12 @@ the emitter at position `μt(t)`, assuming that observations of the emitter are
 normally distributed. I.e., likelihood for 1 emitter along 1 dimension.
 
 # Inputs
--`y`: 1D coordinate of a set of localizations. (pixels)(nlocx1)
--`σ`: Standard deviations of the observation distribution. (pixels)
--`μt`: Location of the emitter over time. (pixels)(nframesx1)
+- `y`: 1D coordinate of a set of localizations. (pixels)(nlocx1)
+- `σ`: Standard deviations of the observation distribution. (pixels)
+- `μt`: Location of the emitter over time. (pixels)(nframesx1)
 
 # Outputs
--`likelihood`: Likelihood of the emitter given the localizations.
+- `likelihood`: Likelihood of the emitter given the localizations.
 """
 function emitterlikelihood1D(y::Vector{Float64},
     σ::Vector{Float64},
@@ -258,13 +258,13 @@ This function computes the log-likelihood that the localizations stored in
 drift velocities `a`.  I.e., log-likelihood for k emitters along 2 dimensions.
 
 # Inputs
--`y`: 1D coordinate of a set of localizations. (pixels)(nlocx1)
--`μ`: Location of the emitters. (pixels)(kx1)
--`a`: Drift velocities of each emitter. (pixels/frame)(kx2)([y x])
--`z`: Allocations of the `nloc` localizations to the `k` emittters. (nlocx1)
+- `y`: 1D coordinate of a set of localizations. (pixels)(nlocx1)
+- `μ`: Location of the emitters. (pixels)(kx1)
+- `a`: Drift velocities of each emitter. (pixels/frame)(kx2)([y x])
+- `z`: Allocations of the `nloc` localizations to the `k` emittters. (nlocx1)
 
 # Outputs
--`logL`: Log-likelihood of the emitters given the localizations.
+- `logL`: Log-likelihood of the emitters given the localizations.
 """
 function emitterlogL2D(smld::SMLMData.SMLD2D,
     μ::Matrix{Float64},
@@ -294,16 +294,16 @@ sums the likelihoods over the 2 spatial dimensions.  I.e., log-likelihood for
 k emitters along 2 dimensions.
 
 # Inputs
--`y`: 2D coordinates of a set of localizations. (pixels)(nlocx2)([y x])
--`σ`: Standard deviations of the observation distributions. 
-      (pixels)(nlocx2)([y x])
--`t`: Observation time corresponding to localizations in `y`. (frames)(nlocx1)
--`μ`: Location of the emitters. (pixels)(kx2)([y x])
--`a`: Drift velocities of each emitter. (pixels/frame)(kx2)([y x])
--`z`: Allocations of the `nloc` localizations to the `k` emittters. (nlocx1)
+- `y`: 2D coordinates of a set of localizations. (pixels)(nlocx2)([y x])
+- `σ`: Standard deviations of the observation distributions. 
+       (pixels)(nlocx2)([y x])
+- `t`: Observation time corresponding to localizations in `y`. (frames)(nlocx1)
+- `μ`: Location of the emitters. (pixels)(kx2)([y x])
+- `a`: Drift velocities of each emitter. (pixels/frame)(kx2)([y x])
+- `z`: Allocations of the `nloc` localizations to the `k` emittters. (nlocx1)
 
 # Outputs
--`logL`: Log-likelihood of the emitters given the localizations.
+- `logL`: Log-likelihood of the emitters given the localizations.
 """
 function emitterlogL2D(y::Matrix{Float64},
     σ::Matrix{Float64},
@@ -334,15 +334,15 @@ sums the likelihoods over the 2 spatial dimensions.  I.e., log-likelihood for
 1 emitter along 2 dimensions.
 
 # Inputs
--`y`: 2D coordinates of a set of localizations. (pixels)(nlocx2)([y x])
--`σ`: Standard deviations of the observation distributions. 
-      (pixels)(nlocx2)([y x])
--`t`: Observation time corresponding to localizations in `y`. (frames)(nlocx1)
--`μ`: Location of the emitters. (pixels)(2x1)([y; x])
--`a`: Drift velocities of each emitter. (pixels/frame)(2x1)([y; x])
+- `y`: 2D coordinates of a set of localizations. (pixels)(nlocx2)([y x])
+- `σ`: Standard deviations of the observation distributions. 
+       (pixels)(nlocx2)([y x])
+- `t`: Observation time corresponding to localizations in `y`. (frames)(nlocx1)
+- `μ`: Location of the emitters. (pixels)(2x1)([y; x])
+- `a`: Drift velocities of each emitter. (pixels/frame)(2x1)([y; x])
 
 # Outputs
--`logL`: Log-likelihood of the emitter given the localizations.
+- `logL`: Log-likelihood of the emitter given the localizations.
 """
 function emitterlogL2D(y::Matrix{Float64},
     σ::Matrix{Float64},
@@ -372,15 +372,15 @@ sums the likelihoods over the 2 spatial dimensions.  I.e., log-likelihood for
 1 localization of 1 emitter along 2 dimensions.
 
 # Inputs
--`y`: 2D coordinates of a localization. (pixels)(2x1)([y; x])
--`σ`: Standard deviations of the observation distributions. 
-        (pixels)(2x1)([y; x])
--`t`: Observation time corresponding to the localization in `y`. (frames)
--`μ`: Location of the emitters. (pixels)(2x1)([y; x])
--`a`: Drift velocities of each emitter. (pixels/frame)(2x1)([y; x])
+- `y`: 2D coordinates of a localization. (pixels)(2x1)([y; x])
+- `σ`: Standard deviations of the observation distributions. 
+         (pixels)(2x1)([y; x])
+- `t`: Observation time corresponding to the localization in `y`. (frames)
+- `μ`: Location of the emitters. (pixels)(2x1)([y; x])
+- `a`: Drift velocities of each emitter. (pixels/frame)(2x1)([y; x])
 
 # Outputs
--`logL`: Log-likelihood of the emitter given the localization.
+- `logL`: Log-likelihood of the emitter given the localization.
 """
 function emitterlogL2D(y::Vector{Float64},
     σ::Vector{Float64},
@@ -409,15 +409,15 @@ the emitters they were allocated to (governed by `z`) at the locations `μ`.
 I.e., log-likelihood for k emitters along 1 dimension.
 
 # Inputs
--`y`: 1D coordinate of a set of localizations. (pixels)(nlocx1)
--`σ`: Standard deviations of the observation distributions. (pixels)(nlocx1)
--`t`: Observation time corresponding to localizations in `y`. (frames)(nlocx1)
--`μ`: Location of the emitters. (pixels)(kx1)
--`a`: Drift velocities of each emitter. (pixels/frame)(kx1)
--`z`: Allocations of the `nloc` localizations to the `k` emittters. (nlocx1)
+- `y`: 1D coordinate of a set of localizations. (pixels)(nlocx1)
+- `σ`: Standard deviations of the observation distributions. (pixels)(nlocx1)
+- `t`: Observation time corresponding to localizations in `y`. (frames)(nlocx1)
+- `μ`: Location of the emitters. (pixels)(kx1)
+- `a`: Drift velocities of each emitter. (pixels/frame)(kx1)
+- `z`: Allocations of the `nloc` localizations to the `k` emittters. (nlocx1)
 
 # Outputs
--`logL`: Log-likelihood of the emitters given the localizations.
+- `logL`: Log-likelihood of the emitters given the localizations.
 """
 function emitterlogL1D(y::Vector{Float64},
     σ::Vector{Float64},
@@ -457,12 +457,12 @@ the emitter at position `μt(t)`, assuming that observations of the emitter are
 normally distributed. I.e., log-likelihood for 1 emitter along 1 dimension.
 
 # Inputs
--`y`: 1D coordinate of a set of localizations. (pixels)(nlocx1)
--`σ`: Standard deviations of the observation distribution. (pixels)
--`μt`: Location of the emitter over time. (pixels)(nframesx1)
+- `y`: 1D coordinate of a set of localizations. (pixels)(nlocx1)
+- `σ`: Standard deviations of the observation distribution. (pixels)
+- `μt`: Location of the emitter over time. (pixels)(nframesx1)
 
 # Outputs
--`logL`: Log-likelihood of the emitter given the localizations.
+- `logL`: Log-likelihood of the emitter given the localizations.
 """
 function emitterlogL1D(y::Vector{Float64},
     σ::Vector{Float64},
@@ -491,12 +491,12 @@ normally distributed. I.e., log-likelihood for 1 localization of 1 emitter
 along 1 dimension.
 
 # Inputs
--`y`: 1D coordinate of a set of localizations. (pixels)
--`σ`: Standard deviations of the observation distribution. (pixels)
--`μt`: Location of the emitter over time. (pixels)
+- `y`: 1D coordinate of a set of localizations. (pixels)
+- `σ`: Standard deviations of the observation distribution. (pixels)
+- `μt`: Location of the emitter over time. (pixels)
 
 # Outputs
--`logL`: Log-likelihood of the emitter given the localization.
+- `logL`: Log-likelihood of the emitter given the localization.
 """
 function emitterlogL1D(y::Float64,
     σ::Float64,
@@ -510,12 +510,12 @@ end
 Make `n` samples of the Gamma PDF for the length(α) Gamma distributions.
 
 # Inputs
--`α`: Vector of shape parameters for the Gamma distribution.
--`β`: Scale parameter for the Gamma distribution.
--`n`: Number of samples to make.
+- `α`: Vector of shape parameters for the Gamma distribution.
+- `β`: Scale parameter for the Gamma distribution.
+- `n`: Number of samples to make.
 
 # Outputs
--`x`: Matrix of the random samples. (length(α)xn)
+- `x`: Matrix of the random samples. (length(α)xn)
 """
 function gammarnd(α::Float64, β::Vector{Float64}, n::Int)
     x = Matrix{Float64}(undef, length(β), n)
@@ -532,12 +532,12 @@ end
 Make `n` samples of the Gamma PDF for the length(α) Gamma distributions.
 
 # Inputs
--`α`: Vector of shape parameters for the Gamma distribution.
--`β`: Scale parameter for the Gamma distribution.
--`n`: Number of samples to make.
+- `α`: Vector of shape parameters for the Gamma distribution.
+- `β`: Scale parameter for the Gamma distribution.
+- `n`: Number of samples to make.
 
 # Outputs
--`x`: Matrix of the random samples. (length(α)xn)
+- `x`: Matrix of the random samples. (length(α)xn)
 """
 function gammarnd(α::Vector{Float64}, β::Float64, n::Int)
     x = Matrix{Float64}(undef, length(α), n)
@@ -554,12 +554,12 @@ end
 Compute the Gamma PDF for the length(α) Gamma distributions at points `x`.
 
 # Inputs
--`α`: Vector of shape parameters for the Gamma distribution.
--`β`: Scale parameter for the Gamma distribution.
--`x`: Sampling point for each `α` (length(α) vector)
+- `α`: Vector of shape parameters for the Gamma distribution.
+- `β`: Scale parameter for the Gamma distribution.
+- `x`: Sampling point for each `α` (length(α) vector)
 
 # Outputs
--`pdf`: Vector of the pdf samples. (length(α)x1)
+- `pdf`: Vector of the pdf samples. (length(α)x1)
 """
 function gammapdf(α::Vector{Float64}, β::Float64, x::Vector{Float64})
     pdf = Vector{Float64}(undef, length(α))
@@ -576,12 +576,12 @@ end
 Compute the Gamma PDF for the length(β) Gamma distributions at points `x`.
 
 # Inputs
--`α`: Shape parameter for the Gamma distribution.
--`β`: Vector of scale parameters for the Gamma distribution.
--`x`: Sampling point for each `α` (length(β) vector)
+- `α`: Shape parameter for the Gamma distribution.
+- `β`: Vector of scale parameters for the Gamma distribution.
+- `x`: Sampling point for each `α` (length(β) vector)
 
 # Outputs
--`pdf`: Vector of the pdf samples. (length(β)x1)
+- `pdf`: Vector of the pdf samples. (length(β)x1)
 """
 function gammapdf(α::Float64, β::Vector{Float64}, x::Vector{Float64})
     pdf = Vector{Float64}(undef, length(β))
@@ -598,7 +598,7 @@ end
 Compress the set of `ints` to consist of integers 1:length(unique(ints))
 
 # Inputs
--`ints`: Vector of integers to be compressed.
+- `ints`: Vector of integers to be compressed.
 
 # Example 
 ints = [2; 4; 4; 7; 4; 11]
@@ -621,12 +621,12 @@ end
 Compress the set of `ints` to consist of integers 1:length(unique(ints))
 
 # Inputs
--`ints`: Vector of integers.
+- `ints`: Vector of integers.
 
 # Outputs
--`intscomp`: Input `ints` with entries modified to consist of the integers
-             1:length(unique(ints)).
--`intsunique`: Equivalent to `unique(ints)`, returned for convenience.
+- `intscomp`: Input `ints` with entries modified to consist of the integers
+              1:length(unique(ints)).
+- `intsunique`: Equivalent to `unique(ints)`, returned for convenience.
 """
 function compressrange(ints::Vector{Int})
     # Loop through entries of `ints` and modify as needed.

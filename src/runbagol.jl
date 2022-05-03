@@ -15,17 +15,17 @@ package, meaning that it will run the standard analysis workflow for Bayesian
 Grouping of Localizations (BaGoL).
 
 # Inputs
--`smld`: SMLD2D structure containing localizations.
--`subregion_params`: see typedefinitions.jl
--`prethresholds`: see typedefinitions.jl
--`preclustering_params`: see typedefinitions.jl
--`mcparams`: see typedefinitions.jl
+- `smld`: SMLD2D structure containing localizations.
+- `subregion_params`: see typedefinitions.jl
+- `prethresholds`: see typedefinitions.jl
+- `preclustering_params`: see typedefinitions.jl
+- `mcparams`: see typedefinitions.jl
 
 # Outputs
--`chain`: An SMLMBaGoL.BaGoLChain2D RJMCMC chain.
--`rois`: Subregion ROIs used. (Matrix{Vector{Float64}})
--`roioverlap`: ROI overlap used in subregion generation, which might be 
-               modified from the user set value. (Float64)
+- `chain`: An SMLMBaGoL.BaGoLChain2D RJMCMC chain.
+- `rois`: Subregion ROIs used. (Matrix{Vector{Float64}})
+- `roioverlap`: ROI overlap used in subregion generation, which might be 
+                modified from the user set value. (Float64)
 """
 function runbagol(smld::SMLMData.SMLD2D;
     subregion_params::SMLMBaGoL.SubregionParams2D=SMLMBaGoL.SubregionParams2D(),
@@ -92,20 +92,20 @@ certain prior distributions (for now, just the distribution of blinks per
 emitter) during the RJMCMC process.
 
 # Inputs
--`smld`: SMLD2D structure containing localizations.
--`hbparams`: see typedefinitions.jl
--`subregion_params`: see typedefinitions.jl
--`prethresholds`: see typedefinitions.jl
--`preclustering_params`: see typedefinitions.jl
--`mcparams`: see typedefinitions.jl
+- `smld`: SMLD2D structure containing localizations.
+- `hbparams`: see typedefinitions.jl
+- `subregion_params`: see typedefinitions.jl
+- `prethresholds`: see typedefinitions.jl
+- `preclustering_params`: see typedefinitions.jl
+- `mcparams`: see typedefinitions.jl
 
 # Outputs
--`chain`: An SMLMBaGoL.BaGoLChain2D RJMCMC chain.
--`λchain`: An array of the λ parameters that were used for each hierarchical 
-           sample.
--`rois`: Subregion ROIs used. (Matrix{Vector{Float64}})
--`roioverlap`: ROI overlap used in subregion generation, which might be 
-               modified from the user set value. (Float64)
+- `chain`: An SMLMBaGoL.BaGoLChain2D RJMCMC chain.
+- `λchain`: An array of the λ parameters that were used for each hierarchical 
+            sample.
+- `rois`: Subregion ROIs used. (Matrix{Vector{Float64}})
+- `roioverlap`: ROI overlap used in subregion generation, which might be 
+                modified from the user set value. (Float64)
 """
 function runbagol(smld::SMLMData.SMLD2D, hbparams::SMLMBaGoL.HBParams2D;
     subregion_params::SMLMBaGoL.SubregionParams2D=SMLMBaGoL.SubregionParams2D(),

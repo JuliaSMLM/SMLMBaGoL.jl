@@ -11,14 +11,14 @@ using NearestNeighbors
 Compress the range of `z` to consist only of the integers `1:k`.
 
 # Inputs
--`z`: Set of allocations to emitters associated to integer indices.
+- `z`: Set of allocations to emitters associated to integer indices.
 
 # Outputs
--`zvalid`: Set of allocations to emitters where integer indices are 
-           compressed to the range `1:k`.
--`zunique`: Equivalent to `unique(z)`, returned for convenience since it is
-            computed internally but often used outside of this method.
--`k`: Number of emitters with valid allocations.
+- `zvalid`: Set of allocations to emitters where integer indices are 
+            compressed to the range `1:k`.
+- `zunique`: Equivalent to `unique(z)`, returned for convenience since it is
+             computed internally but often used outside of this method.
+- `k`: Number of emitters with valid allocations.
 """
 function validifyallocs(z::Vector{Int})
     # Ensure that the allocations in `z` are "complete", i.e., each of the
@@ -37,16 +37,16 @@ end
 Keep only those emitters in `μ` and `a` with allocated localizations.
 
 # Inputs
--`z`: Set of allocations to emitters associated to integer indices.
--`μ`: Positions of emitters indexed by entries of `z`. ([y x])
--`a`: Drift velocities of emitters indexed by entries of `z`. ([v_y v_x])
+- `z`: Set of allocations to emitters associated to integer indices.
+- `μ`: Positions of emitters indexed by entries of `z`. ([y x])
+- `a`: Drift velocities of emitters indexed by entries of `z`. ([v_y v_x])
 
 # Outputs
--`zvalid`: Set of allocations to emitters where integer indices are 
-           compressed to the range `1:k`.
--`μvalid`: Positions of emitters with localizations allocated to them.
--`avalid`: Drift velocities of emitters with localizations allocated to them.
--`k`: Number of emitters with valid allocations.
+- `zvalid`: Set of allocations to emitters where integer indices are 
+            compressed to the range `1:k`.
+- `μvalid`: Positions of emitters with localizations allocated to them.
+- `avalid`: Drift velocities of emitters with localizations allocated to them.
+- `k`: Number of emitters with valid allocations.
 """
 function isolateuseful(z::Vector{Int}, μ::Matrix{Float64}, a::Matrix{Float64})
     # Determine which emitters should be kept (i.e., which ones have 
@@ -62,10 +62,10 @@ end
 Keep only those emitters in `state` with allocated localizations.
 
 # Inputs
--`state`: State with fields `μ`, `z`, and `a`.
+- `state`: State with fields `μ`, `z`, and `a`.
 
 # Outputs
--`statevalid`: Set of emitters from the input `state` which had allocations.
+- `statevalid`: Set of emitters from the input `state` which had allocations.
 """
 function isolateuseful(state::SMLMBaGoL.BaGoLState2D)
     # Determine which emitters should be kept (i.e., which ones have 
@@ -81,7 +81,7 @@ end
 Keep only those emitters in `state` with allocated localizations.
 
 # Inputs
--`state`: State with fields `μ`, `z`, and `a`.
+- `state`: State with fields `μ`, `z`, and `a`.
 """
 function isolateuseful!(state::SMLMBaGoL.BaGoLState2D)
     # Determine which emitters should be kept (i.e., which ones have 
@@ -102,15 +102,15 @@ This function allocates localizations in `smld` to the emitters located at
 the positions `μ` at time t=0.
 
 # Inputs
--`smld`: SMLMData.SMLD2D data structure containing localizations.
--`μ`: Coordinates of the proposed emitter positions. (pixels)([y x])
--`a`: Drift velocity of the emitters `μ`. (pixels/frame)([a_y a_x])
+- `smld`: SMLMData.SMLD2D data structure containing localizations.
+- `μ`: Coordinates of the proposed emitter positions. (pixels)([y x])
+- `a`: Drift velocity of the emitters `μ`. (pixels/frame)([a_y a_x])
 
 # Outputs
--`zprime`: Array of emitter indices defining the allocations of `smld` 
-           localizations.  For example, if `zprime[n] = k`, the `n-th`
-           localization of `smld` was allocated to the `k-th` emitter
-           (i.e., row `k` of `μ`).
+- `zprime`: Array of emitter indices defining the allocations of `smld` 
+            localizations.  For example, if `zprime[n] = k`, the `n-th`
+            localization of `smld` was allocated to the `k-th` emitter
+            (i.e., row `k` of `μ`).
 """
 function allocatelocs(smld::SMLMData.SMLD2D, 
                       μ::Matrix{Float64}, 
@@ -146,14 +146,14 @@ the localization defined by `y`, `σ_x`, and `t` to the emitters at
 positions `μ` at time t=0.
 
 # Inputs
--`y`: Coordinates of a 2D localization. (pixels)([y; x])
--`σ_y`: Standard error of the localization `y`. (pixels)([y; x])
--`t`: Time of observation of localization `y`. (frame)
--`μ`: Coordinates of the proposed emitter positions. (pixels)([y x])
--`a`: Drift velocity of the emitters `μ`. (pixels/frame)([a_y a_x])
+- `y`: Coordinates of a 2D localization. (pixels)([y; x])
+- `σ_y`: Standard error of the localization `y`. (pixels)([y; x])
+- `t`: Time of observation of localization `y`. (frame)
+- `μ`: Coordinates of the proposed emitter positions. (pixels)([y x])
+- `a`: Drift velocity of the emitters `μ`. (pixels/frame)([a_y a_x])
 
 # Outputs
--`posterior`: A Distributions.Distribution defining the allocation posterior.
+- `posterior`: A Distributions.Distribution defining the allocation posterior.
 """
 function posterior_allocations(y::Vector{Float64}, 
                                σ_y::Vector{Float64}, 
@@ -200,16 +200,16 @@ localizations (`y`, `σ`, `t`) to the emitters at location `μ+at`.  I.e., this
 method computes the log of the kernel of the distribution P_alloc(Z).
 
 # Inputs
--`y`: 2D coordinates of localizations. (pixels)(nlocx2)([y x])
--`σ`: Standard deviations of the observation distributions. 
-      (pixels)(nlocx2)([y x])
--`t`: Observation times corresponding to localizations `y`. (frames)(nlocx1)
--`μ`: Location of the emitter. (pixels)(kx2)([y x])
--`a`: Drift velocities of each emitter. (pixels/frame)(kx2)([y x])
--`w`: Relative weighting of the emitters. (kx1)
+- `y`: 2D coordinates of localizations. (pixels)(nlocx2)([y x])
+- `σ`: Standard deviations of the observation distributions. 
+       (pixels)(nlocx2)([y x])
+- `t`: Observation times corresponding to localizations `y`. (frames)(nlocx1)
+- `μ`: Location of the emitter. (pixels)(kx2)([y x])
+- `a`: Drift velocities of each emitter. (pixels/frame)(kx2)([y x])
+- `w`: Relative weighting of the emitters. (kx1)
 
 # Outputs
--`logL`: Log-likelihood kernel of the allocation distribution.
+- `logL`: Log-likelihood kernel of the allocation distribution.
 """
 function logLalloc_kernel(y::Matrix{Float64},
                           σ::Matrix{Float64},
@@ -249,16 +249,16 @@ localizations (`y`, `σ`, `t`) to the emitters at location `μ+at`.  I.e., this
 method computes the kernel of the distribution P_alloc(Z).
 
 # Inputs
--`y`: 2D coordinates of localizations. (pixels)(nlocx2)([y x])
--`σ`: Standard deviations of the observation distributions. 
-      (pixels)(nlocx2)([y x])
--`t`: Observation times corresponding to localizations `y`. (frames)(nlocx1)
--`μ`: Location of the emitter. (pixels)(kx2)([y x])
--`a`: Drift velocities of each emitter. (pixels/frame)(kx2)([y x])
--`w`: Relative weighting of the emitters. (kx1)
+- `y`: 2D coordinates of localizations. (pixels)(nlocx2)([y x])
+- `σ`: Standard deviations of the observation distributions. 
+       (pixels)(nlocx2)([y x])
+- `t`: Observation times corresponding to localizations `y`. (frames)(nlocx1)
+- `μ`: Location of the emitter. (pixels)(kx2)([y x])
+- `a`: Drift velocities of each emitter. (pixels/frame)(kx2)([y x])
+- `w`: Relative weighting of the emitters. (kx1)
 
 # Outputs
--`p`: Probability kernel of the allocation probability.
+- `p`: Probability kernel of the allocation probability.
 """
 function palloc_kernel(y::Matrix{Float64},
                        σ::Matrix{Float64},
@@ -292,13 +292,13 @@ localizations (`y`, `σ`, `t`) to the emitter at location `μ+at`.  I.e., this
 method computes the kernel of the distribution P_alloc(Z_i|j).
 
 # Inputs
--`y`: 2D coordinates of localizations. (pixels)(nlocx2)([y x])
--`σ`: Standard deviations of the observation distributions. 
-      (pixels)(nlocx2)([y x])
--`t`: Observation times corresponding to localizations `y`. (frames)(nlocx1)
--`μ`: Location of the emitter. (pixels)(2x1)([y; x])
--`a`: Drift velocities of each emitter. (pixels/frame)(2x1)([y; x])
--`w`: Relative weighting of the emitter.
+- `y`: 2D coordinates of localizations. (pixels)(nlocx2)([y x])
+- `σ`: Standard deviations of the observation distributions. 
+       (pixels)(nlocx2)([y x])
+- `t`: Observation times corresponding to localizations `y`. (frames)(nlocx1)
+- `μ`: Location of the emitter. (pixels)(2x1)([y; x])
+- `a`: Drift velocities of each emitter. (pixels/frame)(2x1)([y; x])
+- `w`: Relative weighting of the emitter.
 
 # Outputs
 -`p`: Probability kernel of the allocation probability.
@@ -337,16 +337,16 @@ method computes the kernel of the distribution P_alloc(Z_i=j) (the
 normalization factor is the same for {j=1:k | P_alloc(Z_i=j)}).
 
 # Inputs
--`y`: 2D coordinates of a localization. (pixels)(2x1)([y; x])
--`σ`: Standard deviations of the observation distribution. 
-      (pixels)(2x1)([y; x])
--`t`: Observation time corresponding to localization `y`. (frames)
--`μ`: Location of the emitter. (pixels)(2x1)([y; x])
--`a`: Drift velocities of each emitter. (pixels/frame)(2x1)([y; x])
--`w`: Relative weighting of the emitter.
+- `y`: 2D coordinates of a localization. (pixels)(2x1)([y; x])
+- `σ`: Standard deviations of the observation distribution. 
+       (pixels)(2x1)([y; x])
+- `t`: Observation time corresponding to localization `y`. (frames)
+- `μ`: Location of the emitter. (pixels)(2x1)([y; x])
+- `a`: Drift velocities of each emitter. (pixels/frame)(2x1)([y; x])
+- `w`: Relative weighting of the emitter.
 
 # Outputs
--`p`: Probability kernel of the allocation probability.
+- `p`: Probability kernel of the allocation probability.
 """
 function palloc_kernel(y::Vector{Float64},
                        σ::Vector{Float64},

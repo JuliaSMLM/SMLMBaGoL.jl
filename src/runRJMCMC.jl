@@ -14,13 +14,13 @@ This function performs RJMCMC analysis by preparing some distributions and
 parameters and then building the RJMCMC chain.
 
 # Inputs
--`smld`: SMLD2D structure containing the localizations.
--`roi`: Region of interest corresponding to `smld` localizations. 
-        (pixels)([ystart; xstart; yend; xend])
--`mcparams`: Structure of MCMC parameters.
+- `smld`: SMLD2D structure containing the localizations.
+- `roi`: Region of interest corresponding to `smld` localizations. 
+         (pixels)([ystart; xstart; yend; xend])
+- `mcparams`: Structure of MCMC parameters.
 
 # Outputs
--`chain`: An SMLMBaGoL.BaGoLChain2D RJMCMC chain.
+- `chain`: An SMLMBaGoL.BaGoLChain2D RJMCMC chain.
 """
 function runRJMCMC(smld::SMLMData.SMLD2D,
     roi::Vector{Float64},
@@ -79,13 +79,13 @@ the single `smld` version of runRJMCMC() on each entry of the vector input
 `smld`.
 
 # Inputs
--`smld`: Vector of SMLD2D structures.
--`roi`: Region of interest corresponding to `smld` localizations. 
-        (pixels)([ystart; xstart; yend; xend])
--`mcparams`: Structure of MCMC parameters.
+- `smld`: Vector of SMLD2D structures.
+- `roi`: Region of interest corresponding to `smld` localizations. 
+         (pixels)([ystart; xstart; yend; xend])
+- `mcparams`: Structure of MCMC parameters.
 
 # Outputs
--`chain`: An SMLMBaGoL.BaGoLChain2D RJMCMC chain.
+- `chain`: An SMLMBaGoL.BaGoLChain2D RJMCMC chain.
 """
 function runRJMCMC(smld::Vector{SMLMData.SMLD2D},
     roi::Vector{Float64},
@@ -115,12 +115,12 @@ the vector `smld` version of runRJMCMC() on each entry of the matrix input
 `smld`.
 
 # Inputs
--`smld`: Matrix of SMLD2D structures.
--`rois`: Region of interest of each entry in `smld`.
--`mcparams`: Structure of MCMC parameters.
+- `smld`: Matrix of SMLD2D structures.
+- `rois`: Region of interest of each entry in `smld`.
+- `mcparams`: Structure of MCMC parameters.
 
 # Outputs
--`chain`: An SMLMBaGoL.BaGoLChain2D RJMCMC chain.
+- `chain`: An SMLMBaGoL.BaGoLChain2D RJMCMC chain.
 """
 function runRJMCMC(smld::Matrix{SMLMData.SMLD2D},
     rois::Matrix{Vector{Float64}},
@@ -155,15 +155,15 @@ the vector `smld` version of runRJMCMC() on each entry of the matrix input
 `smld`.
 
 # Inputs
--`smld`: Matrix of SMLD2D structures.
--`rois`: Region of interest of each entry in `smld`.
--`mcparams`: Structure of MCMC parameters.
--`hbparams`: Structure of hierarchical Bayes parameters.
+- `smld`: Matrix of SMLD2D structures.
+- `rois`: Region of interest of each entry in `smld`.
+- `mcparams`: Structure of MCMC parameters.
+- `hbparams`: Structure of hierarchical Bayes parameters.
 
 # Outputs
--`chain`: An SMLMBaGoL.BaGoLChain2D RJMCMC chain.
--`λchain`: An array of the λ parameters that were used for each hierarchical 
-           sample.
+- `chain`: An SMLMBaGoL.BaGoLChain2D RJMCMC chain.
+- `λchain`: An array of the λ parameters that were used for each hierarchical 
+            sample.
 """
 function runRJMCMC(smld::Matrix{SMLMData.SMLD2D},
     rois::Matrix{Vector{Float64}},
@@ -252,16 +252,16 @@ This function constructs an RJMCMC chain starting with the provided initial
 state in `initstate`.
 
 # Inputs
--`smld`: SMLD2D structure containing the localizations.
--`initstate`: Initializing state of the chain.
--`mcparams`: Structure of MCMC parameters.
--`internals`: Structure of distributions/parameters (e.g., priors).
--`burnin`: Boolean indicating whether or not a burn-in phase is being
-           requested.  When true, only the final state of the chain is
-           retained.
+- `smld`: SMLD2D structure containing the localizations.
+- `initstate`: Initializing state of the chain.
+- `mcparams`: Structure of MCMC parameters.
+- `internals`: Structure of distributions/parameters (e.g., priors).
+- `burnin`: Boolean indicating whether or not a burn-in phase is being
+            requested.  When true, only the final state of the chain is
+            retained.
 
 # Outputs
--`chain`: An SMLMBaGoL.BaGoLChain2D RJMCMC chain.
+- `chain`: An SMLMBaGoL.BaGoLChain2D RJMCMC chain.
 """
 function buildchain(smld::SMLMData.SMLD2D,
     initstate::SMLMBaGoL.BaGoLState2D,
@@ -317,16 +317,16 @@ state in at the end of `initchain`.  This method is just used to dispatch on
 the version of buildchain() with an initial state input.
 
 # Inputs
--`smld`: SMLD2D structure containing the localizations.
--`initchain`: Chain whose last state is used to initialize the chain.
--`mcparams`: Structure of MCMC parameters.
--`internals`: Structure of distributions/parameters (e.g., priors).
--`burnin`: Boolean indicating whether or not a burn-in phase is being
-           requested.  When true, only the final state of the chain is
-           retained.
+- `smld`: SMLD2D structure containing the localizations.
+- `initchain`: Chain whose last state is used to initialize the chain.
+- `mcparams`: Structure of MCMC parameters.
+- `internals`: Structure of distributions/parameters (e.g., priors).
+- `burnin`: Boolean indicating whether or not a burn-in phase is being
+            requested.  When true, only the final state of the chain is
+            retained.
 
 # Outputs
--`chain`: An SMLMBaGoL.BaGoLChain2D RJMCMC chain.
+- `chain`: An SMLMBaGoL.BaGoLChain2D RJMCMC chain.
 """
 function buildchain(smld::SMLMData.SMLD2D,
     initchain::SMLMBaGoL.BaGoLChain2D,
@@ -352,17 +352,17 @@ This function moves proposes a jump of type `jumptype` and then either returns
 an updated state (jump accepted) or the input `state` (jump rejected).
 
 # Inputs
--`smld`: SMLD2D structure containing the localizations.
--`currentstate`: Current state of the Markov chain.
--`mcparams`: Structure of MCMC parameters.
--`internals`: Structure of distributions/parameters (e.g., priors).
--`jumptype`: Index of the jump to be proposed.
-             (1=move, 2=reallocate, 3=birth, 4=death)
+- `smld`: SMLD2D structure containing the localizations.
+- `currentstate`: Current state of the Markov chain.
+- `mcparams`: Structure of MCMC parameters.
+- `internals`: Structure of distributions/parameters (e.g., priors).
+- `jumptype`: Index of the jump to be proposed.
+              (1=move, 2=reallocate, 3=birth, 4=death)
 
 # Outputs
--`state`: A proposed state with the moved emitters.
--`accepted`: Boolean indicating whether or not the move was accepted, which is 
-             always true since moves use Gibbs sampling.
+- `state`: A proposed state with the moved emitters.
+- `accepted`: Boolean indicating whether or not the move was accepted, which is 
+              always true since moves use Gibbs sampling.
 """
 function updatestate(smld::SMLMData.SMLD2D,
     currentstate::SMLMBaGoL.BaGoLState2D,
@@ -413,15 +413,15 @@ This function proposes an update for the parameters defining the distribution
 of the number of blinks per emitter λ.
 
 # Inputs
--`nloc`: Number of localizations.
--`k`: Number of emitters.
--`mcparams`: Structure of parameters (see SMLMBaGoL.MCParams2D)
--`hbparams`: Structure of parameters (see SMLMBaGoL.HBParams2D)
+- `nloc`: Number of localizations.
+- `k`: Number of emitters.
+- `mcparams`: Structure of parameters (see SMLMBaGoL.MCParams2D)
+- `hbparams`: Structure of parameters (see SMLMBaGoL.HBParams2D)
 
 # Outputs
--`mcparams`: Copy of input `mcparams` with parameters related to λ updated.
--`accepted`: Boolean indicating which updates were accepted (the prior on λ
-             can have multiple parameters, so this might be an array).
+- `mcparams`: Copy of input `mcparams` with parameters related to λ updated.
+- `accepted`: Boolean indicating which updates were accepted (the prior on λ
+              can have multiple parameters, so this might be an array).
 """
 function updatepriorλ(nloc::Vector{Int}, k::Vector{Int},
     mcparams::SMLMBaGoL.MCParams2D,
