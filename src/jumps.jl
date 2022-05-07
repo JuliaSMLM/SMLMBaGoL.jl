@@ -122,7 +122,7 @@ function proposebirth(smld::SMLMData.SMLD2D,
     # localizations as a density distribution.
     coords, sampleind = SMLMBaGoL.samplecoords2D(internals.imdistrib,
         internals.srimsize[1])
-    coords ./= mcparams.srmag
+    coords ./= mcparams.imdistrib_mag
     coords .+= internals.roi[1:2] .- 1.0
     proposal = SMLMBaGoL.BaGoLState2D()
     proposal.k = currentstate.k + 1
@@ -174,7 +174,7 @@ function proposedeath(smld::SMLMData.SMLD2D,
 
     # Determine the probability of an emitter being at the location that was
     # removed.
-    coords_mag = mcparams.srmag .* (currentstate.μ[removeind, :] .- 0.5)
+    coords_mag = mcparams.imdistrib_mag .* (currentstate.μ[removeind, :] .- 0.5)
     inds = Int.(round.(max.(min.(1.0, coords_mag), internals.srimsize)))
     ind = (inds[2] - 1) * internals.srimsize[1] + inds[1]
 

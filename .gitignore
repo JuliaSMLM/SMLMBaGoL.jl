@@ -4,3 +4,6 @@
 /docs/build/
 Manifest.toml
 Manifest.toml
+.vscode/settings.json
+examples/.vscode/settings.json
+

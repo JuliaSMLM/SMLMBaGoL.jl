@@ -31,7 +31,7 @@ function runRJMCMC(smld::SMLMData.SMLD2D,
     internals = SMLMBaGoL.Internals2D()
     internals.roi = roi
     internals.imdistrib, internals.srimsize = SMLMBaGoL.imagedistribution(smld;
-        mag = mcparams.srmag, nsigma = mcparams.nsigma, roi = internals.roi)
+        mag = mcparams.imdistrib_mag, nsigma = mcparams.nsigma, roi = internals.roi)
     internals.area = (roi[4] - roi[2] + 1.0) * (roi[3] - roi[1] + 1.0)
 
     # Prepare some distributions (e.g., priors) and define initial states.
@@ -41,7 +41,7 @@ function runRJMCMC(smld::SMLMData.SMLD2D,
     internals.priork = SMLMBaGoL.prior_kemitters(nloc, mcparams.η, mcparams.γ)
     k = Int(ceil(nloc / (mcparams.η * mcparams.γ)))
     μ_SR, _ = SMLMBaGoL.samplecoords2D(internals.imdistrib, internals.srimsize[1], k)
-    μ = ((μ_SR .- 0.5) ./ mcparams.srmag) .+ 0.5
+    μ = ((μ_SR .- 0.5) ./ mcparams.imdistrib_mag) .+ 0.5
     μ .+= repeat(transpose(internals.roi[1:2]), k) .- 1.0
     a = zeros(Float64, k, 2)
     z = SMLMBaGoL.allocatelocs(smld, μ, a)

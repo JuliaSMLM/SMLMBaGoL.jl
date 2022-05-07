@@ -10,9 +10,14 @@ using SMLMData
 Perform a typical BaGoL analysis based on localizations in `smld`.
 
 # Description
-This function is intended to be the main entry for users of the SMLMBaGoL.jl
-package, meaning that it will run the standard analysis workflow for Bayesian 
-Grouping of Localizations (BaGoL).
+This function is intended to be a mid-level entry point for the SMLMBaGoL.jl
+package.  Specifically, this function performs the standard BaGoL analysis 
+with several outputs that may not be useful to the typical user, however in 
+some instances they may be needed.  High-level entry points to SMLMBaGoL.jl
+will typically use this function.  This method is intended for use when the
+distribution of the blinks per emitter is known.  If that distribution is 
+unknown, use runbagol(smld::SMLMData.SMLD2D, hbparams::SMLMBaGoL.HBParams2D)
+defined below.
 
 # Inputs
 - `smld`: SMLD2D structure containing localizations.
@@ -86,10 +91,11 @@ end
 Perform a hierarchical BaGoL analysis based on localizations in `smld`.
 
 # Description
-This function is intended to be the main entry for users of the SMLMBaGoL.jl
-package when running it in a hierarchical Bayes formalism, wherein we construct
-certain prior distributions (for now, just the distribution of blinks per 
-emitter) during the RJMCMC process.
+This function is intended to be a mid-level entry point for the SMLMBaGoL.jl
+package.  Specifically, this function performs the standard hierarchical Bayes
+BaGoL analysis with several outputs that may not be useful to the typical user,
+however in some instances they may be needed.  High-level entry points to 
+SMLMBaGoL.jl will typically use this function.
 
 # Inputs
 - `smld`: SMLD2D structure containing localizations.
@@ -153,4 +159,124 @@ function runbagol(smld::SMLMData.SMLD2D, hbparams::SMLMBaGoL.HBParams2D;
     mapnout = SMLMBaGoL.mapn(validchain)
 
     return chain, validchain, mapnout, λchain, rois, roioverlap
+end
+
+"""
+    chain, λchain, rois, roioverlap = perform_BaGoL_analysis(smld::SMLMData.SMLD2D;
+        subregion_params::SMLMBaGoL.SubregionParams2D = SMLMBaGoL.SubregionParams2D(),
+        prethresholds::SMLMBaGoL.PreThreshParams2D = SMLMBaGoL.PreThreshParams2D(),
+        preclustering_params::SMLMBaGoL.PreclusterParams2D = SMLMBaGoL.PreclusterParams2D(),
+        mcparams::SMLMBaGoL.MCParams2D = SMLMBaGoL.MCParams2D())
+
+Perform a (user-friendly) hierarchical BaGoL analysis based on localizations in `smld`.
+
+# Description
+This function is intended to be the main entry for users of the SMLMBaGoL.jl
+package when running it with an existing calibration for the number of blinks 
+per emitter (i.e., when the Gamma distribution defining the blinks per emitter 
+is defined in `mcparams` from calibration data).
+
+# Inputs
+- `smld`: SMLD2D structure containing localizations.
+- `subregion_params`: see typedefinitions.jl
+- `prethresholds`: see typedefinitions.jl
+- `preclustering_params`: see typedefinitions.jl
+- `mcparams`: see typedefinitions.jl
+- `imagezoom`: zoom factor applied to output images. (Default = 20)
+
+# Outputs
+- `chain`: An SMLMBaGoL.BaGoLChain2D RJMCMC chain.
+- `λchain`: An array of the λ parameters that were used for each hierarchical 
+            sample.
+- `rois`: Subregion ROIs used. (Matrix{Vector{Float64}})
+- `roioverlap`: ROI overlap used in subregion generation, which might be 
+                modified from the user set value. (Float64)
+"""
+function perform_BaGoL_analysis(smld::SMLMData.SMLD2D;
+    subregion_params::SMLMBaGoL.SubregionParams2D=SMLMBaGoL.SubregionParams2D(),
+    prethresholds::SMLMBaGoL.PreThreshParams2D=SMLMBaGoL.PreThreshParams2D(),
+    preclustering_params::SMLMBaGoL.PreclusterParams2D=SMLMBaGoL.PreclusterParams2D(),
+    mcparams::SMLMBaGoL.MCParams2D=SMLMBaGoL.MCParams2D(),
+    imagezoom=20)
+
+    # Perform the standard hierarchical BaGoL analysis.
+    chain, validchain, mapnout, rois, roioverlap = SMLMBaGoL.runbagol(smld;
+        subregion_params=subregion_params,
+        prethresholds=prethresholds,
+        preclustering_params=preclustering_params,
+        mcparams=mcparams)
+
+    # Generate a MAPN SMLMData.SMLM2D() structure.
+    smld_MAPN = SMLMBaGoL.convert_mapn_smld(mapnout;
+        datasize=smld.datasize,
+        nframes=smld.nframes,
+        ndatasets=smld.ndatasets)
+
+    # Prepare a posterior distribution image.
+    _, _, μcat, _ = SMLMBaGoL.catfields(validchain)
+    posterior_im = SMLMData.makehistim(μcat, smld.datasize, imagezoom)
+    SMLMData.contraststretch!(posterior_im)
+
+    return smld_MAPN, posterior_im
+end
+
+"""
+    chain, λchain, rois, roioverlap = perform_BaGoL_analysis(
+        smld::SMLMData.SMLD2D, hbparams::SMLMBaGoL.HBParams2D;
+        subregion_params::SMLMBaGoL.SubregionParams2D = SMLMBaGoL.SubregionParams2D(),
+        prethresholds::SMLMBaGoL.PreThreshParams2D = SMLMBaGoL.PreThreshParams2D(),
+        preclustering_params::SMLMBaGoL.PreclusterParams2D = SMLMBaGoL.PreclusterParams2D(),
+        mcparams::SMLMBaGoL.MCParams2D = SMLMBaGoL.MCParams2D())
+
+Perform a (user-friendly) hierarchical BaGoL analysis based on localizations in `smld`.
+
+# Description
+This function is intended to be the main entry for users of the SMLMBaGoL.jl
+package when running it in a hierarchical Bayes formalism, wherein we construct
+certain prior distributions (for now, just the distribution of blinks per 
+emitter) during the RJMCMC process.
+
+# Inputs
+- `smld`: SMLD2D structure containing localizations.
+- `hbparams`: see typedefinitions.jl
+- `subregion_params`: see typedefinitions.jl
+- `prethresholds`: see typedefinitions.jl
+- `preclustering_params`: see typedefinitions.jl
+- `mcparams`: see typedefinitions.jl
+- `imagezoom`: zoom factor applied to output images. (Default = 20)
+
+# Outputs
+- `chain`: An SMLMBaGoL.BaGoLChain2D RJMCMC chain.
+- `λchain`: An array of the λ parameters that were used for each hierarchical 
+            sample.
+- `rois`: Subregion ROIs used. (Matrix{Vector{Float64}})
+- `roioverlap`: ROI overlap used in subregion generation, which might be 
+                modified from the user set value. (Float64)
+"""
+function perform_BaGoL_analysis(smld::SMLMData.SMLD2D, hbparams::SMLMBaGoL.HBParams2D;
+    subregion_params::SMLMBaGoL.SubregionParams2D=SMLMBaGoL.SubregionParams2D(),
+    prethresholds::SMLMBaGoL.PreThreshParams2D=SMLMBaGoL.PreThreshParams2D(),
+    preclustering_params::SMLMBaGoL.PreclusterParams2D=SMLMBaGoL.PreclusterParams2D(),
+    mcparams::SMLMBaGoL.MCParams2D=SMLMBaGoL.MCParams2D(),
+    imagezoom=20)
+
+    # Perform the standard hierarchical BaGoL analysis.
+    chain, validchain, mapnout, λchain, rois, roioverlap = SMLMBaGoL.runbagol(smld, hbparams;
+        subregion_params=subregion_params,
+        prethresholds=prethresholds,
+        preclustering_params=preclustering_params,
+        mcparams=mcparams)
+
+    # Generate a MAPN SMLMData.SMLM2D() structure.
+    smld_MAPN = SMLMBaGoL.convert_mapn_smld(mapnout;
+        datasize=smld.datasize,
+        nframes=smld.nframes,
+        ndatasets=smld.ndatasets)
+
+    # Prepare a posterior distribution image.
+    _, _, μcat, _ = SMLMBaGoL.catfields(validchain)
+    posterior_im = SMLMData.makehistim(μcat, smld.datasize, imagezoom)
+    SMLMData.contraststretch!(posterior_im)
+
+    return smld_MAPN, posterior_im
 end

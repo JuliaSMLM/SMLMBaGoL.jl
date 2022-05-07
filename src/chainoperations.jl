@@ -4,6 +4,29 @@ using Base
 # and state structures.
 
 """
+    chain = isolateaccepted(chain::SMLMBaGoL.BaGoLChain2D)
+
+Isolate the portion of `chain` corresponding to accepted states.
+"""
+function isolateaccepted(chain::SMLMBaGoL.BaGoLChain2D)
+    return chain[chain.accepted]
+end
+function isolateaccepted(chain::Vector{SMLMBaGoL.BaGoLChain2D})
+    for ii = 1:length(chain)
+        chain[ii] = SMLMBaGoL.isolateaccepted(chain[ii])
+    end
+
+    return chain
+end
+function isolateaccepted(chain::Matrix{Vector{SMLMBaGoL.BaGoLChain2D}})
+    for ii = 1:length(chain)
+        chain[ii] = SMLMBaGoL.isolateaccepted(chain[ii])
+    end
+
+    return chain
+end
+
+"""
     addstate!(chain::SMLMBaGoL.BaGoLChain2D, 
               state::SMLMBaGoL.BaGoLState2D, 
               accepted::Bool)
@@ -16,13 +39,16 @@ Add `state` to the end of `chain`.
 - `accepted`: Boolean indicating acceptance of the `state` being added to
               `chain`.
 """
-function addstate!(chain::SMLMBaGoL.BaGoLChain2D, 
-                   state::SMLMBaGoL.BaGoLState2D, 
-                   accepted::Bool)
+function addstate!(chain::SMLMBaGoL.BaGoLChain2D,
+    state::SMLMBaGoL.BaGoLState2D,
+    accepted::Bool)
+
     # Update the chain to include `state`.
     push!(chain.states, state)
     push!(chain.accepted, accepted)
     chain.n += 1
+
+    return nothing
 end
 
 """
@@ -40,6 +66,8 @@ function removestate!(chain::SMLMBaGoL.BaGoLChain2D, remove)
     deleteat!(chain.states, remove)
     deleteat!(chain.accepted, remove)
     chain.n = Base.length(chain.states)
+
+    return nothing
 end
 
 """
@@ -59,7 +87,9 @@ function removeemitter!(state::SMLMBaGoL.BaGoLState2D, k::Int)
     state.k = Base.length(keepind)
     state.μ = state.μ[keepind, :]
     state.a = state.a[keepind, :]
-    state.z[state.z .== k] .= -1
+    state.z[state.z.==k] .= -1
+
+    return nothing
 end
 
 """
@@ -84,57 +114,8 @@ function removeemitter!(state::SMLMBaGoL.BaGoLState2D, k::Vector{Int})
             state.z[ii] = -1
         end
     end
-end
 
-"""
-    chain = cat(chain1::SMLMBaGoL.BaGoLChain2D, chain2::SMLMBaGoL.BaGoLChain2D)
-
-Concatenate `chain1` and `chain2`, with `chain2` added at the end of `chain1`.
-
-# Inputs
-- `chain1`: Initial chain.
-- `chain2`: Chain to be concatenated at the end of `chain1`.
-
-# Outputs
-- `chain`: Concatenation of `chain1` and `chain2`.
-"""
-function Base.cat(chain1::SMLMBaGoL.BaGoLChain2D, chain2::SMLMBaGoL.BaGoLChain2D)
-    # Concatenate `chain2` at the end of `chain1`.
-    chain = SMLMBaGoL.BaGoLChain2D(chain1.n + chain2.n)
-    chain.states = [chain1.states; chain2.states]
-    chain.accepted = [chain1.accepted; chain2.accepted]
-    chain.n = chain1.n + chain2.n
-
-    return chain
-end
-
-"""
-    chain = cat(chain1::Vector{SMLMBaGoL.BaGoLChain2D}, 
-                chain2::Vector{SMLMBaGoL.BaGoLChain2D})
-
-Concatenate `chain1` and `chain2`, with `chain2` added at the end of `chain1`.
-
-# Inputs
-- `chain1`: Vector of chains with indices matching those of `chain2` (e.g., 
-            chain2[nn] will be concatenated with chain1[nn]).
-- `chain2`: Chains to be concatenated at the end of `chain1`.
-
-# Outputs
-- `chain`: Concatenation of `chain1` and `chain2`.
-"""
-function Base.cat(chain1::Vector{SMLMBaGoL.BaGoLChain2D}, 
-    chain2::Vector{SMLMBaGoL.BaGoLChain2D})
-
-    # Concatenate `chain2` at the end of `chain1`.
-    chain = Vector{SMLMBaGoL.BaGoLChain2D}(undef, length(chain1))
-    for ii = 1:length(chain1)
-        chain[ii] = SMLMBaGoL.BaGoLChain2D(chain1[ii].n + chain2[ii].n)
-        chain[ii].states = [chain1[ii].states; chain2[ii].states]
-        chain[ii].accepted = [chain1[ii].accepted; chain2[ii].accepted]
-        chain[ii].n = chain1[ii].n + chain2[ii].n
-    end
-
-    return chain
+    return nothing
 end
 
 """
@@ -247,4 +228,73 @@ function catfields(chain::Matrix{Vector{SMLMBaGoL.BaGoLChain2D}})
     end
 
     return k, z, μ, a
+end
+
+"""
+    chain = cat(chain1::SMLMBaGoL.BaGoLChain2D, chain2::SMLMBaGoL.BaGoLChain2D)
+
+Concatenate `chain1` and `chain2`, with `chain2` added at the end of `chain1`.
+
+# Inputs
+- `chain1`: Initial chain.
+- `chain2`: Chain to be concatenated at the end of `chain1`.
+
+# Outputs
+- `chain`: Concatenation of `chain1` and `chain2`.
+"""
+function Base.cat(chain1::SMLMBaGoL.BaGoLChain2D, chain2::SMLMBaGoL.BaGoLChain2D)
+    # Concatenate `chain2` at the end of `chain1`.
+    chain = SMLMBaGoL.BaGoLChain2D(chain1.n + chain2.n)
+    chain.states = [chain1.states; chain2.states]
+    chain.accepted = [chain1.accepted; chain2.accepted]
+    chain.n = chain1.n + chain2.n
+
+    return chain
+end
+
+"""
+    chain = cat(chain1::Vector{SMLMBaGoL.BaGoLChain2D}, 
+                chain2::Vector{SMLMBaGoL.BaGoLChain2D})
+
+Concatenate `chain1` and `chain2`, with `chain2` added at the end of `chain1`.
+
+# Inputs
+- `chain1`: Vector of chains with indices matching those of `chain2` (e.g., 
+            chain2[nn] will be concatenated with chain1[nn]).
+- `chain2`: Chains to be concatenated at the end of `chain1`.
+
+# Outputs
+- `chain`: Concatenation of `chain1` and `chain2`.
+"""
+function Base.cat(chain1::Vector{SMLMBaGoL.BaGoLChain2D},
+    chain2::Vector{SMLMBaGoL.BaGoLChain2D})
+
+    # Concatenate `chain2` at the end of `chain1`.
+    chain = Vector{SMLMBaGoL.BaGoLChain2D}(undef, length(chain1))
+    for ii = 1:length(chain1)
+        chain[ii] = SMLMBaGoL.BaGoLChain2D(chain1[ii].n + chain2[ii].n)
+        chain[ii].states = [chain1[ii].states; chain2[ii].states]
+        chain[ii].accepted = [chain1[ii].accepted; chain2[ii].accepted]
+        chain[ii].n = chain1[ii].n + chain2[ii].n
+    end
+
+    return chain
+end
+
+"""
+    chain = getindex(chain::SMLMBaGoL.BaGoLChain2D, ind)
+
+Grab the `ind` indices of `chain`.
+
+# Inputs
+- `chain`: SMLMBaGoL.BaGoLChain2D chain of states.
+"""
+function Base.getindex(chain::SMLMBaGoL.BaGoLChain2D, ind)
+    # Isolate the `ind` states of `chain`.
+    chain = deepcopy(chain)
+    chain.accepted = chain.accepted[ind]
+    chain.states = chain.states[ind]
+    chain.n = length(chain.accepted)
+
+    return chain
 end
