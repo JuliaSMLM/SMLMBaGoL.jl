@@ -32,11 +32,11 @@ function mapn(chain::SMLMBaGoL.BaGoLChain2D)
     k, _ = SMLMBaGoL.catfields(chain)
     if isempty(k)
         return Matrix{Float64}(undef, 0, 2),
-            Matrix{Float64}(undef, 0, 2),
-            Matrix{Float64}(undef, 0, 2),
-            Matrix{Float64}(undef, 0, 2),
-            Vector{Int}(undef, 0),
-            Vector{Int}(undef, 0)
+        Matrix{Float64}(undef, 0, 2),
+        Matrix{Float64}(undef, 0, 2),
+        Matrix{Float64}(undef, 0, 2),
+        Vector{Int}(undef, 0),
+        Vector{Int}(undef, 0)
     end
     n = Int(StatsBase.mode(k))
 
@@ -57,10 +57,10 @@ function mapn(chain::SMLMBaGoL.BaGoLChain2D)
     nalloc = Vector{Vector{Int}}(undef, n)
     for nn = 1:n
         nnmembers = mapnresults.assignments .== nn
-        μout[nn, :] = StatsBase.mean(μmapn[nnmembers, :], dims = 1)
-        σ_μout[nn, :] = StatsBase.std(μmapn[nnmembers, :], dims = 1)
-        aout[nn, :] = StatsBase.mean(amapn[nnmembers, :], dims = 1)
-        σ_aout[nn, :] = StatsBase.std(amapn[nnmembers, :], dims = 1)
+        μout[nn, :] = StatsBase.mean(μmapn[nnmembers, :], dims=1)
+        σ_μout[nn, :] = StatsBase.std(μmapn[nnmembers, :], dims=1)
+        aout[nn, :] = StatsBase.mean(amapn[nnmembers, :], dims=1)
+        σ_aout[nn, :] = StatsBase.std(amapn[nnmembers, :], dims=1)
         nalloc[nn] = Vector{Int}(undef, length(zmapn))
         for ii = 1:length(zmapn)
             nalloc[nn][ii] = Int(sum(zmapn[ii] .== nn))
@@ -107,7 +107,7 @@ function mapn(chain::Vector{SMLMBaGoL.BaGoLChain2D})
         nallocout = [nallocout; nalloc]
         nout = [nout; n]
     end
-    
+
     return μout, σ_μout, aout, σ_aout, nallocout, nout
 end
 
@@ -150,4 +150,43 @@ function mapn(chain::Matrix{Vector{SMLMBaGoL.BaGoLChain2D}})
     end
 
     return μout, σ_μout, aout, σ_aout, nallocout, nout
+end
+
+"""
+    smld = convert_mapn_smld(mapnout::Tuple{Matrix{T}, Matrix{T}, Matrix{T}, Matrix{T}, Vector{Int}, Vector{Int}} where T<:AbstractFloat; 
+        smld_in::SMLMData.SMLD2D = SMLMData.SMLD2D())
+
+This method converts a tuple of outputs from mapn() into an SMLMData.SMLD2D structure.
+
+# Inputs
+- `mapnout`: Tuple of outputs from SMLMBaGoL.mapn() (e.g., 
+             mapnout = SMLMBaGoL.mapn(chain)).
+- `datasize`: See SMLMData.SMLD2D().  Default value defines the smallest square
+              encompassing the localizations where the side length is a power 
+              of 2.
+- `nframes`: See SMLMData.SMLD2D()
+- `ndatasets`: See SMLMData.SMLD2D()
+
+# Outputs
+- `smld`: SMLMData.SMLD2D structure containing the MAPN localizations defined
+          by the input `mapnout`.
+"""
+function convert_mapn_smld(mapnout::Tuple{Matrix{T},Matrix{T},Matrix{T},Matrix{T},Vector{Any},Vector{Int}} where {T<:AbstractFloat};
+    datasize::Vector{Int}=2^ceil(Int, log2(maximum(mapnout[1]))) * [1; 1],
+    nframes::Int=1,
+    ndatasets::Int=1)
+
+    # Place the mapn localizations into an smld structure.
+    smld = SMLMData.SMLD2D(size(mapnout[1], 1))
+    smld.y = copy(mapnout[1][:, 1])
+    smld.x = copy(mapnout[1][:, 2])
+    smld.σ_y = copy(mapnout[2][:, 1])
+    smld.σ_x = copy(mapnout[2][:, 2])
+
+    # Populate some additional fields describing the data.
+    smld.datasize = datasize
+    smld.nframes = nframes
+    smld.ndatasets = ndatasets
+
+    return smld
 end

@@ -33,8 +33,12 @@ mutable struct SubregionParams2D <: SubregionParams
     roioverlap::Float64
     on::Bool
 end
-function SubregionParams2D()
-    return SubregionParams2D(5.0, 1.0, true)
+function SubregionParams2D(;
+    roisize::Float64=5.0,
+    roioverlap::Float64=1.0,
+    on::Bool=true)
+
+    return SubregionParams2D(roisize, roioverlap, on)
 end
 
 """
@@ -66,8 +70,12 @@ mutable struct PreThreshParams2D <: PreThreshParams
     n_min::Int
     r::Float64
 end
-function PreThreshParams2D()
-    return PreThreshParams2D(Inf64, 0, 10.0)
+function PreThreshParams2D(;
+    maxsigmadev_photons::Float64=Inf64,
+    n_min::Int=0,
+    r::Float64=10.0)
+
+    return PreThreshParams2D(maxsigmadev_photons, n_min, r)
 end
 
 """
@@ -96,8 +104,11 @@ mutable struct PreclusterParams2D <: PreclusterParams
     maxdist::Float64
     on::Bool
 end
-function PreclusterParams2D()
-    return PreclusterParams2D(0.15, true)
+function PreclusterParams2D(;
+    maxdist::Float64=0.15,
+    on::Bool=true)
+
+    return PreclusterParams2D(maxdist, on)
 end
 
 """
@@ -117,14 +128,16 @@ The MCParams structure organizes parameters, distributions, or other info.
 related to RJMCMC.
 
 # Fields
-- `η`: Shape parameter of Gamma distribtution for localizations per emitter.
-- `γ`: Scale parameter of Gamma distribution for localizations per emitter.
+- `η`: Shape parameter of Gamma distribtution for blinks per emitter.
+- `γ`: Scale parameter of Gamma distribution for blinks per emitter.
 - `σ_a`: Standard deviation of drift velocties. (pixels/frame)
 - `n_chain`: Number of iterations for chain generation.
 - `n_burnin`: Number of burn-in iterations for the chain.
 - `p_jump`: Probability of making each jump type. 
-- `srmag`: Magnification of the Gaussian SR image used to generate `imdistrib`
-           with respect to the localization coordinate system.
+            [move; reallocate; birth; death]
+- `imdistrib_mag`: Magnification of the Gaussian SR image used to generate 
+                   `imdistrib` with respect to the localization coordinate 
+                   system.
 - `nsigma`: Number of standard deviations out to which we add a Gaussian at each
             localization in the Gaussian image used to define `imdistrib`.
 """
@@ -135,11 +148,20 @@ mutable struct MCParams2D <: MCParams
     n_chain::Int
     n_burnin::Int
     p_jump::Vector{Float64}
-    srmag::Float64
+    imdistrib_mag::Float64
     nsigma::Float64
 end
-function MCParams2D()
-    return MCParams2D(1.0, 1.0, 0.0, 2000, 3000, [0.25; 0.25; 0.25; 0.25], 10.0, 5.0)
+function MCParams2D(;
+    η::Float64=1.0,
+    γ::Float64=1.0,
+    σ_a::Float64=0.0,
+    n_chain::Int=2000,
+    n_burnin::Int=3000,
+    p_jump::Vector{Float64}=[0.25; 0.25; 0.25; 0.25],
+    imdistrib_mag::Float64=20.0,
+    nsigma::Float64=5.0)
+
+    return MCParams2D(η, γ, σ_a, n_chain, n_burnin, p_jump, imdistrib_mag, nsigma)
 end
 
 """
@@ -177,8 +199,14 @@ mutable struct HBParams2D <: HBParams
     α_scaling::Float64
     nthinning::Int
 end
-function HBParams2D()
-    return HBParams2D(10, 2.0, 100.0, 2000.0, 5)
+function HBParams2D(;
+    nsamples::Int=10,
+    α::Float64=2.0,
+    θ::Float64=10.0,
+    α_scaling::Float64=3000.0,
+    nthinning::Int=5)
+
+    return HBParams2D(nsamples, α, θ, α_scaling, nthinning)
 end
 
 """
@@ -331,7 +359,7 @@ function BaGoLChain2D(n_chain::Int)
         Vector{Bool}(undef, n_chain),
         n_chain)
 end
-function BaGoLChain2D(state::SMLMBaGoL.BaGoLState2D, accepted::Bool = true)
+function BaGoLChain2D(state::SMLMBaGoL.BaGoLState2D, accepted::Bool=true)
     # Initialize a chain structure with the given state.
     return BaGoLChain2D([state], [accepted], 1)
 end
