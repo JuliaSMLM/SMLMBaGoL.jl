@@ -162,7 +162,7 @@ function runbagol(smld::SMLMData.SMLD2D, hbparams::SMLMBaGoL.HBParams2D;
 end
 
 """
-    chain, λchain, rois, roioverlap = perform_BaGoL_analysis(smld::SMLMData.SMLD2D;
+    chain, rois, roioverlap = perform_BaGoL_analysis(smld::SMLMData.SMLD2D;
         subregion_params::SMLMBaGoL.SubregionParams2D = SMLMBaGoL.SubregionParams2D(),
         prethresholds::SMLMBaGoL.PreThreshParams2D = SMLMBaGoL.PreThreshParams2D(),
         preclustering_params::SMLMBaGoL.PreclusterParams2D = SMLMBaGoL.PreclusterParams2D(),
