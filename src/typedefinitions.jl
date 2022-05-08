@@ -98,7 +98,7 @@ preclustering of localizations within each subregion.
 - `maxdist`: Maximum distance from one localization to its nearest-neighbor 
             allowed in each precluster. (Default = 0.15)(Pixels)
 - `on`: Flag indicating pre-clustering should be applied when using runbagol().
-       (Default = true)
+       (Default = false)
 """
 mutable struct PreclusterParams2D <: PreclusterParams
     maxdist::Float64
@@ -106,7 +106,7 @@ mutable struct PreclusterParams2D <: PreclusterParams
 end
 function PreclusterParams2D(;
     maxdist::Float64=0.15,
-    on::Bool=true)
+    on::Bool=false)
 
     return PreclusterParams2D(maxdist, on)
 end

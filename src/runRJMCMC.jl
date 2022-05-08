@@ -174,7 +174,7 @@ function runRJMCMC(smld::Matrix{SMLMData.SMLD2D},
     mcparams_hb = deepcopy(mcparams)
     mcparams_hb.n_chain = 0
     mcparams_hb.n_burnin = hbparams.nsamples
-    nsamples_λ = Int(floor(mcparams_hb.n_burnin / hbparams.nsamples))
+    nsamples_λ = maximum([1; floor(Int, mcparams.n_chain / hbparams.nsamples)])
     smldsize = size(smld)
     chain = Matrix{Vector{SMLMBaGoL.BaGoLChain2D}}(undef, smldsize)
     nloc = Int[]
@@ -203,7 +203,7 @@ function runRJMCMC(smld::Matrix{SMLMData.SMLD2D},
     # hierarchical parameters every hbparams.nsamples samples in the chain.
     mcparams_hb.n_chain = hbparams.nsamples
     mcparams_hb.n_burnin = 0
-    nsamples_λ = Int(floor(mcparams.n_chain / hbparams.nsamples))
+    nsamples_λ = maximum([1; floor(Int, mcparams.n_chain / hbparams.nsamples)])
     chain = Matrix{Vector{SMLMBaGoL.BaGoLChain2D}}(undef, smldsize)
     λchain = Matrix{Float64}(undef, nsamples_λ, 2)
     nloc = Int[]
