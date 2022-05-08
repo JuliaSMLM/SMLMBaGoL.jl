@@ -77,7 +77,14 @@ function runbagol(smld::SMLMData.SMLD2D;
     # Compute the MAPN result.
     mapnout = SMLMBaGoL.mapn(validchain)
 
-    return chain, validchain, mapnout, rois, roioverlap
+    # Package the parameters into a single structure for user reference.
+    params = SMLMBaGoL.BaGoLParams2D(subregion_params, 
+        prethresholds,
+        preclustering_params,
+        mcparams,
+        SMLMBaGoL.HBParams2D(; nsamples=mcparams.n_burnin+mcparams.n_chain))
+
+    return chain, validchain, mapnout, rois, roioverlap, params
 end
 
 """
@@ -158,11 +165,18 @@ function runbagol(smld::SMLMData.SMLD2D, hbparams::SMLMBaGoL.HBParams2D;
     # Compute the MAPN result.
     mapnout = SMLMBaGoL.mapn(validchain)
 
-    return chain, validchain, mapnout, λchain, rois, roioverlap
+    # Package the parameters into a single structure for user reference.
+    params = SMLMBaGoL.BaGoLParams2D(subregion_params,
+        prethresholds,
+        preclustering_params,
+        mcparams,
+        hbparams)
+
+    return chain, validchain, mapnout, λchain, rois, roioverlap, params
 end
 
 """
-    chain, rois, roioverlap = perform_BaGoL_analysis(smld::SMLMData.SMLD2D;
+    smld_MAPN, posterior_im, params = perform_BaGoL_analysis(smld::SMLMData.SMLD2D;
         subregion_params::SMLMBaGoL.SubregionParams2D = SMLMBaGoL.SubregionParams2D(),
         prethresholds::SMLMBaGoL.PreThreshParams2D = SMLMBaGoL.PreThreshParams2D(),
         preclustering_params::SMLMBaGoL.PreclusterParams2D = SMLMBaGoL.PreclusterParams2D(),
@@ -200,7 +214,7 @@ function perform_BaGoL_analysis(smld::SMLMData.SMLD2D;
     imagezoom=20)
 
     # Perform the standard hierarchical BaGoL analysis.
-    chain, validchain, mapnout, rois, roioverlap = SMLMBaGoL.runbagol(smld;
+    chain, validchain, mapnout, rois, roioverlap, params = SMLMBaGoL.runbagol(smld;
         subregion_params=subregion_params,
         prethresholds=prethresholds,
         preclustering_params=preclustering_params,
@@ -217,11 +231,11 @@ function perform_BaGoL_analysis(smld::SMLMData.SMLD2D;
     posterior_im = SMLMData.makehistim(μcat, smld.datasize, imagezoom)
     SMLMData.contraststretch!(posterior_im)
 
-    return smld_MAPN, posterior_im
+    return smld_MAPN, posterior_im, params
 end
 
 """
-    chain, λchain, rois, roioverlap = perform_BaGoL_analysis(
+    smld_MAPN, posterior_im, params = perform_BaGoL_analysis(
         smld::SMLMData.SMLD2D, hbparams::SMLMBaGoL.HBParams2D;
         subregion_params::SMLMBaGoL.SubregionParams2D = SMLMBaGoL.SubregionParams2D(),
         prethresholds::SMLMBaGoL.PreThreshParams2D = SMLMBaGoL.PreThreshParams2D(),
@@ -261,7 +275,7 @@ function perform_BaGoL_analysis(smld::SMLMData.SMLD2D, hbparams::SMLMBaGoL.HBPar
     imagezoom=20)
 
     # Perform the standard hierarchical BaGoL analysis.
-    chain, validchain, mapnout, λchain, rois, roioverlap = SMLMBaGoL.runbagol(smld, hbparams;
+    chain, validchain, mapnout, λchain, rois, roioverlap, params = SMLMBaGoL.runbagol(smld, hbparams;
         subregion_params=subregion_params,
         prethresholds=prethresholds,
         preclustering_params=preclustering_params,
@@ -278,5 +292,5 @@ function perform_BaGoL_analysis(smld::SMLMData.SMLD2D, hbparams::SMLMBaGoL.HBPar
     posterior_im = SMLMData.makehistim(μcat, smld.datasize, imagezoom)
     SMLMData.contraststretch!(posterior_im)
 
-    return smld_MAPN, posterior_im
+    return smld_MAPN, posterior_im, params
 end

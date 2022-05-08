@@ -45,12 +45,12 @@ smld_true, smld_model, smld = SMLMSim.sim(;
 #         n_chain=3000), # length of chain post burn-in
 #     imagezoom=100.0) # zoom factor for output posterior image
 # Images.save("posterior_im.png", SMLMData.contraststretch(posterior_im))
-smld_MAPN, posterior_im = SMLMBaGoL.perform_BaGoL_analysis(
+smld_MAPN, posterior_im, params = SMLMBaGoL.perform_BaGoL_analysis(
     smld, SMLMBaGoL.HBParams2D(;
         nsamples=10, # chain length run before each resample of hierarchical parameters
         α=2.0, # shape parameter of Gamma distribution defining the prior on the hyperparameters η and γ.
         θ=10.0, # scale parameter of Gamma distribution defining the prior on the hyperparameters η and γ.
-        α_scaling=3000.0, # Scale factor used in sampling hyperparameters.
+        α_scaling=3000.0, # scale factor used in sampling hyperparameters.
         nthinning=5); # number of thinning iterations made before each hierarchical sample is returned
     subregion_params=SMLMBaGoL.SubregionParams2D(;
         roisize=2.0, # subregion size used if on=true below (pixels)
