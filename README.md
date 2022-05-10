@@ -18,20 +18,19 @@ meaningful values (e.g., for fields like `x`, `y`, `σ_x`, `σ_y`, and `framenum
 by placeholders with a meaningful size (e.g., fields like `bg` and `σ_bg`, which may not be available, should be set
 to something like `smld.bg = zeros(Float64, length(smld.framenum))` and `σ_bg = fill(Inf64, length(smld.framenum))`).
 
-BaGoL can be run on the fully populated `smld::SMLMData.SMLD2D` with default parameters.  The method will run the hierarchical BaGoL algorithm, which also explores the distribution of blinks per  
-
+The hierarchical BaGoL algorithm (which also explores the distribution of blinks per emitter) can be run on the fully
+populated `smld::SMLMData.SMLD2D` using default parameters as follows:
 ```
-smld_MAPN, posterior_im, params = SMLMBaGoL.perform_BaGoL_analysis(smld)
+smld_MAPN, posterior_im, params = SMLMBaGoL.perform_BaGoL_analysis(smld, SMLMBaGoL.HBParams2D())
 ```
 
-
-
-The output `posterior_im` is the posterior distribution of
+The output `smld_MAPN` is a (partially populated) SMLMData.SMLD2D structure populated with the Maximum A
+Posteriori Number of emitters (MAPN) emitter positions.  The output `posterior_im` is the posterior distribution of
 emitter positions explored by the algorithm stored as a matrix (which sums to 1.0, i.e., `sum(posterior_im)==1.0`).
 The output `params` is a structure packaging the user-accessible parameters used for future reference.
 
-For extended uses, see documentation. 
 
+For extended uses, see documentation. 
 
 ## Citation
 https://doi.org/10.1101/752287
