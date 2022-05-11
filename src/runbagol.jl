@@ -157,7 +157,7 @@ function runbagol(smld::SMLMData.SMLD2D, hbparams::SMLMBaGoL.HBParams2D;
     end
 
     # Perform RJMCMC on each precluster.
-    chain, λchain = SMLMBaGoL.runRJMCMC(smld_preclustered, rois, mcparams, hbparams)
+    chain, λchain = SMLMBaGoL.runRJMCMC(smld_preclustered, rois, roioverlap, mcparams, hbparams)
 
     # Isolate the valid portions of the chain.
     validchain = SMLMBaGoL.removeoverlap(chain, smld.datasize, rois, roioverlap)
