@@ -167,29 +167,45 @@ the vector `smld` version of runRJMCMC() on each entry of the matrix input
 """
 function runRJMCMC(smld::Matrix{SMLMData.SMLD2D},
     rois::Matrix{Vector{Float64}},
+    roioverlap::Float64,
     mcparams::MCParams2D,
     hbparams::HBParams2D)
+
+    # If hierarchical Bayes is turned off, reset some parameters.
+    if !hbparams.on
+        hbparams.nsamples = maximum([mcparams.n_burnin; mcparams.n_chain])
+        hbparams.nthinning = 0
+    end
 
     # Perform the initial burn-in of the chain.
     mcparams_hb = deepcopy(mcparams)
     mcparams_hb.n_chain = 0
     mcparams_hb.n_burnin = hbparams.nsamples
-    nsamples_λ = maximum([1; floor(Int, mcparams.n_chain / hbparams.nsamples)])
+    nsamples_λ = maximum([1; floor(Int, mcparams.n_burnin / hbparams.nsamples)])
     smldsize = size(smld)
+    smldclusters = Matrix{Vector{SMLMData.SMLD2D}}(undef, smldsize)
     chain = Matrix{Vector{SMLMBaGoL.BaGoLChain2D}}(undef, smldsize)
-    nloc = Int[]
-    k = Int[]
     for nn = 1:nsamples_λ
         # Run the chain with the current set of hyperparameters.
         for ii = 1:smldsize[1], jj = 1:smldsize[2]
             # Generate a distinct SMLD2D for each precluster.
-            smldclusters, _ = SMLMData.isolateconnected(smld[ii, jj])
+            smldclusters[ii, jj], _ = SMLMData.isolateconnected(smld[ii, jj])
 
             # Run RJMCMC on each precluster.
-            chain[ii, jj] = SMLMBaGoL.runRJMCMC(smldclusters, rois[ii, jj], mcparams_hb)
-            for kk = 1:length(smldclusters)
-                push!(nloc, length(smldclusters[kk]))
-                push!(k, chain[ii, jj][kk].states[end].k)
+            chain[ii, jj] = SMLMBaGoL.runRJMCMC(smldclusters[ii, jj], rois[ii, jj], mcparams_hb)
+        end
+
+        # Remove emitters in the overlapping regions and count the number of
+        # localizations and number of emitters.
+        validchain = SMLMBaGoL.removeoverlap(chain, smld[1].datasize, rois, roioverlap)
+        nloc = Int[]
+        k = Int[]
+        for nn = 1:length(validchain)
+            for kk = 1:length(validchain[nn])
+                if !isempty(validchain[nn][kk].states)
+                    push!(nloc, length(smldclusters[nn][kk]))
+                    push!(k, validchain[nn][kk].states[end].k)
+                end
             end
         end
 
@@ -204,27 +220,36 @@ function runRJMCMC(smld::Matrix{SMLMData.SMLD2D},
     mcparams_hb.n_chain = hbparams.nsamples
     mcparams_hb.n_burnin = 0
     nsamples_λ = maximum([1; floor(Int, mcparams.n_chain / hbparams.nsamples)])
+    smldclusters = Matrix{Vector{SMLMData.SMLD2D}}(undef, smldsize)
     chain = Matrix{Vector{SMLMBaGoL.BaGoLChain2D}}(undef, smldsize)
     λchain = Matrix{Float64}(undef, nsamples_λ, 2)
-    nloc = Int[]
-    k = Int[]
     for nn = 1:nsamples_λ
         # For each hierarchical sample, we'll run the chain for mcparams_hb.n_chain 
         # samples, ensuring that no additional burn-in is made.
         for ii = 1:smldsize[1], jj = 1:smldsize[2]
             # Generate a distinct SMLD2D for each precluster.
-            smldclusters, _ = SMLMData.isolateconnected(smld[ii, jj])
-
+            smldclusters[ii, jj], _ = SMLMData.isolateconnected(smld[ii, jj])
+        
             # Run RJMCMC on each precluster.
             if nn > 1
-                chain[ii, jj] = Base.cat(chain[ii, jj], 
-                    SMLMBaGoL.runRJMCMC(smldclusters, rois[ii, jj], mcparams_hb))
+                chain[ii, jj] = Base.cat(chain[ii, jj],
+                    SMLMBaGoL.runRJMCMC(smldclusters[ii, jj], rois[ii, jj], mcparams_hb))
             else
-                chain[ii, jj] = SMLMBaGoL.runRJMCMC(smldclusters, rois[ii, jj], mcparams_hb)
+                chain[ii, jj] = SMLMBaGoL.runRJMCMC(smldclusters[ii, jj], rois[ii, jj], mcparams_hb)
             end
-            for kk = 1:length(smldclusters)
-                push!(nloc, length(smldclusters[kk]))
-                push!(k, chain[ii, jj][kk].states[end].k)
+        end
+
+        # Remove emitters in the overlapping regions and count the number of
+        # localizations and number of emitters.
+        validchain = SMLMBaGoL.removeoverlap(chain, smld[1].datasize, rois, roioverlap)
+        nloc = Int[]
+        k = Int[]
+        for nn = 1:length(validchain)
+            for kk = 1:length(validchain[nn])
+                if !isempty(validchain[nn][kk].states)
+                    push!(nloc, length(smldclusters[nn][kk]))
+                    push!(k, validchain[nn][kk].states[end].k)
+                end
             end
         end
 

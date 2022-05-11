@@ -191,6 +191,7 @@ related to hierarchical BaGoL analysis.
 - `α_scaling`: Scale factor used in sampling hyperparameters.
 - `nthinning`: Number of thinning iterations (i.e., hyperparameters are sampled
               `nthinning` times before returning a value for the chain).
+- `on`: If true, run hierarchical Bayes.
 """
 mutable struct HBParams2D <: HBParams
     nsamples::Int
@@ -198,15 +199,17 @@ mutable struct HBParams2D <: HBParams
     θ::Float64
     α_scaling::Float64
     nthinning::Int
+    on::Bool
 end
 function HBParams2D(;
     nsamples::Int=10,
     α::Float64=2.0,
     θ::Float64=10.0,
     α_scaling::Float64=3000.0,
-    nthinning::Int=5)
+    nthinning::Int=5,
+    on::Bool=true)
 
-    return HBParams2D(nsamples, α, θ, α_scaling, nthinning)
+    return HBParams2D(nsamples, α, θ, α_scaling, nthinning, on)
 end
 
 """
