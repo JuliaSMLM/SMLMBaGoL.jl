@@ -15,28 +15,32 @@ to something like `smld.bg = zeros(Float64, length(smld.framenum))` and `σ_bg =
 
 ## Examples
 
-BaGoL can be run on the fully populated `smld::SMLMData.SMLD2D` with default parameters as
+BaGoL can be run on the fully populated `smld::SMLMData.SMLD2D` with default parameters as in the following examples.
 
 ### Unknown Localization per Emitter Distribution
-The first method will run the hierarchical BaGoL algorithm, which also explores the distribution of blinks per 
-emitter.  
+The following method will run the hierarchical BaGoL algorithm, which also explores the distribution of blinks per 
+emitter:
 ```
 smld_MAPN, posterior_im, params = SMLMBaGoL.perform_BaGoL_analysis(smld, SMLMBaGoL.HBParams2D())
 ```
 
 ### Known Localization per Emitter Distribution
+The following method will run the BaGoL algorithm with a known blinks per emitter distribution defined in 
+SMLMBaGoL.MCParams2D():
 ```
-smld_MAPN, posterior_im, params = SMLMBaGoL.perform_BaGoL_analysis(smld)
+smld_MAPN, posterior_im, params = SMLMBaGoL.perform_BaGoL_analysis(smld;
+    mcparams=SMLMBaGoL.MCParams2D(;
+        η=2.0, # shape parameter of Gamma prior on blinks per emitter
+        γ=10.0, # scale parameter of Gamma prior on blinks per emitter
+        ))
 ```
 
-The second method will use the blinks per emitter distribution defined in 
 The output `smld_MAPN` is a (partially populated) SMLMData.SMLD2D structure populated with the Maximum A
 Posteriori Number of emitters (MAPN) emitter positions.  The output `posterior_im` is the posterior distribution of
 emitter positions explored by the algorithm stored as a matrix (which sums to 1.0, i.e., `sum(posterior_im)==1.0`).
 The output `params` is a structure packaging the user-accessible parameters used for future reference.
 
 ## Extended Interface 
-
 Additional parameters can be passed as keyword arguments if needed.  If they are excluded, default settings are used
 instead.  For example, when using the hierarchical BaGoL algorithm:
 
@@ -74,10 +78,3 @@ smld_MAPN, posterior_im, params = SMLMBaGoL.perform_BaGoL_analysis(
 Users needing further control of the algorithm or additional troubleshooting outputs (e.g., the hierarchical
 parameters explored in the hierarchical BaGoL algorithm) should look at the mid-level calling function 
 `SMLMBaGoL.runbagol()`, which operates similarly to `SMLMBaGoL.perform_BaGoL_analysis()`.
-
-
-
-
-
-
-
