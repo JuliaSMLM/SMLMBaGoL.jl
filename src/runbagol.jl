@@ -78,11 +78,11 @@ function runbagol(smld::SMLMData.SMLD2D;
     mapnout = SMLMBaGoL.mapn(validchain)
 
     # Package the parameters into a single structure for user reference.
-    params = SMLMBaGoL.BaGoLParams2D(subregion_params, 
+    params = SMLMBaGoL.BaGoLParams2D(subregion_params,
         prethresholds,
         preclustering_params,
         mcparams,
-        SMLMBaGoL.HBParams2D(; nsamples=mcparams.n_burnin+mcparams.n_chain))
+        SMLMBaGoL.HBParams2D(; nsamples=mcparams.n_burnin + mcparams.n_chain))
 
     return chain, validchain, mapnout, rois, roioverlap, params
 end
@@ -180,7 +180,8 @@ end
         subregion_params::SMLMBaGoL.SubregionParams2D = SMLMBaGoL.SubregionParams2D(),
         prethresholds::SMLMBaGoL.PreThreshParams2D = SMLMBaGoL.PreThreshParams2D(),
         preclustering_params::SMLMBaGoL.PreclusterParams2D = SMLMBaGoL.PreclusterParams2D(),
-        mcparams::SMLMBaGoL.MCParams2D = SMLMBaGoL.MCParams2D())
+        mcparams::SMLMBaGoL.MCParams2D = SMLMBaGoL.MCParams2D(),
+        imagezoom::Float64=20.0)
 
 Perform a (user-friendly) hierarchical BaGoL analysis based on localizations in `smld`.
 
@@ -196,7 +197,7 @@ is defined in `mcparams` from calibration data).
 - `prethresholds`: see typedefinitions.jl
 - `preclustering_params`: see typedefinitions.jl
 - `mcparams`: see typedefinitions.jl
-- `imagezoom`: zoom factor applied to output images. (Default = 20)
+- `imagezoom`: zoom factor applied to output images. (Default = 20.0)
 
 # Outputs
 - `chain`: An SMLMBaGoL.BaGoLChain2D RJMCMC chain.
@@ -211,7 +212,7 @@ function perform_BaGoL_analysis(smld::SMLMData.SMLD2D;
     prethresholds::SMLMBaGoL.PreThreshParams2D=SMLMBaGoL.PreThreshParams2D(),
     preclustering_params::SMLMBaGoL.PreclusterParams2D=SMLMBaGoL.PreclusterParams2D(),
     mcparams::SMLMBaGoL.MCParams2D=SMLMBaGoL.MCParams2D(),
-    imagezoom=20)
+    imagezoom::Float64=20.0)
 
     # Perform the standard hierarchical BaGoL analysis.
     chain, validchain, mapnout, rois, roioverlap, params = SMLMBaGoL.runbagol(smld;
@@ -240,7 +241,8 @@ end
         subregion_params::SMLMBaGoL.SubregionParams2D = SMLMBaGoL.SubregionParams2D(),
         prethresholds::SMLMBaGoL.PreThreshParams2D = SMLMBaGoL.PreThreshParams2D(),
         preclustering_params::SMLMBaGoL.PreclusterParams2D = SMLMBaGoL.PreclusterParams2D(),
-        mcparams::SMLMBaGoL.MCParams2D = SMLMBaGoL.MCParams2D())
+        mcparams::SMLMBaGoL.MCParams2D = SMLMBaGoL.MCParams2D(),
+        imagezoom::Float64=20.0)
 
 Perform a (user-friendly) hierarchical BaGoL analysis based on localizations in `smld`.
 
@@ -257,7 +259,7 @@ emitter) during the RJMCMC process.
 - `prethresholds`: see typedefinitions.jl
 - `preclustering_params`: see typedefinitions.jl
 - `mcparams`: see typedefinitions.jl
-- `imagezoom`: zoom factor applied to output images. (Default = 20)
+- `imagezoom`: zoom factor applied to output images. (Default = 20.0)
 
 # Outputs
 - `chain`: An SMLMBaGoL.BaGoLChain2D RJMCMC chain.
@@ -272,7 +274,7 @@ function perform_BaGoL_analysis(smld::SMLMData.SMLD2D, hbparams::SMLMBaGoL.HBPar
     prethresholds::SMLMBaGoL.PreThreshParams2D=SMLMBaGoL.PreThreshParams2D(),
     preclustering_params::SMLMBaGoL.PreclusterParams2D=SMLMBaGoL.PreclusterParams2D(),
     mcparams::SMLMBaGoL.MCParams2D=SMLMBaGoL.MCParams2D(),
-    imagezoom=20)
+    imagezoom::Float64=20.0)
 
     # Perform the standard hierarchical BaGoL analysis.
     chain, validchain, mapnout, λchain, rois, roioverlap, params = SMLMBaGoL.runbagol(smld, hbparams;
