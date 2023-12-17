@@ -6,4 +6,6 @@ Manifest.toml
 Manifest.toml
 .vscode/settings.json
 examples/.vscode/settings.json
+*.mp4
+*.gif
 

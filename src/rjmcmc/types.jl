@@ -1,7 +1,6 @@
 
 import Base: length
 
-
 mutable struct Allocations 
     idx::Vector{Int}
 end
@@ -32,8 +31,8 @@ mutable struct Emitter3D_Drift{T} <: AbstractEmitter
 end
 
 
-mutable struct Params 
-    emitters::Vector{AbstractEmitter}
+mutable struct Params
+    emitters::Vector{<:AbstractEmitter}
 end
 length(θ::Params) = length(θ.emitters)
 
@@ -42,7 +41,7 @@ abstract type AbstractObservation end
 mutable struct Observations
     ŷ::Vector{<:AbstractObservation}
 end
-
+length(obs::Observations) = length(obs.ŷ)
 
 
 struct Localization2D_Time{T} <: AbstractObservation
@@ -63,7 +62,7 @@ struct Localization3D{T} <: AbstractObservation
     framenum::Vector{Int}    
 end
 
-struct RJMCMC_Chain{T} 
+struct RJMCMC_Chain
     states::Vector{Params}
 end
 length(chain::RJMCMC_Chain) = length(chain.states)
