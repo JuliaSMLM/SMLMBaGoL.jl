@@ -79,9 +79,11 @@ function buildchain(roi::RJMCMC_ROI, n_burnin::Int, n_jumps::Int; θ::Union{Noth
 
     # Allocate
     z = allocate(roi.obs, θ)
-    
+    z_chain = Vector{Allocations}(undef, n_jumps)
+
     # Run a burn-in period without saving the states
     θ, z = take_jumps(θ, z, roi, n_burnin)
+    z_chain[1] = deepcopy(z)
 
     # Initialize the chain
     chain = RJMCMC_Chain(Vector{Params}(undef, n_jumps))
@@ -90,7 +92,8 @@ function buildchain(roi::RJMCMC_ROI, n_burnin::Int, n_jumps::Int; θ::Union{Noth
     for i in 2:n_jumps
         θ, z = take_jumps(θ, z, roi, 1)
         chain.states[i] = θ
+        z_chain[i] = deepcopy(z)
     end
 
-    return chain
+    return chain, z_chain
 end
