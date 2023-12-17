@@ -19,7 +19,8 @@ n_emitters = 3
 
 # Generate emitters and observations
 emitters = RJ.gen_emitters2D(n_emitters, emitter_gen_dist)
-obs = RJ.gen_observations2D(prior_λ, emitters; photons = 10000.0)
+
+obs = RJ.gen_observations2D(prior_λ, emitters; photons=1000.0)
 length(obs)
 
 # Show plot of true emitters and observations with circles for standard deviation
@@ -29,6 +30,7 @@ function draw_circle!(axis, center::Point2f0, radius::Float64; points::Int=100, 
     y = center[2] .+ radius * sin.(θ)
     lines!(axis, x, y, color=color)
 end
+
 fig = Figure()
 ax = Axis(fig[1, 1], aspect=DataAspect())
 for emitter in emitters.emitters
@@ -71,7 +73,7 @@ p_jump = Categorical([0.2, 0.2, 0.2, 0.2, 0.2])
 roi = RJ.RJMCMC_ROI(obs, prior_y, prior_k, p_jump, RJ.Emitter2D)
 n_burnin = 100
 n_jumps = 1000
-chain = RJ.buildchain(roi, n_burnin, n_jumps);
+chain, z_chain = RJ.buildchain(roi, n_burnin, n_jumps);
 
 ## Plot the chain
 fig = Figure()
@@ -122,32 +124,52 @@ display(fig)
 
 
 ##  Animate the chain 
-# n_frames = length(chain.states)
-n_frames = 100
 
 # Create an observable for the frame index
 frame_index = Observable(1)
 
-# Function to extract coordinates for a given state
-coords = @lift((
-    [chain.states[$(frame_index)].emitters[j].x for j in 1:length(chain.states[$(frame_index)].emitters)],
-    [chain.states[$(frame_index)].emitters[j].y for j in 1:length(chain.states[$(frame_index)].emitters)]
-))
+# Create the figure and axis
+fig = Figure(resolution=(800, 800))
+ax = Axis(fig[1, 1], aspect=DataAspect())
 
-# Create the figure and initial scatter plot
-# fig = Figure(resolution = (800, 800))
-# ax = Axis(fig[1, 1], aspect=DataAspect())
-fig = plot(coords[][1], coords[][2],
+# Emitters
+for emitter in emitters.emitters
+    scatter!(ax, [emitter.x], [emitter.y], color=:red)
+end
+
+# Observations color coded by allocation
+color_iterator = [:red, :green, :blue, :yellow, :cyan, :magenta, :black]
+
+function calc_idx(loc_id::Int)
+    idx = (1 + (loc_id - 1) % length(color_iterator))
+    return idx
+end
+
+colors = @lift(
+    [color_iterator[calc_idx(z_chain[$(frame_index)].idx[i])]
+     for i in eachindex(obs.ŷ)]
+)
+
+circles = [draw_circle!(ax, Point2f0(obs.ŷ[i].x, obs.ŷ[i].y), obs.ŷ[i].σ_x, color=colors[][i]) for i in eachindex(obs.ŷ)]
+
+# Function to extract coordinates for a given state
+coords = @lift(
+    [Point2f0.(chain.states[$(frame_index)].emitters[j].x, chain.states[$(frame_index)].emitters[j].y)
+     for j in 1:length(chain.states[$(frame_index)].emitters)],
+)
+
+scatter!(ax, coords,
     color=:blue,
     marker=:circle,
     markersize=10)
 
-# xlims!(ax, (-100, 100))
-# ylims!(ax, (-100, 100))
-
 # Record the animation
+n_frames = length(chain.states)
 record(fig, "scatter_animation.mp4", 1:n_frames; framerate=24) do i
     frame_index[] = i  # Update the frame index observable
+    [circle.color = colors[][j] for (j, circle) in enumerate(circles)]
 end
 
+# Show final figure
+fig
 
