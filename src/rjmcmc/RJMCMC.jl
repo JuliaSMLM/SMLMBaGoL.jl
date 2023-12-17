@@ -1,6 +1,7 @@
 module RJMCMC
 
 using Distributions
+using StatsBase 
 
 include("types.jl")
 include("move.jl")
