@@ -84,7 +84,7 @@ function propose_remove_emitter(θ::Params, obs::Observations, prior_y::Distribu
 end
 
 
-function p_accept_add(θ::Params, θ_test::Params, obs::Observations, z::Allocations, z_test::Allocations, prior_k::Distributions.Distribution)
+function p_accept_common(θ::Params, θ_test::Params, obs::Observations, z::Allocations, z_test::Allocations, prior_k::Distributions.Distribution)
 
     # Prior on the number of emitters
     k = length(θ)
@@ -110,16 +110,20 @@ function p_accept_add(θ::Params, θ_test::Params, obs::Observations, z::Allocat
         log_likelihood_ratio += log_p_z_given_y(obs.ŷ[i], θ_test.emitters[id_test]) -
                                 log_p_z_given_y(obs.ŷ[i], θ.emitters[id])
     end
-    # println("log_likelihood_ratio = $log_likelihood_ratio")
+  
     likelihood_ratio = exp(log_likelihood_ratio)
-    # println("likelihood_ratio = $likelihood_ratio")
-    # When drawing from the prior, the proposal ratio is 1 (for the position of the new emitter)
-    proposal_ratio = 1.0
-
+  
     # Compute the acceptance ratio
-    return prior_ratio * likelihood_ratio * proposal_ratio 
+    return prior_ratio * likelihood_ratio
 end
- 
+
+function p_accept_add(θ::Params, θ_test::Params, obs::Observations, z::Allocations, z_test::Allocations, prior_k::Distributions.Distribution, prior_y::Distributions.Distribution, area::Real)
+    coord = [θ_test.emitters[end].y, θ_test.emitters[end].x]
+    proposal_ratio = area * pdf(prior_y, coord)
+    return p_accept_common(θ, θ_test, obs, z, z_test, prior_k) * proposal_ratio
+end
+
+
 function p_accept_remove(θ::Params, θ_test::Params, obs::Observations, z::Allocations, z_test::Allocations, prior_λ::Distributions.Distribution)
     
     a = test_ids(θ, z, "p_accept_remove: original")
@@ -131,6 +135,6 @@ function p_accept_remove(θ::Params, θ_test::Params, obs::Observations, z::Allo
     end
     # println("remove to go from $(length(θ)) to $(length(θ_test))")
     # Use the same function as for add with the arguments swapped and take the inverse
-    return 1 / p_accept_add(θ_test, θ, obs, z_test, z, prior_λ) 
+    return 1 / p_accept_common(θ_test, θ, obs, z_test, z, prior_λ) 
 end
 

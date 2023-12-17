@@ -15,10 +15,13 @@ using StatsBase
 # Setup
 emitter_gen_dist = MvNormal([0.0, 0.0], [100.0 0.0; 0.0 100.0])
 prior_λ = Gamma(2.0, 5.0)
+mean(prior_λ)
 n_emitters = 3
 
 # Generate emitters and observations
-emitters = RJ.gen_emitters2D(n_emitters, emitter_gen_dist)
+# emitters = RJ.gen_emitters2D(n_emitters, emitter_gen_dist)
+# two close emitters 
+emitters = RJ.Params([RJ.Emitter2D([0.0, 1.0]), RJ.Emitter2D([0.0, -1.0])])
 
 obs = RJ.gen_observations2D(prior_λ, emitters; photons=1000.0)
 length(obs)
@@ -43,7 +46,7 @@ fig
 
 ## Build prior distributions
 prior_y = RJ.build_prior_y(obs)
-
+area = RJ.calc_area(obs)
 # Plot prior distribution image for y
 vals = rand(prior_y, 10000)
 fig = Figure()
@@ -60,7 +63,7 @@ prior_k = RJ.build_prior_k(obs, prior_λ)
 fig = Figure()
 ax = Axis(fig[1, 1])
 k_vec = 0:length(obs.ŷ)
-lines!(ax, k_vec, pdf.(prior_k, k_vec))
+barplot!(ax, k_vec, pdf.(prior_k, k_vec))
 lines!(ax, k_vec, pdf.(prior_λ, k_vec))
 display(fig)
 length(obs.ŷ) / mean(prior_λ)
@@ -68,9 +71,10 @@ mode(prior_k)
 mean(prior_k)
 mean(prior_λ)
 
+
 ## Build the chain
 p_jump = Categorical([0.2, 0.2, 0.2, 0.2, 0.2])
-roi = RJ.RJMCMC_ROI(obs, prior_y, prior_k, p_jump, RJ.Emitter2D)
+roi = RJ.RJMCMC_ROI(obs, prior_y, area, prior_k, p_jump, RJ.Emitter2D)
 n_burnin = 100
 n_jumps = 1000
 chain, z_chain = RJ.buildchain(roi, n_burnin, n_jumps);
@@ -103,6 +107,7 @@ for idx in 1:length(true_x)
 end
 display(fig)
 
+area * pdf(prior_y, [obs.ŷ[1].y, obs.ŷ[1].x])
 
 
 

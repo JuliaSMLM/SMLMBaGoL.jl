@@ -22,12 +22,9 @@ function take_jumps(θ::Params, z::Allocations, roi::RJMCMC_ROI, n_jumps::Int)
             θ_test, z_test, id = propose_add_emitter(θ, roi.obs, roi.prior_y)
             if !has_allocation(z_test, id) # then don't accept
                 p_accept = 0.0
-                # @info "No allocations for id = $id"
             else
-                p_accept = p_accept_add(θ, θ_test, roi.obs, z, z_test, roi.prior_k)
+                p_accept = p_accept_add(θ, θ_test, roi.obs, z, z_test, roi.prior_k, roi.prior_y, roi.area)
             end
-
-            # println("p_accept add= $p_accept to go from $(length(θ)) to $(length(θ_test))")
             if rand() < p_accept
                 accepted = true
                 θ = θ_test
