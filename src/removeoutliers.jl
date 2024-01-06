@@ -114,7 +114,7 @@ end
 
 """
     smld_thresh = threshphotons(smld::SMLMData.SMLD2D, 
-                                maxsigmadev_photons::Float64)
+                                maxsigmadev_photons::Real)
 
 Remove localizations that are `maxsigmadev_photons` st. dev. above the mean.
 
@@ -130,7 +130,7 @@ This method removes localizations from `smld` that are greater than
 # Outputs
 - `smld_thresh`: Input `smld` with the outliers removed.
 """
-function threshphotons(smld::SMLMData.SMLD2D, maxsigmadev_photons::Float64)
+function threshphotons(smld::SMLMData.SMLD2D, maxsigmadev_photons::Real)
     # Threshold localizations that are too bright (i.e., those which might be 
     # multiple emitters fit as one).
     meanphotons = Statistics.mean(smld.photons)
@@ -142,7 +142,7 @@ function threshphotons(smld::SMLMData.SMLD2D, maxsigmadev_photons::Float64)
 end
 
 """
-    threshphotons!(smld::SMLMData.SMLD2D, maxsigmadev_photons::Float64)
+    threshphotons!(smld::SMLMData.SMLD2D, maxsigmadev_photons::Real)
 
 Remove localizations that are `maxsigmadev_photons` st. dev. above the mean.
 
@@ -155,7 +155,7 @@ This method removes localizations from `smld` that are greater than
 - `maxsigmadev_photons`: Maximum number of standard deviations above the mean 
                          photons allowed for valid localizations.
 """
-function threshphotons!(smld::SMLMData.SMLD2D, maxsigmadev_photons::Float64)
+function threshphotons!(smld::SMLMData.SMLD2D, maxsigmadev_photons::Real)
     # Threshold localizations that are too bright (i.e., those which might be 
     # multiple emitters fit as one).
     meanphotons = Statistics.mean(smld.photons)
@@ -167,7 +167,7 @@ end
 """
     smld_thresh = removeisolated(smld::SMLMData.SMLD2D, 
                                  n_min::Int, 
-                                 r::Float64)
+                                 r::Real)
 
 Remove localizations that don't have `n_min` nearest-neighbors within `r`.
 
@@ -184,7 +184,7 @@ localizations that have fewer than `n_min` localizations within `r` pixels.
 # Outputs
 - `smld_thresh`: Input `smld` with the isolated localizations removed.
 """
-function removeisolated(smld::SMLMData.SMLD2D, n_min::Int, r::Float64)
+function removeisolated(smld::SMLMData.SMLD2D, n_min::Int, r::Real)
     # If there are fewer than `n_min+1` localizations, we can return an empty
     # SMLD2D structure immediately.
     if length(smld) < (n_min+1)
@@ -201,7 +201,7 @@ function removeisolated(smld::SMLMData.SMLD2D, n_min::Int, r::Float64)
 end
 
 """
-    removeisolated!(smld::SMLMData.SMLD2D, n_min::Int, r::Float64)
+    removeisolated!(smld::SMLMData.SMLD2D, n_min::Int, r::Real)
 
 Remove localizations that don't have `n_min` nearest-neighbors within `r`.
 
@@ -215,7 +215,7 @@ localizations that have fewer than `n_min` localizations within `r` pixels.
 - `r`: Distance defining the region within which `n_min` nearest neighbor 
        localizations must be present. (Pixels)
 """
-function removeisolated!(smld::SMLMData.SMLD2D, n_min::Int, r::Float64)
+function removeisolated!(smld::SMLMData.SMLD2D, n_min::Int, r::Real)
     # If there are fewer than `n_min+1` localizations, we can return an empty
     # SMLD2D structure immediately.
     if length(smld) < (n_min+1)

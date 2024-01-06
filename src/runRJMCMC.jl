@@ -4,7 +4,7 @@ using Base
 
 """
     chain = runRJMCMC(smld::SMLMData.SMLD2D, 
-                      roi::Vector{Float64}, 
+                      roi::Vector{<:Real}, 
                       mcparams::MCParams2D)
 
 Perform reversible jump Markov chain monte carlo (RJMCMC).
@@ -23,7 +23,7 @@ parameters and then building the RJMCMC chain.
 - `chain`: An SMLMBaGoL.BaGoLChain2D RJMCMC chain.
 """
 function runRJMCMC(smld::SMLMData.SMLD2D,
-    roi::Vector{Float64},
+    roi::Vector{<:Real},
     mcparams::SMLMBaGoL.MCParams2D)
 
     # Prepare an emitter distribution from the provided localizations 
@@ -43,7 +43,7 @@ function runRJMCMC(smld::SMLMData.SMLD2D,
     μ_SR, _ = SMLMBaGoL.samplecoords2D(internals.imdistrib, internals.srimsize[1], k)
     μ = ((μ_SR .- 0.5) ./ mcparams.imdistrib_mag) .+ 0.5
     μ .+= repeat(transpose(internals.roi[1:2]), k) .- 1.0
-    a = zeros(Float64, k, 2)
+    a = zeros(Float32, k, 2)
     z = SMLMBaGoL.allocatelocs(smld, μ, a)
 
     # Run the chain for the burn-in iterations.
@@ -67,7 +67,7 @@ end
 
 """
     chain = runRJMCMC(smld::Vector{SMLMData.SMLD2D}, 
-                      roi::Vector{Float64}, 
+                      roi::Vector{<:Real}, 
                       mcparams::MCParams2D)
 
 Perform reversible jump Markov chain monte carle (RJMCMC).
@@ -88,7 +88,7 @@ the single `smld` version of runRJMCMC() on each entry of the vector input
 - `chain`: An SMLMBaGoL.BaGoLChain2D RJMCMC chain.
 """
 function runRJMCMC(smld::Vector{SMLMData.SMLD2D},
-    roi::Vector{Float64},
+    roi::Vector{<:Real},
     mcparams::MCParams2D)
 
     # Loop over preclusters and perform RJMCMC on each of them.
@@ -103,7 +103,7 @@ end
 
 """
     chain = runRJMCMC(smld::Matrix{SMLMData.SMLD2D}, 
-                      rois::Matrix{Vector{Float64}}
+                      rois::Matrix{Vector{<:Real}}
                       mcparams::MCParams2D)
 
 Perform reversible jump Markov chain monte carle (RJMCMC).
@@ -123,7 +123,7 @@ the vector `smld` version of runRJMCMC() on each entry of the matrix input
 - `chain`: An SMLMBaGoL.BaGoLChain2D RJMCMC chain.
 """
 function runRJMCMC(smld::Matrix{SMLMData.SMLD2D},
-    rois::Matrix{Vector{Float64}},
+    rois::Matrix{Vector{T}} where T<:Real,
     mcparams::MCParams2D)
 
     # Loop over subregions in `smld` and perform RJMCMC.
@@ -142,7 +142,7 @@ end
 
 """
     chain, λchain = runRJMCMC(smld::Matrix{SMLMData.SMLD2D}, 
-                      rois::Matrix{Vector{Float64}}
+                      rois::Matrix{Vector{<:Real}}
                       mcparams::MCParams2D,
                       hbparams::HBParams2D)
 
@@ -166,8 +166,8 @@ the vector `smld` version of runRJMCMC() on each entry of the matrix input
             sample.
 """
 function runRJMCMC(smld::Matrix{SMLMData.SMLD2D},
-    rois::Matrix{Vector{Float64}},
-    roioverlap::Float64,
+    rois::Matrix{Vector{T}} where T<:Real,
+    roioverlap::Real,
     mcparams::MCParams2D,
     hbparams::HBParams2D)
 
@@ -222,7 +222,7 @@ function runRJMCMC(smld::Matrix{SMLMData.SMLD2D},
     nsamples_λ = maximum([1; floor(Int, mcparams.n_chain / hbparams.nsamples)])
     smldclusters = Matrix{Vector{SMLMData.SMLD2D}}(undef, smldsize)
     chain = Matrix{Vector{SMLMBaGoL.BaGoLChain2D}}(undef, smldsize)
-    λchain = Matrix{Float64}(undef, nsamples_λ, 2)
+    λchain = Matrix{Float32}(undef, nsamples_λ, 2)
     for nn = 1:nsamples_λ
         # For each hierarchical sample, we'll run the chain for mcparams_hb.n_chain 
         # samples, ensuring that no additional burn-in is made.

@@ -4,9 +4,9 @@ using SMLMData
 # subregions.
 
 """
-    rois = genrois(datasize::Vector{Float64}, 
-                   roisize::Float64 = 5.0, 
-                   roioverlap::Float64 = 1.0)
+    rois = genrois(datasize::Vector{<:Real}, 
+                   roisize::Real = 5.0, 
+                   roioverlap::Real = 1.0)
 
 Define subregion region of interests (`rois`).
 
@@ -32,9 +32,9 @@ coordinate, e.g., pixel n spans (left edge to right edge) the coordinate range
 [n-0.5, n+0.5]. As such, an ROI of, e.g., [1, 6, 5, 10] covers the y range
 [0.5, 5.5] and the x range [5.5, 10.5].
 """
-function genrois(datasize::Vector{Float64}, 
-                 roisize::Float64 = 5.0, 
-                 roioverlap::Float64 = 1.0)
+function genrois(datasize::Vector{<:Real}, 
+                 roisize::Real = 5.0, 
+                 roioverlap::Real = 1.0)
     # Validate some parameters.
     roisize = all(roisize.<=datasize) ? roisize : minimum(datasize)
     roioverlap = all(roioverlap<roisize) ? roioverlap : (roisize-1)
@@ -49,7 +49,7 @@ function genrois(datasize::Vector{Float64},
     xend = min.(xstart .+ roisize .- 1, datasize[2])
     
     # Define the subregions rois.
-    rois = Matrix{Vector{Float64}}(undef, tuple(nsplit...))
+    rois = Matrix{Vector{Float32}}(undef, tuple(nsplit...))
     for ii = 1:nsplit[1], jj = 1:nsplit[2]
         # Define the splitting ROI for this subregion.
         rois[ii, jj] = [ystart[ii], xstart[jj], yend[ii], xend[jj]]
@@ -60,8 +60,8 @@ end
 
 """
     smld_subregions, rois, connectID = gensubregions(smld::SMLMData.SMLD2D, 
-                                                     roisize::Float64 = 5.0, 
-                                                     roioverlap::Float64 = 1.0)
+                                                     roisize::Real = 5.0, 
+                                                     roioverlap::Real = 1.0)
 
 Split the `smld` localizations into overlapping subregions.
 
@@ -96,10 +96,10 @@ coordinate, e.g., pixel n spans (left edge to right edge) the coordinate range
 [0.5, 5.5] and the x range [5.5, 10.5].
 """
 function gensubregions(smld::SMLMData.SMLD2D, 
-                       roisize::Float64, 
-                       roioverlap::Float64)
+                       roisize::Real, 
+                       roioverlap::Real)
     # Generate the subregion ROIs.
-    datasize = Float64.(smld.datasize)
+    datasize = Float32.(smld.datasize)
     rois = SMLMBaGoL.genrois(datasize, roisize, roioverlap)
     
     # Loop through `smld` and split into subregions.

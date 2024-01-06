@@ -10,8 +10,8 @@ using Base
 
 """
     likelihood = emitterlikelihood2D(smld::SMLMData.SMLD2D,
-                                     μ::Matrix{Float64},
-                                     a::Matrix{Float64},
+                                     μ::Matrix{<:Real},
+                                     a::Matrix{<:Real},
                                      z::Vector{Int})
 
 Compute the likelihood of the emitters `μ` given localizations in `smld`.
@@ -31,21 +31,21 @@ drift velocities `a`.  I.e., likelihood for k emitters along 2 dimensions.
 - `likelihood`: Likelihood of the emitters given the localizations.
 """
 function emitterlikelihood2D(smld::SMLMData.SMLD2D,
-    μ::Matrix{Float64},
-    a::Matrix{Float64},
+    μ::Matrix{<:Real},
+    a::Matrix{<:Real},
     z::Vector{Int})
     # Compute the likelihood that the (2D) localization coordinates in `y`
     # arose from the emitters located at `μ`.
     return emitterlikelihood2D([smld.y smld.x], [smld.σ_y smld.σ_x],
-        Float64.(smld.framenum), μ, a, z)
+        Float32.(smld.framenum), μ, a, z)
 end
 
 """
-    likelihood = emitterlikelihood2D(y::Matrix{Float64},
-                                     σ::Matrix{Float64},
-                                     t::Vector{Float64},
-                                     μ::Matrix{Float64},
-                                     a::Matrix{Float64},
+    likelihood = emitterlikelihood2D(y::Matrix{<:Real},
+                                     σ::Matrix{<:Real},
+                                     t::Vector{<:Real},
+                                     μ::Matrix{<:Real},
+                                     a::Matrix{<:Real},
                                      z::Vector{Int})
 
 Compute the likelihood of the emitters `μ` given localizations in `y`.
@@ -69,11 +69,11 @@ likelihood for k emitters along 2 dimensions.
 # Outputs
 - `likelihood`: Likelihood of the emitters given the localizations.
 """
-function emitterlikelihood2D(y::Matrix{Float64},
-    σ::Matrix{Float64},
-    t::Vector{Float64},
-    μ::Matrix{Float64},
-    a::Matrix{Float64},
+function emitterlikelihood2D(y::Matrix{<:Real},
+    σ::Matrix{<:Real},
+    t::Vector{<:Real},
+    μ::Matrix{<:Real},
+    a::Matrix{<:Real},
     z::Vector{Int})
     # Compute the likelihood that the (2D) localization coordinates in `y`
     # arose from the emitters located at `μ`.
@@ -82,11 +82,11 @@ function emitterlikelihood2D(y::Matrix{Float64},
 end
 
 """
-    likelihood = emitterlikelihood2D(y::Matrix{Float64},
-                                     σ::Matrix{Float64},
-                                     t::Vector{Float64},
-                                     μ::Vector{Float64},
-                                     a::Vector{Float64})
+    likelihood = emitterlikelihood2D(y::Matrix{<:Real},
+                                     σ::Matrix{<:Real},
+                                     t::Vector{<:Real},
+                                     μ::Vector{<:Real},
+                                     a::Vector{<:Real})
 
 Compute the likelihood of the emitters `μ` given localizations in `y`.
 
@@ -108,11 +108,11 @@ likelihood for 1 emitter along 2 dimensions.
 # Outputs
 - `likelihood`: Likelihood of the emitter given the localizations.
 """
-function emitterlikelihood2D(y::Matrix{Float64},
-    σ::Matrix{Float64},
-    t::Vector{Float64},
-    μ::Vector{Float64},
-    a::Vector{Float64})
+function emitterlikelihood2D(y::Matrix{<:Real},
+    σ::Matrix{<:Real},
+    t::Vector{<:Real},
+    μ::Vector{<:Real},
+    a::Vector{<:Real})
     # Compute the likelihood that the (2D) localization coordinates in `y`
     # arose from the emitter located at `μ`.
     return emitterlikelihood1D(y[:, 1], σ[:, 1], μ[1] .+ a[1] * t) *
@@ -120,11 +120,11 @@ function emitterlikelihood2D(y::Matrix{Float64},
 end
 
 """
-    likelihood = emitterlikelihood2D(y::Vector{Float64},
-                                     σ::Vector{Float64},
-                                     t::Float64,
-                                     μ::Vector{Float64},
-                                     a::Vector{Float64})
+    likelihood = emitterlikelihood2D(y::Vector{<:Real},
+                                     σ::Vector{<:Real},
+                                     t::Real,
+                                     μ::Vector{<:Real},
+                                     a::Vector{<:Real})
 
 Compute the likelihood of the emitters `μ` given localizations in `y`.
 
@@ -146,11 +146,11 @@ likelihood for 1 localization of 1 emitter along 2 dimensions.
 # Outputs
 - `likelihood`: Likelihood of the emitter given the localization.
 """
-function emitterlikelihood2D(y::Vector{Float64},
-    σ::Vector{Float64},
-    t::Float64,
-    μ::Vector{Float64},
-    a::Vector{Float64})
+function emitterlikelihood2D(y::Vector{<:Real},
+    σ::Vector{<:Real},
+    t::Real,
+    μ::Vector{<:Real},
+    a::Vector{<:Real})
     # Compute the likelihood that the (2D) localization coordinate in `y`
     # arose from the emitter located at `μ`.
     return emitterlikelihood1D([y[1]], [σ[1]], [μ[1] + a[1] * t]) *
@@ -158,11 +158,11 @@ function emitterlikelihood2D(y::Vector{Float64},
 end
 
 """
-    likelihood = emitterlikelihood1D(y::Vector{Float64},
-                                     σ::Vector{Float64},
-                                     t::Vector{Float64},
-                                     μ::Vector{Float64},
-                                     a::Vector{Float64},
+    likelihood = emitterlikelihood1D(y::Vector{<:Real},
+                                     σ::Vector{<:Real},
+                                     t::Vector{<:Real},
+                                     μ::Vector{<:Real},
+                                     a::Vector{<:Real},
                                      z::Vector{Int})
 
 Compute the likelihood of the emitters `μ` given localizations `y`.
@@ -183,11 +183,11 @@ I.e., likelihood for k emitters along 1 dimension.
 # Outputs
 - `likelihood`: Likelihood of the emitters given the localizations.
 """
-function emitterlikelihood1D(y::Vector{Float64},
-    σ::Vector{Float64},
-    t::Vector{Float64},
-    μ::Vector{Float64},
-    a::Vector{Float64},
+function emitterlikelihood1D(y::Vector{<:Real},
+    σ::Vector{<:Real},
+    t::Vector{<:Real},
+    μ::Vector{<:Real},
+    a::Vector{<:Real},
     z::Vector{Int})
     # Compute the likelihood that the (1D) localization coordinates in `y`
     # arose from the emitters located at `μ` with standard deviation of
@@ -209,9 +209,9 @@ function emitterlikelihood1D(y::Vector{Float64},
 end
 
 """
-    likelihood = emitterlikelihood1D(y::Vector{Float64}, 
-                                     σ::Vector{Float64},
-                                     μt::Vector{Float64})
+    likelihood = emitterlikelihood1D(y::Vector{<:Real}, 
+                                     σ::Vector{<:Real},
+                                     μt::Vector{<:Real})
 
 Compute the likelihood of the emitter `μt` given localizations `y`.
 
@@ -228,9 +228,9 @@ normally distributed. I.e., likelihood for 1 emitter along 1 dimension.
 # Outputs
 - `likelihood`: Likelihood of the emitter given the localizations.
 """
-function emitterlikelihood1D(y::Vector{Float64},
-    σ::Vector{Float64},
-    μt::Vector{Float64})
+function emitterlikelihood1D(y::Vector{<:Real},
+    σ::Vector{<:Real},
+    μt::Vector{<:Real})
     # Compute the likelihood that the (1D) localization coordinates in `y`
     # arose from the emitter located at `μ(t)`.
     likelihood = 1.0
@@ -246,8 +246,8 @@ end
 
 """
     logL = emitterlogL2D(smld::SMLMData.SMLD2D,
-                         μ::Matrix{Float64},
-                         a::Matrix{Float64},
+                         μ::Matrix{<:Real},
+                         a::Matrix{<:Real},
                          z::Vector{Int})
 
 Compute the log-likelihood of the emitters `μ` given localizations in `smld`.
@@ -267,21 +267,21 @@ drift velocities `a`.  I.e., log-likelihood for k emitters along 2 dimensions.
 - `logL`: Log-likelihood of the emitters given the localizations.
 """
 function emitterlogL2D(smld::SMLMData.SMLD2D,
-    μ::Matrix{Float64},
-    a::Matrix{Float64},
+    μ::Matrix{<:Real},
+    a::Matrix{<:Real},
     z::Vector{Int})
     # Compute the log-likelihood that the (2D) localization coordinates in `y`
     # arose from the emitters located at `μ`.
     return emitterlogL2D([smld.y smld.x], [smld.σ_y smld.σ_x],
-        Float64.(smld.framenum), μ, a, z)
+        Float32.(smld.framenum), μ, a, z)
 end
 
 """
-    logL = emitterlogL2D(y::Matrix{Float64},
-                         σ::Matrix{Float64},
-                         t::Vector{Float64},
-                         μ::Matrix{Float64},
-                         a::Matrix{Float64},
+    logL = emitterlogL2D(y::Matrix{<:Real},
+                         σ::Matrix{<:Real},
+                         t::Vector{<:Real},
+                         μ::Matrix{<:Real},
+                         a::Matrix{<:Real},
                          z::Vector{Int})
 
 Compute the log-likelihood of the emitters `μ` given localizations in `y`.
@@ -305,11 +305,11 @@ k emitters along 2 dimensions.
 # Outputs
 - `logL`: Log-likelihood of the emitters given the localizations.
 """
-function emitterlogL2D(y::Matrix{Float64},
-    σ::Matrix{Float64},
-    t::Vector{Float64},
-    μ::Matrix{Float64},
-    a::Matrix{Float64},
+function emitterlogL2D(y::Matrix{<:Real},
+    σ::Matrix{<:Real},
+    t::Vector{<:Real},
+    μ::Matrix{<:Real},
+    a::Matrix{<:Real},
     z::Vector{Int})
     # Compute the log-likelihood that the (2D) localization coordinates in `y`
     # arose from the emitters located at `μ`.
@@ -318,11 +318,11 @@ function emitterlogL2D(y::Matrix{Float64},
 end
 
 """
-    logL = emitterlogL2D(y::Matrix{Float64},
-                         σ::Matrix{Float64},
-                         t::Vector{Float64},
-                         μ::Vector{Float64},
-                         a::Vector{Float64})
+    logL = emitterlogL2D(y::Matrix{<:Real},
+                         σ::Matrix{<:Real},
+                         t::Vector{<:Real},
+                         μ::Vector{<:Real},
+                         a::Vector{<:Real})
 
 Compute the log-likelihood of the emitters `μ` given localizations in `y`.
 
@@ -344,11 +344,11 @@ sums the likelihoods over the 2 spatial dimensions.  I.e., log-likelihood for
 # Outputs
 - `logL`: Log-likelihood of the emitter given the localizations.
 """
-function emitterlogL2D(y::Matrix{Float64},
-    σ::Matrix{Float64},
-    t::Vector{Float64},
-    μ::Vector{Float64},
-    a::Vector{Float64})
+function emitterlogL2D(y::Matrix{<:Real},
+    σ::Matrix{<:Real},
+    t::Vector{<:Real},
+    μ::Vector{<:Real},
+    a::Vector{<:Real})
     # Compute the log-likelihood that the (2D) localization coordinates in `y`
     # arose from the emitter located at `μ`.
     return emitterlogL1D(y[:, 1], σ[:, 1], μ[1] .+ a[1] * t) +
@@ -356,11 +356,11 @@ function emitterlogL2D(y::Matrix{Float64},
 end
 
 """
-    logL = emitterlogL2D(y::Vector{Float64},
-                         σ::Vector{Float64},
-                         t::Float64,
-                         μ::Vector{Float64},
-                         a::Vector{Float64})
+    logL = emitterlogL2D(y::Vector{<:Real},
+                         σ::Vector{<:Real},
+                         t::Real,
+                         μ::Vector{<:Real},
+                         a::Vector{<:Real})
 
 Compute the log-likelihood of the emitters `μ` given localizations in `y`.
 
@@ -382,11 +382,11 @@ sums the likelihoods over the 2 spatial dimensions.  I.e., log-likelihood for
 # Outputs
 - `logL`: Log-likelihood of the emitter given the localization.
 """
-function emitterlogL2D(y::Vector{Float64},
-    σ::Vector{Float64},
-    t::Float64,
-    μ::Vector{Float64},
-    a::Vector{Float64})
+function emitterlogL2D(y::Vector{<:Real},
+    σ::Vector{<:Real},
+    t::Real,
+    μ::Vector{<:Real},
+    a::Vector{<:Real})
     # Compute the log-likelihood that the (2D) localization in `y`
     # arose from the emitter located at `μ`.
     return emitterlogL1D(y[1], σ[1], μ[1] .+ a[1] * t) +
@@ -394,11 +394,11 @@ function emitterlogL2D(y::Vector{Float64},
 end
 
 """
-    logL = emitterlogL1D(y::Vector{Float64},
-                         σ::Vector{Float64},
-                         t::Vector{Float64},
-                         μ::Vector{Float64},
-                         a::Vector{Float64},
+    logL = emitterlogL1D(y::Vector{<:Real},
+                         σ::Vector{<:Real},
+                         t::Vector{<:Real},
+                         μ::Vector{<:Real},
+                         a::Vector{<:Real},
                          z::Vector{Int})
 
 Compute the log-likelihood of the emitters `μ` given localizations `y`.
@@ -419,11 +419,11 @@ I.e., log-likelihood for k emitters along 1 dimension.
 # Outputs
 - `logL`: Log-likelihood of the emitters given the localizations.
 """
-function emitterlogL1D(y::Vector{Float64},
-    σ::Vector{Float64},
-    t::Vector{Float64},
-    μ::Vector{Float64},
-    a::Vector{Float64},
+function emitterlogL1D(y::Vector{<:Real},
+    σ::Vector{<:Real},
+    t::Vector{<:Real},
+    μ::Vector{<:Real},
+    a::Vector{<:Real},
     z::Vector{Int})
     # Compute the log-likelihood that the (1D) localization coordinates in `y`
     # arose from the emitters located at `μ` with standard deviation of
@@ -445,9 +445,9 @@ function emitterlogL1D(y::Vector{Float64},
 end
 
 """
-    logL = emitterlogL1D(y::Vector{Float64}, 
-                         σ::Vector{Float64},
-                         μt::Vector{Float64})
+    logL = emitterlogL1D(y::Vector{<:Real}, 
+                         σ::Vector{<:Real},
+                         μt::Vector{<:Real})
 
 Compute the log-likelihood of the emitter `μt` given localizations `y`.
 
@@ -464,9 +464,9 @@ normally distributed. I.e., log-likelihood for 1 emitter along 1 dimension.
 # Outputs
 - `logL`: Log-likelihood of the emitter given the localizations.
 """
-function emitterlogL1D(y::Vector{Float64},
-    σ::Vector{Float64},
-    μt::Vector{Float64})
+function emitterlogL1D(y::Vector{<:Real},
+    σ::Vector{<:Real},
+    μt::Vector{<:Real})
     # Compute the log-likelihood that the (1D) localization coordinates in `y`
     # arose from the emitter located at `μ(t)`.
     logL = 0.0
@@ -478,9 +478,9 @@ function emitterlogL1D(y::Vector{Float64},
 end
 
 """
-    logL = emitterlogL1D(y::Float64, 
-                         σ::Float64,
-                         μt::Float64}
+    logL = emitterlogL1D(y::Real, 
+                         σ::Real,
+                         μt::Real}
 
 Compute the log-likelihood of the emitter `μt` given localization `y`.
 
@@ -498,14 +498,14 @@ along 1 dimension.
 # Outputs
 - `logL`: Log-likelihood of the emitter given the localization.
 """
-function emitterlogL1D(y::Float64,
-    σ::Float64,
-    μt::Float64)
+function emitterlogL1D(y::Real,
+    σ::Real,
+    μt::Real)
     return -0.5 * (log(2.0 * pi * σ^2) + ((y - μt)^2) / (σ^2))
 end
 
 """
-    rndmatrix = gammarnd(α::Float64, β::Vector{Float64}, n::Int)
+    rndmatrix = gammarnd(α::Real, β::Vector{<:Real}, n::Int)
 
 Make `n` samples of the Gamma PDF for the length(α) Gamma distributions.
 
@@ -517,8 +517,8 @@ Make `n` samples of the Gamma PDF for the length(α) Gamma distributions.
 # Outputs
 - `x`: Matrix of the random samples. (length(α)xn)
 """
-function gammarnd(α::Float64, β::Vector{Float64}, n::Int)
-    x = Matrix{Float64}(undef, length(β), n)
+function gammarnd(α::Real, β::Vector{<:Real}, n::Int)
+    x = Matrix{Float32}(undef, length(β), n)
     for ii = 1:length(β)
         x[ii, :] = Distributions.rand(Gamma(α, β[ii]), n)
     end
@@ -527,7 +527,7 @@ function gammarnd(α::Float64, β::Vector{Float64}, n::Int)
 end
 
 """
-    rndmatrix = gammarnd(α::Vector{Float64}, β::Float64, n::Int)
+    rndmatrix = gammarnd(α::Vector{<:Real}, β::Real, n::Int)
 
 Make `n` samples of the Gamma PDF for the length(α) Gamma distributions.
 
@@ -539,8 +539,8 @@ Make `n` samples of the Gamma PDF for the length(α) Gamma distributions.
 # Outputs
 - `x`: Matrix of the random samples. (length(α)xn)
 """
-function gammarnd(α::Vector{Float64}, β::Float64, n::Int)
-    x = Matrix{Float64}(undef, length(α), n)
+function gammarnd(α::Vector{<:Real}, β::Real, n::Int)
+    x = Matrix{Float32}(undef, length(α), n)
     for ii = 1:length(α)
         x[ii, :] = Distributions.rand(Gamma(α[ii], β), n)
     end
@@ -549,7 +549,7 @@ function gammarnd(α::Vector{Float64}, β::Float64, n::Int)
 end
 
 """
-    pdf = gammapdf(α::Vector{Float64}, β::Float64, x::Vector{Float64})
+    pdf = gammapdf(α::Vector{<:Real}, β::Real, x::Vector{<:Real})
 
 Compute the Gamma PDF for the length(α) Gamma distributions at points `x`.
 
@@ -561,8 +561,8 @@ Compute the Gamma PDF for the length(α) Gamma distributions at points `x`.
 # Outputs
 - `pdf`: Vector of the pdf samples. (length(α)x1)
 """
-function gammapdf(α::Vector{Float64}, β::Float64, x::Vector{Float64})
-    pdf = Vector{Float64}(undef, length(α))
+function gammapdf(α::Vector{<:Real}, β::Real, x::Vector{<:Real})
+    pdf = Vector{Float32}(undef, length(α))
     for ii = 1:length(α)
         pdf[ii] = Distributions.pdf(Gamma(α[ii], β), x[ii])
     end
@@ -571,7 +571,7 @@ function gammapdf(α::Vector{Float64}, β::Float64, x::Vector{Float64})
 end
 
 """
-    pdf = gammapdf(α::Float64, β::Vector{Float64}, x::Vector{Float64})
+    pdf = gammapdf(α::Real, β::Vector{<:Real}, x::Vector{<:Real})
 
 Compute the Gamma PDF for the length(β) Gamma distributions at points `x`.
 
@@ -583,8 +583,8 @@ Compute the Gamma PDF for the length(β) Gamma distributions at points `x`.
 # Outputs
 - `pdf`: Vector of the pdf samples. (length(β)x1)
 """
-function gammapdf(α::Float64, β::Vector{Float64}, x::Vector{Float64})
-    pdf = Vector{Float64}(undef, length(β))
+function gammapdf(α::Real, β::Vector{<:Real}, x::Vector{<:Real})
+    pdf = Vector{Float32}(undef, length(β))
     for ii = 1:length(α)
         pdf[ii] = Distributions.pdf(Gamma(α, β[ii]), x[ii])
     end

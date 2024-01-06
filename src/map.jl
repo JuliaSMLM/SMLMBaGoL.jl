@@ -31,10 +31,10 @@ function mapn(chain::SMLMBaGoL.BaGoLChain2D)
     # Determine the mode number of emitters in this chain.
     k, _ = SMLMBaGoL.catfields(chain)
     if isempty(k)
-        return Matrix{Float64}(undef, 0, 2),
-        Matrix{Float64}(undef, 0, 2),
-        Matrix{Float64}(undef, 0, 2),
-        Matrix{Float64}(undef, 0, 2),
+        return Matrix{Float32}(undef, 0, 2),
+        Matrix{Float32}(undef, 0, 2),
+        Matrix{Float32}(undef, 0, 2),
+        Matrix{Float32}(undef, 0, 2),
         Vector{Int}(undef, 0),
         Vector{Int}(undef, 0)
     end
@@ -50,10 +50,10 @@ function mapn(chain::SMLMBaGoL.BaGoLChain2D)
 
     # Estimate emitter positions from the kmeans results and determine how many
     # localizations were allocated to each emitter in each state.
-    μout = Matrix{Float64}(undef, n, 2)
-    σ_μout = Matrix{Float64}(undef, n, 2)
-    aout = Matrix{Float64}(undef, n, 2)
-    σ_aout = Matrix{Float64}(undef, n, 2)
+    μout = Matrix{Float32}(undef, n, 2)
+    σ_μout = Matrix{Float32}(undef, n, 2)
+    aout = Matrix{Float32}(undef, n, 2)
+    σ_aout = Matrix{Float32}(undef, n, 2)
     nalloc = Vector{Vector{Int}}(undef, n)
     for nn = 1:n
         nnmembers = mapnresults.assignments .== nn
@@ -92,10 +92,10 @@ chains.
 """
 function mapn(chain::Vector{SMLMBaGoL.BaGoLChain2D})
     # Loop over entries in `chain` and dispatch on the single chain mapn().
-    μout = Matrix{Float64}(undef, 0, 2)
-    σ_μout = Matrix{Float64}(undef, 0, 2)
-    aout = Matrix{Float64}(undef, 0, 2)
-    σ_aout = Matrix{Float64}(undef, 0, 2)
+    μout = Matrix{Float32}(undef, 0, 2)
+    σ_μout = Matrix{Float32}(undef, 0, 2)
+    aout = Matrix{Float32}(undef, 0, 2)
+    σ_aout = Matrix{Float32}(undef, 0, 2)
     nallocout = Vector{Int}(undef, 0)
     nout = Vector{Int}(undef, 0)
     for ii = 1:length(chain)
@@ -133,10 +133,10 @@ all chains.
 """
 function mapn(chain::Matrix{Vector{SMLMBaGoL.BaGoLChain2D}})
     # Loop over entries in `chain` and dispatch on the single chain mapn().
-    μout = Matrix{Float64}(undef, 0, 2)
-    σ_μout = Matrix{Float64}(undef, 0, 2)
-    aout = Matrix{Float64}(undef, 0, 2)
-    σ_aout = Matrix{Float64}(undef, 0, 2)
+    μout = Matrix{Float32}(undef, 0, 2)
+    σ_μout = Matrix{Float32}(undef, 0, 2)
+    aout = Matrix{Float32}(undef, 0, 2)
+    σ_aout = Matrix{Float32}(undef, 0, 2)
     nallocout = Vector{Int}(undef, 0)
     nout = Vector{Int}(undef, 0)
     for ii = 1:prod(size(chain))

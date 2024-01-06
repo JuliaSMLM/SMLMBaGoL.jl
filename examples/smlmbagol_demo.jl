@@ -4,7 +4,6 @@ using SMLMBaGoL
 using SMLMData
 using SMLMSim
 using Plots
-using ImageView
 using Images
 using StatsBase
 

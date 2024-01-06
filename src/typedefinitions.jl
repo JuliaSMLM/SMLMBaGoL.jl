@@ -13,7 +13,7 @@ Abstract type defining subregion splitting parameter structures.
 abstract type SubregionParams end
 
 """
-    SubregionParams2D(roisize::Float64, roioverlap::Float64, on::Bool)
+    SubregionParams2D(roisize::Real, roioverlap::Real, on::Bool)
 
 Structure of parameters defining subregion splitting of data.
 
@@ -29,13 +29,13 @@ splitting of data.
        runbagol() (Default = true)
 """
 mutable struct SubregionParams2D <: SubregionParams
-    roisize::Float64
-    roioverlap::Float64
+    roisize::Real
+    roioverlap::Real
     on::Bool
 end
 function SubregionParams2D(;
-    roisize::Float64=5.0,
-    roioverlap::Float64=1.0,
+    roisize::Real=5.0,
+    roioverlap::Real=1.0,
     on::Bool=true)
 
     return SubregionParams2D(roisize, roioverlap, on)
@@ -49,7 +49,7 @@ Abstract type defining preprocessing threshold parameter structures.
 abstract type PreThreshParams end
 
 """
-    PreThreshParams2D(maxsigmadev_photons::Float64, n_min::Int, r::Float64)
+    PreThreshParams2D(maxsigmadev_photons::Real, n_min::Int, r::Real)
 
 Structure of parameters defining preprocessing thresholds.
 
@@ -66,14 +66,14 @@ applied to data during preprocessing.
       localizations must be present. (Pixels)(Default = 10.0)
 """
 mutable struct PreThreshParams2D <: PreThreshParams
-    maxsigmadev_photons::Float64
+    maxsigmadev_photons::Real
     n_min::Int
-    r::Float64
+    r::Real
 end
 function PreThreshParams2D(;
-    maxsigmadev_photons::Float64=Inf64,
+    maxsigmadev_photons::Real=Inf64,
     n_min::Int=0,
-    r::Float64=10.0)
+    r::Real=10.0)
 
     return PreThreshParams2D(maxsigmadev_photons, n_min, r)
 end
@@ -86,7 +86,7 @@ Abstract type defining preclustering parameter structures.
 abstract type PreclusterParams end
 
 """
-    PreclusterParams2D(maxdist::Float64, on::Bool)
+    PreclusterParams2D(maxdist::Real, on::Bool)
 
 Structure of parameters defining preclustering of localizations in subregions.
 
@@ -101,11 +101,11 @@ preclustering of localizations within each subregion.
        (Default = false)
 """
 mutable struct PreclusterParams2D <: PreclusterParams
-    maxdist::Float64
+    maxdist::Real
     on::Bool
 end
 function PreclusterParams2D(;
-    maxdist::Float64=0.15,
+    maxdist::Real=0.15,
     on::Bool=false)
 
     return PreclusterParams2D(maxdist, on)
@@ -142,24 +142,24 @@ related to RJMCMC.
             localization in the Gaussian image used to define `imdistrib`.
 """
 mutable struct MCParams2D <: MCParams
-    η::Float64
-    γ::Float64
-    σ_a::Float64
+    η::Real
+    γ::Real
+    σ_a::Real
     n_chain::Int
     n_burnin::Int
-    p_jump::Vector{Float64}
-    imdistrib_mag::Float64
-    nsigma::Float64
+    p_jump::Vector{<:Real}
+    imdistrib_mag::Real
+    nsigma::Real
 end
 function MCParams2D(;
-    η::Float64=1.0,
-    γ::Float64=1.0,
-    σ_a::Float64=0.0,
+    η::Real=1.0,
+    γ::Real=1.0,
+    σ_a::Real=0.0,
     n_chain::Int=2000,
     n_burnin::Int=3000,
-    p_jump::Vector{Float64}=[0.25; 0.25; 0.25; 0.25],
-    imdistrib_mag::Float64=20.0,
-    nsigma::Float64=5.0)
+    p_jump::Vector{<:Real}=[0.25; 0.25; 0.25; 0.25],
+    imdistrib_mag::Real=20.0,
+    nsigma::Real=5.0)
 
     return MCParams2D(η, γ, σ_a, n_chain, n_burnin, p_jump, imdistrib_mag, nsigma)
 end
@@ -195,17 +195,17 @@ related to hierarchical BaGoL analysis.
 """
 mutable struct HBParams2D <: HBParams
     nsamples::Int
-    α::Float64
-    θ::Float64
-    α_scaling::Float64
+    α::Real
+    θ::Real
+    α_scaling::Real
     nthinning::Int
     on::Bool
 end
 function HBParams2D(;
     nsamples::Int=10,
-    α::Float64=2.0,
-    θ::Float64=10.0,
-    α_scaling::Float64=3000.0,
+    α::Real=2.0,
+    θ::Real=10.0,
+    α_scaling::Real=3000.0,
     nthinning::Int=5,
     on::Bool=true)
 
@@ -275,9 +275,9 @@ terms of the other user set parameters in BaGoLParams2D.
             ([a_ydistrib; a_xdistrib])
 """
 mutable struct Internals2D <: BaGoLParams
-    roi::Vector{Float64}
+    roi::Vector{<:Real}
     srimsize::Vector{Int}
-    area::Float64
+    area::Real
     jumpdistrib::Distributions.Distribution
     imdistrib::Distributions.Distribution
     priork::Distributions.Distribution
@@ -298,8 +298,8 @@ abstract type State end
 """
     BaGoLState2D(k::Int,
                  z::Vector{Int},
-                 μ::Matrix{Float64},
-                 a::Matrix{Float64})
+                 μ::Matrix{<:Real},
+                 a::Matrix{<:Real})
 
 Structure of data pertaining to a state in a Markov chain.
 
@@ -315,13 +315,13 @@ This structure organizes some data retained during RJMCMC.
 mutable struct BaGoLState2D <: State
     k::Int
     z::Vector{Int}
-    μ::Matrix{Float64}
-    a::Matrix{Float64}
+    μ::Matrix{<:Real}
+    a::Matrix{<:Real}
 end
 BaGoLState2D() = SMLMBaGoL.BaGoLState2D(1,
     Vector{Int}(undef, 1),
-    Matrix{Float64}(undef, 2, 1),
-    Matrix{Float64}(undef, 2, 1))
+    Matrix{Float32}(undef, 2, 1),
+    Matrix{Float32}(undef, 2, 1))
 
 """
     MarkovChain

@@ -11,7 +11,7 @@ Once an SMLMData.SMLD2D structure is fully populated, the user only needs to run
 package: `perform_BaGoL_analysis()`.  All fields of the SMLMData.SMLD2D structure should be populated with either 
 meaningful values (e.g., for fields like `x`, `y`, `σ_x`, `σ_y`, and `framenum`, which the algorithm depends on) or
 by placeholders with a meaningful size (e.g., fields like `bg` and `σ_bg`, which may not be available, should be set
-to something like `smld.bg = zeros(Float64, length(smld.framenum))` and `σ_bg = fill(Inf64, length(smld.framenum))`).
+to something like `smld.bg = zeros(Float32, length(smld.framenum))` and `σ_bg = fill(Inf32, length(smld.framenum))`).
 
 ## Examples
 

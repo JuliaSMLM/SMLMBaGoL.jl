@@ -2,7 +2,7 @@ using SMLMData
 using Clustering
 
 """
-    precluster_hierarchical!(smld::SMLMData.SMLD2D, maxdist::Float64)
+    precluster_hierarchical!(smld::SMLMData.SMLD2D, maxdist::Real)
 
 Pre-cluster localizations in `smld` and define a Gamma prior from the results.
 
@@ -18,7 +18,7 @@ between emitters placed in the same precluster.
 - `maxdist`: Maximum distance from one localization to its nearest-neighbor 
              allowed in each precluster. (Pixels)
 """
-function precluster_hierarchical!(smld::SMLMData.SMLD2D, maxdist::Float64=0.15)
+function precluster_hierarchical!(smld::SMLMData.SMLD2D, maxdist::Real=0.15)
     # Compute the separations between all localizations in `smld`.
     dist = SMLMBaGoL.pairwise_dist([smld.x smld.y])
 
@@ -29,7 +29,7 @@ end
 
 """
     smld_preclustered = precluster_hierarchical(smld::SMLMData.SMLD2D,
-                                                maxdist::Float64)
+                                                maxdist::Real)
 
 Pre-cluster localizations in `smld` and define a Gamma prior from the results.
 
@@ -49,7 +49,7 @@ between emitters placed in the same precluster.
 - `smld_preclustered`: Copy of input `smld` with an updated field `connectID`
                        reflecting cluster membership.
 """
-function precluster_hierarchical(smld::SMLMData.SMLD2D, maxdist::Float64 = 0.15)
+function precluster_hierarchical(smld::SMLMData.SMLD2D, maxdist::Real = 0.15)
     smld_preclustered = deepcopy(smld)
     SMLMBaGoL.precluster_hierarchical!(smld_preclustered, maxdist)
 
@@ -57,7 +57,7 @@ function precluster_hierarchical(smld::SMLMData.SMLD2D, maxdist::Float64 = 0.15)
 end
 
 """
-dist = pairwise_dist(data::Matrix{Float64})
+dist = pairwise_dist(data::Matrix{<:Real})
 
 Compute the pairwise distance between rows of `data`.
 
@@ -74,10 +74,10 @@ rows of the input matrix `data`.
 - `dist`: Pairwise distance between rows of input `data`, saved as an
           upper-triangular matrix to avoid redundant computations.
 """
-function pairwise_dist(data::Matrix{Float64})
+function pairwise_dist(data::Matrix{<:Real})
     # Compute the distance between rows of `data`.
     npoints = size(data)[1]
-    dist = fill!(Matrix{Float64}(undef, size(data)[1], size(data)[1]), Inf64)
+    dist = fill!(Matrix{Float32}(undef, size(data)[1], size(data)[1]), Inf64)
     for ii = 1:npoints, jj = (ii+1):npoints
         dist[ii, jj] = sqrt(sum((data[ii, :]-data[jj, :]).^2))
     end
