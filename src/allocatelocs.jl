@@ -31,8 +31,8 @@ end
 
 """
     zvalid, μvalid, avalid, k = isolateuseful(z::Vector{Int}, 
-                                              μ::Matrix{Float64}, 
-                                              a::Matrix{Float64})
+                                              μ::Matrix{<:Real}, 
+                                              a::Matrix{<:Real})
 
 Keep only those emitters in `μ` and `a` with allocated localizations.
 
@@ -48,7 +48,7 @@ Keep only those emitters in `μ` and `a` with allocated localizations.
 - `avalid`: Drift velocities of emitters with localizations allocated to them.
 - `k`: Number of emitters with valid allocations.
 """
-function isolateuseful(z::Vector{Int}, μ::Matrix{Float64}, a::Matrix{Float64})
+function isolateuseful(z::Vector{Int}, μ::Matrix{<:Real}, a::Matrix{<:Real})
     # Determine which emitters should be kept (i.e., which ones have 
     # localizations allocated to them).
     zvalid, zunique, k = SMLMBaGoL.validifyallocs(z)
@@ -92,8 +92,8 @@ end
 
 """
     zprime = allocatelocs(smld::SMLMData.SMLD2D, 
-                          μ::Matrix{Float64}, 
-                          a::Matrix{Float64})
+                          μ::Matrix{<:Real}, 
+                          a::Matrix{<:Real})
 
 Allocate localizations to emitters.
 
@@ -113,8 +113,8 @@ the positions `μ` at time t=0.
             (i.e., row `k` of `μ`).
 """
 function allocatelocs(smld::SMLMData.SMLD2D, 
-                      μ::Matrix{Float64}, 
-                      a::Matrix{Float64})
+                      μ::Matrix{<:Real}, 
+                      a::Matrix{<:Real})
     # Loop through localizations in `smld` and allocate to emitters using 
     # Gibbs sampling.
     nlocs = Base.length(smld)
@@ -122,7 +122,7 @@ function allocatelocs(smld::SMLMData.SMLD2D,
     for nn = 1:nlocs
         posterior = SMLMBaGoL.posterior_allocations([smld.y[nn]; smld.x[nn]], 
                                                     [smld.σ_y[nn]; smld.σ_x[nn]], 
-                                                    Float64(smld.framenum[nn]),
+                                                    Float32(smld.framenum[nn]),
                                                     μ, 
                                                     a)
         zprime[nn] = Distributions.rand(posterior)
@@ -132,11 +132,11 @@ function allocatelocs(smld::SMLMData.SMLD2D,
 end
 
 """
-    posterior = posterior_allocations(y::Vector{Float64}, 
-                                      σ_y::Vector{Float64}, 
-                                      t::Float64, 
-                                      μ::Matrix{Float64},
-                                      a::Matrix{Float64})
+    posterior = posterior_allocations(y::Vector{<:Real}, 
+                                      σ_y::Vector{<:Real}, 
+                                      t::Real, 
+                                      μ::Matrix{<:Real},
+                                      a::Matrix{<:Real})
 
 Construct a posterior distribution of allocations of a localization.
 
@@ -155,11 +155,11 @@ positions `μ` at time t=0.
 # Outputs
 - `posterior`: A Distributions.Distribution defining the allocation posterior.
 """
-function posterior_allocations(y::Vector{Float64}, 
-                               σ_y::Vector{Float64}, 
-                               t::Float64, 
-                               μ::Matrix{Float64},
-                               a::Matrix{Float64})
+function posterior_allocations(y::Vector{<:Real}, 
+                               σ_y::Vector{<:Real}, 
+                               t::Real, 
+                               μ::Matrix{<:Real},
+                               a::Matrix{<:Real})
     # Construct a normalized posterior for the allocations that we can sample
     # from.
     pmf = (1/sqrt(2*pi*σ_y[1]^2)) .* exp.(-(y[1].-μ[:, 1].-a[:, 1]*t).^2 / (2*σ_y[1]^2)) .*
@@ -172,7 +172,7 @@ function posterior_allocations(y::Vector{Float64},
     if any(isnan.(pmf))
         kdtree = NearestNeighbors.KDTree(μ')
         nnindex, _ = NearestNeighbors.knn(kdtree, y, 1, true)
-        pmf = zeros(Float64, Base.length(pmf))
+        pmf = zeros(Float32, Base.length(pmf))
         pmf[nnindex[1]] = 1.0
     end
 
@@ -185,12 +185,12 @@ end
 
 ## Log-likelihood kernels of allocations.
 """
-    logL = logLalloc_kernel(y::Matrix{Float64},
-                            σ::Matrix{Float64},
-                            t::Vector{Float64},
-                            μ::Matrix{Float64},
-                            a::Matrix{Float64},
-                            w::Vector{Float64})
+    logL = logLalloc_kernel(y::Matrix{<:Real},
+                            σ::Matrix{<:Real},
+                            t::Vector{<:Real},
+                            μ::Matrix{<:Real},
+                            a::Matrix{<:Real},
+                            w::Vector{<:Real})
 
 Compute the unnormalized log-likelihood of allocating `y` to emitters `μ`.
 
@@ -211,15 +211,15 @@ method computes the log of the kernel of the distribution P_alloc(Z).
 # Outputs
 - `logL`: Log-likelihood kernel of the allocation distribution.
 """
-function logLalloc_kernel(y::Matrix{Float64},
-                          σ::Matrix{Float64},
-                          t::Vector{Float64},
-                          μ::Matrix{Float64},
-                          a::Matrix{Float64},
-                          w::Vector{Float64})
+function logLalloc_kernel(y::Matrix{<:Real},
+                          σ::Matrix{<:Real},
+                          t::Vector{<:Real},
+                          μ::Matrix{<:Real},
+                          a::Matrix{<:Real},
+                          w::Vector{<:Real})
     # Compute the unnormalized probabilites of allocating localizations to 
     # the provided emitters.
-    p_kernel = Vector{Float64}(undef, size(y, 1))
+    p_kernel = Vector{Float32}(undef, size(y, 1))
     for jj = 1:Base.length(w)
         p_kernel += palloc_kernel(y, σ, t, μ[jj, :], a[jj, :], w[jj])
     end
@@ -234,12 +234,12 @@ end
 
 ## Probability kernels of allocations.
 """
-    p = palloc_kernel(y::Matrix{Float64},
-                      σ::Matrix{Float64},
-                      t::Vector{Float64},
-                      μ::Matrix{Float64},
-                      a::Matrix{Float64},
-                      w::Vector{Float64})
+    p = palloc_kernel(y::Matrix{<:Real},
+                      σ::Matrix{<:Real},
+                      t::Vector{<:Real},
+                      μ::Matrix{<:Real},
+                      a::Matrix{<:Real},
+                      w::Vector{<:Real})
 
 Compute the unnormalized probability of allocating `y` to emitters `μ`.
 
@@ -260,15 +260,15 @@ method computes the kernel of the distribution P_alloc(Z).
 # Outputs
 - `p`: Probability kernel of the allocation probability.
 """
-function palloc_kernel(y::Matrix{Float64},
-                       σ::Matrix{Float64},
-                       t::Vector{Float64},
-                       μ::Matrix{Float64},
-                       a::Matrix{Float64},
-                       w::Vector{Float64})
+function palloc_kernel(y::Matrix{<:Real},
+                       σ::Matrix{<:Real},
+                       t::Vector{<:Real},
+                       μ::Matrix{<:Real},
+                       a::Matrix{<:Real},
+                       w::Vector{<:Real})
     # Compute the unnormalized probability of allocating localizations to the 
     # provided emitters.
-    p_kernel = Vector{Float64}(undef, size(y, 1))
+    p_kernel = Vector{Float32}(undef, size(y, 1))
     for jj = 1:Base.length(w)
         p_kernel += palloc_kernel(y, σ, t, μ[jj, :], a[jj, :], w[jj])
     end
@@ -277,12 +277,12 @@ function palloc_kernel(y::Matrix{Float64},
 end
 
 """
-    p = palloc_kernel(y::Matrix{Float64},
-                      σ::Matrix{Float64},
-                      t::Vector{Float64},
-                      μ::Vector{Float64},
-                      a::Vector{Float64},
-                      w::Float64)
+    p = palloc_kernel(y::Matrix{<:Real},
+                      σ::Matrix{<:Real},
+                      t::Vector{<:Real},
+                      μ::Vector{<:Real},
+                      a::Vector{<:Real},
+                      w::Real)
 
 Compute the unnormalized probability of allocating `y` to emitter `μ`.
 
@@ -303,16 +303,16 @@ method computes the kernel of the distribution P_alloc(Z_i|j).
 # Outputs
 -`p`: Probability kernel of the allocation probability.
 """
-function palloc_kernel(y::Matrix{Float64},
-                       σ::Matrix{Float64},
-                       t::Vector{Float64},
-                       μ::Vector{Float64},
-                       a::Vector{Float64},
-                       w::Float64)
+function palloc_kernel(y::Matrix{<:Real},
+                       σ::Matrix{<:Real},
+                       t::Vector{<:Real},
+                       μ::Vector{<:Real},
+                       a::Vector{<:Real},
+                       w::Real)
     # Compute the unnormalized probability of allocating localizations to the 
     # provided emitter.
     nloc = size(y, 1)
-    p_kernel = Vector{Float64}(undef, nloc)
+    p_kernel = Vector{Float32}(undef, nloc)
     for ii = 1:nloc
         p_kernel[ii] = palloc_kernel(y[ii, :], σ[ii, :], t[ii], μ, a, w)
     end
@@ -321,12 +321,12 @@ function palloc_kernel(y::Matrix{Float64},
 end
 
 """
-    p = palloc_kernel(y::Vector{Float64},
-                      σ::Vector{Float64},
-                      t::Float64,
-                      μ::Vector{Float64},
-                      a::Vector{Float64},
-                      w::Float64)
+    p = palloc_kernel(y::Vector{<:Real},
+                      σ::Vector{<:Real},
+                      t::Real,
+                      μ::Vector{<:Real},
+                      a::Vector{<:Real},
+                      w::Real)
 
 Compute the unnormalized probability of allocating `y` to emitter `μ`.
 
@@ -348,12 +348,12 @@ normalization factor is the same for {j=1:k | P_alloc(Z_i=j)}).
 # Outputs
 - `p`: Probability kernel of the allocation probability.
 """
-function palloc_kernel(y::Vector{Float64},
-                       σ::Vector{Float64},
-                       t::Float64,
-                       μ::Vector{Float64},
-                       a::Vector{Float64},
-                       w::Float64)
+function palloc_kernel(y::Vector{<:Real},
+                       σ::Vector{<:Real},
+                       t::Real,
+                       μ::Vector{<:Real},
+                       a::Vector{<:Real},
+                       w::Real)
     # Compute the unnormalized probability of allocating this localization to
     # the provided emitter.
     p_kernel = w * emitterlikelihood2D(y, σ, t, μ, a)

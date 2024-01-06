@@ -8,7 +8,7 @@ using Base
 #       for allocation probabilities.
 
 """
-    distribution = jumpdistrib(jumppmf::Vector{Float64})
+    distribution = jumpdistrib(jumppmf::Vector{<:Real})
 
 Generate a distribution of jump choices from the provided `jumppmf`.
 
@@ -23,7 +23,7 @@ using rand(distribution).
 # Outputs
 - `distribution`: Distributions.Distribution defined by input `jumppmf`.
 """
-function jumpdistrib(jumppmf::Vector{Float64})
+function jumpdistrib(jumppmf::Vector{<:Real})
 
     # Create a distribution for the jumps using the Distributions package.
     return Distributions.DiscreteNonParametric(1:Base.length(jumppmf), jumppmf)
@@ -184,7 +184,7 @@ end
 """
     α = acceptbirth(smld::SMLMData.SMLD2D,
                     proposal::SMLMBaGoL.BaGoLState2D,
-                    p_im::Float64,
+                    p_im::Real,
                     currentstate::SMLMBaGoL.BaGoLState2D,
                     mcparams::SMLMBaGoL.MCParams2D,
                     internals::SMLMBaGoL.Internals2D)
@@ -213,13 +213,13 @@ in `currentstate`.
 """
 function acceptbirth(smld::SMLMData.SMLD2D,
     proposal::SMLMBaGoL.BaGoLState2D,
-    p_im::Float64,
+    p_im::Real,
     currentstate::SMLMBaGoL.BaGoLState2D,
     mcparams::SMLMBaGoL.MCParams2D,
     internals::SMLMBaGoL.Internals2D)
 
     # Compute the probability ratio for the allocations.
-    t = Float64.(smld.framenum)
+    t = Float32.(smld.framenum)
     logLallocprime = SMLMBaGoL.emitterlogL2D(
         [smld.y smld.x], [smld.σ_y smld.σ_x], t,
         proposal.μ, proposal.a, proposal.z)
@@ -244,7 +244,7 @@ end
 """
     α = acceptdeath(smld::SMLMData.SMLD2D,
                     proposal::SMLMBaGoL.BaGoLState2D,
-                    p_im::Float64,
+                    p_im::Real,
                     currentstate::SMLMBaGoL.BaGoLState2D,
                     mcparams::SMLMBaGoL.MCParams2D,
                     internals::SMLMBaGoL.Internals2D)
@@ -271,7 +271,7 @@ in `currentstate`.
 """
 function acceptdeath(smld::SMLMData.SMLD2D,
     proposal::SMLMBaGoL.BaGoLState2D,
-    p_im::Float64,
+    p_im::Real,
     currentstate::SMLMBaGoL.BaGoLState2D,
     mcparams::SMLMBaGoL.MCParams2D,
     internals::SMLMBaGoL.Internals2D)
@@ -468,8 +468,8 @@ function updateη(nloc::Vector{Int}, k::Vector{Int},
     η = deepcopy(mcparams.η)
     γ = deepcopy(mcparams.γ)
     η_prop = Distributions.rand(Gamma(hbparams.α_scaling, η / hbparams.α_scaling))
-    llratio = sum(log.(SMLMBaGoL.gammapdf(k * η_prop, γ, Float64.(nloc))) -
-                  log.(SMLMBaGoL.gammapdf(k * η, γ, Float64.(nloc))))
+    llratio = sum(log.(SMLMBaGoL.gammapdf(k * η_prop, γ, Float32.(nloc))) -
+                  log.(SMLMBaGoL.gammapdf(k * η, γ, Float32.(nloc))))
     lpriorratio = log(pdf(Gamma(hbparams.α, hbparams.θ), η_prop)) -
                   log(pdf(Gamma(hbparams.α, hbparams.θ), η))
     lpropratio = log(pdf(Gamma(hbparams.α_scaling, η_prop / hbparams.α_scaling), η)) -
@@ -514,8 +514,8 @@ function updateγ(nloc::Vector{Int}, k::Vector{Int},
     η = deepcopy(mcparams.η)
     γ = deepcopy(mcparams.γ)
     γ_prop = Distributions.rand(Gamma(hbparams.α_scaling, γ / hbparams.α_scaling))
-    llratio = sum(log.(SMLMBaGoL.gammapdf(k * η, γ_prop, Float64.(nloc))) -
-                  log.(SMLMBaGoL.gammapdf(k * η, γ, Float64.(nloc))))
+    llratio = sum(log.(SMLMBaGoL.gammapdf(k * η, γ_prop, Float32.(nloc))) -
+                  log.(SMLMBaGoL.gammapdf(k * η, γ, Float32.(nloc))))
     lpriorratio = log(pdf(Gamma(hbparams.α, hbparams.θ), γ_prop)) -
                   log(pdf(Gamma(hbparams.α, hbparams.θ), γ))
     lpropratio = log(pdf(Gamma(hbparams.α_scaling, γ_prop / hbparams.α_scaling), γ)) -

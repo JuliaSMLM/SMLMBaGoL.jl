@@ -28,7 +28,7 @@ normal distribution defined by the MLE position of the localizations in `smld`
 function moveemitters(smld::SMLMData.SMLD2D, z::Vector{Int}, k::Int = maximum(z))
     # Loop through the `k` emitters and sample new positions based on the
     # allocations of localizations in `smld` defined by `z`.
-    μ = Matrix{Float64}(undef, k, 2)
+    μ = Matrix{Float32}(undef, k, 2)
     for ii = 1:k
         currentbool = z .== ii
         μ[ii, 1] = SMLMBaGoL.posterior_emitterpos(smld.y[currentbool], 
@@ -43,7 +43,7 @@ end
 """
     moveemitters(smld::SMLMData.SMLD2D, 
                  z::Vector{Int}, 
-                 σ_a::Float64,
+                 σ_a::Real,
                  k::Int = maximum(z))
 
 Sample the `k` emitter positions from the normal distribution.
@@ -65,18 +65,18 @@ normal distribution defined by the MLE position of the localizations in `smld`
 """
 function moveemitters(smld::SMLMData.SMLD2D, 
                       z::Vector{Int}, 
-                      σ_a::Float64, 
+                      σ_a::Real, 
                       k::Int = maximum(z))
     # If σ_a isn't positive (e.g., 0.0) we should dispatch on the non-drift
     # method of moveemitters.
     if σ_a <= 0.0
-        return moveemitters(smld, z, k), zeros(Float64, k, 2)
+        return moveemitters(smld, z, k), zeros(Float32, k, 2)
     end
 
     # Loop through the `k` emitters and sample new positions based on the
     # allocations of localizations in `smld` defined by `z`.
-    μ = Matrix{Float64}(undef, k, 2)
-    a = Matrix{Float64}(undef, k, 2)
+    μ = Matrix{Float32}(undef, k, 2)
+    a = Matrix{Float32}(undef, k, 2)
     for ii = 1:k
         currentbool = z .== ii
         μ[ii, 1], a[ii, 1] = SMLMBaGoL.posterior_emitterpos(smld.y[currentbool], 
@@ -89,8 +89,8 @@ function moveemitters(smld::SMLMData.SMLD2D,
 end
 
 """
-    sample = posterior_emitterpos(y::Vector{Float64}, 
-                                  σ_y::Vector{Float64})
+    sample = posterior_emitterpos(y::Vector{<:Real}, 
+                                  σ_y::Vector{<:Real})
 
 Sample a posterior distribution of emitter position along one dimension.
 
@@ -105,8 +105,8 @@ emitter which generated the one dimensional localization coordinates `y`.
 # Outputs
 - `sample`: Sample from the posterior emitter distribution.
 """
-function posterior_emitterpos(y::Vector{Float64}, 
-                              σ_y::Vector{Float64})
+function posterior_emitterpos(y::Vector{<:Real}, 
+                              σ_y::Vector{<:Real})
     # Estimate the location of the `kID`-th emitter based on the allocated
     # localizations defined by `y` and `σ_y`.  `μ_mle` is the MLE of the true
     # emitter position sampled by the length(y) Gaussians with mean `y` and 
@@ -123,10 +123,10 @@ function posterior_emitterpos(y::Vector{Float64},
 end
 
 """
-    sample = posterior_emitterpos(y::Vector{Float64}, 
-                                  σ_y::Vector{Float64},
-                                  t::Float64,
-                                  σ_a::Float64)
+    sample = posterior_emitterpos(y::Vector{<:Real}, 
+                                  σ_y::Vector{<:Real},
+                                  t::Real,
+                                  σ_a::Real)
 
 Sample the posterior of emitter position and drift along one dimension.
 
@@ -144,10 +144,10 @@ emitter and its drift which generated the localizations `y`.
 - `sample`: Sample from the posterior emitter and drift velocity
             distribution. ([μ_sample; a_sample])
 """
-function posterior_emitterpos(y::Vector{Float64},
-                              σ_y::Vector{Float64},
+function posterior_emitterpos(y::Vector{<:Real},
+                              σ_y::Vector{<:Real},
                               t::Vector{Int},
-                              σ_a::Float64)
+                              σ_a::Real)
     # Estimate the location of the `k-th` emitter based on the allocated
     # localizations defined by `y` and `σ_y`.  `μ` is the MLE of the true
     # emitter position sampled by the length(y) Gaussians with mean `y` and 

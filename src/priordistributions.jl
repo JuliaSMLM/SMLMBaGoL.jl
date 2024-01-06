@@ -4,7 +4,7 @@ using Base
 # This file contains functions defining the BaGoL priors.
 
 """
-    prior = prior_kemitters(nloc::Int, η::Float64, γ::Float64)
+    prior = prior_kemitters(nloc::Int, η::Real, γ::Real)
 
 Generate a prior on the number of emitters assuming gamma loc. per emitter.
 
@@ -21,12 +21,12 @@ the number of localizations per emitter is gamma distributed.
 - `prior`: Distributions.Distribution defined by assuming a gamma prior for the
            number of blinks per emitter.
 """
-function prior_kemitters(nloc::Int, η::Float64, γ::Float64)
+function prior_kemitters(nloc::Int, η::Real, γ::Real)
     # Define the prior on the number of emitters assuming the localizations per
     # emitter is gamma distributed.
     kemitters = collect(1:nloc)
     if nloc > 1
-        gammadist = Vector{Float64}(undef, nloc)
+        gammadist = Vector{Float32}(undef, nloc)
         for ii = 1:nloc
             pdfcurrent = Distributions.Gamma(kemitters[ii] * η, γ)
             gammadist[ii] = Distributions.pdf(pdfcurrent, nloc)
@@ -60,7 +60,7 @@ the number of localizations per emitter `λ` is Poisson distributed.
 function prior_kemitters(nloc::Int, λ::Int)
     # Define the prior on the number of emitters assuming Poisson `λ`.
     kemitters = collect(1:nloc)
-    poissdist = Vector{Float64}(undef, nloc)
+    poissdist = Vector{Float32}(undef, nloc)
     for ii = 1:nloc
         # Distributions.Poisson() seems to do a smarter calculation than what
         # I tried when typing in the Poisson pdf here manually (i.e., my naive
@@ -98,7 +98,7 @@ function prior_allocations(nloc::Int, kemitters::Int)
 end
 
 """
-    prior = prior_positions(roisize::Vector{Float64})
+    prior = prior_positions(roisize::Vector{<:Real})
 
 Generate prior distributions on the positions of emitters.
 
@@ -169,7 +169,7 @@ can represent, e.g., random spatial coordinates.
 function rand(distrib::Vector{Distributions.Distribution}, nsamples::Int)
     # Sample the n distributions in distrib.
     ndistrib = Base.length(distrib)
-    sample = Matrix{Float64}(undef, nsamples, ndistrib)
+    sample = Matrix{Float32}(undef, nsamples, ndistrib)
     for ii = 1:ndistrib
         sample[:, ii] = Distributions.rand(distrib[ii], nsamples)
     end
@@ -178,7 +178,7 @@ function rand(distrib::Vector{Distributions.Distribution}, nsamples::Int)
 end
 
 """
-    prior = prior_drift(σ_a::Vector{Float64})
+    prior = prior_drift(σ_a::Vector{<:Real})
 
 Generate priors on the drift velocities of emitters.
 
@@ -188,7 +188,7 @@ This method constructs normal priors on the 1D drift velocities of emitters.
 # Inputs
 - `σ_a`: Standard deviation of the drift velocity prior. (2x1)([x; y])
 """
-function prior_drift(σ_a::Vector{Float64})
+function prior_drift(σ_a::Vector{<:Real})
     # Prepare the distributions.
     ndim = Base.length(σ_a)
     prior = Vector{Distributions.Distribution}(undef, ndim)
@@ -200,7 +200,7 @@ function prior_drift(σ_a::Vector{Float64})
 end
 
 """
-    prior = prior_drift(σ_a::Float64)
+    prior = prior_drift(σ_a::Real)
 
 Generate a prior on the drift velocities of emitters.
 
@@ -214,7 +214,7 @@ This method constructs a Normal prior on the 1D drift velocities of emitters.
 - `prior`: Normal prior on a 1D drift velocity, given as a 
            Distributions.Distribution.
 """
-function prior_drift(σ_a::Float64)
+function prior_drift(σ_a::Real)
     # Prepare the normal distribution.
     return Distributions.Normal(0, σ_a)
 end

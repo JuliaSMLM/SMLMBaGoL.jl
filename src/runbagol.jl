@@ -28,9 +28,9 @@ defined below.
 
 # Outputs
 - `chain`: An SMLMBaGoL.BaGoLChain2D RJMCMC chain.
-- `rois`: Subregion ROIs used. (Matrix{Vector{Float64}})
+- `rois`: Subregion ROIs used. (Matrix{Vector{<:Real}})
 - `roioverlap`: ROI overlap used in subregion generation, which might be 
-                modified from the user set value. (Float64)
+                modified from the user set value. (Float32)
 """
 function runbagol(smld::SMLMData.SMLD2D;
     subregion_params::SMLMBaGoL.SubregionParams2D=SMLMBaGoL.SubregionParams2D(),
@@ -46,7 +46,7 @@ function runbagol(smld::SMLMData.SMLD2D;
     else
         roioverlap = 0.0
         smld_subregions, rois, _ = SMLMBaGoL.gensubregions(smld,
-            Float64.(maximum(smld.datasize)), roioverlap)
+            Float32.(maximum(smld.datasize)), roioverlap)
     end
 
     # Remove outlier localizations.
@@ -64,7 +64,7 @@ function runbagol(smld::SMLMData.SMLD2D;
         smld_preclustered = deepcopy(smld_subregions)
         for ii = 1:prod(size(smld_preclustered))
             smld_preclustered[ii].connectID =
-                ones(Float64, length(smld_preclustered[ii].framenum))
+                ones(Float32, length(smld_preclustered[ii].framenum))
         end
     end
 
@@ -116,9 +116,9 @@ SMLMBaGoL.jl will typically use this function.
 - `chain`: An SMLMBaGoL.BaGoLChain2D RJMCMC chain.
 - `λchain`: An array of the λ parameters that were used for each hierarchical 
             sample.
-- `rois`: Subregion ROIs used. (Matrix{Vector{Float64}})
+- `rois`: Subregion ROIs used. (Matrix{Vector{<:Real}})
 - `roioverlap`: ROI overlap used in subregion generation, which might be 
-                modified from the user set value. (Float64)
+                modified from the user set value. (Float32)
 """
 function runbagol(smld::SMLMData.SMLD2D, hbparams::SMLMBaGoL.HBParams2D;
     subregion_params::SMLMBaGoL.SubregionParams2D=SMLMBaGoL.SubregionParams2D(),
@@ -134,7 +134,7 @@ function runbagol(smld::SMLMData.SMLD2D, hbparams::SMLMBaGoL.HBParams2D;
     else
         roioverlap = 0.0
         smld_subregions, rois, _ = SMLMBaGoL.gensubregions(smld,
-            Float64.(maximum(smld.datasize)), roioverlap)
+            Float32.(maximum(smld.datasize)), roioverlap)
     end
 
     # Remove outlier localizations.
@@ -152,7 +152,7 @@ function runbagol(smld::SMLMData.SMLD2D, hbparams::SMLMBaGoL.HBParams2D;
         smld_preclustered = deepcopy(smld_subregions)
         for ii = 1:prod(size(smld_preclustered))
             smld_preclustered[ii].connectID =
-                ones(Float64, length(smld_preclustered[ii].framenum))
+                ones(Float32, length(smld_preclustered[ii].framenum))
         end
     end
 
@@ -181,7 +181,7 @@ end
         prethresholds::SMLMBaGoL.PreThreshParams2D = SMLMBaGoL.PreThreshParams2D(),
         preclustering_params::SMLMBaGoL.PreclusterParams2D = SMLMBaGoL.PreclusterParams2D(),
         mcparams::SMLMBaGoL.MCParams2D = SMLMBaGoL.MCParams2D(),
-        imagezoom::Float64=20.0)
+        imagezoom::Real=20.0)
 
 Perform a (user-friendly) hierarchical BaGoL analysis based on localizations in `smld`.
 
@@ -203,16 +203,16 @@ is defined in `mcparams` from calibration data).
 - `chain`: An SMLMBaGoL.BaGoLChain2D RJMCMC chain.
 - `λchain`: An array of the λ parameters that were used for each hierarchical 
             sample.
-- `rois`: Subregion ROIs used. (Matrix{Vector{Float64}})
+- `rois`: Subregion ROIs used. (Matrix{Vector{<:Real}})
 - `roioverlap`: ROI overlap used in subregion generation, which might be 
-                modified from the user set value. (Float64)
+                modified from the user set value. (Float32)
 """
 function perform_BaGoL_analysis(smld::SMLMData.SMLD2D;
     subregion_params::SMLMBaGoL.SubregionParams2D=SMLMBaGoL.SubregionParams2D(),
     prethresholds::SMLMBaGoL.PreThreshParams2D=SMLMBaGoL.PreThreshParams2D(),
     preclustering_params::SMLMBaGoL.PreclusterParams2D=SMLMBaGoL.PreclusterParams2D(),
     mcparams::SMLMBaGoL.MCParams2D=SMLMBaGoL.MCParams2D(),
-    imagezoom::Float64=20.0)
+    imagezoom::Real=20.0)
 
     # Perform the standard hierarchical BaGoL analysis.
     chain, validchain, mapnout, rois, roioverlap, params = SMLMBaGoL.runbagol(smld;
@@ -242,7 +242,7 @@ end
         prethresholds::SMLMBaGoL.PreThreshParams2D = SMLMBaGoL.PreThreshParams2D(),
         preclustering_params::SMLMBaGoL.PreclusterParams2D = SMLMBaGoL.PreclusterParams2D(),
         mcparams::SMLMBaGoL.MCParams2D = SMLMBaGoL.MCParams2D(),
-        imagezoom::Float64=20.0)
+        imagezoom::Real=20.0)
 
 Perform a (user-friendly) hierarchical BaGoL analysis based on localizations in `smld`.
 
@@ -265,16 +265,16 @@ emitter) during the RJMCMC process.
 - `chain`: An SMLMBaGoL.BaGoLChain2D RJMCMC chain.
 - `λchain`: An array of the λ parameters that were used for each hierarchical 
             sample.
-- `rois`: Subregion ROIs used. (Matrix{Vector{Float64}})
+- `rois`: Subregion ROIs used. (Matrix{Vector{<:Real}})
 - `roioverlap`: ROI overlap used in subregion generation, which might be 
-                modified from the user set value. (Float64)
+                modified from the user set value. (Float32)
 """
 function perform_BaGoL_analysis(smld::SMLMData.SMLD2D, hbparams::SMLMBaGoL.HBParams2D;
     subregion_params::SMLMBaGoL.SubregionParams2D=SMLMBaGoL.SubregionParams2D(),
     prethresholds::SMLMBaGoL.PreThreshParams2D=SMLMBaGoL.PreThreshParams2D(),
     preclustering_params::SMLMBaGoL.PreclusterParams2D=SMLMBaGoL.PreclusterParams2D(),
     mcparams::SMLMBaGoL.MCParams2D=SMLMBaGoL.MCParams2D(),
-    imagezoom::Float64=20.0)
+    imagezoom::Real=20.0)
 
     # Perform the standard hierarchical BaGoL analysis.
     chain, validchain, mapnout, λchain, rois, roioverlap, params = SMLMBaGoL.runbagol(smld, hbparams;

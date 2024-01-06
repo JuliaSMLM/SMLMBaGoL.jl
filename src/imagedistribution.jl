@@ -6,9 +6,9 @@ using Base
 
 """
     imdistrib, imsize = imagedistribution(smld::SMLMData.SMLD2D;
-                                          mag::Float64 = 20.0, 
-                                          nsigma::Float64 = 5.0,
-                                          roi::Vector{Float64} = [1.0; 1.0])
+                                          mag::Real = 20.0, 
+                                          nsigma::Real = 5.0,
+                                          roi::Vector{<:Real} = [1.0; 1.0])
 
 Generate an approximate emitter distribution from `smld` coordinates.
 
@@ -35,9 +35,9 @@ Distributions package.
 - `imsize`: Size of the Gaussian image used to compute `imdistrib`.
 """
 function imagedistribution(smld::SMLMData.SMLD2D;
-                           mag::Float64 = 20.0, 
-                           nsigma::Float64 = 5.0, 
-                           roi::Vector{Float64} = [1.0; 1.0])
+                           mag::Real = 20.0, 
+                           nsigma::Real = 5.0, 
+                           roi::Vector{<:Real} = [1.0; 1.0])
     # Shift the coordinates in `smld` so that they are in the range defined by 
     # `roi` (i.e., `smld` and `roi` might represent a subregion of a full 
     # image, so we need to shift the coordinates before preparing the Gaussian 
@@ -53,7 +53,7 @@ function imagedistribution(smld::SMLMData.SMLD2D;
 end
 
 """
-    imdistrib = imagedistribution(image::Matrix{Float64})
+    imdistrib = imagedistribution(image::Matrix{<:Real})
 
 Convert the provided `image` into a distribution.
 
@@ -63,7 +63,7 @@ Convert the provided `image` into a distribution.
 # Outputs
 - `imdstrib`: 1D distribution describing the input `image`.
 """
-function imagedistribution(image::Matrix{Float64})
+function imagedistribution(image::Matrix{<:Real})
     # Normalize the image and prepare a distribution using the Distributions
     # package.
     pmf = image[:] ./ sum(image)
@@ -94,7 +94,7 @@ function samplecoords2D(imdistrib::Distributions.Distribution,
                         nsamples::Int)
     # Sample the `nsamples` positions.
     sampleind = Vector{Int}(undef, nsamples)
-    coords = Matrix{Float64}(undef, nsamples, 2)
+    coords = Matrix{Float32}(undef, nsamples, 2)
     for nn = 1:nsamples
         coords[nn, :], sampleind[nn] = SMLMBaGoL.samplecoords2D(imdistrib, imrows)
     end
