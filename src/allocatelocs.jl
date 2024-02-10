@@ -167,8 +167,7 @@ function posterior_allocations(y::Vector{<:Real},
     pmf = pmf ./ sum(pmf)
     
     # If any of `pmf` is NaN, we'll just allocate the localization to its
-    # nearest-neighbor emitter.  If the `pmf` is not normalizable, we'll 
-    # instead...? not sure yet!
+    # nearest-neighbor emitter.
     if any(isnan.(pmf))
         kdtree = NearestNeighbors.KDTree(μ')
         nnindex, _ = NearestNeighbors.knn(kdtree, y, 1, true)

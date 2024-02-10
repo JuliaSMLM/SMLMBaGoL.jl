@@ -373,7 +373,7 @@ end
 Propose and accept/reject a jump of type `jumptype`.
 
 # Description
-This function moves proposes a jump of type `jumptype` and then either returns
+This function proposes a jump of type `jumptype` and then either returns
 an updated state (jump accepted) or the input `state` (jump rejected).
 
 # Inputs
@@ -386,8 +386,7 @@ an updated state (jump accepted) or the input `state` (jump rejected).
 
 # Outputs
 - `state`: A proposed state with the moved emitters.
-- `accepted`: Boolean indicating whether or not the move was accepted, which is 
-              always true since moves use Gibbs sampling.
+- `accepted`: Boolean indicating whether or not the move was accepted.
 """
 function updatestate(smld::SMLMData.SMLD2D,
     currentstate::SMLMBaGoL.BaGoLState2D,
