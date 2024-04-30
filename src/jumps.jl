@@ -8,7 +8,7 @@ using Base
 #       for allocation probabilities.
 
 """
-    distribution = jumpdistrib(jumppmf::Vector{Float64})
+    distribution = jumpdistrib(jumppmf::Vector{<:Real})
 
 Generate a distribution of jump choices from the provided `jumppmf`.
 
@@ -18,12 +18,13 @@ sampled to propose a jump labeled by an index in the range [1, length(jumppmf)]
 using rand(distribution).
 
 # Inputs
--`jumppmf`: Probability mass function defining the jump distribution.
+- `jumppmf`: Probability mass function defining the jump distribution.
 
 # Outputs
--`distribution`: Distributions.Distribution defined by input `jumppmf`.
+- `distribution`: Distributions.Distribution defined by input `jumppmf`.
 """
-function jumpdistrib(jumppmf::Vector{Float64})
+function jumpdistrib(jumppmf::Vector{<:Real})
+
     # Create a distribution for the jumps using the Distributions package.
     return Distributions.DiscreteNonParametric(1:Base.length(jumppmf), jumppmf)
 end
@@ -41,20 +42,21 @@ positions have been randomly sampled from the posterior distribution of emitter
 positions.
 
 # Inputs
--`smld`: SMLD2D structure containing localization coordinates.
--`currentstate`: Current state of the Markov chain defining the emitter
-                 positions and localization allocations.
--`mcparams`: Structure of MCMC parameters/distributions.
+- `smld`: SMLD2D structure containing localization coordinates.
+- `currentstate`: Current state of the Markov chain defining the emitter
+                  positions and localization allocations.
+- `mcparams`: Structure of MCMC parameters/distributions.
 
 # Outputs
--`proposal`: Proposal state containing the proposed emitter moves.
+- `proposal`: Proposal state containing the proposed emitter moves.
 """
 function proposemove(smld::SMLMData.SMLD2D,
-                     currentstate::SMLMBaGoL.BaGoLState2D,
-                     mcparams::SMLMBaGoL.MCParams)
+    currentstate::SMLMBaGoL.BaGoLState2D,
+    mcparams::SMLMBaGoL.MCParams)
+
     # Propose a move of the emitters.
     proposal = deepcopy(currentstate)
-    proposal.μ, proposal.a = SMLMBaGoL.moveemitters(smld, 
+    proposal.μ, proposal.a = SMLMBaGoL.moveemitters(smld,
         currentstate.z, mcparams.σ_a, currentstate.k)
 
     return proposal
@@ -71,15 +73,16 @@ This method proposes a new SMLMBaGoL.BaGoLState2D in which the localizations
 in `smld` are reallocated to emitters in `currentstate`.
 
 # Inputs
--`smld`: SMLD2D structure containing localization coordinates.
--`currentstate`: Current state of the Markov chain defining the emitter
-                 positions and localization allocations.
+- `smld`: SMLD2D structure containing localization coordinates.
+- `currentstate`: Current state of the Markov chain defining the emitter
+                  positions and localization allocations.
 
 # Outputs
--`proposal`: Proposal state containing the proposed emitter allocations.
+- `proposal`: Proposal state containing the proposed emitter allocations.
 """
 function proposeallocation(smld::SMLMData.SMLD2D,
-                           currentstate::SMLMBaGoL.BaGoLState2D)
+    currentstate::SMLMBaGoL.BaGoLState2D)
+
     # Propose a reallocation of localizations to emitters.
     proposal = deepcopy(currentstate)
     proposal.z = SMLMBaGoL.allocatelocs(smld, currentstate.μ, currentstate.a)
@@ -99,26 +102,27 @@ This method proposes a new SMLMBaGoL.BaGoLState2D in which a new emitter
 is proposed, followed by a reallocation of localizations to emitters.
 
 # Inputs
--`smld`: SMLD2D structure containing localization coordinates.
--`currentstate`: Current state of the Markov chain defining the emitter
-                 positions and localization allocations.
--`mcparams`: Structure of MCMC parameters/distributions.
--`internals`: Structure of distributions/parameters (e.g., priors).
+- `smld`: SMLD2D structure containing localization coordinates.
+- `currentstate`: Current state of the Markov chain defining the emitter
+                  positions and localization allocations.
+- `mcparams`: Structure of MCMC parameters/distributions.
+- `internals`: Structure of distributions/parameters (e.g., priors).
 
 # Outputs
--`proposal`: Proposal state containing the newly proposed emitter and
-             reallocations of localizations to emitters.
--`p_im`: Probability of an emitter existing at the proposed emitter location.
+- `proposal`: Proposal state containing the newly proposed emitter and
+              reallocations of localizations to emitters.
+- `p_im`: Probability of an emitter existing at the proposed emitter location.
 """
 function proposebirth(smld::SMLMData.SMLD2D,
-                      currentstate::SMLMBaGoL.BaGoLState2D,
-                      mcparams::SMLMBaGoL.MCParams,
-                      internals::SMLMBaGoL.Internals2D)
+    currentstate::SMLMBaGoL.BaGoLState2D,
+    mcparams::SMLMBaGoL.MCParams,
+    internals::SMLMBaGoL.Internals2D)
+
     # Propose a new emitter by treating a Gaussian SR image of the (raw) 
     # localizations as a density distribution.
-    coords, sampleind = SMLMBaGoL.samplecoords2D(internals.imdistrib, 
-                                                 internals.srimsize[1])
-    coords ./= mcparams.srmag
+    coords, sampleind = SMLMBaGoL.samplecoords2D(internals.imdistrib,
+        internals.srimsize[1])
+    coords ./= mcparams.imdistrib_mag
     coords .+= internals.roi[1:2] .- 1.0
     proposal = SMLMBaGoL.BaGoLState2D()
     proposal.k = currentstate.k + 1
@@ -145,20 +149,21 @@ in `currentstate` is removed, with the `smld` localizations being reallocated
 to the new emitter set.
 
 # Inputs
--`smld`: SMLD2D structure containing localization coordinates.
--`currentstate`: Current state of the Markov chain defining the emitter
-                 positions and localization allocations.
--`mcparams`: Structure of MCMC parameters/distributions.
--`internals`: Structure of distributions/parameters (e.g., priors).
+- `smld`: SMLD2D structure containing localization coordinates.
+- `currentstate`: Current state of the Markov chain defining the emitter
+                  positions and localization allocations.
+- `mcparams`: Structure of MCMC parameters/distributions.
+- `internals`: Structure of distributions/parameters (e.g., priors).
 
 # Outputs
--`proposal`: Proposal state reflecting the death of one of the emitters.
--`p_im`: Probability of an emitter existing at the removed emitter location.
+- `proposal`: Proposal state reflecting the death of one of the emitters.
+- `p_im`: Probability of an emitter existing at the removed emitter location.
 """
 function proposedeath(smld::SMLMData.SMLD2D,
-                      currentstate::SMLMBaGoL.BaGoLState2D,
-                      mcparams::SMLMBaGoL.MCParams,
-                      internals::SMLMBaGoL.Internals2D)
+    currentstate::SMLMBaGoL.BaGoLState2D,
+    mcparams::SMLMBaGoL.MCParams,
+    internals::SMLMBaGoL.Internals2D)
+
     # Randomly remove an emitter.
     proposal = deepcopy(currentstate)
     removeind = Base.rand(1:proposal.k)
@@ -169,17 +174,17 @@ function proposedeath(smld::SMLMData.SMLD2D,
 
     # Determine the probability of an emitter being at the location that was
     # removed.
-    coords_mag = mcparams.srmag .* (currentstate.μ[removeind, :].-0.5)
+    coords_mag = mcparams.imdistrib_mag .* (currentstate.μ[removeind, :] .- 0.5)
     inds = Int.(round.(max.(min.(1.0, coords_mag), internals.srimsize)))
-    ind = (inds[2]-1)*internals.srimsize[1] + inds[1]
-    
+    ind = (inds[2] - 1) * internals.srimsize[1] + inds[1]
+
     return proposal, internals.imdistrib.p[ind]
 end
 
 """
     α = acceptbirth(smld::SMLMData.SMLD2D,
                     proposal::SMLMBaGoL.BaGoLState2D,
-                    p_im::Float64,
+                    p_im::Real,
                     currentstate::SMLMBaGoL.BaGoLState2D,
                     mcparams::SMLMBaGoL.MCParams2D,
                     internals::SMLMBaGoL.Internals2D)
@@ -192,36 +197,37 @@ emitter birth defined by `proposal` with respect to the current set of emitters
 in `currentstate`.
 
 # Inputs
--`smld`: SMLD2D structure containing localization coordinates.
--`proposal`: Proposal state reflecting the birth of an emitter.
--`p_im`: Probability of an emitter existing at the proposed location.
-         (see mcparams.imdistrib)
--`currentstate`: Current state of the Markov chain defining the emitter
-                 positions and localization allocations.
--`mcparams`: Structure of MCMC parameters/distributions.
--`internals`: Structure of distributions/parameters (e.g., priors).
+- `smld`: SMLD2D structure containing localization coordinates.
+- `proposal`: Proposal state reflecting the birth of an emitter.
+- `p_im`: Probability of an emitter existing at the proposed location.
+          (see mcparams.imdistrib)
+- `currentstate`: Current state of the Markov chain defining the emitter
+                  positions and localization allocations.
+- `mcparams`: Structure of MCMC parameters/distributions.
+- `internals`: Structure of distributions/parameters (e.g., priors).
 
 # Outputs
--`α`: Acceptance probability of accepting the proposed state change.
-      NOTE: I'm not enforcing `α`<=1.0 in this output, so care must be taken
-            when using it elsewhere!
+- `α`: Acceptance probability of accepting the proposed state change.
+       NOTE: I'm not enforcing `α`<=1.0 in this output, so care must be taken
+             when using it elsewhere!
 """
 function acceptbirth(smld::SMLMData.SMLD2D,
-                     proposal::SMLMBaGoL.BaGoLState2D,
-                     p_im::Float64,
-                     currentstate::SMLMBaGoL.BaGoLState2D,
-                     mcparams::SMLMBaGoL.MCParams2D,
-                     internals::SMLMBaGoL.Internals2D)
+    proposal::SMLMBaGoL.BaGoLState2D,
+    p_im::Real,
+    currentstate::SMLMBaGoL.BaGoLState2D,
+    mcparams::SMLMBaGoL.MCParams2D,
+    internals::SMLMBaGoL.Internals2D)
+
     # Compute the probability ratio for the allocations.
-    t = Float64.(smld.framenum)
+    t = Float32.(smld.framenum)
     logLallocprime = SMLMBaGoL.emitterlogL2D(
-        [smld.y smld.x], [smld.σ_y smld.σ_x], t, 
+        [smld.y smld.x], [smld.σ_y smld.σ_x], t,
         proposal.μ, proposal.a, proposal.z)
     logLalloc = SMLMBaGoL.emitterlogL2D(
-        [smld.y smld.x], [smld.σ_y smld.σ_x], t, 
+        [smld.y smld.x], [smld.σ_y smld.σ_x], t,
         currentstate.μ, currentstate.a, currentstate.z)
     pallocratio = exp(logLallocprime - logLalloc)
-         
+
     # Compute the probability ratio for the number of emitters.
     # NOTE: The death proposal uses this same function, so the proposed `k`
     #       can be smaller than the current value (hence the k=min(...) below).
@@ -231,15 +237,14 @@ function acceptbirth(smld::SMLMData.SMLD2D,
     # Compute the complete proposal ratio.
     nloc = Base.length(smld)
     pjumpratio = mcparams.p_jump[3] / mcparams.p_jump[4]
-    # return pallocratio * pkratio * pjumpratio / (p_im*mcparams.area)
-    return pallocratio * pkratio * ((k/(k+1))^nloc) * pjumpratio / 
-        (p_im*internals.area)
+    return pallocratio * pkratio * ((k / (k + 1))^nloc) * pjumpratio /
+           (p_im * internals.area)
 end
 
 """
     α = acceptdeath(smld::SMLMData.SMLD2D,
                     proposal::SMLMBaGoL.BaGoLState2D,
-                    p_im::Float64,
+                    p_im::Real,
                     currentstate::SMLMBaGoL.BaGoLState2D,
                     mcparams::SMLMBaGoL.MCParams2D,
                     internals::SMLMBaGoL.Internals2D)
@@ -252,25 +257,26 @@ emitter death defined by `proposal` with respect to the current set of emitters
 in `currentstate`.
 
 # Inputs
--`smld`: SMLD2D structure containing localization coordinates.
--`proposal`: Proposal state reflecting the death of one of the emitters.
--`p_im`: Probability of an emitter existing at the proposed location.
-         (see mcparams.imdistrib)
--`currentstate`: Current state of the Markov chain defining the emitter
-                 positions and localization allocations.
--`mcparams`: Structure of MCMC parameters/distributions.
--`internals`: Structure of distributions/parameters (e.g., priors).
+- `smld`: SMLD2D structure containing localization coordinates.
+- `proposal`: Proposal state reflecting the death of one of the emitters.
+- `p_im`: Probability of an emitter existing at the proposed location.
+          (see mcparams.imdistrib)
+- `currentstate`: Current state of the Markov chain defining the emitter
+                  positions and localization allocations.
+- `mcparams`: Structure of MCMC parameters/distributions.
+- `internals`: Structure of distributions/parameters (e.g., priors).
 
 # Outputs
--`accept`: Acceptance probability of accepting the proposed state change.
+- `accept`: Acceptance probability of accepting the proposed state change.
 """
 function acceptdeath(smld::SMLMData.SMLD2D,
-                     proposal::SMLMBaGoL.BaGoLState2D,
-                     p_im::Float64,
-                     currentstate::SMLMBaGoL.BaGoLState2D,
-                     mcparams::SMLMBaGoL.MCParams2D,
-                     internals::SMLMBaGoL.Internals2D)
-    return 1.0 / SMLMBaGoL.acceptbirth(smld, 
+    proposal::SMLMBaGoL.BaGoLState2D,
+    p_im::Real,
+    currentstate::SMLMBaGoL.BaGoLState2D,
+    mcparams::SMLMBaGoL.MCParams2D,
+    internals::SMLMBaGoL.Internals2D)
+
+    return 1.0 / SMLMBaGoL.acceptbirth(smld,
         proposal, p_im, currentstate, mcparams, internals)
 end
 
@@ -287,19 +293,20 @@ This function moves emitters in `state` to new positions sampled from the
 position posterior distribution.
 
 # Inputs
--`smld`: SMLD2D structure containing the localizations.
--`state`: Current state of the Markov chain.
--`mcparams`: Structure of MCMC parameters.
+- `smld`: SMLD2D structure containing the localizations.
+- `state`: Current state of the Markov chain.
+- `mcparams`: Structure of MCMC parameters.
 
 
 # Outputs
--`state`: A proposed state with the moved emitters.
--`accepted`: Boolean indicating whether or not the move was accepted, which is 
-             always true since moves use Gibbs sampling.
+- `state`: A proposed state with the moved emitters.
+- `accepted`: Boolean indicating whether or not the move was accepted, which is 
+              always true since moves use Gibbs sampling.
 """
-function move(smld::SMLMData.SMLD2D, 
-              state::SMLMBaGoL.BaGoLState2D,
-              mcparams::SMLMBaGoL.MCParams2D)
+function move(smld::SMLMData.SMLD2D,
+    state::SMLMBaGoL.BaGoLState2D,
+    mcparams::SMLMBaGoL.MCParams2D)
+
     # Propose a move and accept it (emitter moves are always accepted).
     return SMLMBaGoL.proposemove(smld, state, mcparams), true
 end
@@ -314,16 +321,17 @@ Return a state with `smld` localizations reallocated to emitters in `state`.
 This function reallocates localizations in `smld` to emitters in `state`.
 
 # Inputs
--`smld`: SMLD2D structure containing the localizations.
--`state`: Current state of the Markov chain.
+- `smld`: SMLD2D structure containing the localizations.
+- `state`: Current state of the Markov chain.
 
 # Outputs
--`state`: A proposed state with the (potentially) redefined allocations.
--`accepted`: Boolean indicating whether or not the move was accepted, which is 
-             always true since allocations use Gibbs sampling.
+- `state`: A proposed state with the (potentially) redefined allocations.
+- `accepted`: Boolean indicating whether or not the move was accepted, which is 
+              always true since allocations use Gibbs sampling.
 """
-function reallocate(smld::SMLMData.SMLD2D, 
-                    state::SMLMBaGoL.BaGoLState2D)
+function reallocate(smld::SMLMData.SMLD2D,
+    state::SMLMBaGoL.BaGoLState2D)
+
     # Propose an allocation and accept it (allocations are always accepted).
     return SMLMBaGoL.proposeallocation(smld, state), true
 end
@@ -341,30 +349,31 @@ This function proposes the birth of an emitter and then determines if it should
 be accepted into the Markov chain.
 
 # Inputs
--`smld`: SMLD2D structure containing the localizations.
--`state`: Current state of the Markov chain.
--`mcparams`: Structure of MCMC parameters.
--`internals`: Structure of distributions/parameters (e.g., priors).
+- `smld`: SMLD2D structure containing the localizations.
+- `state`: Current state of the Markov chain.
+- `mcparams`: Structure of MCMC parameters.
+- `internals`: Structure of distributions/parameters (e.g., priors).
 
 # Outputs
--`state`: A proposed state with one more emitter (if the move was accepted) or
-          the input state `state`.
--`accepted`: Boolean indicating whether or not the proposal was accepted.
+- `state`: A proposed state with one more emitter (if the move was accepted) or
+           the input state `state`.
+- `accepted`: Boolean indicating whether or not the proposal was accepted.
 """
-function birth(smld::SMLMData.SMLD2D, 
-               state::SMLMBaGoL.BaGoLState2D,
-               mcparams::SMLMBaGoL.MCParams2D,
-               internals::SMLMBaGoL.Internals2D)
+function birth(smld::SMLMData.SMLD2D,
+    state::SMLMBaGoL.BaGoLState2D,
+    mcparams::SMLMBaGoL.MCParams2D,
+    internals::SMLMBaGoL.Internals2D)
+
     # Propose a birth of a new emitter (unless there are as many emitters as
     # localizations, in which case we'll return the input `state`).
     if state.k < Base.length(smld)
         proposal, p_im = SMLMBaGoL.proposebirth(smld, state, mcparams, internals)
-        acceptance = SMLMBaGoL.acceptbirth(smld, 
-                                           proposal, 
-                                           p_im, 
-                                           state, 
-                                           mcparams,
-                                           internals)
+        acceptance = SMLMBaGoL.acceptbirth(smld,
+            proposal,
+            p_im,
+            state,
+            mcparams,
+            internals)
     else
         proposal = deepcopy(state)
         acceptance = 1.0
@@ -391,20 +400,21 @@ This function proposes the death of an emitter and then determines if it should
 be accepted into the Markov chain.
 
 # Inputs
--`smld`: SMLD2D structure containing the localizations.
--`state`: Current state of the Markov chain.
--`mcparams`: Structure of MCMC parameters.
--`internals`: Structure of distributions/parameters (e.g., priors).
+- `smld`: SMLD2D structure containing the localizations.
+- `state`: Current state of the Markov chain.
+- `mcparams`: Structure of MCMC parameters.
+- `internals`: Structure of distributions/parameters (e.g., priors).
 
 # Outputs
--`state`: A proposed state with one less emitter (if the move was accepted) or
-          the input state `state`.
--`accepted`: Boolean indicating whether or not the proposal was accepted.
+- `state`: A proposed state with one less emitter (if the move was accepted) or
+           the input state `state`.
+- `accepted`: Boolean indicating whether or not the proposal was accepted.
 """
-function death(smld::SMLMData.SMLD2D, 
-               state::SMLMBaGoL.BaGoLState2D,
-               mcparams::SMLMBaGoL.MCParams2D,
-               internals::SMLMBaGoL.Internals2D)
+function death(smld::SMLMData.SMLD2D,
+    state::SMLMBaGoL.BaGoLState2D,
+    mcparams::SMLMBaGoL.MCParams2D,
+    internals::SMLMBaGoL.Internals2D)
+
     # Propose the death of a random emitter (unless there is only 1 emitter 
     # left, in which case we should return the current state).
     if state.k == 1
@@ -412,12 +422,12 @@ function death(smld::SMLMData.SMLD2D,
         acceptance = 1.0
     else
         proposal, p_im = SMLMBaGoL.proposedeath(smld, state, mcparams, internals)
-        acceptance = SMLMBaGoL.acceptdeath(smld, 
-                                           proposal, 
-                                           p_im, 
-                                           state, 
-                                           mcparams,
-                                           internals)
+        acceptance = SMLMBaGoL.acceptdeath(smld,
+            proposal,
+            p_im,
+            state,
+            mcparams,
+            internals)
     end
 
     # Determine whether or not we should accept emitter death.
@@ -425,5 +435,97 @@ function death(smld::SMLMData.SMLD2D,
         return proposal, true
     else
         return state, false
+    end
+end
+
+"""
+    η, accepted = updateη(nloc::Vector{Int}, k::Vector{Int}, 
+                          mcparams::SMLMBaGoL.MCParams2D,
+                          hbparams::SMLMBaGoL.HBParams2D)
+
+Propose and determine acceptance of hyperparameter `η`.
+
+# Description
+This function proposes an update for hyperparameter `η` used in the 
+hierarchical BaGoL analysis scheme (in which the distribution for the blinks
+per emitter is estimated instead of provided as calibration).
+
+# Inputs
+- `nloc`: Number of localizations.
+- `k`: Number of emitters.
+- `mcparams`: Structure of parameters (see SMLMBaGoL.MCParams2D)
+- `hbparams`: Structure of parameters (see SMLMBaGoL.HBParams2D)
+
+# Outputs
+- `η`: proposed value for `η`.
+- `accepted`: Boolean indicating whether or not the proposal was accepted.
+"""
+function updateη(nloc::Vector{Int}, k::Vector{Int},
+    mcparams::SMLMBaGoL.MCParams2D,
+    hbparams::SMLMBaGoL.HBParams2D)
+
+    # Propose an update for η.
+    η = deepcopy(mcparams.η)
+    γ = deepcopy(mcparams.γ)
+    η_prop = Distributions.rand(Gamma(hbparams.α_scaling, η / hbparams.α_scaling))
+    llratio = sum(log.(SMLMBaGoL.gammapdf(k * η_prop, γ, Float32.(nloc))) -
+                  log.(SMLMBaGoL.gammapdf(k * η, γ, Float32.(nloc))))
+    lpriorratio = log(pdf(Gamma(hbparams.α, hbparams.θ), η_prop)) -
+                  log(pdf(Gamma(hbparams.α, hbparams.θ), η))
+    lpropratio = log(pdf(Gamma(hbparams.α_scaling, η_prop / hbparams.α_scaling), η)) -
+                 log(pdf(Gamma(hbparams.α_scaling, η / hbparams.α_scaling), η_prop))
+    acceptance = llratio + lpriorratio + lpropratio
+
+    # Determine whether or not we should accept the update of η.
+    if log(Base.rand()) <= acceptance
+        return η_prop, true
+    else
+        return η_prop, false
+    end
+end
+
+"""
+    γ, accepted = updateγ(nloc::Vector{Int}, k::Vector{Int}, 
+                          mcparams::SMLMBaGoL.MCParams2D,
+                          hbparams::SMLMBaGoL.HBParams2D)
+
+Propose and determine acceptance of hyperparameter `γ`.
+
+# Description
+This function proposes an update for hyperparameter `γ` used in the 
+hierarchical BaGoL analysis scheme (in which the distribution for the blinks
+per emitter is estimated instead of provided as calibration).
+
+# Inputs
+- `nloc`: Number of localizations.
+- `k`: Number of emitters.
+- `mcparams`: Structure of parameters (see SMLMBaGoL.MCParams2D)
+- `hbparams`: Structure of parameters (see SMLMBaGoL.HBParams2D)
+
+# Outputs
+- `γ`: proposed value for `γ`.
+- `accepted`: Boolean indicating whether or not the proposal was accepted.
+"""
+function updateγ(nloc::Vector{Int}, k::Vector{Int},
+    mcparams::SMLMBaGoL.MCParams2D,
+    hbparams::SMLMBaGoL.HBParams2D)
+
+    # Propose an update for γ.
+    η = deepcopy(mcparams.η)
+    γ = deepcopy(mcparams.γ)
+    γ_prop = Distributions.rand(Gamma(hbparams.α_scaling, γ / hbparams.α_scaling))
+    llratio = sum(log.(SMLMBaGoL.gammapdf(k * η, γ_prop, Float32.(nloc))) -
+                  log.(SMLMBaGoL.gammapdf(k * η, γ, Float32.(nloc))))
+    lpriorratio = log(pdf(Gamma(hbparams.α, hbparams.θ), γ_prop)) -
+                  log(pdf(Gamma(hbparams.α, hbparams.θ), γ))
+    lpropratio = log(pdf(Gamma(hbparams.α_scaling, γ_prop / hbparams.α_scaling), γ)) -
+                 log(pdf(Gamma(hbparams.α_scaling, γ / hbparams.α_scaling), γ_prop))
+    acceptance = llratio + lpriorratio + lpropratio
+
+    # Determine whether or not we should accept the proposed γ.
+    if log(Base.rand()) <= acceptance
+        return γ_prop, true
+    else
+        return γ_prop, false
     end
 end
