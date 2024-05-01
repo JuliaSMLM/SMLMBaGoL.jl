@@ -1,6 +1,6 @@
 # Basic 2D workflow 
 # using Pkg
-# Pkg.activate("dev")
+#Pkg.activate("dev")
 using Revise
 using SMLMBaGoL
 BGL = SMLMBaGoL
@@ -14,14 +14,20 @@ using StatsBase
 
 # Setup
 emitter_gen_dist = MvNormal([0.0, 0.0], [100.0 0.0; 0.0 100.0])
-prior_λ = Gamma(2.0, 5.0)
+
+# Prior distribution for λ
+# Note for an Exponential distribution, the mean is μ = 1/λ and the variance is σ^2 = 1/λ^2
+μ_λ = 10.0
+σ_λ = 3.0
+prior_λ = Gamma(μ_λ^2 / σ_λ^2, σ_λ^2 / μ_λ)
 mean(prior_λ)
+std(prior_λ)
 n_emitters = 3
 
 # Generate emitters and observations
 # emitters = RJ.gen_emitters2D(n_emitters, emitter_gen_dist)
 # two close emitters 
-emitters = RJ.Params([RJ.Emitter2D([0.0, 1.0]), RJ.Emitter2D([0.0, -1.0])])
+emitters = RJ.Params([RJ.Emitter2D([0.0, 20.0]), RJ.Emitter2D([0.0, -20.0])])
 
 obs = RJ.gen_observations2D(prior_λ, emitters; photons=1000.0)
 length(obs)
@@ -61,11 +67,13 @@ prior_k = RJ.build_prior_k(obs, prior_λ)
 
 # Show prior distribution for k and compare to prior_λ
 fig = Figure()
-ax = Axis(fig[1, 1])
+ax = Axis(fig[1, 1], xlabel="k", ylabel="pdf", title="Prior distribution for k")
 k_vec = 0:length(obs.ŷ)
-barplot!(ax, k_vec, pdf.(prior_k, k_vec))
-lines!(ax, k_vec, pdf.(prior_λ, k_vec))
+barplot!(ax, k_vec, pdf.(prior_k, k_vec), label="prior_k")
+lines!(ax, k_vec, pdf.(prior_λ, k_vec), label="prior_λ")
+axislegend()
 display(fig)
+
 length(obs.ŷ) / mean(prior_λ)
 mode(prior_k)
 mean(prior_k)
@@ -74,7 +82,7 @@ mean(prior_λ)
 
 ## Build the chain
 p_jump = Categorical([0.2, 0.2, 0.2, 0.2, 0.2])
-roi = RJ.RJMCMC_ROI(obs, prior_y, area, prior_k, p_jump, RJ.Emitter2D)
+roi = RJ.RJMCMC_ROI(obs, prior_y, area, prior_k, p_jump, RJ.Emitter2D, prior_λ)
 n_burnin = 100
 n_jumps = 1000
 chain, z_chain = RJ.buildchain(roi, n_burnin, n_jumps);
@@ -108,8 +116,6 @@ end
 display(fig)
 
 area * pdf(prior_y, [obs.ŷ[1].y, obs.ŷ[1].x])
-
-
 
 # Try finding MAP in number of emitters
 n_vec = length.(chain.states)
@@ -176,5 +182,10 @@ record(fig, "scatter_animation.mp4", 1:n_frames; framerate=24) do i
 end
 
 # Show final figure
-fig
+display(fig)
 
+# Distribution of allocations in last frame
+fig = Figure()
+ax = Axis(fig[1, 1])
+hist!(ax, z_chain[end].idx, bins=0.5:1:maximum(z_chain[end].idx)+0.5)
+display(fig)
