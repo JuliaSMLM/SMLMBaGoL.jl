@@ -23,7 +23,7 @@ function take_jumps(θ::Params, z::Allocations, roi::RJMCMC_ROI, n_jumps::Int)
             if !has_allocation(z_test, id) # then don't accept
                 p_accept = 0.0
             else
-                p_accept = p_accept_add(θ, θ_test, roi.obs, z, z_test, roi.prior_k, roi.prior_y, roi.area)
+                p_accept = p_accept_add(θ, θ_test, roi.obs, z, z_test, roi.prior_k, roi.prior_y, roi.prior_λ, roi.area)
             end
             if rand() < p_accept
                 accepted = true
@@ -42,7 +42,7 @@ function take_jumps(θ::Params, z::Allocations, roi::RJMCMC_ROI, n_jumps::Int)
                 p_accept = 1.0
                 # @info "No allocations for id = $id"
             else
-                p_accept = p_accept_remove(θ, θ_test, roi.obs, z, z_test, roi.prior_k)
+                p_accept = p_accept_remove(θ, θ_test, roi.obs, z, z_test, roi.prior_k, roi.prior_λ)
             end
         
             if rand() < p_accept

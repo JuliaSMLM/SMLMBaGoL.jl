@@ -84,11 +84,15 @@ function propose_remove_emitter(θ::Params, obs::Observations, prior_y::Distribu
 end
 
 
-function p_accept_common(θ::Params, θ_test::Params, obs::Observations, z::Allocations, z_test::Allocations, prior_k::Distributions.Distribution)
+function p_accept_common(θ::Params, θ_test::Params, obs::Observations, 
+    z::Allocations, z_test::Allocations, 
+    prior_k::Distributions.Distribution, prior_λ::Distributions.Distribution)
 
     # Prior on the number of emitters
     k = length(θ)
     prior_ratio = pdf(prior_k, k + 1) / pdf(prior_k, k)
+
+    print("k = $k, prior_ratio = $prior_ratio \n")
 
     # Check that the allocation is correct
     a = test_ids(θ, z, "p_accept_add: original")
@@ -111,20 +115,34 @@ function p_accept_common(θ::Params, θ_test::Params, obs::Observations, z::Allo
                                 log_p_z_given_y(obs.ŷ[i], θ.emitters[id])
     end
   
-    likelihood_ratio = exp(log_likelihood_ratio)
+    log_likelihood_ratio_k = 1.0
+    # Now add the log-likelihood due to number of localizations for each emitter
+    for i in 1:length(θ)
+        log_likelihood_ratio_k += logpdf(prior_λ, length(z.idx[z.idx .== i]))
+    end 
+    for i in length(θ_test)
+        log_likelihood_ratio_k -= logpdf(prior_λ, length(z_test.idx[z_test.idx .== i]))
+    end
+
+    print("log_likelihood_ratio = $log_likelihood_ratio, log_likelihood_ratio_k = $log_likelihood_ratio_k \n")
+    likelihood_ratio = exp(log_likelihood_ratio+log_likelihood_ratio_k)
   
     # Compute the acceptance ratio
     return prior_ratio * likelihood_ratio
 end
 
-function p_accept_add(θ::Params, θ_test::Params, obs::Observations, z::Allocations, z_test::Allocations, prior_k::Distributions.Distribution, prior_y::Distributions.Distribution, area::Real)
+function p_accept_add(θ::Params, θ_test::Params, obs::Observations, z::Allocations, 
+    z_test::Allocations, prior_k::Distributions.Distribution, 
+    prior_y::Distributions.Distribution, prior_λ::Distributions.Distribution, area::Real)
     coord = [θ_test.emitters[end].y, θ_test.emitters[end].x]
     proposal_ratio = area * pdf(prior_y, coord)
-    return p_accept_common(θ, θ_test, obs, z, z_test, prior_k) * proposal_ratio
+    return p_accept_common(θ, θ_test, obs, z, z_test, prior_k, prior_λ) * proposal_ratio
 end
 
 
-function p_accept_remove(θ::Params, θ_test::Params, obs::Observations, z::Allocations, z_test::Allocations, prior_λ::Distributions.Distribution)
+function p_accept_remove(θ::Params, θ_test::Params, obs::Observations, 
+    z::Allocations, z_test::Allocations, 
+    prior_k::Distributions.Distribution, prior_λ::Distributions.Distribution)
     
     a = test_ids(θ, z, "p_accept_remove: original")
     b = test_ids(θ_test, z_test, "p_accept_remove: test")
@@ -135,6 +153,6 @@ function p_accept_remove(θ::Params, θ_test::Params, obs::Observations, z::Allo
     end
     # println("remove to go from $(length(θ)) to $(length(θ_test))")
     # Use the same function as for add with the arguments swapped and take the inverse
-    return 1 / p_accept_common(θ_test, θ, obs, z_test, z, prior_λ) 
+    return 1 / p_accept_common(θ_test, θ, obs, z_test, z, prior_k, prior_λ) 
 end
 

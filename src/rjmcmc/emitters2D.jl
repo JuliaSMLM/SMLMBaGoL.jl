@@ -93,12 +93,13 @@ function build_prior_k(obs::Observations, prior_λ::Distributions.UnivariateDist
     max_k = length(obs.ŷ)
     N = max_k
     probabilities = zeros(max_k + 1)
+    k_vec = 0:max_k
     for k in 0:max_k
         convolved_distribution = convolve_distribution(prior_λ, k)
         probabilities[k+1] = pdf(convolved_distribution, N)
     end
     probabilities ./= sum(probabilities)  # Normalize to make it a valid probability distribution
-    return Categorical(probabilities)
+    return DiscreteNonParametric(k_vec, probabilities)
 end
 
 

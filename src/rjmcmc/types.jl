@@ -74,6 +74,7 @@ struct RJMCMC_ROI
     prior_k::Distributions.Distribution
     p_jump::Distributions.Categorical    
     emitter_type::Type
+    prior_λ::Distributions.Distribution
 end
 
 
