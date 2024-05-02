@@ -27,7 +27,7 @@ n_emitters = 3
 # Generate emitters and observations
 # emitters = RJ.gen_emitters2D(n_emitters, emitter_gen_dist)
 # two close emitters 
-emitters = RJ.Params([RJ.Emitter2D([0.0, 20.0]), RJ.Emitter2D([0.0, -20.0])])
+emitters = RJ.Params([RJ.Emitter2D([0.0, 10.0]), RJ.Emitter2D([0.0, -10.0])])
 
 obs = RJ.gen_observations2D(prior_λ, emitters; photons=1000.0)
 length(obs)
@@ -183,6 +183,30 @@ end
 
 # Show final figure
 display(fig)
+
+# plot just the posterior distribution of the emitters with square pixels
+fig = Figure()
+ax = Axis(fig[1, 1], aspect=DataAspect())
+# Collate coordinates for chain
+chain_x = Float64[]
+chain_y = Float64[]
+for state in chain.states
+    for emitter in state.emitters
+        push!(chain_x, emitter.x)
+        push!(chain_y, emitter.y)
+    end
+end
+pixelsize = 1.0
+#calc bins from data range and pixelsize
+xrange = maximum(chain_x) - minimum(chain_x)
+yrange = maximum(chain_y) - minimum(chain_y)
+nbins_x = Int(ceil(xrange / pixelsize))
+nbins_y = Int(ceil(yrange / pixelsize))
+hist_data = fit(Histogram, (chain_x, chain_y), nbins=(nbins_x, nbins_y))
+heatmap!(ax, hist_data.edges[1], hist_data.edges[2], hist_data.weights, colormap=:inferno)
+display(fig)
+#save 
+save("posterior_emitters.png", fig)
 
 # Distribution of allocations in last frame
 fig = Figure()
