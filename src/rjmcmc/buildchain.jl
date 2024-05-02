@@ -23,7 +23,7 @@ function take_jumps(θ::Params, z::Allocations, roi::RJMCMC_ROI, n_jumps::Int)
             if !has_allocation(z_test, id) # then don't accept
                 p_accept = 0.0
             else
-                p_accept = p_accept_add(θ, θ_test, roi.obs, z, z_test, roi.prior_k, roi.prior_y, roi.prior_λ, roi.area)
+                p_accept = p_accept_add(θ, θ_test, roi.obs, z, z_test, roi.prior_k, roi.prior_λ)
             end
             if rand() < p_accept
                 accepted = true
@@ -67,6 +67,9 @@ function buildchain(roi::RJMCMC_ROI, n_burnin::Int, n_jumps::Int; θ::Union{Noth
     if isnothing(θ)
         # draw k from prior
         k = rand(roi.prior_k)
+        if k == 0
+            k = 1
+        end
         # generate a Params object with k emitters of the correct type (based on chain)
         θ = Params([roi.emitter_type(rand(roi.prior_y)) for i in 1:k])
         z = allocate(roi.obs, θ)
