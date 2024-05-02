@@ -34,6 +34,15 @@ function clean_params!(θ::Params, z::Allocations)
     end
 end
 
+# check to see if there are any emitters that do not have any allocations
+function isempty_emitter(θ::Params, z::Allocations)
+    for id in eachindex(θ.emitters)
+        if id ∉ z.idx
+            return true
+        end
+    end
+    return false
+end
 
 function add_emitter(θ::Params, new_emitter::AbstractEmitter)
     θ_new = deepcopy(θ)
@@ -105,7 +114,7 @@ function p_accept_common(θ::Params, θ_test::Params, obs::Observations,
 
     # Compute the likelihood ratio
     # Note all allocations are different, so we need to compute the likelihood ratio for each observation
-    log_likelihood_ratio = 1.0
+    log_likelihood_ratio = 0.0
 
     for i in 1:length(obs)
         # Compute the likelihood ratio for this observation
@@ -115,18 +124,28 @@ function p_accept_common(θ::Params, θ_test::Params, obs::Observations,
                                 log_p_z_given_y(obs.ŷ[i], θ.emitters[id])
     end
   
-    log_likelihood_ratio_k = 1.0
+    log_likelihood_ratio_k = 0.0
     # Now add the log-likelihood due to number of localizations for each emitter
     for i in 1:length(θ)
-        log_likelihood_ratio_k += logpdf(prior_λ, length(z.idx[z.idx .== i]))
+        log_likelihood_ratio_k -= logpdf(prior_λ, length(z.idx[z.idx .== i]))
     end 
     for i in length(θ_test)
-        log_likelihood_ratio_k -= logpdf(prior_λ, length(z_test.idx[z_test.idx .== i]))
+        log_likelihood_ratio_k += logpdf(prior_λ, length(z_test.idx[z_test.idx .== i]))
     end
 
-    print("log_likelihood_ratio = $log_likelihood_ratio, log_likelihood_ratio_k = $log_likelihood_ratio_k \n")
+    #print number of allocations per emitters for both θ and θ_test
+    for i in 1:length(θ)
+        println("Emitter $i has $(length(z.idx[z.idx .== i])) allocations")
+    end
+    for i in 1:length(θ_test)
+        println("Emitter $i has $(length(z_test.idx[z_test.idx .== i])) allocations")
+    end
+
+
+    print("log_likelihood_ratio = $log_likelihood_ratio \n log_likelihood_ratio_k = $log_likelihood_ratio_k \n")
     likelihood_ratio = exp(log_likelihood_ratio+log_likelihood_ratio_k)
-  
+    print("likelihood_ratio = $likelihood_ratio \n")
+
     # Compute the acceptance ratio
     return prior_ratio * likelihood_ratio
 end
@@ -134,9 +153,18 @@ end
 function p_accept_add(θ::Params, θ_test::Params, obs::Observations, z::Allocations, 
     z_test::Allocations, prior_k::Distributions.Distribution, 
     prior_y::Distributions.Distribution, prior_λ::Distributions.Distribution, area::Real)
+    
+    if isempty_emitter(θ_test, z_test)
+        return 0.0
+    end
+
     coord = [θ_test.emitters[end].y, θ_test.emitters[end].x]
     proposal_ratio = area * pdf(prior_y, coord)
-    return p_accept_common(θ, θ_test, obs, z, z_test, prior_k, prior_λ) * proposal_ratio
+    proposal_ratio = 1.0
+    print("add to go from $(length(θ)) to $(length(θ_test)) \n")
+    α = p_accept_common(θ, θ_test, obs, z, z_test, prior_k, prior_λ) * proposal_ratio
+    println("α = $α")
+    return α
 end
 
 
@@ -144,6 +172,10 @@ function p_accept_remove(θ::Params, θ_test::Params, obs::Observations,
     z::Allocations, z_test::Allocations, 
     prior_k::Distributions.Distribution, prior_λ::Distributions.Distribution)
     
+    if isempty_emitter(θ_test, z_test)
+        return 0.0
+    end
+
     a = test_ids(θ, z, "p_accept_remove: original")
     b = test_ids(θ_test, z_test, "p_accept_remove: test")
 
@@ -151,8 +183,9 @@ function p_accept_remove(θ::Params, θ_test::Params, obs::Observations,
         println("z.idx in p_accept_add = $(z.idx)")
         println("z_test.idx in p_accept_add  = $(z_test.idx)")
     end
-    # println("remove to go from $(length(θ)) to $(length(θ_test))")
+    println("remove to go from $(length(θ)) to $(length(θ_test))")
     # Use the same function as for add with the arguments swapped and take the inverse
-    return 1 / p_accept_common(θ_test, θ, obs, z_test, z, prior_k, prior_λ) 
+    α = 1 / p_accept_common(θ_test, θ, obs, z_test, z, prior_k, prior_λ) 
+    println("α = $α")
+    return α
 end
-
