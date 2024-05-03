@@ -12,6 +12,6 @@ include("split-merge.jl")
 include("interface.jl")
 include("emitters2D.jl")
 include("buildchain.jl")
-
+include("mapn.jl")
 
 end
