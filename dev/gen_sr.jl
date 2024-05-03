@@ -29,7 +29,7 @@ function gen_sr(obs)
     nbins_y = Int(ceil(yrange / pixelsize))
 
     # generate x,y grid 
-    xygrid = [pdf(prior_y, [x, y]) for x in range(xmin, stop=xmax, length=nbins_x), y in range(ymin, stop=ymax, length=nbins_y)]
+    xygrid = [pdf(prior_y, [y, x]) for x in range(xmin, stop=xmax, length=nbins_x), y in range(ymin, stop=ymax, length=nbins_y)]
 
     fig = Figure()
     ax = Axis(fig[1, 1], aspect=DataAspect())
