@@ -30,7 +30,7 @@ prior_λ = Gamma(α, θ)
 mean(prior_λ)
 std(prior_λ)
 
-n_emitters = 20
+n_emitters = 10
 
 # Generate emitters and observations
 emitters = RJ.gen_emitters2D(n_emitters, emitter_gen_dist)
@@ -94,9 +94,10 @@ mean(prior_λ)
 ## Build the chain
 p_jump = Categorical([1/7, 1/7, 1/7, 1/7, 1/7, 1/7, 1/7])
 roi = RJ.RJMCMC_ROI(obs, prior_y, area, prior_k, p_jump, RJ.Emitter2D, prior_λ)
-n_burnin = 1000
-n_jumps = 2000
-chain, z_chain = RJ.buildchain(roi, n_burnin, n_jumps);
+n_burnin = 5000
+n_jumps = 5000
+
+@time chain, z_chain = RJ.buildchain(roi, n_burnin, n_jumps);
 
 ## Plot the chain
 fig = Figure()
