@@ -30,7 +30,7 @@ prior_λ = Gamma(α, θ)
 mean(prior_λ)
 std(prior_λ)
 
-n_emitters = 50
+n_emitters = 10
 
 # Generate emitters and observations
 emitters = RJ.gen_emitters2D(n_emitters, emitter_gen_dist)
@@ -122,15 +122,16 @@ for idx in 1:length(true_x)
 end
 display(fig)
 
-# Try finding MAP in number of emitters
-n_vec = length.(chain.states)
+# MAP in number of emitters
+n_map = RJ.find_mapn(chain)
+println("MAP for number of emitters = $n_map")
+
+
 fig = Figure()
-ax = Axis(fig[1, 1])
+ax = Axis(fig[1, 1], xlabel="Number of emitters", ylabel="Frequency", title="Number of emitters over run")
 hist!(ax, n_vec, bins=0.5:1:maximum(n_vec)+0.5)
 display(fig)
 
-n_map = mode(n_vec)
-println("MAP for number of emitters = $n_map")
 
 # Plot the length of the chain over the Run
 fig = Figure()
@@ -144,6 +145,21 @@ gen_posterior(chain, emitters, obs)
 
 # Distribution of allocations in last frame
 fig = Figure()
-ax = Axis(fig[1, 1])
+ax = Axis(fig[1, 1], xlabel="Emitter index", ylabel="Frequency", title="Allocations in last frame")
 hist!(ax, z_chain[end].idx, bins=0.5:1:maximum(z_chain[end].idx)+0.5)
+display(fig)
+
+# plot the best state 
+st, x_map, y_map = RJ.find_mapn_ref_state(chain)
+fig = Figure()
+ax = Axis(fig[1, 1], aspect=DataAspect())
+scatter!(ax, x_map, y_map, color=:blue, transparency=1)
+# Plot the circles for standard deviation
+for obs in obs.ŷ
+    draw_circle!(ax, Point2f0(obs.x, obs.y), obs.σ_x; color=:white)
+end
+# Collate coordinates for true values and plot as green X
+true_x = [emitter.x for emitter in emitters.emitters]
+true_y = [emitter.y for emitter in emitters.emitters]
+scatter!(ax, true_x, true_y, color=:green, markersize=1, marker=:x)
 display(fig)
