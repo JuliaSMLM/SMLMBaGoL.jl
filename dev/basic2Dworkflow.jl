@@ -13,7 +13,7 @@ using StatsBase
 
 
 # Setup
-emitter_gen_dist = MvNormal([0.0, 0.0], [200.0 0.0; 0.0 200.0])
+emitter_gen_dist = MvNormal([0.0, 0.0], [500.0 0.0; 0.0 500.0])
 
 # Prior distribution for λ: localizations per emitter
 μ_λ = 10.0
@@ -30,7 +30,7 @@ prior_λ = Gamma(α, θ)
 mean(prior_λ)
 std(prior_λ)
 
-n_emitters = 10
+n_emitters = 50
 
 # Generate emitters and observations
 emitters = RJ.gen_emitters2D(n_emitters, emitter_gen_dist)
@@ -64,17 +64,12 @@ fig
 ## Build prior distributions
 prior_y = RJ.build_prior_y(obs)
 area = RJ.calc_area(obs)
-# Plot prior distribution image for y
-vals = rand(prior_y, 10000)
-fig = Figure()
-hist_data = fit(Histogram, (vals[2, :], vals[1, :]), nbins=(50, 50))
-fig = Figure()
-ax = Axis(fig[1, 1], aspect=DataAspect())
-heatmap!(ax, hist_data.edges[1], hist_data.edges[2], hist_data.weights)
-display(fig)
+
 
 # Build the prior distribution for k
 prior_k = RJ.build_prior_k(obs, prior_λ)
+include("gen_sr.jl")
+gen_sr(obs)
 
 # Show prior distribution for k and compare to prior_λ
 fig = Figure()

@@ -43,6 +43,9 @@ function gen_posterior(chain, emitters, obs)
     hist_data = fit(Histogram, (chain_x, chain_y), (edges_x, edges_y))
     heatmap!(ax, hist_data.edges[1], hist_data.edges[2], hist_data.weights, colormap=:inferno)
 
+    #save 
+    save("posterior.png", fig)
+
     # add the true values as green X markers
     true_x = [emitter.x for emitter in emitters.emitters]
     true_y = [emitter.y for emitter in emitters.emitters]
