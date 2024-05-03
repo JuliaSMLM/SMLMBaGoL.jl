@@ -25,3 +25,44 @@ function allocate(obs::Observations, θ::Params)
     allocate!(z, obs, θ)
     return z
 end
+
+function estimate_alpha(k, prior_λ)
+    # Estimate the concentration parameter α based on the prior distribution and observed data
+    # You can use methods like method of moments, maximum likelihood estimation, or Bayesian inference
+    # For example, using the method of moments:
+    E_k = mean(prior_λ)
+    Var_k = var(prior_λ)
+    α = (E_k * (E_k - 1)) / Var_k
+    return α
+end
+
+function estimate_concentration_params(k_vec, prior_λ)
+    N = length(k_vec)
+    α_vec = zeros(N)
+    for i in 1:N
+        α_vec[i] = estimate_alpha(k_vec[i], prior_λ)
+    end
+    return α_vec
+end
+
+function log_dirichlet_multinomial_pmf(n_obs, k_vec, α_vec)
+    N = length(k_vec)
+    
+    # Calculate the log-PMF of the Dirichlet-multinomial distribution
+    log_pmf = logfactorial(n_obs) - sum(logfactorial.(k_vec))
+    log_pmf += loggamma(sum(α_vec)) - loggamma(n_obs + sum(α_vec))
+    for i in 1:N
+        log_pmf += loggamma(k_vec[i] + α_vec[i]) - loggamma(α_vec[i])
+    end
+    
+    return log_pmf
+end
+
+function log_dirichlet_multinomial_pmf(θ::Params, z::Allocations, prior_λ::Distributions.Distribution)
+    n_obs = length(z.idx)
+    unique_emitters = unique(z.idx)
+    k_vec = [count(==(i), z.idx) for i in unique_emitters]
+    α_vec = estimate_concentration_params(k_vec, prior_λ)
+    return log_dirichlet_multinomial_pmf(n_obs, k_vec, α_vec)
+end
+

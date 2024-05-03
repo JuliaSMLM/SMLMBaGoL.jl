@@ -1,27 +1,5 @@
 
 
-function test_ids(θ::Params, z::Allocations, message::String )
-    
-    # for i in 1:length(θ)
-    #     if !has_allocation(z, i)
-    #         @warn "Warning: emitter $i not in z.idx: $message"
-    #         println("z.idx = $(z.idx)")
-    #         println("maximum of z.idx = $(maximum(z.idx))")
-    #         println("length of θ = $(length(θ)) ")
-    #     end
-    # end
-    
-    for i in unique(z.idx)
-        if i > length(θ)
-            @warn "Warning: z.idx contains $i but there are only $(length(θ)) emitters: $message"
-            println("z.idx = $(z.idx)")
-            println("maximum of z.idx = $(maximum(z.idx))")
-            println("length of θ = $(length(θ)) ")
-            return false
-        end
-    end
-    return true
-end
 
 
 function clean_params!(θ::Params, z::Allocations)
@@ -29,19 +7,9 @@ function clean_params!(θ::Params, z::Allocations)
     for id in reverse(eachindex(θ.emitters))
         if id ∉ z.idx
             deleteat!(θ.emitters, id)
-            z.idx[z.idx .> id] .-= 1
+            z.idx[z.idx.>id] .-= 1
         end
     end
-end
-
-# check to see if there are any emitters that do not have any allocations
-function isempty_emitter(θ::Params, z::Allocations)
-    for id in eachindex(θ.emitters)
-        if id ∉ z.idx
-            return true
-        end
-    end
-    return false
 end
 
 function add_emitter(θ::Params, new_emitter::AbstractEmitter)
@@ -95,41 +63,46 @@ end
 function loglikelihood_number(θ::Params, z::Allocations, prior_λ::Distributions.Distribution)
     loglikelihood = 0.0
     for i in 1:length(θ)
-        loglikelihood += logpdf(prior_λ, length(z.idx[z.idx .== i]))
+        loglikelihood += logpdf(prior_λ, length(z.idx[z.idx.==i]))
     end
     return loglikelihood
 end
 
-function p_accept_add(θ::Params, θ_test::Params, obs::Observations, z::Allocations, 
+function p_accept_add(θ::Params, θ_test::Params, obs::Observations, z::Allocations,
     z_test::Allocations, prior_k::Distributions.Distribution, prior_λ::Distributions.Distribution)
-    
+
     n = length(θ)
-    
+
     # These are left here to show mathematically what is happening
     # coord = [θ_test.emitters[end].y, θ_test.emitters[end].x]
     # proposal_ratio = (n+1)/(n*pdf(prior_y, coord)) 
     # prior_ratio_position = pdf(prior_y, coord) # note other terms cancel out
 
-    prior_ratio_k = pdf(prior_k, n+1) / pdf(prior_k, n)
-    prior_proposal_ratio = prior_ratio_k * (n+1)/n
+    prior_ratio_k = pdf(prior_k, n + 1) / pdf(prior_k, n)
+    prior_proposal_ratio = prior_ratio_k * (n + 1) / n
 
-    likelihood_ratio_position = exp(loglikelihood_position(obs, θ_test, z_test) 
-        - loglikelihood_position(obs, θ, z))
+    likelihood_ratio_position = exp(loglikelihood_position(obs, θ_test, z_test)
+                                    -
+                                    loglikelihood_position(obs, θ, z))
+
+    # likelihood_ratio_number = exp(loglikelihood_number(θ_test, z_test, prior_λ)
+    #     - loglikelihood_number(θ, z, prior_λ))
+
+    likelihood_ratio_number = exp(log_dirichlet_multinomial_pmf(θ_test, z_test, prior_λ)
+                                  -
+                                  log_dirichlet_multinomial_pmf(θ, z, prior_λ))
+
     
-    likelihood_ratio_number = exp(loglikelihood_number(θ_test, z_test, prior_λ)
-        - loglikelihood_number(θ, z, prior_λ))
-
     α = prior_proposal_ratio * likelihood_ratio_position * likelihood_ratio_number
-    
-    print("add to go from $(length(θ)) to $(length(θ_test)), α = $α \n")
+    # println("likelihood_ratio_number = $likelihood_ratio_number")
     return α
 end
 
 
 
-function p_accept_remove(θ::Params, θ_test::Params, obs::Observations, z::Allocations, 
+function p_accept_remove(θ::Params, θ_test::Params, obs::Observations, z::Allocations,
     z_test::Allocations, prior_k::Distributions.Distribution, prior_λ::Distributions.Distribution)
-    
+
     n = length(θ)
 
     # These are left here to show mathematically what is happening
@@ -137,17 +110,21 @@ function p_accept_remove(θ::Params, θ_test::Params, obs::Observations, z::Allo
     # proposal_ratio = n/(n-1)*pdf(prior_y, coord) 
     # prior_ratio_position = 1/pdf(prior_y, coord) # note other terms cancel out
 
-    prior_ratio_k = pdf(prior_k, n-1) / pdf(prior_k, n)
-    prior_proposal_ratio = prior_ratio_k * n/(n-1)
+    prior_ratio_k = pdf(prior_k, n - 1) / pdf(prior_k, n)
+    prior_proposal_ratio = prior_ratio_k * n / (n - 1)
 
-    likelihood_ratio_position = exp(loglikelihood_position(obs, θ_test, z_test) 
-        - loglikelihood_position(obs, θ, z))
-    
-    likelihood_ratio_number = exp(loglikelihood_number(θ_test, z_test, prior_λ)
-        - loglikelihood_number(θ, z, prior_λ))
+    likelihood_ratio_position = exp(loglikelihood_position(obs, θ_test, z_test)
+                                    -
+                                    loglikelihood_position(obs, θ, z))
+
+    # likelihood_ratio_number = exp(loglikelihood_number(θ_test, z_test, prior_λ)
+    #     - loglikelihood_number(θ, z, prior_λ))
+
+    likelihood_ratio_number = exp(log_dirichlet_multinomial_pmf(θ_test, z_test, prior_λ)
+                                  -
+                                  log_dirichlet_multinomial_pmf(θ, z, prior_λ))
+
 
     α = prior_proposal_ratio * likelihood_ratio_position * likelihood_ratio_number
-    
-    print("remove to go from $(length(θ)) to $(length(θ_test)), α = $α \n")
     return α
 end
