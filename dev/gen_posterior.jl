@@ -49,7 +49,7 @@ function gen_posterior(chain, emitters, obs)
     # add the true values as green X markers
     true_x = [emitter.x for emitter in emitters.emitters]
     true_y = [emitter.y for emitter in emitters.emitters]
-    scatter!(ax, true_x, true_y, color=:green, markersize=10, marker=:x)
+    scatter!(ax, true_x, true_y, color=:green, markersize=1, marker=:x)
     display(fig)
 
     #save 

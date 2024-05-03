@@ -90,7 +90,7 @@ mean(prior_λ)
 p_jump = Categorical([1/7, 1/7, 1/7, 1/7, 1/7, 1/7, 1/7])
 roi = RJ.RJMCMC_ROI(obs, prior_y, area, prior_k, p_jump, RJ.Emitter2D, prior_λ)
 n_burnin = 5000
-n_jumps = 5000
+n_jumps = 16000
 
 @time chain, z_chain = RJ.buildchain(roi, n_burnin, n_jumps);
 
