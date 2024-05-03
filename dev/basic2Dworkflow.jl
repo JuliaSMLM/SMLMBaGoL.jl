@@ -13,31 +13,42 @@ using StatsBase
 
 
 # Setup
-emitter_gen_dist = MvNormal([0.0, 0.0], [100.0 0.0; 0.0 100.0])
+emitter_gen_dist = MvNormal([0.0, 0.0], [200.0 0.0; 0.0 200.0])
 
-# Prior distribution for λ
-# Note for an Exponential distribution, the mean is μ = 1/λ and the variance is σ^2 = 1/λ^2
+# Prior distribution for λ: localizations per emitter
 μ_λ = 10.0
 σ_λ = 3.0
-prior_λ = Gamma(μ_λ^2 / σ_λ^2, σ_λ^2 / μ_λ)
+α = μ_λ^2 / σ_λ^2 # Shape
+θ = σ_λ^2 / μ_λ
+
+# A gamma prior with mean and variance given by μ_λ and σ_λ
+prior_λ = Gamma(α, θ)
+
+# An exponential like prior using Gamma and the mean
+# prior_λ = Gamma(1.0 / μ_λ, 1.0 / μ_λ^2)
+
 mean(prior_λ)
 std(prior_λ)
-n_emitters = 3
+
+n_emitters = 20
 
 # Generate emitters and observations
-# emitters = RJ.gen_emitters2D(n_emitters, emitter_gen_dist)
+emitters = RJ.gen_emitters2D(n_emitters, emitter_gen_dist)
+
 # two close emitters 
-emitters = RJ.Params([RJ.Emitter2D([0.0, 10.0]), RJ.Emitter2D([0.0, -10.0])])
+d = 5.0
+# emitters = RJ.Params([RJ.Emitter2D([0.0, d/2]), RJ.Emitter2D([0.0, -d/2])])
 
 obs = RJ.gen_observations2D(prior_λ, emitters; photons=1000.0)
 length(obs)
 
 # Show plot of true emitters and observations with circles for standard deviation
-function draw_circle!(axis, center::Point2f0, radius::Float64; points::Int=100, color=:black)
+function draw_circle!(axis, center::Point2f0, radius::Float64; points::Int=100, color=:black,
+                      linewidth=1.0, linestyle=:solid, linealpha=1.0, linecolor=:black, fillalpha=0.0, fillcolor=:black)
     θ = LinRange(0, 2π, points)
     x = center[1] .+ radius * cos.(θ)
     y = center[2] .+ radius * sin.(θ)
-    lines!(axis, x, y, color=color)
+    lines!(axis, x, y, color=color, linewidth=linewidth, linestyle=linestyle, linealpha=linealpha, linecolor=linecolor)
 end
 
 fig = Figure()
@@ -81,10 +92,10 @@ mean(prior_λ)
 
 
 ## Build the chain
-p_jump = Categorical([0.2, 0.2, 0.2, 0.2, 0.2])
+p_jump = Categorical([1/7, 1/7, 1/7, 1/7, 1/7, 1/7, 1/7])
 roi = RJ.RJMCMC_ROI(obs, prior_y, area, prior_k, p_jump, RJ.Emitter2D, prior_λ)
-n_burnin = 100
-n_jumps = 1000
+n_burnin = 1000
+n_jumps = 2000
 chain, z_chain = RJ.buildchain(roi, n_burnin, n_jumps);
 
 ## Plot the chain
@@ -115,8 +126,6 @@ for idx in 1:length(true_x)
 end
 display(fig)
 
-area * pdf(prior_y, [obs.ŷ[1].y, obs.ŷ[1].x])
-
 # Try finding MAP in number of emitters
 n_vec = length.(chain.states)
 fig = Figure()
@@ -129,35 +138,13 @@ println("MAP for number of emitters = $n_map")
 
 # Plot the length of the chain over the Run
 fig = Figure()
-ax = Axis(fig[1, 1])
+ax = Axis(fig[1, 1], xlabel="Jump number", ylabel="Number of emitters", title="Chain length over run")
 lines!(ax, 1:n_jumps, length.(chain.states))
 display(fig)
 
 # include("animate_chain.jl")
-
-# plot just the posterior distribution of the emitters with square pixels
-fig = Figure()
-ax = Axis(fig[1, 1], aspect=DataAspect())
-# Collate coordinates for chain
-chain_x = Float64[]
-chain_y = Float64[]
-for state in chain.states
-    for emitter in state.emitters
-        push!(chain_x, emitter.x)
-        push!(chain_y, emitter.y)
-    end
-end
-pixelsize = 1.0
-#calc bins from data range and pixelsize
-xrange = maximum(chain_x) - minimum(chain_x)
-yrange = maximum(chain_y) - minimum(chain_y)
-nbins_x = Int(ceil(xrange / pixelsize))
-nbins_y = Int(ceil(yrange / pixelsize))
-hist_data = fit(Histogram, (chain_x, chain_y), nbins=(nbins_x, nbins_y))
-heatmap!(ax, hist_data.edges[1], hist_data.edges[2], hist_data.weights, colormap=:inferno)
-display(fig)
-#save 
-save("posterior_emitters.png", fig)
+include("gen_posterior.jl")
+gen_posterior(chain, emitters, obs)
 
 # Distribution of allocations in last frame
 fig = Figure()

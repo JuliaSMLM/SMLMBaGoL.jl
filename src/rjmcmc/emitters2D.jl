@@ -9,7 +9,9 @@ end
 function Emitter2D{T}(coords::Vector{T}) where {T<:Real}
     return Emitter2D(coords[2], coords[1])
 end
-
+function Emitter2D{T}(emitter::Emitter2D{T}) where T
+    return Emitter2D{T}(emitter.x, emitter.y)
+end
 
 struct Localization2D{T} <: AbstractObservation
     x::T
@@ -136,4 +138,8 @@ function gen_observations2D(prior_λ, emitters::Params; photons::Float64=1000.0)
     return Observations(Localization2D.(x, y, σ_x, σ_y))
 end
 
-
+function merge_emitters(emitter1::Emitter2D, emitter2::Emitter2D)
+    new_x = (emitter1.x + emitter2.x) / 2
+    new_y = (emitter1.y + emitter2.y) / 2
+    return Emitter2D(new_x, new_y)
+end
