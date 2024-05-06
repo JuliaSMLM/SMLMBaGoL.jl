@@ -65,7 +65,7 @@ function find_mapn_ref_state(chain::RJMCMC_Chain)
         push!(y, emitter.y)
     end
 
-    return x, y
+    return best_state
 end
 
 

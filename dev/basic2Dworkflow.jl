@@ -11,183 +11,81 @@ using CairoMakie
 using CairoMakie: Point2f0
 using StatsBase
 
-
-# Setup
-emitter_gen_dist = MvNormal([0.0, 0.0], [500.0 0.0; 0.0 500.0])
-
-# Prior distribution for λ: localizations per emitter
-μ_λ = 10.0
-σ_λ = 3.0
-α = μ_λ^2 / σ_λ^2 # Shape
-θ = σ_λ^2 / μ_λ
-
-# A gamma prior with mean and variance given by μ_λ and σ_λ
-prior_λ = Gamma(α, θ)
-
-# An exponential like prior using Gamma and the mean
-# prior_λ = Gamma(1.0 / μ_λ, 1.0 / μ_λ^2)
-
-mean(prior_λ)
-std(prior_λ)
-
-n_emitters = 10
-
-# Generate emitters and observations
-emitters = RJ.gen_emitters2D(n_emitters, emitter_gen_dist)
-
-# two close emitters 
-d = 5.0
-# emitters = RJ.Params([RJ.Emitter2D([0.0, d/2]), RJ.Emitter2D([0.0, -d/2])])
-
-obs = RJ.gen_observations2D(prior_λ, emitters; photons=1000.0)
-length(obs)
-
-# Show plot of true emitters and observations with circles for standard deviation
-function draw_circle!(axis, center::Point2f0, radius::Float64; points::Int=100, color=:black,
-                      linewidth=1.0, linestyle=:solid, linealpha=1.0, linecolor=:black, fillalpha=0.0, fillcolor=:black)
-    θ = LinRange(0, 2π, points)
-    x = center[1] .+ radius * cos.(θ)
-    y = center[2] .+ radius * sin.(θ)
-    lines!(axis, x, y, color=color, linewidth=linewidth, linestyle=linestyle, linealpha=linealpha, linecolor=linecolor)
-end
-
-fig = Figure()
-ax = Axis(fig[1, 1], aspect=DataAspect())
-for emitter in emitters.emitters
-    scatter!(ax, [emitter.x], [emitter.y], color=:red)
-end
-for obs in obs.ŷ
-    draw_circle!(ax, Point2f0(obs.x, obs.y), obs.σ_x)
-end
-fig
+# Setup Parameters
+n_emitters = 10 
+xy_range = 100.0 # for n_emitters == 2, this is separation between emitters
+μ_λ = 10.0 # mean of λ
+σ_λ = 3.0 # standard deviation of λ
+n_burnin = 4000
+n_jumps = 8000
 
 ## Build prior distributions
-prior_y = RJ.build_prior_y(obs)
-area = RJ.calc_area(obs)
+α = μ_λ^2 / σ_λ^2 # Shape
+θ = σ_λ^2 / μ_λ # Scale
+prior_λ = Gamma(α, θ)
 
+# Create true emitters and observations 
+if n_emitters == 2
+    emitters = RJ.Params([RJ.Emitter2D([0.0, xy_range/2]), RJ.Emitter2D([0.0, -xy_range/2])])
+else
+    dist1 = Uniform(-xy_range/2, xy_range/2)
+    dist2 = Uniform(-xy_range/2, xy_range/2)
+    dist = Product([dist1, dist2])
+    emitters = RJ.gen_emitters2D(n_emitters, dist)
+end
+obs = RJ.gen_observations2D(prior_λ, emitters; photons=1000.0)
 
-# Build the prior distribution for k
 prior_k = RJ.build_prior_k(obs, prior_λ)
-include("gen_sr.jl")
-gen_sr(obs)
-
-# Show prior distribution for k and compare to prior_λ
-fig = Figure()
-ax = Axis(fig[1, 1], xlabel="k", ylabel="pdf", title="Prior distribution for k")
-k_vec = 0:length(obs.ŷ)
-barplot!(ax, k_vec, pdf.(prior_k, k_vec), label="prior_k")
-lines!(ax, k_vec, pdf.(prior_λ, k_vec), label="prior_λ")
-axislegend()
-display(fig)
-
-length(obs.ŷ) / mean(prior_λ)
-mode(prior_k)
-mean(prior_k)
-mean(prior_λ)
+prior_y = RJ.build_prior_y(obs)
 
 
-## Build the chain
+## RJMCMC
 p_jump = Categorical([1/7, 1/7, 1/7, 1/7, 1/7, 1/7, 1/7])
-roi = RJ.RJMCMC_ROI(obs, prior_y, area, prior_k, p_jump, RJ.Emitter2D, prior_λ)
-n_burnin = 4000
-n_jumps = 8000
+roi = RJ.RJMCMC_ROI(obs, prior_y, prior_k, p_jump, RJ.Emitter2D, prior_λ)
 @time chain, z_chain = RJ.buildchain(roi, n_burnin, n_jumps);
 
-
-## Plot the chain
-fig = Figure()
-ax = Axis(fig[1, 1], aspect=DataAspect())
-# Collate coordinates for chain
-chain_x = Float64[]
-chain_y = Float64[]
-for state in chain.states
-    for emitter in state.emitters
-        push!(chain_x, emitter.x)
-        push!(chain_y, emitter.y)
-    end
-end
-hist_data = fit(Histogram, (chain_x, chain_y), nbins=(50, 50))
-heatmap!(ax, hist_data.edges[1], hist_data.edges[2], hist_data.weights, colormap=:inferno)
-
-scatter!(ax, chain_x, chain_y, color=:blue, transparency=0.1)
-# Plot the circles for standard deviation
-for obs in obs.ŷ
-    draw_circle!(ax, Point2f0(obs.x, obs.y), obs.σ_x; color=:white)
-end
-# Collate coordinates for true values
-true_x = [emitter.x for emitter in emitters.emitters]
-true_y = [emitter.y for emitter in emitters.emitters]
-for idx in 1:length(true_x)
-    draw_circle!(ax, Point2f0(true_x[idx], true_y[idx]), obs.ŷ[idx].σ_x; color=:cyan)
-end
-display(fig)
-
-# MAP in number of emitters
-n_map, n_vec = RJ.find_mapn(chain)
-println("MAP for number of emitters = $n_map")
-
-
-fig = Figure()
-ax = Axis(fig[1, 1], xlabel="Number of emitters", ylabel="Frequency", title="Number of emitters over run")
-hist!(ax, n_vec, bins=0.5:1:maximum(n_vec)+0.5)
-display(fig)
-
-
-# Plot the length of the chain over the Run
-fig = Figure()
-ax = Axis(fig[1, 1], xlabel="Jump number", ylabel="Number of emitters", title="Chain length over run")
-lines!(ax, 1:n_jumps, length.(chain.states))
-display(fig)
-
-# include("animate_chain.jl")
-include("gen_posterior.jl")
-gen_posterior(chain, emitters, obs)
-
-# Distribution of allocations in last frame
-fig = Figure()
-ax = Axis(fig[1, 1], xlabel="Emitter index", ylabel="Frequency", title="Allocations in last frame")
-hist!(ax, z_chain[end].idx, bins=0.5:1:maximum(z_chain[end].idx)+0.5)
-display(fig)
-
-# plot the best state 
-x_map, y_map = RJ.find_mapn_ref_state(chain)
-fig = Figure()
-ax = Axis(fig[1, 1], aspect=DataAspect())
-scatter!(ax, x_map, y_map, color=:blue, marker=:o)
-# # Plot the circles for standard deviation
-# for obs in obs.ŷ
-#     draw_circle!(ax, Point2f0(obs.x, obs.y), obs.σ_x; color=:white)
-# end
-# Collate coordinates for true values and plot as green X
-true_x = [emitter.x for emitter in emitters.emitters]
-true_y = [emitter.y for emitter in emitters.emitters]
-scatter!(ax, true_x, true_y, color=:green, marker=:x)
-display(fig)
-save("best_state.png", fig)
-
-# Build a mapN chain
+# MAPN MCMC
+best_state = RJ.find_mapn_ref_state(chain)
+θ = RJ.Params(best_state.emitters)      
 p_jump = Categorical([1, 0,0,0,0,0,0])
-roi = RJ.RJMCMC_ROI(obs, prior_y, area, prior_k, p_jump, RJ.Emitter2D, prior_λ)
-n_burnin = 4000
-n_jumps = 8000
-@time chain_mapn, = RJ.buildchain(roi, n_burnin, n_jumps);
-
-# sort the mapn chain
-RJ.sort_mapn_chain!(chain_mapn)
+roi = RJ.RJMCMC_ROI(obs, prior_y, prior_k, p_jump, RJ.Emitter2D, prior_λ)
+@time chain_mapn, = RJ.buildchain(roi, n_burnin, n_jumps; θ = θ);
+RJ.sort_mapn_chain!(chain_mapn; n_iterate = 3)
 mapn_coords = RJ.get_mapn_emitters(chain_mapn, obs)
 
-# plot the mapn coords with true values
-fig = Figure()
-ax = Axis(fig[1, 1], aspect=DataAspect())
-# Plot the circles for mapn localizations
-for loc in mapn_coords
-    draw_circle!(ax, Point2f0(loc.x, loc.y), loc.σ_x; color=:blue)
-end
-# plot true emitter positions
-true_x = [emitter.x for emitter in emitters.emitters]
-true_y = [emitter.y for emitter in emitters.emitters]
-scatter!(ax, true_x, true_y, color=:green, marker=:x)
+# Plots and Prints ----------------------------------------
+RJ.plot_prior_λ(prior_λ, obs)
+RJ.plot_prior_k(prior_k, obs)
+
+fig, ax = RJ.plot_observations(obs)
+RJ.plot_true_values!(ax, emitters; markersize = 10)
 display(fig)
-save("mapn_coords.png", fig)
+
+fig, ax = RJ.plot_sr(obs, prior_y)
+RJ.plot_true_values!(ax, emitters; markersize = 10)
+display(fig)
+
+fig, ax = RJ.plot_posterior(chain, obs)
+display(fig)
+
+fig, ax = RJ.plot_posterior(chain_mapn, obs; title = "MAPN")
+RJ.plot_true_values!(ax, emitters; markersize = 10)
+display(fig)
+
+fig, ax = RJ.plot_observations(RJ.Observations(mapn_coords))
+RJ.plot_true_values!(ax, emitters; markersize = 10)
+display(fig)
+
+RJ.plot_state_length(chain)
+RJ.plot_sld(chain)
+n_map, n_vec = RJ.find_mapn(chain)
+n_true = length(emitters.emitters)
+println("True N = $n_true, MAPN  = $n_map")
+
+
+
+
+
+
 
 
