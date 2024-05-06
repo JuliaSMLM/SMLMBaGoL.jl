@@ -19,6 +19,10 @@ struct Localization2D{T} <: AbstractObservation
     σ_x::T
     σ_y::T
 end
+# Constructor for Localization2D using type of Emitter2D
+function Localization2D{T}(emitter::Emitter2D{T}, σ_x::T, σ_y::T) where T
+    return Localization2D(emitter.x, emitter.y, σ_x, σ_y)
+end
 
 
 function log_p_z_given_y(loc::Localization2D, emitter::Emitter2D)

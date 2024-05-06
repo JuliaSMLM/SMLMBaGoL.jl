@@ -3,6 +3,7 @@ module RJMCMC
 using Distributions
 using StatsBase 
 using SpecialFunctions
+using Hungarian
 
 include("types.jl")
 include("move.jl")
