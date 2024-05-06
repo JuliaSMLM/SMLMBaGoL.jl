@@ -113,9 +113,10 @@ function gen_emitters2D(n::Int, prior_y::Distributions.Distribution)
     return Params([Emitter2D(rand(prior_y)) for i in 1:n])
 end
 
-function gen_observations2D(prior_λ, emitters::Params; photons::Float64=1000.0)
+function gen_observations2D(prior_λ, emitters::Params; photons::Float64=1000.0, min_photons::Int=200)
 
     p = Exponential(photons)
+    p = Truncated(p, min_photons, Inf)
     σ_PSF = 100.0
 
     # make empty arrays
