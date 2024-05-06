@@ -89,10 +89,10 @@ mean(prior_λ)
 ## Build the chain
 p_jump = Categorical([1/7, 1/7, 1/7, 1/7, 1/7, 1/7, 1/7])
 roi = RJ.RJMCMC_ROI(obs, prior_y, area, prior_k, p_jump, RJ.Emitter2D, prior_λ)
-n_burnin = 5000
-n_jumps = 16000
-
+n_burnin = 4000
+n_jumps = 8000
 @time chain, z_chain = RJ.buildchain(roi, n_burnin, n_jumps);
+
 
 ## Plot the chain
 fig = Figure()
@@ -123,7 +123,7 @@ end
 display(fig)
 
 # MAP in number of emitters
-n_map = RJ.find_mapn(chain)
+n_map, n_vec = RJ.find_mapn(chain)
 println("MAP for number of emitters = $n_map")
 
 
@@ -150,16 +150,44 @@ hist!(ax, z_chain[end].idx, bins=0.5:1:maximum(z_chain[end].idx)+0.5)
 display(fig)
 
 # plot the best state 
-st, x_map, y_map = RJ.find_mapn_ref_state(chain)
+x_map, y_map = RJ.find_mapn_ref_state(chain)
 fig = Figure()
 ax = Axis(fig[1, 1], aspect=DataAspect())
-scatter!(ax, x_map, y_map, color=:blue, transparency=1)
-# Plot the circles for standard deviation
-for obs in obs.ŷ
-    draw_circle!(ax, Point2f0(obs.x, obs.y), obs.σ_x; color=:white)
-end
+scatter!(ax, x_map, y_map, color=:blue, marker=:o)
+# # Plot the circles for standard deviation
+# for obs in obs.ŷ
+#     draw_circle!(ax, Point2f0(obs.x, obs.y), obs.σ_x; color=:white)
+# end
 # Collate coordinates for true values and plot as green X
 true_x = [emitter.x for emitter in emitters.emitters]
 true_y = [emitter.y for emitter in emitters.emitters]
-scatter!(ax, true_x, true_y, color=:green, markersize=1, marker=:x)
+scatter!(ax, true_x, true_y, color=:green, marker=:x)
 display(fig)
+save("best_state.png", fig)
+
+# Build a mapN chain
+p_jump = Categorical([1, 0,0,0,0,0,0])
+roi = RJ.RJMCMC_ROI(obs, prior_y, area, prior_k, p_jump, RJ.Emitter2D, prior_λ)
+n_burnin = 4000
+n_jumps = 8000
+@time chain_mapn, = RJ.buildchain(roi, n_burnin, n_jumps);
+
+# sort the mapn chain
+RJ.sort_mapn_chain!(chain_mapn)
+mapn_coords = RJ.get_mapn_emitters(chain_mapn, obs)
+
+# plot the mapn coords with true values
+fig = Figure()
+ax = Axis(fig[1, 1], aspect=DataAspect())
+# Plot the circles for mapn localizations
+for loc in mapn_coords
+    draw_circle!(ax, Point2f0(loc.x, loc.y), loc.σ_x; color=:blue)
+end
+# plot true emitter positions
+true_x = [emitter.x for emitter in emitters.emitters]
+true_y = [emitter.y for emitter in emitters.emitters]
+scatter!(ax, true_x, true_y, color=:green, marker=:x)
+display(fig)
+save("mapn_coords.png", fig)
+
+

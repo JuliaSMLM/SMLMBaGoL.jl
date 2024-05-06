@@ -1,5 +1,5 @@
 
-function gen_posterior(chain, emitters, obs)
+function gen_posterior(chain, emitters, obs; pixelsize = 1.0)
     # plot just the posterior distribution of the emitters with square pixels
     fig = Figure()
     ax = Axis(fig[1, 1], aspect=DataAspect())
@@ -12,7 +12,6 @@ function gen_posterior(chain, emitters, obs)
             push!(chain_y, emitter.y)
         end
     end
-    pixelsize = 1.0
     #calc bins from data range and pixelsize
     # outerbounds should caculated as 2xsigma
     xmin = Inf
@@ -62,4 +61,5 @@ function gen_posterior(chain, emitters, obs)
     end
     display(fig)
     save("posterior_emitters_circles.png", fig)
+    return fig
 end
