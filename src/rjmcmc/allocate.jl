@@ -1,5 +1,28 @@
 
 
+# https://juliastats.org/Distributions.jl/stable/convolution/
+function convolve_distribution(distribution::UnivariateDistribution, k::Int)
+    convolved_distribution = distribution
+    for _ in 2:k
+        convolved_distribution = convolve(convolved_distribution, distribution)
+    end
+    return convolved_distribution
+end
+
+function build_prior_k(obs::Observations, prior_λ::Distributions.UnivariateDistribution)
+    max_k = length(obs.ŷ)
+    N = max_k
+    probabilities = zeros(max_k + 1)
+    k_vec = 0:max_k
+    for k in 0:max_k
+        convolved_distribution = convolve_distribution(prior_λ, k)
+        probabilities[k+1] = pdf(convolved_distribution, N)
+    end
+    probabilities ./= sum(probabilities)  # Normalize to make it a valid probability distribution
+    return DiscreteNonParametric(k_vec, probabilities)
+end
+
+
 function has_allocation(z::Allocations, id::Int)
     return id in z.idx
 end

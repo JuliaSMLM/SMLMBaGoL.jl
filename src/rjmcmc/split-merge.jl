@@ -34,7 +34,7 @@ function propose_merge_emitters(θ::Params, obs::Observations, z::Allocations)
     # Merge the emitters using the merge_emitters function
     emitter1 = θ.emitters[id1]
     emitter2 = θ.emitters[id2]
-    new_emitter = merge_emitters(emitter1, emitter2)
+    new_emitter = merge(emitter1, emitter2)
 
     # Create a new parameter vector with the merged emitter
     if id1 > id2

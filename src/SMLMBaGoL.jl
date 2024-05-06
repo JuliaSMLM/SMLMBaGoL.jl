@@ -7,8 +7,16 @@ using StatsBase
 using Clustering
 using LinearAlgebra
 
-include("types.jl")
-include("rjmcmc/RJMCMC.jl")
 
+include("types.jl")
+export AbstractObservation
+export Observations
+
+include("emitters/Emitters.jl")
+# include("rjmcmc/RJMCMC.jl")
+
+
+# export RJMCMC
+export Emitters
 
 end
