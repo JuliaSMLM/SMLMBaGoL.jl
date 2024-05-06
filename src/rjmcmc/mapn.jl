@@ -68,6 +68,16 @@ function find_mapn_ref_state(chain::RJMCMC_Chain)
     return best_state
 end
 
+function extract_mapn_chain(chain)
+    n_map, n_vec = find_mapn(chain)
+    chain_mapn = RJMCMC_Chain(Params[])
+    for state in chain.states
+        if length(state) == n_map
+            push!(chain_mapn.states, state)
+        end
+    end
+    return chain_mapn
+end
 
 function euclidean_distance(emitter1::Emitter2D, emitter2::Emitter2D)
     return sqrt((emitter1.x - emitter2.x)^2 + (emitter1.y - emitter2.y)^2)

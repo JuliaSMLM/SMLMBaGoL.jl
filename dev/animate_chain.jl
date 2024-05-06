@@ -4,7 +4,7 @@
 frame_index = Observable(1)
 
 # Create the figure and axis
-fig = Figure(resolution=(800, 800))
+fig = Figure(size=(800, 800))
 ax = Axis(fig[1, 1], aspect=DataAspect())
 
 # Emitters

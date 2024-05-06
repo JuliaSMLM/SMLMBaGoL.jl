@@ -36,40 +36,17 @@ else
 end
 obs = RJ.gen_observations2D(prior_λ, emitters; photons=1000.0)
 
-prior_k = RJ.build_prior_k(obs, prior_λ)
-prior_y = RJ.build_prior_y(obs)
-
-
-## RJMCMC
-p_jump = Categorical([1/7, 1/7, 1/7, 1/7, 1/7, 1/7, 1/7])
-roi = RJ.RJMCMC_ROI(obs, prior_y, prior_k, p_jump, RJ.Emitter2D, prior_λ)
-@time chain, z_chain = RJ.buildchain(roi, n_burnin, n_jumps);
-
-# MAPN MCMC
-
-# MCMC to find MAPN Positions
-# θ = RJ.Params(best_state.emitters)      
-# p_jump = Categorical([1, 0,0,0,0,0,0])
-# roi = RJ.RJMCMC_ROI(obs, prior_y, prior_k, p_jump, RJ.Emitter2D, prior_λ)
-# @time chain_mapn, = RJ.buildchain(roi, n_burnin, n_jumps; θ = θ);
-
-# just extract chain:
-chain_mapn = RJ.extract_mapn_chain(chain)
-
-best_state = RJ.find_mapn_ref_state(chain)
-RJ.sort_mapn_chain!(chain_mapn; n_iterate = 3)
-mapn_coords = RJ.get_mapn_emitters(chain_mapn, obs)
-
+chain, z_chain, mapn_coords, chain_mapn, roi = RJ.rjmcmc(obs, prior_λ; n_burnin = n_burnin, n_jumps = n_jumps)
 
 # Plots and Prints ----------------------------------------
-RJ.plot_prior_λ(prior_λ, obs)
-RJ.plot_prior_k(prior_k, obs)
+RJ.plot_prior_λ(roi.prior_λ, obs)
+RJ.plot_prior_k(roi.prior_k, obs)
 
 fig, ax = RJ.plot_observations(obs)
 RJ.plot_true_values!(ax, emitters; markersize = 10)
 display(fig)
 
-fig, ax = RJ.plot_sr(obs, prior_y)
+fig, ax = RJ.plot_sr(obs, roi.prior_y)
 RJ.plot_true_values!(ax, emitters; markersize = 10)
 display(fig)
 
@@ -91,7 +68,8 @@ n_map, n_vec = RJ.find_mapn(chain)
 n_true = length(emitters.emitters)
 println("True N = $n_true, MAPN  = $n_map")
 
-RJ.animate_chain(chain, z_chain, obs, emitters)
+# slow
+# RJ.animate_chain(chain, z_chain, obs, emitters)
 
 
 
