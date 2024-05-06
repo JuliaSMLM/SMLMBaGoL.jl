@@ -70,7 +70,6 @@ length(chain::RJMCMC_Chain) = length(chain.states)
 struct RJMCMC_ROI
     obs::Observations
     prior_y::Distributions.Distribution
-    area::Real
     prior_k::Distributions.Distribution
     p_jump::Distributions.Categorical    
     emitter_type::Type

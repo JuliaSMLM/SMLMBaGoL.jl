@@ -1,5 +1,5 @@
 
-function gen_sr(obs)
+function gen_sr(prior_y, obs)
     # Plot prior distribution image for y
     vals = rand(prior_y, 10000)
 

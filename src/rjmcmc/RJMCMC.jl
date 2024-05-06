@@ -4,6 +4,8 @@ using Distributions
 using StatsBase 
 using SpecialFunctions
 using Hungarian
+using CairoMakie 
+using CairoMakie: Point2f0
 
 include("types.jl")
 include("move.jl")
@@ -14,5 +16,6 @@ include("interface.jl")
 include("emitters2D.jl")
 include("buildchain.jl")
 include("mapn.jl")
+include("plottools.jl")
 
 end
