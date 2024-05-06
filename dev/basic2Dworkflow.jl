@@ -13,7 +13,7 @@ using StatsBase
 
 # Setup Parameters
 n_emitters = 10 
-xy_range = 20.0 # for n_emitters == 2, this is separation between emitters
+xy_range = 50.0 # for n_emitters == 2, this is separation between emitters
 μ_λ = 10.0 # mean of λ
 σ_λ = 3.0 # standard deviation of λ
 n_burnin = 4000
