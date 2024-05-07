@@ -1,12 +1,24 @@
-
 import Base: length
 
-mutable struct Allocations 
-    idx::Vector{Int}
+mutable struct Params
+    emitters::Vector{<:AbstractEmitter}
 end
-length(z::Allocations) = length(z.idx)
+length(θ::Params) = length(θ.emitters)
 
-abstract type AbstractEmitter end
+struct RJMCMC_Chain
+    states::Vector{Params}
+end
+length(chain::RJMCMC_Chain) = length(chain.states)
+
+struct RJMCMC_ROI
+    obs::SMLMBaGoL.Observations
+    prior_y::Distributions.Distribution
+    prior_k::Distributions.Distribution
+    p_jump::Distributions.Categorical    
+    emitter_type::Type
+    prior_λ::Distributions.Distribution
+end
+
 
 mutable struct Emitter3D{T} <: AbstractEmitter
     μ_x::T
@@ -31,17 +43,7 @@ mutable struct Emitter3D_Drift{T} <: AbstractEmitter
 end
 
 
-mutable struct Params
-    emitters::Vector{<:AbstractEmitter}
-end
-length(θ::Params) = length(θ.emitters)
 
-abstract type AbstractObservation end 
-
-mutable struct Observations
-    ŷ::Vector{<:AbstractObservation}
-end
-length(obs::Observations) = length(obs.ŷ)
 
 
 struct Localization2D_Time{T} <: AbstractObservation
@@ -61,19 +63,4 @@ struct Localization3D{T} <: AbstractObservation
     σ_z::T
     framenum::Vector{Int}    
 end
-
-struct RJMCMC_Chain
-    states::Vector{Params}
-end
-length(chain::RJMCMC_Chain) = length(chain.states)
-
-struct RJMCMC_ROI
-    obs::Observations
-    prior_y::Distributions.Distribution
-    prior_k::Distributions.Distribution
-    p_jump::Distributions.Categorical    
-    emitter_type::Type
-    prior_λ::Distributions.Distribution
-end
-
 

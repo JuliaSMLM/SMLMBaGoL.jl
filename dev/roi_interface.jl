@@ -4,8 +4,6 @@
 using Revise
 using SMLMBaGoL
 BGL = SMLMBaGoL
-using SMLMBaGoL: RJMCMC
-RJ = RJMCMC
 using Distributions
 using CairoMakie
 using CairoMakie: Point2f0
@@ -25,51 +23,52 @@ n_jumps = 8000
 θ = σ_λ^2 / μ_λ # Scale
 prior_λ = Gamma(α, θ)
 
-# Create true emitters and observations 
+# Create true emitters and observations
+T = BGL.Emitter2D{Float64} 
 if n_emitters == 2
-    emitters = RJ.Params([RJ.Emitter2D([0.0, xy_range/2]), RJ.Emitter2D([0.0, -xy_range/2])])
+    emitters = [BGL.Emitter2D([0.0, xy_range/2]), BGL.Emitter2D([0.0, -xy_range/2])]
 else
     dist1 = Uniform(-xy_range/2, xy_range/2)
     dist2 = Uniform(-xy_range/2, xy_range/2)
     dist = Product([dist1, dist2])
-    emitters = RJ.gen_emitters2D(n_emitters, dist)
+    emitters = BGL.gen_emitters(T,n_emitters, dist)
 end
-obs = RJ.gen_observations2D(prior_λ, emitters; photons=1000.0)
+obs = BGL.gen_observations(prior_λ, emitters; photons=1000.0)
 
-chain, z_chain, mapn_coords, chain_mapn, roi = RJ.rjmcmc(obs, prior_λ; n_burnin = n_burnin, n_jumps = n_jumps)
+chain, z_chain, mapn_coords, chain_mapn, roi = BGL.rjmcmc(obs, prior_λ; n_burnin = n_burnin, n_jumps = n_jumps)
 
 # Plots and Prints ----------------------------------------
-RJ.plot_prior_λ(roi.prior_λ, obs)
-RJ.plot_prior_k(roi.prior_k, obs)
+BGL.plot_prior_λ(roi.prior_λ, obs)
+BGL.plot_prior_k(roi.prior_k, obs)
 
-fig, ax = RJ.plot_observations(obs)
-RJ.plot_true_values!(ax, emitters; markersize = 10)
+fig, ax = BGL.plot_observations(obs)
+BGL.plot_true_values!(ax, emitters; markersize = 10)
 display(fig)
 
-fig, ax = RJ.plot_sr(obs, roi.prior_y)
-RJ.plot_true_values!(ax, emitters; markersize = 10)
+fig, ax = BGL.plot_sr(obs, roi.prior_y)
+BGL.plot_true_values!(ax, emitters; markersize = 10)
 display(fig)
 
-fig, ax = RJ.plot_posterior(chain, obs)
-RJ.plot_true_values!(ax, emitters; markersize = 10)
+fig, ax = BGL.plot_posterior(chain, obs)
+BGL.plot_true_values!(ax, emitters; markersize = 10)
 display(fig)
 
-fig, ax = RJ.plot_posterior(chain_mapn, obs; title = "MAPN")
-RJ.plot_true_values!(ax, emitters; markersize = 10)
+fig, ax = BGL.plot_posterior(chain_mapn, obs; title = "MAPN")
+BGL.plot_true_values!(ax, emitters; markersize = 10)
 display(fig)
 
-fig, ax = RJ.plot_observations(RJ.Observations(mapn_coords))
-RJ.plot_true_values!(ax, emitters; markersize = 10)
+fig, ax = BGL.plot_observations(BGL.Observations(mapn_coords))
+BGL.plot_true_values!(ax, emitters; markersize = 10)
 display(fig)
 
-RJ.plot_state_length(chain)
-RJ.plot_sld(chain)
-n_map, n_vec = RJ.find_mapn(chain)
-n_true = length(emitters.emitters)
+BGL.plot_state_length(chain)
+BGL.plot_sld(chain)
+n_map, n_vec = BGL.RJMCMC.find_mapn(chain)
+n_true = length(emitters)
 println("True N = $n_true, MAPN  = $n_map")
 
 # slow
-# RJ.animate_chain(chain, z_chain, obs, emitters)
+# BGL.animate_chain(chain, z_chain, obs, emitters)
 
 
 
