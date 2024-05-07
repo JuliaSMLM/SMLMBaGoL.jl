@@ -33,12 +33,7 @@ end
 
 function move!(emitter::Emitter2D, obs::Observations, z::Allocations, id_emitter::Int, prior_y::Distributions.Distribution)
     # handle the case where there are no observations for this emitter
-    if !has_allocation(z, id_emitter)
-        # sample from the prior
-        emitter.y, emitter.x = rand(prior_y)
-        return
-    end
-
+    
     # Use mean and variance of Observations to sample from a Normal distribution
     x_sum = 0.0
     y_sum = 0.0
@@ -75,12 +70,17 @@ function build_prior_y(locs::Vector{Localization2D{T}}) where {T<:Real}
     return MixtureModel(components, weights)
 end
 
-function gen_emitters2D(n::Int, prior_y::Distributions.Distribution)
-    return Params([Emitter2D(rand(prior_y)) for i in 1:n])
+function gen_emitter!(emitter::Emitter2D{T}, prior_y::Distributions.Distribution) where T <: Real
+    emitter.x, emitter.y = rand(prior_y)
+end
+
+function gen_emitters(ET::Type{<:SMLMBaGoL.Emitters.Emitter2D{T}}, n::Int, prior_y::Distributions.Distribution) where T <: Real
+    return [Emitter2D{T}(rand(prior_y)) for i in 1:n]
 end
 
 
-function gen_observations2D(prior_λ, emitters::Params; photons::Float64=1000.0, min_photons::Int=200)
+function gen_observations(prior_λ, emitters::Vector{SMLMBaGoL.Emitters.Emitter2D{T}}; 
+    photons::Float64=1000.0, min_photons::Int=200) where T <: Real
 
     p = Exponential(photons)
     p = Truncated(p, min_photons, Inf)
@@ -92,7 +92,7 @@ function gen_observations2D(prior_λ, emitters::Params; photons::Float64=1000.0,
     σ_y = Float64[]
     σ_x = Float64[]
 
-    for emitter in emitters.emitters
+    for emitter in emitters
         n = Int(round((rand(prior_λ))))
 
         σ_temp = σ_PSF ./ sqrt.(rand(p, n))
@@ -110,7 +110,7 @@ function gen_observations2D(prior_λ, emitters::Params; photons::Float64=1000.0,
     return Observations(Localization2D.(x, y, σ_x, σ_y))
 end
 
-function merge(emitter1::Emitter2D, emitter2::Emitter2D)
+function merge_emitters(emitter1::Emitter2D, emitter2::Emitter2D)
     new_x = (emitter1.x + emitter2.x) / 2
     new_y = (emitter1.y + emitter2.y) / 2
     return Emitter2D(new_x, new_y)

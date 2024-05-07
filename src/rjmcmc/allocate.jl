@@ -9,7 +9,7 @@ function convolve_distribution(distribution::UnivariateDistribution, k::Int)
     return convolved_distribution
 end
 
-function build_prior_k(obs::Observations, prior_λ::Distributions.UnivariateDistribution)
+function build_prior_k(obs::SMLMBaGoL.Observations, prior_λ::Distributions.UnivariateDistribution)
     max_k = length(obs.ŷ)
     N = max_k
     probabilities = zeros(max_k + 1)

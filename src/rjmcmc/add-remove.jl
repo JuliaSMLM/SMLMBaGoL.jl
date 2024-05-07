@@ -1,7 +1,4 @@
 
-
-
-
 function clean_params!(θ::Params, z::Allocations)
     # Remove emitters that do not have any allocated observations and update z.idx
     for id in reverse(eachindex(θ.emitters))

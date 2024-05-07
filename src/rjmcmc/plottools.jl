@@ -93,8 +93,8 @@ function plot_sr(obs, prior_y; pixelsize=1.0)
 end
 
 function plot_true_values!(ax, emitters; color=:green, markersize=1, marker=:x)
-    true_x = [emitter.x for emitter in emitters.emitters]
-    true_y = [emitter.y for emitter in emitters.emitters]
+    true_x = [emitter.x for emitter in emitters]
+    true_y = [emitter.y for emitter in emitters]
     scatter!(ax, true_x, true_y, color=color, markersize=markersize, marker=marker)
 end
 
@@ -139,7 +139,7 @@ function animate_chain(chain, z_chain, obs, emitters; filename="scatter_animatio
     ax = Axis(fig[1, 1], aspect=DataAspect(), xlabel="x", ylabel="y")
 
     # Emitters
-    for emitter in emitters.emitters
+    for emitter in emitters
         scatter!(ax, [emitter.x], [emitter.y], color=:red)
     end
 
