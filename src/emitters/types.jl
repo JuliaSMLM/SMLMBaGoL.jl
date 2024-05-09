@@ -1,1 +1,1 @@
-abstract type AbstractEmitter end
+

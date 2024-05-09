@@ -8,7 +8,7 @@ function rjmcmc(obs::SMLMBaGoL.Observations, prior_λ::Distributions.Distributio
     prior_y = build_prior_y(obs)
     
     ## RJMCMC
-    p_jump = Categorical([1 / 7, 1 / 7, 1 / 7, 1 / 7, 1 / 7, 1 / 7, 1 / 7])
+    p_jump = Distributions.Categorical([1 / 7, 1 / 7, 1 / 7, 1 / 7, 1 / 7, 1 / 7, 1 / 7])
     roi = RJMCMC_ROI(obs, prior_y, prior_k, p_jump, Emitter2D, prior_λ)
     chain = buildchain(roi, n_burnin, n_jumps)
 

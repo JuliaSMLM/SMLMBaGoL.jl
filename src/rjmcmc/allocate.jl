@@ -39,7 +39,7 @@ function allocate!(z::Allocations, obs::Observations, θ::Params)
         log_p .-= maximum(log_p)
         log_p .= exp.(log_p) .+ eps()
         log_p ./= sum(log_p) 
-        z.idx[i] = rand(Categorical(log_p))
+        z.idx[i] = rand(Distributions.Categorical(log_p))
     end
 end
 

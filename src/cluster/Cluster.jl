@@ -1,20 +1,29 @@
 module Cluster
 
-using Distributions
-using StatsBase
-using SpecialFunctions
-using Hungarian
-using CairoMakie
-using CairoMakie: Point2f0
 using Clustering
+using Distributions 
 
 # Import from SMLMBaGoL
 using ..SMLMBaGoL 
+using ..SMLMBaGoL.RJMCMC
+
+import ..SMLMBaGoL.AbstractEmitter
+import ..SMLMBaGoL.Observations
+import ..SMLMBaGoL.Allocations
+import ..SMLMBaGoL.Params
+import ..SMLMBaGoL.log_p_z_given_y
+import ..SMLMBaGoL.move!
+import ..SMLMBaGoL.build_prior_y
+import ..SMLMBaGoL.gen_emitter!
+import ..SMLMBaGoL.gen_emitters
+import ..SMLMBaGoL.merge_emitters
+import ..SMLMBaGoL.gen_observations
 
 
 include("types.jl")
 include("hierarchical_bayes.jl")
-
+include("cluster_tools.jl")
+export Subregion, gen_subregions
 
 end
 

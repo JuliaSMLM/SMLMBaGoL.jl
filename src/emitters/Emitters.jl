@@ -9,6 +9,7 @@ using ..SMLMBaGoL
 # These are the methods that must be implemented for each emitter type
 import ..SMLMBaGoL.Observations
 import ..SMLMBaGoL.Allocations
+import ..SMLMBaGoL.AbstractEmitter
 import ..SMLMBaGoL.log_p_z_given_y
 import ..SMLMBaGoL.move!
 import ..SMLMBaGoL.build_prior_y

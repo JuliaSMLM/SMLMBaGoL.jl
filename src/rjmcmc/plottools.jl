@@ -4,7 +4,7 @@ function draw_circle!(axis, center::Point2f0, radius::Float64; points::Int=100, 
     θ = LinRange(0, 2π, points)
     x = center[1] .+ radius * cos.(θ)
     y = center[2] .+ radius * sin.(θ)
-    lines!(axis, x, y, color=color, linewidth=linewidth, linestyle=linestyle, linealpha=linealpha, linecolor=linecolor)
+    lines!(axis, x, y, color=color, linewidth=linewidth, linestyle=linestyle, alpha=linealpha)
 end
 
 function get_data_range(obs; sigma_factor=2.0)
