@@ -16,6 +16,7 @@ export Allocations
 
 include("emitters/Emitters.jl")
 include("rjmcmc/RJMCMC.jl")
+include("cluster/Cluster.jl")
 
 # To get exports   
 using .RJMCMC

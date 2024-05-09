@@ -70,7 +70,7 @@ end
 
 function extract_mapn_chain(chain)
     n_map, n_vec = find_mapn(chain)
-    chain_mapn = RJMCMC_Chain(Params[])
+    chain_mapn = RJMCMC_Chain(Params[],Allocations[])
     for state in chain.states
         if length(state) == n_map
             push!(chain_mapn.states, state)

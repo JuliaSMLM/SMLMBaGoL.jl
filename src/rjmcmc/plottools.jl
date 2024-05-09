@@ -130,7 +130,10 @@ function plot_sld(chain)
     display(fig)
 end
 
-function animate_chain(chain, z_chain, obs, emitters; filename="scatter_animation.mp4")
+function animate_chain(chain, obs, emitters; filename="scatter_animation.mp4")
+    
+    z_chain = chain.allocations
+    
     # Create an observable for the frame index
     frame_index = Observable(1)
 
