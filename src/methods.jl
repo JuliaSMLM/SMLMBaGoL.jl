@@ -8,7 +8,7 @@ function gen_emitter! end
 function gen_emitters end
 function merge_emitters end
 function gen_observations end
-
+function localization_distance end
 
 
 

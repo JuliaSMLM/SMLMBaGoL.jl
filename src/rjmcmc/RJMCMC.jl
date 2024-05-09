@@ -12,6 +12,7 @@ using ..Emitters
 # Import from SMLMBaGoL
 import ..SMLMBaGoL.Observations
 import ..SMLMBaGoL.Allocations
+import ..SMLMBaGoL.Params
 import ..SMLMBaGoL.log_p_z_given_y
 import ..SMLMBaGoL.move!
 import ..SMLMBaGoL.build_prior_y
@@ -31,6 +32,7 @@ include("mapn.jl")
 include("plottools.jl")
 
 export rjmcmc
+export RJMCMC_Chain
 
 # Export plot tools
 export plot_posterior, plot_observations, plot_observations!, plot_sr, plot_sld,

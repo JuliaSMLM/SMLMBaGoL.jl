@@ -1,9 +1,5 @@
 import Base: length
 
-mutable struct Params
-    emitters::Vector{<:AbstractEmitter}
-end
-length(θ::Params) = length(θ.emitters)
 
 struct RJMCMC_Chain
     states::Vector{Params}

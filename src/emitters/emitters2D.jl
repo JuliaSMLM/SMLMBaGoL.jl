@@ -79,7 +79,7 @@ function gen_emitters(ET::Type{<:SMLMBaGoL.Emitters.Emitter2D{T}}, n::Int, prior
 end
 
 
-function gen_observations(prior_λ, emitters::Vector{SMLMBaGoL.Emitters.Emitter2D{T}}; 
+function gen_observations(prior_λ::Distributions.Distribution, emitters::Vector{SMLMBaGoL.Emitters.Emitter2D{T}}; 
     photons::Float64=1000.0, min_photons::Int=200) where T <: Real
 
     p = Exponential(photons)
@@ -110,8 +110,24 @@ function gen_observations(prior_λ, emitters::Vector{SMLMBaGoL.Emitters.Emitter2
     return Observations(Localization2D.(x, y, σ_x, σ_y))
 end
 
+function gen_observations(emitter_type::Type{<:SMLMBaGoL.Emitters.Emitter2D}, positions, sigmas)
+    x = positions[1, :]
+    y = positions[2, :]
+    σ_x = sigmas[1, :]
+    σ_y = sigmas[2, :]
+    return Observations(Localization2D.(x, y, σ_x, σ_y))
+end
+
 function merge_emitters(emitter1::Emitter2D, emitter2::Emitter2D)
     new_x = (emitter1.x + emitter2.x) / 2
     new_y = (emitter1.y + emitter2.y) / 2
     return Emitter2D(new_x, new_y)
+end
+
+function localization_distance(loc1::Localization2D, loc2::Localization2D)
+    d = sqrt((loc1.x - loc2.x)^2 + (loc1.y - loc2.y)^2)
+    
+    # scale by uncertainty so that d = 1 means p value of that they are from same emitter 
+    
+    return 
 end

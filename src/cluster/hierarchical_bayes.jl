@@ -20,4 +20,3 @@ function log_likelihood_z(z::Allocations, prior_λ::Distributions.Distribution)
     end
 end
 
-function 
