@@ -10,7 +10,7 @@ function rjmcmc(obs::SMLMBaGoL.Observations, prior_λ::Distributions.Distributio
     ## RJMCMC
     p_jump = Categorical([1 / 7, 1 / 7, 1 / 7, 1 / 7, 1 / 7, 1 / 7, 1 / 7])
     roi = RJMCMC_ROI(obs, prior_y, prior_k, p_jump, Emitter2D, prior_λ)
-    chain, z_chain = buildchain(roi, n_burnin, n_jumps)
+    chain = buildchain(roi, n_burnin, n_jumps)
 
     # extract mapn chain:
     chain_mapn = extract_mapn_chain(chain)
@@ -18,7 +18,7 @@ function rjmcmc(obs::SMLMBaGoL.Observations, prior_λ::Distributions.Distributio
     sort_mapn_chain!(chain_mapn; n_iterate=3)
     mapn_coords = get_mapn_emitters(chain_mapn, obs)
 
-    chain, z_chain, mapn_coords, chain_mapn, roi
+    chain, mapn_coords, chain_mapn, roi
 end
 
 

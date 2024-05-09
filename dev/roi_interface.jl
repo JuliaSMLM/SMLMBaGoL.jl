@@ -35,7 +35,7 @@ else
 end
 obs = BGL.gen_observations(prior_λ, emitters; photons=1000.0)
 
-chain, z_chain, mapn_coords, chain_mapn, roi = BGL.rjmcmc(obs, prior_λ; n_burnin = n_burnin, n_jumps = n_jumps)
+chain, mapn_coords, chain_mapn, roi = BGL.rjmcmc(obs, prior_λ; n_burnin = n_burnin, n_jumps = n_jumps)
 
 # Plots and Prints ----------------------------------------
 BGL.plot_prior_λ(roi.prior_λ, obs)
@@ -68,7 +68,7 @@ n_true = length(emitters)
 println("True N = $n_true, MAPN  = $n_map")
 
 # slow
-# BGL.animate_chain(chain, z_chain, obs, emitters)
+# BGL.animate_chain(chain, obs, emitters)
 
 
 
