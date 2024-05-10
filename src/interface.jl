@@ -17,9 +17,9 @@ function bagol(smld2D;
 
     # setup chain 
     # run chain on all subregions 
-    for (i, subregion) in enumerate(subregions)
-        @info "Running chain on subregion: $(i)"
-        chain,  = rjmcmc(subregion.obs, prior_λ)
+    Threads.@threads for i in eachindex(subregions)
+        subregion = subregions[i]
+        chain, mapn_coords = rjmcmc(subregion.obs, prior_λ)
         subregion.chains[1] = chain
     end
 
