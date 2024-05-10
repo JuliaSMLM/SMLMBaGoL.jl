@@ -63,8 +63,8 @@ function plot_observations!(ax, obs::Observations; color=:black, linewidth=1, li
     end
 end
 
-function plot_observations(obs::Observations; color=:black, linewidth=1, linealpha=1)
-    fig = Figure()
+function plot_observations(obs::Observations; color=:black, linewidth=1, linealpha=1, size=(800, 800))
+    fig = Figure(size=size)
     ax = Axis(fig[1, 1], aspect=DataAspect())
     plot_observations!(ax, obs; color=color, linewidth=linewidth, linealpha=linealpha)
     display(fig)
