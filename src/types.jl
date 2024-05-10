@@ -2,16 +2,23 @@ import Base: length
 
 abstract type AbstractEmitter end
 
-mutable struct Params
-    emitters::Vector{<:AbstractEmitter}
+struct Params{T<:AbstractEmitter}
+    emitters::Vector{T}
+end
+function Params(emitters::Vector{T}) where T<:AbstractEmitter
+    return Params{T}(copy(emitters))
 end
 length(θ::Params) = length(θ.emitters)
+
+function Base.deepcopy(θ::Params{T}) where T<:AbstractEmitter
+    return Params{T}(deepcopy(θ.emitters))
+end
 
 
 abstract type AbstractObservation end 
 
-mutable struct Observations
-    ŷ::Vector{<:AbstractObservation}
+struct Observations{T<:AbstractObservation}
+    ŷ::Vector{T}
 end
 length(obs::Observations) = length(obs.ŷ)
 
