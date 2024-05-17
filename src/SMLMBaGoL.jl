@@ -29,6 +29,9 @@ include("posterior.jl")
 include("mapn.jl")
 include("interface.jl")
 
+include("vis_tools/VisTools.jl")
+using .VisTools
+
 export bagol
 
 end
