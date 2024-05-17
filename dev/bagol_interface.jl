@@ -7,8 +7,8 @@ using Images
 using ColorSchemes
 
 
-# include("gen_nmers.jl")
-include("gen_nmers_big.jl")
+include("gen_nmers.jl")
+# include("gen_nmers_big.jl")
 println("Total Localizations: ", length(smld_noisy.x))
 
 
@@ -23,6 +23,11 @@ obs = BGL.gen_observations(emitter_type,vcat(y', x'), vcat(σ_y', σ_x'))
 @time bglim = BGL.gen_obs_image(obs, 0.001)
 display(bglim.data)
 save("observations_nmer.png", bglim.data)
+
+@time srim = BGL.gen_sr_image(obs, 0.001)
+display(srim.data)
+save("sr_nmer.png", srim.data)
+
 
 # setup prior 
 μ_λ = μ
