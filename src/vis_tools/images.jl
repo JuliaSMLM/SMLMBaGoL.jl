@@ -1,32 +1,32 @@
 
 function draw_circle!(im::BGLImage2D, center::Tuple{Real,Real}, radius::Real, color::Colorant)
-
-    # convert coordinate and radius to pixel values (float)
+    # Convert coordinate and radius to pixel values (float)
     radius_pixels = radius / im.pixelsize
     center_pixels = (
         (center[1] - im.x_start) / im.pixelsize,
         (center[2] - im.y_start) / im.pixelsize
     )
 
-    # generate line segments for the circle
-    angles = range(0, 2π, length=100)
-    circle_points = [
-        (round(Int, center_pixels[1] + radius_pixels * cos(θ)), round(Int, center_pixels[2] + radius_pixels * sin(θ)))
-        for θ in angles
-    ]
-
+    # Generate line segments for the circle
     T = typeof(im.data[1, 1].val)
-    # Draw line segments connecting the points
-    for i in 1:length(circle_points)-1
-        p1 = circle_points[i]
-        p2 = circle_points[i+1]
-        draw!(im.data, LineSegment(p1[1], p1[2], p2[1], p2[2]), Gray{T}(1),)
+    num_points = 100
+    step = 2π / num_points
+    angle = 0.0
+
+    p1 = (round(Int, center_pixels[1] + radius_pixels * cos(angle)), round(Int, center_pixels[2] + radius_pixels * sin(angle)))
+    for i in 1:num_points
+        angle += step
+        p2 = (round(Int, center_pixels[1] + radius_pixels * cos(angle)), round(Int, center_pixels[2] + radius_pixels * sin(angle)))
+        draw!(im.data, LineSegment(p1[1], p1[2], p2[1], p2[2]), Gray{T}(1))
+        p1 = p2
     end
+
     # Connect the last point to the first point
-    p1 = circle_points[end]
-    p2 = circle_points[1]
+    angle = 0.0
+    p2 = (round(Int, center_pixels[1] + radius_pixels * cos(angle)), round(Int, center_pixels[2] + radius_pixels * sin(angle)))
     draw!(im.data, LineSegment(p1[1], p1[2], p2[1], p2[2]), Gray{T}(1))
 end
+
 
 function draw_x!(im::BGLImage2D, center::Tuple{Real,Real}, size::Real, color::Colorant)
     T = typeof(im.data[1, 1])
