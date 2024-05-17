@@ -14,14 +14,14 @@ function Emitter2D{T}(emitter::Emitter2D{T}) where T
 end
 
 struct Localization2D{T} <: AbstractObservation
-    x::T
     y::T
-    σ_x::T
+    x::T
     σ_y::T
+    σ_x::T
 end
 # Constructor for Localization2D using type of Emitter2D
-function Localization2D{T}(emitter::Emitter2D{T}, σ_x::T, σ_y::T) where T
-    return Localization2D(emitter.x, emitter.y, σ_x, σ_y)
+function Localization2D{T}(emitter::Emitter2D{T}, σ_y::T, σ_x::T) where T
+    return Localization2D(emitter.y, emitter.x, σ_y, σ_x)
 end
 
 
@@ -107,15 +107,17 @@ function gen_observations(prior_λ::Distributions.Distribution, emitters::Vector
 
     end
 
-    return Observations(Localization2D.(x, y, σ_x, σ_y))
+    return Observations(Localization2D.(y, x, σ_y, σ_x))
 end
 
 function gen_observations(emitter_type::Type{<:SMLMBaGoL.Emitters.Emitter2D}, positions, sigmas)
-    x = positions[1, :]
-    y = positions[2, :]
-    σ_x = sigmas[1, :]
-    σ_y = sigmas[2, :]
-    return Observations(Localization2D.(x, y, σ_x, σ_y))
+    
+    y = positions[1, :]
+    x = positions[2, :]
+    
+    σ_y = sigmas[1, :]
+    σ_x = sigmas[2, :]
+    return Observations(Localization2D.(y, x, σ_y, σ_x))
 end
 
 function merge_emitters(emitter1::Emitter2D, emitter2::Emitter2D)
