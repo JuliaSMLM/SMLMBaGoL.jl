@@ -1,13 +1,15 @@
+using Pkg 
+Pkg.activate("dev")
 using Revise
-
-include("gen_nmers.jl")
-
-println("Total Localizations: ", length(smld_noisy.x))
-
 using SMLMBaGoL
 BGL = SMLMBaGoL
 using Images
 using ColorSchemes
+
+
+# include("gen_nmers.jl")
+include("gen_nmers_big.jl")
+println("Total Localizations: ", length(smld_noisy.x))
 
 
 # make a figure 
@@ -16,9 +18,11 @@ y = smld_noisy.y
 σ_x = smld_noisy.σ_x
 σ_y = smld_noisy.σ_y
 emitter_type = BGL.Emitter2D
+
 obs = BGL.gen_observations(emitter_type,vcat(y', x'), vcat(σ_y', σ_x'))
-fig, = BGL.RJMCMC.plot_observations(obs; size=(5000,5000))
-save("observations_nmer.png", fig)
+@time bglim = BGL.gen_obs_image(obs, 0.001)
+display(bglim.data)
+save("observations_nmer.png", bglim.data)
 
 # setup prior 
 μ_λ = μ
