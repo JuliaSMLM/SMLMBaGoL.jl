@@ -8,8 +8,8 @@ BGL = SMLMBaGoL
 using Images 
 
 filepath = "C:\\Data"
-# filename = "Data_2024-4-5-17-6-12_E345R_Results.mat"
-filenam = "Data_2023-9-11-12-48-23_Results.mat"
+filename = "Data_2024-4-5-17-6-12_E345R_Results.mat"
+# filename = "Data_2023-9-11-12-48-23_Results.mat"
 smd = SMLMData.SMITEsmd(filepath::String,filename::String)
 
 smld = SMLMData.SMLD2D(smd)
