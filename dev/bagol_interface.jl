@@ -25,6 +25,7 @@ display(bglim.data)
 save("observations_nmer.png", bglim.data)
 
 @time srim = BGL.gen_sr_image(obs, 0.001)
+BGL.VisTools.quantile_stretch!(srim.data; max_quantile=0.95)
 display(srim.data)
 save("sr_nmer.png", srim.data)
 
@@ -35,12 +36,12 @@ save("sr_nmer.png", srim.data)
 α, θ = μ_λ^2 / σ_λ^2, σ_λ^2 / μ_λ
 prior_λ = Gamma(α, θ)
 
-@time post = bagol(smld_noisy; prior_λ, pixel_size = 0.1)
+@time srs, post = bagol(smld_noisy; prior_λ, pixel_size = 0.1)
 
-gray_img = Gray.(post.post_arr./maximum(post.post_arr))
+img = deepcopy(post.post_arr)
+BGL.VisTools.quantile_stretch!(img; max_quantile=0.95)
 colormap = ColorSchemes.inferno
-
-color_img = get(colormap, post.post_arr./maximum(post.post_arr) )
+color_img = get(colormap, img)
 
 save("posterior_nmer.png", color_img)
 display(color_img)

@@ -10,13 +10,13 @@ function clean_params!(θ::Params, z::Allocations)
 end
 
 function add_emitter(θ::Params, new_emitter::AbstractEmitter)
-    θ_new = Params(θ.emitters)
+    θ_new = Params(θ)
     push!(θ_new.emitters, new_emitter)
     return θ_new
 end
 
 function remove_emitter(θ::Params, id::Int)
-    θ_new = Params(θ.emitters)
+    θ_new = Params(θ)
     deleteat!(θ_new.emitters, id)
     return θ_new
 end
