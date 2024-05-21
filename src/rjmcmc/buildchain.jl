@@ -1,8 +1,7 @@
 
 function take_jumps(θ::Params, z::Allocations, roi::RJMCMC_ROI, n_jumps::Int)
     verbose = false
-    # θ = deepcopy(θ)
-    θ = Params(θ.emitters)
+    θ = Params(θ)
     for i in 1:n_jumps
         # clean_params!(θ, z)
         # @info "jump number $i, length = $(length(θ)), z.idx = $(z.idx)"

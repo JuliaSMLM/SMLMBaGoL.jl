@@ -1,6 +1,6 @@
 # Basic 2D workflow 
-# using Pkg
-#Pkg.activate("dev")
+using Pkg
+Pkg.activate("dev")
 using Revise
 using SMLMBaGoL
 BGL = SMLMBaGoL
