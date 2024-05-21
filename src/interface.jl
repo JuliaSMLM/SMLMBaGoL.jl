@@ -13,7 +13,7 @@ function bagol(smld2D;
     @info "Number of subregions: $(length(subregions))"
     # create posterior image 
     posterior_pixel_size = pixel_size/20
-    posterior = Posterior2D(smld2D; pixel_size = posterior_pixel_size)
+    posterior = Posterior2D(smld2D; pixelsize = posterior_pixel_size)
 
     # setup chain 
     # run chain on all subregions 
@@ -28,6 +28,21 @@ function bagol(smld2D;
         add!(posterior, subregion.chains[1])
     end
 
+    # find maximum x value in all subregions 
+    max_x = 0
+    for subregion in subregions
+        max_x = min(max_x, maximum([emitter.x for state in subregion.chains[1].states for emitter in state.emitters]))
+    end
+    println("Max x: ", max_x)
+
+    # find maximum y value in all subregions 
+    max_y = 0
+    for subregion in subregions
+        max_y = min(max_y, maximum([emitter.y for state in subregion.chains[1].states for emitter in state.emitters]))
+    end
+    println("Max y: ", max_y)
+    
+   
     return posterior
 end
 

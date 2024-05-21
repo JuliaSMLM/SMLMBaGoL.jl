@@ -1,7 +1,7 @@
 
 function draw_circle!(axis, center::Point2f0, radius::Float64; points::Int=100, color=:black,
     linewidth=1.0, linestyle=:solid, linealpha=1.0, linecolor=:black, fillalpha=0.0, fillcolor=:black)
-    θ = LinRange(0, 2π, points)
+    θ = Float32.(LinRange(0, 2π, points))
     x = center[1] .+ radius * cos.(θ)
     y = center[2] .+ radius * sin.(θ)
     lines!(axis, x, y, color=color, linewidth=linewidth, linestyle=linestyle, alpha=linealpha)

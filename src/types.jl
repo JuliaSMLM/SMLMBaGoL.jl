@@ -31,19 +31,19 @@ abstract type Posterior end
 
 mutable struct Posterior2D <: Posterior
     post_arr::Array{Float64, 2} 
-    pixelsize::Float64
-    x_start::Float64        
     y_start::Float64
-    x_size::Int
+    x_start::Float64        
     y_size::Int
+    x_size::Int
+    pixelsize::Float64
 end
 function Posterior2D(smld::SMLMData.SMLD2D;
-    pixel_size::Float64=1.0
+    pixelsize::Float64=1.0
     )
-    x_start = 0.5
     y_start = 0.5
-    x_size = Int(round((smld.datasize[2])/pixel_size))
-    y_size = Int(round((smld.datasize[1])/pixel_size))
+    x_start = 0.5
+    y_size = Int(round((smld.datasize[1])/pixelsize))
+    x_size = Int(round((smld.datasize[2])/pixelsize))
     post_arr = zeros(Float64, y_size, x_size)
-    return Posterior2D(post_arr, pixel_size, x_start, y_start, x_size, y_size)
+    return Posterior2D(post_arr, y_start, x_start, y_size, x_size, pixelsize)
 end
