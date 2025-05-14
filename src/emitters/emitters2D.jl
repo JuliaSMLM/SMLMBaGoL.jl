@@ -7,10 +7,10 @@ function Emitter2D(coords::Vector{<:Real})
     return Emitter2D(coords[1], coords[2])
 end
 function Emitter2D{T}(coords::Vector{T}) where {T<:Real}
-    return Emitter2D(coords[2], coords[1])
+    return Emitter2D(coords[1], coords[2])
 end
 function Emitter2D{T}(emitter::Emitter2D{T}) where T
-    return Emitter2D{T}(emitter.x, emitter.y)
+    return Emitter2D{T}(emitter.y, emitter.x)
 end
 
 struct Localization2D{T} <: AbstractObservation
@@ -71,7 +71,7 @@ function build_prior_y(locs::Vector{Localization2D{T}}) where {T<:Real}
 end
 
 function gen_emitter!(emitter::Emitter2D{T}, prior_y::Distributions.Distribution) where T <: Real
-    emitter.x, emitter.y = rand(prior_y)
+    emitter.y, emitter.x = rand(prior_y)
 end
 
 function gen_emitters(ET::Type{<:SMLMBaGoL.Emitters.Emitter2D{T}}, n::Int, prior_y::Distributions.Distribution) where T <: Real
@@ -123,7 +123,7 @@ end
 function merge_emitters(emitter1::Emitter2D, emitter2::Emitter2D)
     new_x = (emitter1.x + emitter2.x) / 2
     new_y = (emitter1.y + emitter2.y) / 2
-    return Emitter2D(new_x, new_y)
+    return Emitter2D(new_y, new_x)
 end
 
 function localization_distance(loc1::Localization2D, loc2::Localization2D)

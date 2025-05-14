@@ -5,8 +5,8 @@ abstract type AbstractEmitter end
 struct Params{T<:AbstractEmitter}
     emitters::Vector{T}
 end
-function Params(emitters::Vector{T}) where T<:AbstractEmitter
-    return Params{T}(copy(emitters))
+function Params(θ::Params{T}) where T<:AbstractEmitter
+    return Params{T}(deepcopy(θ.emitters))
 end
 length(θ::Params) = length(θ.emitters)
 
