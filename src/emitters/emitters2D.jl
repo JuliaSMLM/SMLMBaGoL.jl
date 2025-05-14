@@ -1,7 +1,7 @@
 
 mutable struct Emitter2D{T} <: AbstractEmitter where {T<:Real}
-    x::T
     y::T
+    x::T
 end
 function Emitter2D(coords::Vector{<:Real})
     return Emitter2D(coords[1], coords[2])
