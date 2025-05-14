@@ -9,3 +9,5 @@ examples/.vscode/settings.json
 *.mp4
 *.gif
 *.png
+
+**/.claude/settings.local.json
