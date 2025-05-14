@@ -6,6 +6,7 @@ using CairoMakie
 using Images 
 using ColorSchemes
 using ImageDraw 
+using Statistics
 
 include("types.jl")
 include("plot.jl")

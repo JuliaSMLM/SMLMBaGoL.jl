@@ -4,8 +4,8 @@ function bagol(smld2D;
     pixel_size::Float64=1.0)
 
     # create subregions
-    positions = Transpose(hcat(smld2D.x, smld2D.y))
-    sigmas = Transpose(hcat(smld2D.σ_x, smld2D.σ_y))
+    positions = Transpose(hcat(smld2D.y, smld2D.x))
+    sigmas = Transpose(hcat(smld2D.σ_y, smld2D.σ_x))
     emitter_type = Emitter2D
     min_pts = 1
     ϵ = mean(smld2D.σ_x) * 4 
@@ -43,6 +43,6 @@ function bagol(smld2D;
     println("Max y: ", max_y)
     
    
-    return posterior
+    return subregions, posterior
 end
 
