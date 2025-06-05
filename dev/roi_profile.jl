@@ -41,4 +41,6 @@ obs = BGL.gen_observations(prior_λ, emitters; photons=1000.0)
 z = Allocations(zeros(Int, length(obs.ŷ)))
 θ = BGL.Params(emitters)
 
-@code_warntype BGL.RJMCMC.allocate!(z, obs, θ )
+# @code_warntype BGL.RJMCMC.allocate!(z, obs, θ )
+
+## Test temp:
