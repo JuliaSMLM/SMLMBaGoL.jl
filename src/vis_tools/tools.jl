@@ -42,3 +42,10 @@ function quantile_stretch!(im::BGLImage2D; max_quantile::Float64=100.0)
     quantile_stretch!(im.data, max_quantile=max_quantile)
 end
 
+function gen_color_image(im::BGLImage2D; colormap::ColorScheme=ColorSchemes.inferno, max_quantile::Float64=.99)
+    # create a copy of the image data to RGB
+    arr = Float32.(im.data)
+    quantile_stretch!(arr; max_quantile=max_quantile)
+    color_img = get(colormap, arr)
+    return color_img
+end

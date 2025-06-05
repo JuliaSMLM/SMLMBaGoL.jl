@@ -27,19 +27,36 @@ function has_allocation(z::Allocations, id::Int)
     return id in z.idx
 end
 
+function sample_index(p::Vector{<:AbstractFloat})
+    cumulative_sum = zero(eltype(p))
+    for i in eachindex(p)
+        cumulative_sum += p[i]
+        p[i] = cumulative_sum
+    end
+    total_p = p[end]
+    r = rand() * total_p
+    idx = searchsortedfirst(p, r)
+    return idx
+end
 
 function allocate!(z::Allocations, obs::Observations, θ::Params)
     k = length(θ)
     log_p = zeros(k)
+    eps_val = eps()
 
-    for i in 1:length(obs)   
+    for i in 1:length(obs)
         for j in 1:k
             log_p[j] = log_p_z_given_y(obs.ŷ[i], θ.emitters[j])
         end
         log_p .-= maximum(log_p)
+        
+        # for i in eachindex(log_p)
+        #     log_p[i] = exp(log_p[i]) + eps_val
+        # end
         log_p .= exp.(log_p) .+ eps()
-        log_p ./= sum(log_p) 
-        z.idx[i] = rand(Distributions.Categorical(log_p))
+        log_p ./= sum(log_p)
+        # z.idx[i] = rand(Distributions.Categorical(log_p))
+        z.idx[i] = sample_index(log_p)
     end
 end
 
@@ -70,14 +87,14 @@ end
 
 function log_dirichlet_multinomial_pmf(n_obs, k_vec, α_vec)
     N = length(k_vec)
-    
+
     # Calculate the log-PMF of the Dirichlet-multinomial distribution
     log_pmf = logfactorial(n_obs) - sum(logfactorial.(k_vec))
     log_pmf += loggamma(sum(α_vec)) - loggamma(n_obs + sum(α_vec))
     for i in 1:N
         log_pmf += loggamma(k_vec[i] + α_vec[i]) - loggamma(α_vec[i])
     end
-    
+
     return log_pmf
 end
 

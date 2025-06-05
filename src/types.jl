@@ -6,8 +6,13 @@ struct Params{T<:AbstractEmitter}
     emitters::Vector{T}
 end
 function Params(θ::Params{T}) where T<:AbstractEmitter
-    return Params{T}(deepcopy(θ.emitters))
+    emitters = T[emit for emit in θ.emitters]
+    return Params{T}(emitters)
 end
+
+# function Params(θ::Params{T}) where T<:AbstractEmitter
+#     return Params{T}(deepcopy(θ.emitters))
+# end
 length(θ::Params) = length(θ.emitters)
 
 function Base.deepcopy(θ::Params{T}) where T<:AbstractEmitter

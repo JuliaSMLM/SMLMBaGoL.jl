@@ -5,7 +5,7 @@ using Distributions
 using StatsBase
 using Clustering
 using LinearAlgebra
-
+using ProgressMeter
 
 include("types.jl")
 include("methods.jl")
