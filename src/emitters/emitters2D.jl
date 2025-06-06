@@ -11,19 +11,14 @@ function Emitter2D{T}(emitter::Emitter2D{T}) where T
     return Emitter2D{T}(emitter.x, emitter.y, emitter.photons)
 end
 
-struct Localization2D{T} <: AbstractObservation
-    y::T
-    x::T
-    σ_y::T
-    σ_x::T
-end
-# Constructor for Localization2D using type of Emitter2D
-function Localization2D{T}(emitter::Emitter2D{T}, σ_y::T, σ_x::T) where T
-    return Localization2D(emitter.y, emitter.x, σ_y, σ_x)
+# Localization2D replaced with SMLMData.Emitter2DFit
+# Helper function for backward compatibility and convenience
+function create_minimal_emitter2dfit(x::T, y::T, σ_x::T, σ_y::T) where T
+    return Emitter2DFit(x, y, T(1000), T(0), σ_x, σ_y, T(0), T(0), 0, 0, 0, 0)
 end
 
 
-function log_p_z_given_y(loc::Localization2D, emitter::Emitter2D)
+function log_p_z_given_y(loc::Emitter2DFit, emitter::Emitter2D)
     return logpdf(Normal(loc.x, loc.σ_x), emitter.x) +
            logpdf(Normal(loc.y, loc.σ_y), emitter.y)
 end
@@ -59,7 +54,7 @@ function build_prior_y(obs::Observations)
     return MixtureModel(components, weights)
 end
 
-function build_prior_y(locs::Vector{Localization2D{T}}) where {T<:Real}
+function build_prior_y(locs::Vector{<:Emitter2DFit})
     # Make a Mixture Model Distribution from Observations
     means = [[obs.y, obs.x] for obs in locs]
     covs = [[obs.σ_y^2 0.0; 0.0 obs.σ_x^2] for obs in locs]
@@ -112,7 +107,7 @@ function gen_observations(prior_λ::Distributions.Distribution, emitters::Vector
 
     end
 
-    return Observations(Localization2D.(y, x, σ_y, σ_x))
+    return Observations(create_minimal_emitter2dfit.(x, y, σ_x, σ_y))
 end
 
 function gen_observations(emitter_type::Type{<:Emitter2D}, positions, sigmas)
@@ -122,7 +117,7 @@ function gen_observations(emitter_type::Type{<:Emitter2D}, positions, sigmas)
     
     σ_y = sigmas[1, :]
     σ_x = sigmas[2, :]
-    return Observations(Localization2D.(y, x, σ_y, σ_x))
+    return Observations(create_minimal_emitter2dfit.(x, y, σ_x, σ_y))
 end
 
 function merge_emitters(emitter1::Emitter2D, emitter2::Emitter2D)
@@ -132,7 +127,7 @@ function merge_emitters(emitter1::Emitter2D, emitter2::Emitter2D)
     return Emitter2D(new_x, new_y, new_photons)
 end
 
-function localization_distance(loc1::Localization2D, loc2::Localization2D)
+function localization_distance(loc1::Emitter2DFit, loc2::Emitter2DFit)
     d = sqrt((loc1.x - loc2.x)^2 + (loc1.y - loc2.y)^2)
     
     # scale by uncertainty so that d = 1 means p value of that they are from same emitter 

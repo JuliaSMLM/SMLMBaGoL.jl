@@ -27,6 +27,6 @@ include("emitters2D.jl")
 # Re-export SMLMData emitter types 
 export AbstractEmitter
 export Emitter2D, Emitter2DFit, Emitter3D, Emitter3DFit
-export Localization2D
+export create_minimal_emitter2dfit
 
 end

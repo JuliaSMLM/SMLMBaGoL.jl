@@ -175,8 +175,8 @@ function get_mapn_emitters(chain_mapn_sorted::RJMCMC_Chain, obs::Observations)
     end
     
     for i in 1:n_map
-        # Localization2D constructor expects (y, x, σ_y, σ_x)
-        mapn_coords[i] = loc_type(coords[1, i], coords[2, i], σs[1, i], σs[2, i])
+        # Create Emitter2DFit with coordinates - note x,y order
+        mapn_coords[i] = create_minimal_emitter2dfit(coords[2, i], coords[1, i], σs[2, i], σs[1, i])
     end
 
     return mapn_coords

@@ -6,7 +6,7 @@ using SMLMBaGoL
 BGL = SMLMBaGoL
 using Distributions
 using CairoMakie
-using CairoMakie: Point2f0
+using CairoMakie: Point2f
 using StatsBase
 
 # Setup Parameters
@@ -38,28 +38,52 @@ obs = BGL.gen_observations(prior_λ, emitters; photons=1000.0)
 chain, mapn_coords, chain_mapn, roi = BGL.rjmcmc(obs, prior_λ; n_burnin = n_burnin, n_jumps = n_jumps)
 
 # Plots and Prints ----------------------------------------
-BGL.plot_prior_λ(roi.prior_λ, obs)
-BGL.plot_prior_k(roi.prior_k, obs)
+# Create visualizations using new plot functions
 
-fig, ax = BGL.plot_observations(obs)
-BGL.plot_true_values!(ax, emitters; markersize = 10)
-display(fig)
+# Plot observations with true emitters
+@info "Creating circle plot with true emitters"
+fig_obs = BGL.plot_circles(
+    obs.ŷ;
+    title="Observations and True Emitters"
+)
+display(fig_obs)
 
-fig, ax = BGL.plot_sr(obs, roi.prior_y)
-BGL.plot_true_values!(ax, emitters; markersize = 10)
-display(fig)
+# Plot super-resolution image  
+@info "Creating super-resolution image"
+fig_sr = BGL.plot_sr(
+    obs.ŷ;
+    pixelsize=0.01,
+    title="Super-Resolution Image"
+)
+display(fig_sr)
 
-fig, ax = BGL.plot_posterior(chain, obs)
-BGL.plot_true_values!(ax, emitters; markersize = 10)
-display(fig)
+# Plot posterior distribution
+@info "Creating posterior image"
+fig_posterior = BGL.plot_posterior(
+    obs.ŷ;
+    pixelsize=0.05,
+    title="Posterior Distribution"
+)
+display(fig_posterior)
 
-fig, ax = BGL.plot_posterior(chain_mapn, obs; title = "MAPN")
-BGL.plot_true_values!(ax, emitters; markersize = 10)
-display(fig)
-
-fig, ax = BGL.plot_observations(BGL.Observations(mapn_coords))
-BGL.plot_true_values!(ax, emitters; markersize = 10)
-display(fig)
+# Plot MAP-N results if available
+if !isempty(mapn_coords)
+    @info "Creating MAP-N visualization"
+    fig_mapn = BGL.plot_mapn(
+        mapn_coords;
+        pixelsize=0.01,
+        title="MAP-N Estimates"
+    )
+    display(fig_mapn)
+    
+    # Combined plot
+    fig_combined = BGL.plot_circles(
+        obs.ŷ;
+        mapn_emitters=mapn_coords,
+        title="Combined: Observations + MAP-N"
+    )
+    display(fig_combined)
+end
 
 BGL.plot_state_length(chain)
 BGL.plot_sld(chain)

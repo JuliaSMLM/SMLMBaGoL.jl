@@ -6,6 +6,7 @@ using Distributions
 # Import from SMLMBaGoL
 using ..SMLMBaGoL 
 using ..SMLMBaGoL.RJMCMC
+using SMLMData: Emitter2DFit
 
 import ..SMLMBaGoL.AbstractEmitter
 import ..SMLMBaGoL.Observations
@@ -18,6 +19,7 @@ import ..SMLMBaGoL.gen_emitter!
 import ..SMLMBaGoL.gen_emitters
 import ..SMLMBaGoL.merge_emitters
 import ..SMLMBaGoL.gen_observations
+import ..SMLMBaGoL.Emitters.create_minimal_emitter2dfit
 
 
 include("types.jl")

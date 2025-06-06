@@ -53,7 +53,7 @@
 
     @testset "Observation Creation" begin
         @test length(obs.ŷ) == length(smld_noisy.emitters)
-        @test all(o -> isa(o, SMLMBaGoL.Emitters.Localization2D), obs.ŷ)
+        @test all(o -> isa(o, Emitter2DFit), obs.ŷ)
     end
 
     # Test visualization functions (without saving)
