@@ -25,7 +25,7 @@ function plot_observations(obs::Observations; kwargs...)
 end
 
 function plot_observations!(ax, obs::Observations; 
-    markersize=10, strokewidth=1, color=:blue, alpha=0.3)
+    markersize=10, strokewidth=1, color=:black, alpha=0.3)
     
     for ob in obs.ŷ
         draw_circle_on_axis!(ax, ob.x, ob.y, 3 * mean([ob.σ_x, ob.σ_y]); 
@@ -123,11 +123,11 @@ function plot_sr(obs::Observations, chain::RJMCMC_Chain;
 end
 
 function plot_true_values!(ax, true_emitters::Vector{<:AbstractEmitter}; 
-    markersize=10, color=:red)
+    markersize=12, color=:green)
     
     xs = [e.x for e in true_emitters]
     ys = [e.y for e in true_emitters]
-    scatter!(ax, xs, ys, marker='x', markersize=markersize, color=color)
+    scatter!(ax, xs, ys, marker=:x, markersize=markersize, color=color)
     return ax
 end
 

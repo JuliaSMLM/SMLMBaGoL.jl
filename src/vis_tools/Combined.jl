@@ -46,15 +46,15 @@ function plot_combined_analysis(obs::Observations, mapn_coords, true_emitters=no
         xlabel="x (μm)", 
         ylabel="y (μm)")
     
-    # Plot localizations as uncertainty circles (blue)
+    # Plot localizations as uncertainty circles (black)
     for ob in obs.ŷ
         radius = 3 * mean([ob.σ_x, ob.σ_y])  # 3-sigma uncertainty
         draw_circle_on_axis!(ax, ob.x, ob.y, radius; 
-            color=(:blue, localization_alpha), strokewidth=1)
+            color=(:black, localization_alpha), strokewidth=1)
     end
     
     # Add invisible point for legend
-    scatter!(ax, [NaN], [NaN], color=:blue, alpha=localization_alpha, 
+    scatter!(ax, [NaN], [NaN], color=:black, alpha=localization_alpha, 
         marker=:circle, markersize=8, label="Localizations (3σ)")
     
     # Plot MAP-N estimates if provided
@@ -62,25 +62,25 @@ function plot_combined_analysis(obs::Observations, mapn_coords, true_emitters=no
         mapn_x = [coord.x for coord in mapn_coords]
         mapn_y = [coord.y for coord in mapn_coords]
         
-        # Plot MAP-N estimates as crosses
+        # Plot MAP-N estimates as red circles
         scatter!(ax, mapn_x, mapn_y, 
-            color=:green, markersize=12, marker=:x, 
+            color=:red, markersize=8, marker=:circle, 
             label="MAP-N estimates (n=$(length(mapn_coords)))")
         
-        # Plot MAP-N uncertainty circles
+        # Plot MAP-N uncertainty circles (red)
         for coord in mapn_coords
             radius = 3 * mean([coord.σ_x, coord.σ_y])  # 3-sigma uncertainty
             draw_circle_on_axis!(ax, coord.x, coord.y, radius; 
-                color=(:green, mapn_alpha), strokewidth=2)
+                color=(:red, mapn_alpha), strokewidth=2)
         end
     end
     
-    # Plot true emitters if provided
+    # Plot true emitters if provided (green X)
     if !isnothing(true_emitters) && !isempty(true_emitters)
         true_x = [em.x for em in true_emitters]
         true_y = [em.y for em in true_emitters]
         scatter!(ax, true_x, true_y, 
-            color=:red, markersize=8, marker=:circle,
+            color=:green, markersize=12, marker=:x,
             label="True emitters")
     end
     
@@ -127,19 +127,19 @@ function plot_mapn_with_uncertainty(mapn_coords;
     mapn_x = [coord.x for coord in mapn_coords]
     mapn_y = [coord.y for coord in mapn_coords]
     
-    # Plot MAP-N estimates as crosses
+    # Plot MAP-N estimates as red circles
     scatter!(ax, mapn_x, mapn_y, 
-        color=:green, markersize=12, marker=:x, 
+        color=:red, markersize=8, marker=:circle, 
         label="MAP-N estimates")
     
-    # Plot uncertainty circles
+    # Plot uncertainty circles (red)
     for (i, coord) in enumerate(mapn_coords)
         radius_x = sigma_level * coord.σ_x
         radius_y = sigma_level * coord.σ_y
         radius = mean([radius_x, radius_y])  # Average for circular approximation
         
         draw_circle_on_axis!(ax, coord.x, coord.y, radius; 
-            color=(:green, uncertainty_alpha), strokewidth=2)
+            color=(:red, uncertainty_alpha), strokewidth=2)
     end
     
     # Add legend
