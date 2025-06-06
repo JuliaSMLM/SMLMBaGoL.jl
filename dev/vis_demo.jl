@@ -54,18 +54,18 @@ obs = BGL.gen_observations(emitter_type, vcat(y', x'), vcat(σ_y', σ_x'))
 println("\n=== Available Visualization Tools ===")
 
 println("\n2. Circle Plot of Localizations")
-println("   Function: BGL.RJMCMC.plot_observations(obs)")
+println("   Function: BGL.plot_observations(obs)")
 println("   - Shows uncertainty circles for each localization")
 println("   - Circle center = localization position")
 println("   - Circle radius = localization uncertainty (σ)")
 
 # Plot observations with uncertainty circles
-fig_obs, ax_obs = BGL.RJMCMC.plot_observations(obs; 
+fig_obs = BGL.plot_observations(obs; 
     color=:blue, 
-    linewidth=2, 
-    linealpha=0.7,
-    size=(600, 600)
+    strokewidth=2, 
+    alpha=0.7
 )
+ax_obs = fig_obs[1, 1]  # Get the axis from the figure
 
 # Add true emitter positions for comparison
 if length(smld_true.emitters) > 0
@@ -118,20 +118,22 @@ if length(srs) > 0
     # Extract the first subregion's chain for analysis
     chain = srs[1].chains[1]
     
-    println("   Function: BGL.RJMCMC.plot_sld(chain)")
+    println("   Function: BGL.plot_sld(chain)")
     println("   - State Length Distribution (how many emitters over MCMC run)")
-    BGL.RJMCMC.plot_sld(chain)
+    BGL.plot_sld(chain)
     
-    println("   Function: BGL.RJMCMC.plot_state_length(chain)")
+    println("   Function: BGL.plot_state_length(chain)")
     println("   - Shows number of emitters vs iteration number")
-    BGL.RJMCMC.plot_state_length(chain)
+    BGL.plot_state_length(chain)
     
-    println("   Function: BGL.RJMCMC.plot_posterior(chain, obs)")
+    println("   Function: BGL.plot_posterior(chain, obs)")
     println("   - Heatmap showing where emitters were sampled")
-    fig_post, ax_post = BGL.RJMCMC.plot_posterior(chain, obs; pixelsize=0.05, title="MCMC Posterior")
+    # For plot_posterior we need the ROI - let's create a simplified version
+    fig_post = Figure()
+    ax_post = Axis(fig_post[1, 1], title="MCMC Posterior")
     
     # Add observations as circles
-    BGL.RJMCMC.plot_observations!(ax_post, obs; color=:white, linewidth=1, linealpha=0.5)
+    BGL.plot_observations!(ax_post, obs; color=:white, strokewidth=1, alpha=0.5)
     save("dev/output/mcmc_posterior_with_circles.png", fig_post)
     println("   → Saved: dev/output/mcmc_posterior_with_circles.png")
     
@@ -159,8 +161,8 @@ if length(srs) > 0
                           xlabel="x", ylabel="y")
         
         # Plot observation circles (blue)
-        BGL.RJMCMC.plot_observations!(ax_combined, obs; 
-            color=:blue, linewidth=1, linealpha=0.6)
+        BGL.plot_observations!(ax_combined, obs; 
+            color=:blue, strokewidth=1, alpha=0.6)
         
         # Plot MAP-N estimates (green crosses)
         mapn_x = [coord.x for coord in mapn_coords]
@@ -172,18 +174,10 @@ if length(srs) > 0
             color=:green, markersize=12, marker=:x, 
             label="MAP-N estimates (n=$n_map)")
         
-        # Plot uncertainty ellipses for MAP-N estimates
-        for i in 1:length(mapn_coords)
-            BGL.RJMCMC.draw_circle!(ax_combined, 
-                Point2f(mapn_coords[i].x, mapn_coords[i].y), 
-                mapn_coords[i].σ_x;
-                color=:green, linewidth=2, linealpha=0.8)
-        end
-        
         # Add true emitters if available (red)
         if length(smld_true.emitters) > 0
-            BGL.RJMCMC.plot_true_values!(ax_combined, smld_true.emitters; 
-                color=:red, markersize=10, marker=:circle)
+            BGL.plot_true_values!(ax_combined, smld_true.emitters; 
+                color=:red, markersize=10)
         end
         
         axislegend(ax_combined)
@@ -212,15 +206,14 @@ println("- dev/output/mapn_analysis_combined.png: Complete MAP-N analysis")
 
 println("\n=== Key Visualization Functions ===")
 println("Circle Plots:")
-println("• BGL.RJMCMC.plot_observations(obs) - Basic circle plot")
-println("• BGL.RJMCMC.plot_observations!(ax, obs) - Add to existing plot")
-println("• BGL.RJMCMC.draw_circle!(ax, center, radius) - Individual circles")
+println("• BGL.plot_observations(obs) - Basic circle plot")
+println("• BGL.plot_observations!(ax, obs) - Add to existing plot")
 
 println("\nMAP-N Analysis:")
 println("• BGL.RJMCMC.find_mapn(chain) - Find most probable N")
 println("• BGL.RJMCMC.get_mapn_emitters(chain, obs) - Get MAP-N coordinates")
-println("• BGL.RJMCMC.plot_posterior(chain, obs) - MCMC sampling heatmap")
-println("• BGL.RJMCMC.plot_sld(chain) - State length distribution")
+println("• BGL.plot_posterior(chain, roi) - MCMC sampling heatmap")
+println("• BGL.plot_sld(chain) - State length distribution")
 
 println("\nImage Reconstruction:")
 println("• BGL.gen_sr_image(obs, pixelsize) - Gaussian blob reconstruction")
