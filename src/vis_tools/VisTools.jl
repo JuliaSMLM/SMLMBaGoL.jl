@@ -19,17 +19,19 @@ include("blobs.jl")
 include("Drawing.jl")
 include("Analysis.jl")
 include("Animation.jl")
+include("Combined.jl")
 
 # Re-export submodules for easier access
 using .Analysis
 using .Drawing  
 using .Animation
+using .Combined
 
 # Export main image generation functions
 export gen_obs_image, gen_sr_image, gen_color_image
 
 # Export new unified API functions
-export Analysis, Drawing, Animation
+export Analysis, Drawing, Animation, Combined
 
 # Re-export key analysis functions for convenience
 export plot_observations, plot_observations!
@@ -46,5 +48,8 @@ export draw_true_on_image!
 
 # Export existing BGLImage2D drawing functions (legacy)
 export draw_circle!, draw_x!, draw_observations!, draw_emitters!, draw_true!
+
+# Re-export combined analysis functions
+export plot_combined_analysis, plot_mapn_with_uncertainty
 
 end
