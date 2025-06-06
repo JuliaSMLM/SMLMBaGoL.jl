@@ -45,8 +45,6 @@ Pkg.status()
 # PREFERRED: From project root, Pkg.test() handles everything automatically
 julia --project=. -e 'using Pkg; Pkg.test()'
 
-# Alternative: Manual run (but you lose automatic package availability)
-julia --project=test test/runtests.jl
 ```
 
 ### Key Points:
