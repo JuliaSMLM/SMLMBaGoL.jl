@@ -73,16 +73,17 @@ obs = BGL.gen_observations(emitter_type, vcat(y', x'), vcat(σ_y', σ_x'))
 # Generate and save observation image using traditional image approach
 @info "Generating observation image"
 @time bglim = BGL.gen_obs_image(obs, zoom_pixelsize)
-display(bglim.data)
 save("dev/output/smlmsim_observations.png", bglim.data)
+println("  → Saved observation image: dev/output/smlmsim_observations.png")
 
 # Generate interactive circle plot using new VisTools
 @info "Creating interactive observation plot"
 fig_obs = BGL.plot_observations(obs; color=:blue, alpha=0.6)
-ax_obs = fig_obs[1, 1]
 
 # Add true emitter positions if available
 if length(smld_true.emitters) > 0
+    # Get the axis from the figure content
+    ax_obs = fig_obs.content[1]
     BGL.plot_true_values!(ax_obs, smld_true.emitters; color=:red, markersize=8)
     ax_obs.title = "Observations (blue circles) vs True Emitters (red dots)"
 end
@@ -94,8 +95,8 @@ println("  → Saved interactive plot: dev/output/smlmsim_interactive_observatio
 @info "Generating super-resolution image"
 @time srim = BGL.gen_sr_image(obs, zoom_pixelsize)
 srim_color = BGL.VisTools.gen_color_image(srim; max_quantile=0.99)
-display(srim_color)
 save("dev/output/smlmsim_sr.png", srim_color)
+println("  → Saved super-resolution image: dev/output/smlmsim_sr.png")
 
 # Setup prior distribution for λ (mean number of localizations per emitter)
 # λ represents the expected number of localizations per emitter
@@ -129,8 +130,8 @@ img = deepcopy(post.post_arr)
 BGL.VisTools.quantile_stretch!(img; max_quantile=0.95)
 colormap = ColorSchemes.inferno
 posterior_color = get(colormap, img)
-display(posterior_color)
 save("dev/output/smlmsim_posterior.png", posterior_color)
+println("  → Saved posterior image: dev/output/smlmsim_posterior.png")
 
 # Analysis summary
 n_subregions = length(srs)

@@ -5,6 +5,7 @@ using ..SMLMBaGoL
 using ..SMLMBaGoL.RJMCMC
 using ..SMLMBaGoL.Emitters
 using CairoMakie
+using Statistics
 
 # Import specific types from RJMCMC
 import ..SMLMBaGoL.RJMCMC: RJMCMC_Chain, RJMCMC_ROI
