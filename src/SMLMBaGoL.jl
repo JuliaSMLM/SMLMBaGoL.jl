@@ -1,6 +1,7 @@
 module SMLMBaGoL
 
 using SMLMData
+using SMLMData: AbstractEmitter
 using Distributions
 using StatsBase
 using Clustering

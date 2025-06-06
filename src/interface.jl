@@ -1,19 +1,25 @@
 
-function bagol(smld2D;
+function bagol(smld;
     prior_λ::Distributions.Distribution=Gamma(1.0, 1.0),
     pixelsize::Float64=1.0,
     posterior_pixel_size::Float64=pixelsize/50)
 
     # create subregions
-    positions = Transpose(hcat(smld2D.y, smld2D.x))
-    sigmas = Transpose(hcat(smld2D.σ_y, smld2D.σ_x))
+    # Extract positions and sigmas from emitters
+    y = [emitter.y for emitter in smld.emitters]
+    x = [emitter.x for emitter in smld.emitters]
+    σ_y = [emitter.σ_y for emitter in smld.emitters]
+    σ_x = [emitter.σ_x for emitter in smld.emitters]
+    
+    positions = Transpose(hcat(y, x))
+    sigmas = Transpose(hcat(σ_y, σ_x))
     emitter_type = Emitter2D
     min_pts = 1
-    ϵ = mean(smld2D.σ_x) * 4 
+    ϵ = mean(σ_x) * 4 
     subregions = gen_subregions(positions, sigmas, emitter_type, min_pts, ϵ)
     @info "Number of subregions: $(length(subregions))"
     # create posterior image 
-    posterior = Posterior2D(smld2D; pixelsize = posterior_pixel_size)
+    posterior = Posterior2D(smld; pixelsize = posterior_pixel_size)
 
     # setup chain 
     # run chain on all subregions 

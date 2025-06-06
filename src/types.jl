@@ -1,6 +1,6 @@
 import Base: length
 
-abstract type AbstractEmitter end
+# Using AbstractEmitter from SMLMData
 
 struct Params{T<:AbstractEmitter}
     emitters::Vector{T}
@@ -42,13 +42,15 @@ mutable struct Posterior2D <: Posterior
     x_size::Int
     pixelsize::Float64
 end
-function Posterior2D(smld::SMLMData.SMLD2D;
+function Posterior2D(smld::SMLMData.SMLD;
     pixelsize::Float64=1.0
     )
     y_start = 0.5
     x_start = 0.5
-    y_size = Int(round((smld.datasize[1])/pixelsize))
-    x_size = Int(round((smld.datasize[2])/pixelsize))
+    # Get camera dimensions from pixel edges
+    cam = smld.camera
+    y_size = Int(round((cam.pixel_edges_y[end] - cam.pixel_edges_y[1])/pixelsize))
+    x_size = Int(round((cam.pixel_edges_x[end] - cam.pixel_edges_x[1])/pixelsize))
     post_arr = zeros(Float64, y_size, x_size)
     return Posterior2D(post_arr, y_start, x_start, y_size, x_size, pixelsize)
 end

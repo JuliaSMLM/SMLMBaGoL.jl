@@ -4,7 +4,7 @@ Please generate an API overview document for this Julia package that will serve 
 
 ## Step 1: Create an API Overview File
 
-Create a file named `api_overview.md` in the root directory of your package:
+Create a file named `api.md` in the root directory of your package:
 
 ```
 YourPackage/
@@ -13,7 +13,7 @@ YourPackage/
 ├── docs/
 ├── Project.toml
 ├── README.md
-└── api_overview.md  <- Create this file
+└── api.md  <- Create this file
 ```
 
 This file should contain a concise, structured overview of your package's API with examples. Organize it with clear markdown headings (use ## for sections).
@@ -158,7 +158,7 @@ Then follow with explanatory text like:
 
 To ensure your API overview is effective:
 
-1. **Ask a New User**: Have someone unfamiliar with your package try using it with just the overview
+1. **Ask a New User**: Have someone unfamiliar with your package try using it with just the API documentation
 2. **Test Code Examples**: Verify all code examples run correctly
 3. **Check Patterns**: Ensure patterns shown are current best practices
 4. **Review for Completeness**: Confirm all essential functionality is represented

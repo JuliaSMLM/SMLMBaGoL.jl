@@ -4,12 +4,15 @@ using Distributions
 using StatsBase
 using SpecialFunctions
 using LinearAlgebra
+using SMLMData
 using ..SMLMBaGoL
+
+# Import emitter types from SMLMData
+using SMLMData: Emitter2D, Emitter2DFit, Emitter3D, Emitter3DFit, AbstractEmitter
 
 # These are the methods that must be implemented for each emitter type
 import ..SMLMBaGoL.Observations
 import ..SMLMBaGoL.Allocations
-import ..SMLMBaGoL.AbstractEmitter
 import ..SMLMBaGoL.log_p_z_given_y
 import ..SMLMBaGoL.move!
 import ..SMLMBaGoL.build_prior_y
@@ -21,13 +24,9 @@ import ..SMLMBaGoL.gen_observations
 include("types.jl")
 include("emitters2D.jl")
 
-# This is exported 
+# Re-export SMLMData emitter types 
 export AbstractEmitter
-
-
-# These should be exported by the emitter type
-export Emitter2D
+export Emitter2D, Emitter2DFit, Emitter3D, Emitter3DFit
 export Localization2D
-
 
 end
