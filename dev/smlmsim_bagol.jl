@@ -85,7 +85,10 @@ fig_obs = BGL.plot_observations(obs; color=:black, alpha=0.4)
 if length(smld_true.emitters) > 0
     # Get the axis from the figure content
     ax_obs = fig_obs.content[1]
-    BGL.plot_true_values!(ax_obs, smld_true.emitters; color=:green, markersize=12)
+    # Calculate appropriate X marker size based on typical localization uncertainty
+    typical_sigma = mean([mean([ob.σ_x, ob.σ_y]) for ob in obs.ŷ[1:min(10, length(obs.ŷ))]])
+    x_size = 2 * typical_sigma  # Make X markers proportional to data scale
+    BGL.plot_true_values!(ax_obs, smld_true.emitters; color=:green, size=x_size, strokewidth=2)
     ax_obs.title = "Localizations (black circles) vs True Emitters (green X)"
 end
 

@@ -1,89 +1,111 @@
+# Image generation functions for VisTools
+# Creates raster images from emitter data
 
-function draw_circle!(im::BGLImage2D, center::Tuple{Real,Real}, radius::Real, color::Colorant)
-    # Convert coordinate and radius to pixel values (float)
-    radius_pixels = radius / im.pixelsize
-    center_pixels = (
-        (center[1] - im.y_start) / im.pixelsize,
-        (center[2] - im.x_start) / im.pixelsize
-    )
+using Distributions
 
-    # Generate line segments for the circle
-    T = typeof(im.data[1, 1].val)
-    num_points = 100
-    step = 2π / num_points
-    angle = 0.0
+"""
+    gauss_blob_image(emitters, bounds, pixelsize)
 
-    # Note that draw and point uses (x,y) coordinates, not (row, col)
-    p1 = (round(Int, center_pixels[2] + radius_pixels * cos(angle)), round(Int, center_pixels[1] + radius_pixels * sin(angle)))
-    for i in 1:num_points
-        angle += step
-        p2 = (round(Int, center_pixels[2] + radius_pixels * cos(angle)), round(Int, center_pixels[1] + radius_pixels * sin(angle)))
-        draw!(im.data, LineSegment(p1[1], p1[2], p2[1], p2[2]), Gray{T}(1))
-        p1 = p2
+Generate a Gaussian blob image from a vector of emitters.
+Each emitter is rendered as a Gaussian blob with uncertainty.
+
+# Arguments
+- `emitters`: Vector of emitters (must have .x, .y, .σ_x, .σ_y fields)
+- `bounds`: (xmin, xmax, ymin, ymax) in data coordinates
+- `pixelsize`: Pixel size in data units
+
+# Returns
+- `Matrix{Float64}`: Image matrix
+"""
+function gauss_blob_image(emitters, bounds, pixelsize)
+    xmin, xmax, ymin, ymax = bounds
+    nx = ceil(Int, (xmax - xmin) / pixelsize)
+    ny = ceil(Int, (ymax - ymin) / pixelsize)
+    
+    image = zeros(Float64, ny, nx)
+    
+    for em in emitters
+        # Use uncertainty if available, otherwise default PSF
+        σ_x = hasfield(typeof(em), :σ_x) ? em.σ_x : 0.1
+        σ_y = hasfield(typeof(em), :σ_y) ? em.σ_y : 0.1
+        
+        # Create 2D Gaussian distribution
+        μ = [em.x, em.y]
+        Σ = [σ_x^2 0; 0 σ_y^2]
+        dist = MvNormal(μ, Σ)
+        
+        # Add Gaussian blob to image
+        for i in 1:nx, j in 1:ny
+            x = xmin + (i - 0.5) * pixelsize
+            y = ymin + (j - 0.5) * pixelsize
+            image[j, i] += pdf(dist, [x, y])
+        end
     end
-
-    # Connect the last point to the first point
-    angle = 0.0
-    p2 = (round(Int, center_pixels[2] + radius_pixels * cos(angle)), round(Int, center_pixels[1] + radius_pixels * sin(angle)))
-    draw!(im.data, LineSegment(p1[1], p1[2], p2[1], p2[2]), Gray{T}(1))
+    
+    return image
 end
 
+"""
+    histogram_image(emitters, bounds, pixelsize)
 
-function draw_x!(im::BGLImage2D, center::Tuple{Real,Real}, size::Real, color::Colorant)
-    T = typeof(im.data[1, 1])
-    # Convert to pixel values
-    center_pixels = (
-        (center[1] - im.x_start) / im.pixelsize,
-        (center[2] - im.y_start) / im.pixelsize
-    )
-    size_pixels = size / im.pixelsize
+Generate a histogram image from a vector of emitters.
+Each emitter contributes 1.0 to its pixel bin.
 
-    # Draw the x
-    draw!(im.data, LineSegment(center_pixels[1] - size_pixels, center_pixels[2] - size_pixels, center_pixels[1] + size_pixels, center_pixels[2] + size_pixels), color)
-    draw!(im.data, LineSegment(center_pixels[1] - size_pixels, center_pixels[2] + size_pixels, center_pixels[1] + size_pixels, center_pixels[2] - size_pixels), color)
-end
+# Arguments
+- `emitters`: Vector of emitters (must have .x, .y fields)
+- `bounds`: (xmin, xmax, ymin, ymax) in data coordinates  
+- `pixelsize`: Pixel size in data units
 
-
-
-
-function draw_observations!(im::BGLImage2D, obs::BGL.Observations)
-    T = typeof(im.data[1, 1].val)
-    for loc in obs.ŷ
-        r = sqrt(loc.σ_x^2 + loc.σ_y^2)
-        draw_circle!(im, (loc.y, loc.x), r, Gray{T}(1))
+# Returns
+- `Matrix{Float64}`: Image matrix
+"""
+function histogram_image(emitters, bounds, pixelsize)
+    xmin, xmax, ymin, ymax = bounds
+    nx = ceil(Int, (xmax - xmin) / pixelsize)
+    ny = ceil(Int, (ymax - ymin) / pixelsize)
+    
+    image = zeros(Float64, ny, nx)
+    
+    for em in emitters
+        # Convert to pixel coordinates
+        i = clamp(round(Int, (em.x - xmin) / pixelsize) + 1, 1, nx)
+        j = clamp(round(Int, (em.y - ymin) / pixelsize) + 1, 1, ny)
+        image[j, i] += 1.0
     end
+    
+    return image
 end
 
+"""
+    quantile_stretch!(image; max_quantile=0.99)
 
-function gen_obs_image(obs::BGL.Observations, pixelsize::Float64;
-    imsize::Union{Tuple{Int,Int},Nothing}=nothing,
-    imstart::Union{Tuple{Real,Real},Nothing}=nothing)
-
-    # Create an empty image
-    img = BGLImage2D(obs, pixelsize; imsize=imsize, imstart=imstart)
-
-    # Draw circles on the image
-    draw_observations!(img, obs)
-    return img
-end
-
-function draw_emitters!(im::BGLImage2D, emitters::Vector{BGL.Emitters.Emitter2D})
-    T = typeof(im.data[1, 1])
-    for emitter in emitters
-        r = 1.0
-        draw_circle!(im, (emitter.y, emitter.x), r, Gray{T}(1))
+Apply quantile stretching to an image in-place.
+Clips values above the specified quantile.
+"""
+function quantile_stretch!(image; max_quantile=0.99)
+    if max_quantile < 1.0
+        threshold = quantile(vec(image), max_quantile)
+        image[image .> threshold] .= threshold
     end
+    return image
 end
 
-function draw_true!(im::BGLImage2D, emitters::Vector{BGL.Emitters.Emitter2D})
-    T = typeof(im.data[1, 1])
-    for emitter in emitters
-        r = 5.0
-        draw_x!(im, (emitter.y, emitter.x), r, Gray{T}(1))
+"""
+    gen_color_image(image; max_quantile=0.99, colormap=ColorSchemes.inferno)
+
+Convert a grayscale image to a color image using a colormap.
+"""
+function gen_color_image(image; max_quantile=0.99, colormap=ColorSchemes.inferno)
+    img_copy = copy(image)
+    quantile_stretch!(img_copy; max_quantile=max_quantile)
+    
+    # Normalize to [0, 1]
+    img_copy .-= minimum(img_copy)
+    max_val = maximum(img_copy)
+    if max_val > 0
+        img_copy ./= max_val
     end
+    
+    # Apply colormap
+    return get(colormap, img_copy)
 end
-
-
-
-
-
