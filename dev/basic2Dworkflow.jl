@@ -8,7 +8,7 @@ using SMLMBaGoL: RJMCMC
 RJ = RJMCMC
 using Distributions
 using CairoMakie
-using CairoMakie: Point2f0
+using CairoMakie: Point2f
 using StatsBase
 
 # Setup Parameters

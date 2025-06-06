@@ -1,22 +1,12 @@
 
 function bagol(smld;
     prior_λ::Distributions.Distribution=Gamma(1.0, 1.0),
-    pixelsize::Float64=1.0,
-    posterior_pixel_size::Float64=pixelsize/50)
+    posterior_pixel_size::Float64=0.02)
 
-    # create subregions
-    # Extract positions and sigmas from emitters
-    y = [emitter.y for emitter in smld.emitters]
-    x = [emitter.x for emitter in smld.emitters]
-    σ_y = [emitter.σ_y for emitter in smld.emitters]
-    σ_x = [emitter.σ_x for emitter in smld.emitters]
-    
-    positions = Transpose(hcat(y, x))
-    sigmas = Transpose(hcat(σ_y, σ_x))
-    emitter_type = Emitter2D
+    # create subregions - pass emitters directly
     min_pts = 1
-    ϵ = mean(σ_x) * 4 
-    subregions = gen_subregions(positions, sigmas, emitter_type, min_pts, ϵ)
+    ϵ = mean([em.σ_x for em in smld.emitters]) * 4 
+    subregions = gen_subregions(smld.emitters, min_pts, ϵ)
     @info "Number of subregions: $(length(subregions))"
     # create posterior image 
     posterior = Posterior2D(smld; pixelsize = posterior_pixel_size)

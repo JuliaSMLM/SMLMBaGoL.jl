@@ -43,60 +43,39 @@ smld_true, smld_model, smld_noisy = SMLMSim.simulate(
 
 println("Generated $(length(smld_noisy.emitters)) noisy localizations")
 
-# Convert to observations
-emitter_type = SMLMBaGoL.Emitter2D
-y = [emitter.y for emitter in smld_noisy.emitters]
-x = [emitter.x for emitter in smld_noisy.emitters]
-σ_y = [emitter.σ_y for emitter in smld_noisy.emitters]
-σ_x = [emitter.σ_x for emitter in smld_noisy.emitters]
-obs = BGL.gen_observations(emitter_type, vcat(y', x'), vcat(σ_y', σ_x'))
+# No conversion needed - use emitters directly from SMLMSim
+println("Using emitters directly: $(typeof(smld_noisy.emitters[1]))")
 
 println("\n=== Available Visualization Tools ===")
 
 println("\n2. Circle Plot of Localizations")
-println("   Function: BGL.plot_observations(obs)")
+println("   Function: BGL.plot_circles(emitters)")
 println("   - Shows uncertainty circles for each localization")
 println("   - Circle center = localization position")
 println("   - Circle radius = localization uncertainty (σ)")
 
-# Plot observations with uncertainty circles
-fig_obs = BGL.plot_observations(obs; 
-    color=:blue, 
-    strokewidth=2, 
-    alpha=0.7
+# Plot observations with uncertainty circles and true emitters
+fig_obs = BGL.plot_circles(
+    smld_noisy.emitters;
+    true_emitters=smld_true.emitters,
+    title="Localizations (black) + Truth (green X)"
 )
-ax_obs = fig_obs[1, 1]  # Get the axis from the figure
-
-# Add true emitter positions for comparison
-if length(smld_true.emitters) > 0
-    true_x = [emitter.x for emitter in smld_true.emitters]
-    true_y = [emitter.y for emitter in smld_true.emitters]
-    scatter!(ax_obs, true_x, true_y, 
-        color=:red, 
-        markersize=8, 
-        marker=:x,
-        label="True emitters"
-    )
-    axislegend(ax_obs)
-end
 
 save("dev/output/circle_plot_localizations.png", fig_obs)
 println("   → Saved: dev/output/circle_plot_localizations.png")
 
 println("\n3. Super-Resolution Image Reconstruction")
-println("   Function: BGL.gen_sr_image(obs, pixelsize)")
+println("   Function: BGL.plot_sr(emitters, pixelsize=0.01)")
 println("   - Gaussian blob reconstruction from localizations")
 println("   - High-resolution rendering of localization data")
 
-sr_pixelsize = 0.01
-srim = BGL.gen_sr_image(obs, sr_pixelsize)
-srim_color = BGL.VisTools.gen_color_image(srim; max_quantile=0.99)
+fig_sr = BGL.plot_sr(
+    smld_noisy.emitters;
+    pixelsize=0.01,
+    title="Super-Resolution Image"
+)
 
-fig_sr = Figure(size=(600, 600))
-ax_sr = Axis(fig_sr[1, 1], aspect=DataAspect(), title="Super-Resolution Image")
-image!(ax_sr, srim_color)
 save("dev/output/sr_reconstruction.png", fig_sr)
-save("dev/output/sr_reconstruction_data.png", srim_color)
 println("   → Saved: dev/output/sr_reconstruction.png")
 
 println("\n4. Running BaGoL Analysis for MAP-N Demo...")
@@ -106,11 +85,10 @@ println("\n4. Running BaGoL Analysis for MAP-N Demo...")
 α, θ = μ_λ^2 / σ_λ^2, σ_λ^2 / μ_λ
 prior_λ = Gamma(α, θ)
 
-# Run BaGoL analysis
-@time srs, post = bagol(smld_noisy; 
+# Run BaGoL analysis with new interface
+@time srs, post = BGL.bagol(smld_noisy; 
     prior_λ=prior_λ, 
-    pixelsize=1.0,
-    posterior_pixel_size=0.02
+    posterior_pixel_size=0.005
 )
 
 println("\n5. MAP-N Analysis and Visualization")

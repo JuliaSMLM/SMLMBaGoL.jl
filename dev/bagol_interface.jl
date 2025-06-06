@@ -10,32 +10,32 @@ println("n_threads: ", Threads.nthreads() )
 
 include("gen_nmers.jl")
 # include("gen_nmers_big.jl")
-println("Total Localizations: ", length(smld_noisy.x))
+println("Total Localizations: ", length(smld_noisy.emitters))
 
 
-# make a figure 
-x = smld_noisy.x
-y = smld_noisy.y
-σ_x = smld_noisy.σ_x
-σ_y = smld_noisy.σ_y
-emitter_type = BGL.Emitter2D
-pixelsize = 1.0 # units are in pixels
+# Generate visualizations using new plot functions
+@info "Creating circle plot"
+fig_circles = BGL.plot_circles(
+    smld_noisy.emitters;
+    title="Localizations from N-mers"
+)
+save("dev/output/observations_nmer.png", fig_circles)
 
-@info "gen circle image"
-obs = BGL.gen_observations(emitter_type,vcat(y', x'), vcat(σ_y', σ_x'))
-@time bglim = BGL.gen_obs_image(obs, 1/100)
-display(bglim.data)
-save("observations_nmer.png", bglim.data)
+@info "Creating super-resolution image"
+fig_sr = BGL.plot_sr(
+    smld_noisy.emitters;
+    pixelsize=0.01,
+    title="Super-Resolution N-mers"
+)
+save("dev/output/sr_nmer.png", fig_sr)
 
-@info "gen sr image"
-@time srim = BGL.gen_sr_image(obs,pixelsize/50)
-# @profview srim = BGL.gen_sr_image(obs, pixelsize/50)
-@info "gen color sr image and save"
-srim_color = BGL.VisTools.gen_color_image(srim; max_quantile=0.99)
-@info "display sr image "
-display(srim_color)
-@info "save sr image"
-@time save("sr_nmer.png", srim_color)
+@info "Creating posterior image"
+fig_posterior = BGL.plot_posterior(
+    smld_noisy.emitters;
+    pixelsize=0.05,
+    title="Posterior Distribution"
+)
+save("dev/output/posterior_initial.png", fig_posterior)
 
 # setup prior 
 μ_λ = μ
@@ -44,17 +44,42 @@ display(srim_color)
 prior_λ = Gamma(α, θ)
 
 @info "running bagol"
-@time srs, post = bagol(smld_noisy; prior_λ, pixelsize = 1.0)
-# @profview srs, post = bagol(smld_noisy; prior_λ, pixel_size = 0.1)
+@time srs, post = BGL.bagol(smld_noisy; prior_λ=prior_λ, posterior_pixel_size=0.005)
+# @profview srs, post = BGL.bagol(smld_noisy; prior_λ=prior_λ, posterior_pixel_size=0.005)
 
-@info "gen color posterior image and save"
-img = deepcopy(post.post_arr)
-BGL.VisTools.quantile_stretch!(img; max_quantile=0.95)
-colormap = ColorSchemes.inferno
-color_img = get(colormap, img)
+# Collect MAP-N estimates from all subregions
+all_mapn_coords = []
+for sr in srs
+    if length(sr.chains) > 0 && length(sr.chains[1].states) > 0
+        chain_mapn = BGL.RJMCMC.extract_mapn_chain(sr.chains[1])
+        if length(chain_mapn.states) > 0
+            BGL.RJMCMC.sort_mapn_chain!(chain_mapn)
+            mapn_coords = BGL.RJMCMC.get_mapn_emitters(chain_mapn, sr.obs)
+            append!(all_mapn_coords, mapn_coords)
+        end
+    end
+end
 
-save("posterior_nmer.png", color_img)
-display(color_img)
+println("Total MAP-N emitters: ", length(all_mapn_coords))
+
+# Create final visualization
+if !isempty(all_mapn_coords)
+    @info "Creating MAP-N visualization"
+    fig_mapn = BGL.plot_mapn(
+        all_mapn_coords;
+        pixelsize=0.01,
+        title="MAP-N Estimates"
+    )
+    save("dev/output/mapn_nmer.png", fig_mapn)
+    
+    @info "Creating combined analysis plot"
+    fig_combined = BGL.plot_circles(
+        smld_noisy.emitters;
+        mapn_emitters=all_mapn_coords,
+        title="Combined: Localizations + MAP-N"
+    )
+    save("dev/output/combined_nmer.png", fig_combined)
+end
 
 
 

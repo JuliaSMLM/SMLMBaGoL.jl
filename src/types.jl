@@ -22,8 +22,20 @@ end
 
 abstract type AbstractObservation end 
 
-struct Observations{T<:AbstractObservation}
+# Make Emitter2DFit compatible with AbstractObservation
+# Since we can't modify SMLMData.Emitter2DFit, we use a wrapper approach
+struct ObservationWrapper{T} <: AbstractObservation
+    emitter::T
+end
+
+# But for compatibility, also allow direct use of Emitter2DFit
+struct Observations{T}
     ŷ::Vector{T}
+end
+
+# Constructor that accepts Emitter2DFit directly
+function Observations(emitters::Vector{<:Emitter2DFit})
+    return Observations{eltype(emitters)}(emitters)
 end
 length(obs::Observations) = length(obs.ŷ)
 
