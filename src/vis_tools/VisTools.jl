@@ -1,55 +1,27 @@
-module VisTools 
+module VisTools
 
-using SMLMBaGoL
-BGL = SMLMBaGoL
-using CairoMakie
-using Images 
+using ..SMLMBaGoL
+using ..SMLMBaGoL.Emitters
+using CairoMakie: Figure, Axis, DataAspect, heatmap!, xlims!, ylims!, save, lines!, poly!, Point2f
+using Images
 using ColorSchemes
-using ImageDraw 
-using Statistics
+using Statistics: mean, median, quantile
 
-# Include existing functionality
-include("types.jl")
-include("plot.jl")
-include("tools.jl")
-include("images.jl")
-include("blobs.jl")
+# Include submodules
+include("primitives.jl")
+include("images.jl") 
+include("plots.jl")
 
-# Include new submodules
-include("Drawing.jl")
-include("Analysis.jl")
-include("Animation.jl")
-include("Combined.jl")
+# Export primitive functions
+export draw_circle!, draw_x!
 
-# Re-export submodules for easier access
-using .Analysis
-using .Drawing  
-using .Animation
-using .Combined
+# Export image generation functions
+export gauss_blob_image, histogram_image
 
-# Export main image generation functions
-export gen_obs_image, gen_sr_image, gen_color_image
+# Export main plot functions
+export plot_circles, plot_sr, plot_mapn, plot_posterior
 
-# Export new unified API functions
-export Analysis, Drawing, Animation, Combined
+# Export utilities
+export quantile_stretch!, gen_color_image
 
-# Re-export key analysis functions for convenience
-export plot_observations, plot_observations!
-export plot_posterior, plot_sr
-export plot_true_values!
-export plot_prior_k, plot_prior_λ
-export plot_state_length, plot_sld
-export animate_chain
-
-# Re-export drawing functions (for pixel arrays)
-export draw_circle_on_image!, draw_x_on_image!
-export draw_observations_on_image!, draw_emitters_on_image!
-export draw_true_on_image!
-
-# Export existing BGLImage2D drawing functions (legacy)
-export draw_circle!, draw_x!, draw_observations!, draw_emitters!, draw_true!
-
-# Re-export combined analysis functions
-export plot_combined_analysis, plot_mapn_with_uncertainty
-
-end
+end # module VisTools
