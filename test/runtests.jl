@@ -2,5 +2,5 @@ using SMLMBaGoL
 using Test
 
 @testset "SMLMBaGoL.jl" begin
-    # Write your tests here.
+    include("workflow.jl")
 end
