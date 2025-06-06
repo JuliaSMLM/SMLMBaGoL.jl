@@ -12,6 +12,7 @@ using Distributions
 using Images
 using ColorSchemes
 using ProgressMeter
+using CairoMakie
 
 println("n_threads: ", Threads.nthreads())
 
@@ -59,8 +60,8 @@ println("  Noisy localizations: $(length(smld_noisy.emitters))")
 pixelsize = 0.1  # Analysis pixel size in microns (matches camera pixel size)
 zoom_pixelsize = pixelsize / 100  # 10x zoom pixel size for all outputs (0.01 μm)
 
-# Generate and save observation image
-@info "Generating observation image"
+# Generate observations data structure
+@info "Converting SMLD data to observations"
 emitter_type = SMLMBaGoL.Emitter2D
 y = [emitter.y for emitter in smld_noisy.emitters]
 x = [emitter.x for emitter in smld_noisy.emitters]
@@ -68,9 +69,26 @@ x = [emitter.x for emitter in smld_noisy.emitters]
 σ_x = [emitter.σ_x for emitter in smld_noisy.emitters]
 
 obs = BGL.gen_observations(emitter_type, vcat(y', x'), vcat(σ_y', σ_x'))
+
+# Generate and save observation image using traditional image approach
+@info "Generating observation image"
 @time bglim = BGL.gen_obs_image(obs, zoom_pixelsize)
 display(bglim.data)
 save("dev/output/smlmsim_observations.png", bglim.data)
+
+# Generate interactive circle plot using new VisTools
+@info "Creating interactive observation plot"
+fig_obs = BGL.plot_observations(obs; color=:blue, alpha=0.6)
+ax_obs = fig_obs[1, 1]
+
+# Add true emitter positions if available
+if length(smld_true.emitters) > 0
+    BGL.plot_true_values!(ax_obs, smld_true.emitters; color=:red, markersize=8)
+    ax_obs.title = "Observations (blue circles) vs True Emitters (red dots)"
+end
+
+save("dev/output/smlmsim_interactive_observations.png", fig_obs)
+println("  → Saved interactive plot: dev/output/smlmsim_interactive_observations.png")
 
 # Generate super-resolution image
 @info "Generating super-resolution image"
@@ -131,9 +149,97 @@ if length(smld_true.emitters) > 0
     println("  True recovery rate: $(round(total_emitters_found/true_count*100, digits=1))%")
 end
 
+# Chain analysis using new VisTools
+if n_subregions > 0
+    @info "Analyzing RJMCMC chains with new visualization tools"
+    
+    # Get the largest subregion's chain for analysis
+    largest_sr_idx = argmax([length(sr.obs.ŷ) for sr in srs])
+    chain = srs[largest_sr_idx].chains[1]
+    
+    println("  Analyzing subregion $largest_sr_idx with $(length(srs[largest_sr_idx].obs.ŷ)) observations")
+    
+    # Plot state length distribution
+    fig_sld = BGL.plot_sld(chain)
+    save("dev/output/smlmsim_state_length_dist.png", fig_sld)
+    println("  → Saved state length distribution: dev/output/smlmsim_state_length_dist.png")
+    
+    # Plot state length over iterations
+    fig_state = BGL.plot_state_length(chain)
+    save("dev/output/smlmsim_state_length_trace.png", fig_state)
+    println("  → Saved state length trace: dev/output/smlmsim_state_length_trace.png")
+    
+    # Create animation of RJMCMC chain (sample every 50 iterations for speed)
+    @info "Creating RJMCMC chain animation"
+    animation_file = BGL.animate_chain(chain, srs[largest_sr_idx].obs; 
+        filename="dev/output/smlmsim_chain_animation.mp4", 
+        fps=10, 
+        skip=50)
+    println("  → Saved chain animation: $animation_file")
+    
+    # Find MAP-N and create comprehensive visualization
+    n_map, n_vec = BGL.RJMCMC.find_mapn(chain)
+    println("  MAP-N (most probable number of emitters): $n_map")
+    
+    # Extract MAP-N chain and get coordinates
+    chain_mapn = BGL.RJMCMC.extract_mapn_chain(chain)
+    if length(chain_mapn.states) > 0
+        BGL.RJMCMC.sort_mapn_chain!(chain_mapn)
+        mapn_coords = BGL.RJMCMC.get_mapn_emitters(chain_mapn, srs[largest_sr_idx].obs)
+        
+        # Create comprehensive MAP-N analysis plot
+        fig_mapn = Figure(size=(800, 600))
+        ax_mapn = Axis(fig_mapn[1, 1], aspect=DataAspect(), 
+                      title="MAP-N Analysis for Largest Subregion", 
+                      xlabel="x (μm)", ylabel="y (μm)")
+        
+        # Plot observations (blue circles)
+        BGL.plot_observations!(ax_mapn, srs[largest_sr_idx].obs; 
+            color=:blue, alpha=0.4, strokewidth=1)
+        
+        # Plot MAP-N estimates (green crosses)
+        if length(mapn_coords) > 0
+            mapn_x = [coord.x for coord in mapn_coords]
+            mapn_y = [coord.y for coord in mapn_coords]
+            scatter!(ax_mapn, mapn_x, mapn_y, 
+                color=:green, markersize=10, marker=:x, 
+                label="MAP-N estimates (n=$n_map)")
+        end
+        
+        # Add true emitters if available (red dots)
+        if length(smld_true.emitters) > 0
+            BGL.plot_true_values!(ax_mapn, smld_true.emitters; 
+                color=:red, markersize=6)
+        end
+        
+        axislegend(ax_mapn)
+        save("dev/output/smlmsim_mapn_analysis.png", fig_mapn)
+        println("  → Saved MAP-N analysis: dev/output/smlmsim_mapn_analysis.png")
+    end
+end
+
 println("\nOutput files saved:")
-println("  - dev/output/smlmsim_observations.png (raw observations)")
+println("  - dev/output/smlmsim_observations.png (raw observation image)")
+println("  - dev/output/smlmsim_interactive_observations.png (interactive plot with truth)")
 println("  - dev/output/smlmsim_sr.png (super-resolution reconstruction)")
 println("  - dev/output/smlmsim_posterior.png (Bayesian posterior)")
+if n_subregions > 0
+    println("  - dev/output/smlmsim_state_length_dist.png (MCMC state length distribution)")
+    println("  - dev/output/smlmsim_state_length_trace.png (MCMC convergence trace)")
+    println("  - dev/output/smlmsim_chain_animation.mp4 (RJMCMC chain animation)")
+    println("  - dev/output/smlmsim_mapn_analysis.png (MAP-N analysis)")
+end
 
-@info "SMLMSim to BaGoL workflow completed successfully"
+println("\n=== New VisTools Capabilities Demonstrated ===")
+println("📊 Interactive Plotting:")
+println("  • plot_observations() - Circle plots with uncertainty")
+println("  • plot_true_values!() - Overlay ground truth emitters")
+println("📈 Chain Analysis:")
+println("  • plot_sld() - State length distribution")
+println("  • plot_state_length() - Convergence monitoring")
+println("🎬 Animations:")
+println("  • animate_chain() - MP4 visualization of MCMC evolution")
+println("🔬 MAP-N Analysis:")
+println("  • Comprehensive visualization combining observations, estimates, and truth")
+
+@info "SMLMSim to BaGoL workflow completed successfully with new VisTools"
