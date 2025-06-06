@@ -1,5 +1,5 @@
 
-function draw_circle!(axis, center::Point2f0, radius::Float64; points::Int=100, color=:black,
+function draw_circle!(axis, center::Point2f, radius::Float64; points::Int=100, color=:black,
     linewidth=1.0, linestyle=:solid, linealpha=1.0, linecolor=:black, fillalpha=0.0, fillcolor=:black)
     θ = Float32.(LinRange(0, 2π, points))
     x = center[1] .+ radius * cos.(θ)
@@ -58,7 +58,7 @@ end
 
 function plot_observations!(ax, obs::Observations; color=:black, linewidth=1, linealpha=1)
     for obs in obs.ŷ
-        draw_circle!(ax, Point2f0(obs.x, obs.y), obs.σ_x;
+        draw_circle!(ax, Point2f(obs.x, obs.y), obs.σ_x;
             color, linewidth, linealpha)
     end
 end
@@ -159,11 +159,11 @@ function animate_chain(chain, obs, emitters; filename="scatter_animation.mp4")
          for i in eachindex(obs.ŷ)]
     )
 
-    circles = [draw_circle!(ax, Point2f0(obs.ŷ[i].x, obs.ŷ[i].y), obs.ŷ[i].σ_x, color=colors[][i]) for i in eachindex(obs.ŷ)]
+    circles = [draw_circle!(ax, Point2f(obs.ŷ[i].x, obs.ŷ[i].y), obs.ŷ[i].σ_x, color=colors[][i]) for i in eachindex(obs.ŷ)]
 
     # Function to extract coordinates for a given state
     coords = @lift(
-        [Point2f0.(chain.states[$(frame_index)].emitters[j].x, chain.states[$(frame_index)].emitters[j].y)
+        [Point2f.(chain.states[$(frame_index)].emitters[j].x, chain.states[$(frame_index)].emitters[j].y)
          for j in 1:length(chain.states[$(frame_index)].emitters)],
     )
 

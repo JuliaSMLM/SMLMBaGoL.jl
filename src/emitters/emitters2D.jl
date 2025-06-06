@@ -1,16 +1,14 @@
 
-mutable struct Emitter2D{T} <: AbstractEmitter where {T<:Real}
-    y::T
-    x::T
-end
+# Using SMLMData.Emitter2D which has fields: x, y, photons
+
 function Emitter2D(coords::Vector{<:Real})
-    return Emitter2D(coords[1], coords[2])
+    return Emitter2D(coords[2], coords[1], 1000.0)  # x, y, default photons
 end
 function Emitter2D{T}(coords::Vector{T}) where {T<:Real}
-    return Emitter2D(coords[1], coords[2])
+    return Emitter2D(coords[2], coords[1], T(1000.0))  # x, y, default photons
 end
 function Emitter2D{T}(emitter::Emitter2D{T}) where T
-    return Emitter2D{T}(emitter.y, emitter.x)
+    return Emitter2D{T}(emitter.x, emitter.y, emitter.photons)
 end
 
 struct Localization2D{T} <: AbstractObservation
@@ -71,20 +69,27 @@ function build_prior_y(locs::Vector{Localization2D{T}}) where {T<:Real}
 end
 
 function gen_emitter!(emitter::Emitter2D{T}, prior_y::Distributions.Distribution) where T <: Real
-    emitter.y, emitter.x = rand(prior_y)
+    coords = rand(prior_y)
+    emitter.y = coords[1]
+    emitter.x = coords[2]
 end
 
-function gen_emitters(ET::Type{<:SMLMBaGoL.Emitters.Emitter2D{T}}, n::Int, prior_y::Distributions.Distribution) where T <: Real
-    return [Emitter2D{T}(rand(prior_y)) for i in 1:n]
+function gen_emitters(ET::Type{<:Emitter2D{T}}, n::Int, prior_y::Distributions.Distribution) where T <: Real
+    emitters = Emitter2D{T}[]
+    for i in 1:n
+        coords = rand(prior_y)
+        push!(emitters, Emitter2D{T}(coords[2], coords[1], T(1000.0)))  # x, y, photons
+    end
+    return emitters
 end
 
 
-function gen_observations(prior_λ::Distributions.Distribution, emitters::Vector{SMLMBaGoL.Emitters.Emitter2D{T}}; 
+function gen_observations(prior_λ::Distributions.Distribution, emitters::Vector{Emitter2D{T}}; 
     photons::Float64=1000.0, min_photons::Int=200) where T <: Real
 
     p = Exponential(photons)
     p = Truncated(p, min_photons, Inf)
-    σ_PSF = 100.0
+    σ_PSF = 0.1  # PSF width in microns (was 100.0 for nanometer units)
 
     # make empty arrays
     y = Float64[]
@@ -110,7 +115,7 @@ function gen_observations(prior_λ::Distributions.Distribution, emitters::Vector
     return Observations(Localization2D.(y, x, σ_y, σ_x))
 end
 
-function gen_observations(emitter_type::Type{<:SMLMBaGoL.Emitters.Emitter2D}, positions, sigmas)
+function gen_observations(emitter_type::Type{<:Emitter2D}, positions, sigmas)
     
     y = positions[1, :]
     x = positions[2, :]
@@ -123,7 +128,8 @@ end
 function merge_emitters(emitter1::Emitter2D, emitter2::Emitter2D)
     new_x = (emitter1.x + emitter2.x) / 2
     new_y = (emitter1.y + emitter2.y) / 2
-    return Emitter2D(new_y, new_x)
+    new_photons = (emitter1.photons + emitter2.photons) / 2
+    return Emitter2D(new_x, new_y, new_photons)
 end
 
 function localization_distance(loc1::Localization2D, loc2::Localization2D)
