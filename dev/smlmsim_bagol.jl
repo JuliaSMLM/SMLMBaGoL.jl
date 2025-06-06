@@ -13,6 +13,7 @@ using Images
 using ColorSchemes
 using ProgressMeter
 using CairoMakie
+using CairoMakie: Axis, Figure  # Explicit imports to avoid ambiguity
 
 println("n_threads: ", Threads.nthreads())
 
@@ -154,7 +155,7 @@ end
 if n_subregions > 0
     @info "Analyzing RJMCMC chains with new visualization tools"
     
-    # Get the largest subregion's chain for analysis
+    # Get the largest subregion's chain for detailed analysis
     largest_sr_idx = argmax([length(sr.obs.ŷ) for sr in srs])
     chain = srs[largest_sr_idx].chains[1]
     
@@ -178,44 +179,76 @@ if n_subregions > 0
         skip=50)
     println("  → Saved chain animation: $animation_file")
     
-    # Find MAP-N and create comprehensive visualization
-    n_map, n_vec = BGL.RJMCMC.find_mapn(chain)
-    println("  MAP-N (most probable number of emitters): $n_map")
+    # Collect ALL MAP-N estimates from ALL subregions for global analysis
+    @info "Collecting MAP-N estimates from all subregions"
+    all_mapn_coords = []
+    total_mapn_emitters = 0
     
-    # Extract MAP-N chain and get coordinates
-    chain_mapn = BGL.RJMCMC.extract_mapn_chain(chain)
-    if length(chain_mapn.states) > 0
-        BGL.RJMCMC.sort_mapn_chain!(chain_mapn)
-        mapn_coords = BGL.RJMCMC.get_mapn_emitters(chain_mapn, srs[largest_sr_idx].obs)
-        
-        # Create comprehensive MAP-N analysis plot
-        fig_mapn = Figure(size=(800, 600))
-        ax_mapn = Axis(fig_mapn[1, 1], aspect=DataAspect(), 
-                      title="MAP-N Analysis for Largest Subregion", 
-                      xlabel="x (μm)", ylabel="y (μm)")
-        
-        # Plot observations (blue circles)
-        BGL.plot_observations!(ax_mapn, srs[largest_sr_idx].obs; 
-            color=:blue, alpha=0.4, strokewidth=1)
-        
-        # Plot MAP-N estimates (green crosses)
-        if length(mapn_coords) > 0
-            mapn_x = [coord.x for coord in mapn_coords]
-            mapn_y = [coord.y for coord in mapn_coords]
-            scatter!(ax_mapn, mapn_x, mapn_y, 
-                color=:green, markersize=10, marker=:x, 
-                label="MAP-N estimates (n=$n_map)")
+    for (i, sr) in enumerate(srs)
+        if length(sr.chains) > 0
+            local sr_chain = sr.chains[1]
+            local sr_n_map, _ = BGL.RJMCMC.find_mapn(sr_chain)
+            local sr_chain_mapn = BGL.RJMCMC.extract_mapn_chain(sr_chain)
+            
+            if length(sr_chain_mapn.states) > 0
+                BGL.RJMCMC.sort_mapn_chain!(sr_chain_mapn)
+                local sr_mapn_coords = BGL.RJMCMC.get_mapn_emitters(sr_chain_mapn, sr.obs)
+                append!(all_mapn_coords, sr_mapn_coords)
+                global total_mapn_emitters += length(sr_mapn_coords)
+            end
         end
+    end
+    
+    println("  Total MAP-N emitters across all subregions: $total_mapn_emitters")
+    
+    # Create global combined analysis with ALL data
+    if length(all_mapn_coords) > 0
+        fig_global = BGL.plot_combined_analysis(
+            obs,  # Use all observations
+            all_mapn_coords,  # All MAP-N estimates
+            smld_true.emitters;  # All true emitters
+            title="Global Combined Analysis: All Subregions ($(length(all_mapn_coords)) MAP-N estimates)",
+            figsize=(1000, 800),
+            localization_alpha=0.2,
+            mapn_alpha=0.8
+        )
+        save("dev/output/smlmsim_global_analysis.png", fig_global)
+        println("  → Saved global combined analysis: dev/output/smlmsim_global_analysis.png")
         
-        # Add true emitters if available (red dots)
-        if length(smld_true.emitters) > 0
-            BGL.plot_true_values!(ax_mapn, smld_true.emitters; 
-                color=:red, markersize=6)
+        # Create focused MAP-N uncertainty plot for all estimates
+        fig_all_mapn = BGL.plot_mapn_with_uncertainty(
+            all_mapn_coords;
+            title="All MAP-N Estimates with Uncertainty (n = $(length(all_mapn_coords)))",
+            figsize=(800, 800),
+            uncertainty_alpha=0.6,
+            sigma_level=3
+        )
+        save("dev/output/smlmsim_all_mapn_uncertainty.png", fig_all_mapn)
+        println("  → Saved all MAP-N uncertainty plot: dev/output/smlmsim_all_mapn_uncertainty.png")
+        
+        # Also create single subregion analysis for comparison
+        largest_sr = srs[largest_sr_idx]
+        n_map, _ = BGL.RJMCMC.find_mapn(largest_sr.chains[1])
+        chain_mapn = BGL.RJMCMC.extract_mapn_chain(largest_sr.chains[1])
+        
+        if length(chain_mapn.states) > 0
+            BGL.RJMCMC.sort_mapn_chain!(chain_mapn)
+            single_mapn_coords = BGL.RJMCMC.get_mapn_emitters(chain_mapn, largest_sr.obs)
+            
+            fig_single = BGL.plot_combined_analysis(
+                largest_sr.obs,
+                single_mapn_coords,
+                smld_true.emitters;
+                title="Single Subregion Analysis: Subregion $largest_sr_idx (MAP-N = $n_map)",
+                figsize=(700, 600),
+                localization_alpha=0.4,
+                mapn_alpha=0.8
+            )
+            save("dev/output/smlmsim_single_subregion.png", fig_single)
+            println("  → Saved single subregion analysis: dev/output/smlmsim_single_subregion.png")
         end
-        
-        axislegend(ax_mapn)
-        save("dev/output/smlmsim_mapn_analysis.png", fig_mapn)
-        println("  → Saved MAP-N analysis: dev/output/smlmsim_mapn_analysis.png")
+    else
+        println("  → No MAP-N coordinates available for visualization")
     end
 end
 
@@ -228,7 +261,9 @@ if n_subregions > 0
     println("  - dev/output/smlmsim_state_length_dist.png (MCMC state length distribution)")
     println("  - dev/output/smlmsim_state_length_trace.png (MCMC convergence trace)")
     println("  - dev/output/smlmsim_chain_animation.mp4 (RJMCMC chain animation)")
-    println("  - dev/output/smlmsim_mapn_analysis.png (MAP-N analysis)")
+    println("  - dev/output/smlmsim_global_analysis.png (global view: all subregions combined)")
+    println("  - dev/output/smlmsim_all_mapn_uncertainty.png (all MAP-N estimates with uncertainty)")
+    println("  - dev/output/smlmsim_single_subregion.png (detailed single subregion analysis)")
 end
 
 println("\n=== New VisTools Capabilities Demonstrated ===")
@@ -240,7 +275,10 @@ println("  • plot_sld() - State length distribution")
 println("  • plot_state_length() - Convergence monitoring")
 println("🎬 Animations:")
 println("  • animate_chain() - MP4 visualization of MCMC evolution")
-println("🔬 MAP-N Analysis:")
-println("  • Comprehensive visualization combining observations, estimates, and truth")
+println("🔬 Combined Analysis:")
+println("  • plot_combined_analysis() - Unified visualization with uncertainty")
+println("  • plot_mapn_with_uncertainty() - Focused MAP-N uncertainty circles")
+println("  • Global analysis across ALL subregions")
+println("  • Single subregion detailed analysis for comparison")
 
 @info "SMLMSim to BaGoL workflow completed successfully with new VisTools"
