@@ -79,14 +79,14 @@ println("  → Saved observation image: dev/output/smlmsim_observations.png")
 
 # Generate interactive circle plot using new VisTools
 @info "Creating interactive observation plot"
-fig_obs = BGL.plot_observations(obs; color=:blue, alpha=0.6)
+fig_obs = BGL.plot_observations(obs; color=:black, alpha=0.4)
 
 # Add true emitter positions if available
 if length(smld_true.emitters) > 0
     # Get the axis from the figure content
     ax_obs = fig_obs.content[1]
-    BGL.plot_true_values!(ax_obs, smld_true.emitters; color=:red, markersize=8)
-    ax_obs.title = "Observations (blue circles) vs True Emitters (red dots)"
+    BGL.plot_true_values!(ax_obs, smld_true.emitters; color=:green, markersize=12)
+    ax_obs.title = "Localizations (black circles) vs True Emitters (green X)"
 end
 
 save("dev/output/smlmsim_interactive_observations.png", fig_obs)
@@ -207,10 +207,10 @@ if n_subregions > 0
             obs,  # Use all observations
             all_mapn_coords,  # All MAP-N estimates
             smld_true.emitters;  # All true emitters
-            title="Global Combined Analysis: All Subregions ($(length(all_mapn_coords)) MAP-N estimates)",
+            title="Global Analysis: Localizations (black) + MAP-N (red) + Truth (green X)",
             figsize=(1000, 800),
             localization_alpha=0.2,
-            mapn_alpha=0.8
+            mapn_alpha=0.7
         )
         save("dev/output/smlmsim_global_analysis.png", fig_global)
         println("  → Saved global combined analysis: dev/output/smlmsim_global_analysis.png")
@@ -218,7 +218,7 @@ if n_subregions > 0
         # Create focused MAP-N uncertainty plot for all estimates
         fig_all_mapn = BGL.plot_mapn_with_uncertainty(
             all_mapn_coords;
-            title="All MAP-N Estimates with Uncertainty (n = $(length(all_mapn_coords)))",
+            title="MAP-N Estimates (red circles) with 3σ Uncertainty (n = $(length(all_mapn_coords)))",
             figsize=(800, 800),
             uncertainty_alpha=0.6,
             sigma_level=3
@@ -239,9 +239,9 @@ if n_subregions > 0
                 largest_sr.obs,
                 single_mapn_coords,
                 smld_true.emitters;
-                title="Single Subregion Analysis: Subregion $largest_sr_idx (MAP-N = $n_map)",
+                title="Single Subregion: Localizations (black) + MAP-N (red) + Truth (green X)",
                 figsize=(700, 600),
-                localization_alpha=0.4,
+                localization_alpha=0.3,
                 mapn_alpha=0.8
             )
             save("dev/output/smlmsim_single_subregion.png", fig_single)

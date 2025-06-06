@@ -155,7 +155,7 @@ function animate_chain(chain::RJMCMC_Chain, obs::Observations;
     
     # Function to plot observations on axis
     function plot_observations_on_axis!(ax, obs::Observations; 
-        markersize=10, strokewidth=1, color=:blue, alpha=0.3)
+        markersize=10, strokewidth=1, color=:black, alpha=0.3)
         
         for ob in obs.ŷ
             draw_circle_on_axis!(ax, ob.x, ob.y, 3 * mean([ob.σ_x, ob.σ_y]); 
@@ -173,7 +173,7 @@ function animate_chain(chain::RJMCMC_Chain, obs::Observations;
         state = chain.states[i]
         xs = [e.x for e in state.emitters]
         ys = [e.y for e in state.emitters]
-        scatter!(ax, xs, ys, marker='o', markersize=10, color=:red)
+        scatter!(ax, xs, ys, marker=:circle, markersize=8, color=:red)
         
         # Update title
         ax.title = "Iteration $i, k = $(length(state.emitters))"
