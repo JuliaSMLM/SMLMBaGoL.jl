@@ -4,8 +4,6 @@ using Distributions
 using StatsBase 
 using SpecialFunctions
 using Hungarian
-using CairoMakie 
-using CairoMakie: Point2f
 using ..SMLMBaGoL
 using ..Emitters
 
@@ -29,13 +27,8 @@ include("interface.jl")
 # include("emitters2D.jl")
 include("buildchain.jl")
 include("mapn.jl")
-include("plottools.jl")
 
 export rjmcmc
 export RJMCMC_Chain
-
-# Export plot tools
-export plot_posterior, plot_observations, plot_observations!, plot_sr, plot_sld,
-    plot_true_values!, plot_prior_λ, plot_prior_k, plot_state_length, animate_chain
 
 end
