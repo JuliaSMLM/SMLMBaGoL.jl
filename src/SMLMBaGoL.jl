@@ -13,12 +13,16 @@ using LinearAlgebra
 using Statistics
 using StatsBase
 using Clustering
+using Images
 
 # Re-export key types from SMLMData
 export AbstractEmitter, Emitter2D, Emitter2DFit
 
 # Main API
 export bagol, BaGoLResult, HierarchicalPrior
+
+# Image functions
+export save_posterior_image
 
 # Types
 export BaGoLChain, MoveType, MoveProbs
@@ -28,8 +32,6 @@ include("types.jl")
 include("rjmcmc.jl")
 include("hierarchical.jl")
 include("bagol.jl")
-
-# Optional visualization (to be added later)
-# include("visualization.jl")
+include("images.jl")
 
 end # module

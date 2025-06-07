@@ -1,0 +1,7 @@
+[deps]
+Images = "916415d5-f1e6-5110-898d-aaa5f9f070e0"
+SMLMBaGoL = "70c4bcd9-ed9a-43d6-baf8-7d0db1eb70ee"
+SMLMSim = "5a0a87e4-02d4-41f5-bf26-b8c94c784a04"
+
+[compat]
+SMLMSim = "0.3.3"
