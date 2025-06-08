@@ -19,6 +19,10 @@ Pkg.activate(".")
 Pkg.instantiate()
 ```
 
+## Development Mode Guidelines
+
+- We are in pure development mode, so if we have version conflicts, try update and resolve. If that doesn't work stop and ask for help.
+
 ## Running Tests
 
 ```bash
@@ -177,3 +181,4 @@ Minimal dependency footprint:
 - `Distributions`: Probability distributions
 - `Clustering`: DBSCAN implementation
 - `Statistics`, `StatsBase`, `LinearAlgebra`, `Random`: Standard library
+```
