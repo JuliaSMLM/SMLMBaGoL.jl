@@ -18,6 +18,7 @@ Clustering = "0.14 - 0.15"
 Distributions = "0.25"
 Images = "0.26"
 SMLMData = "0.3"
+Statistics = "1"
 StatsBase = "0.34"
 julia = "1.10"
 
