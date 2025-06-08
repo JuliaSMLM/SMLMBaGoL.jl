@@ -14,6 +14,7 @@ using Statistics
 using StatsBase
 using Clustering
 using Images
+using CairoMakie
 
 # Re-export key types from SMLMData
 export AbstractEmitter, Emitter2D, Emitter2DFit
@@ -24,6 +25,9 @@ export bagol, BaGoLResult, HierarchicalPrior
 # Image functions
 export save_posterior_image
 
+# Plotting functions
+export circles!, plot_circles
+
 # Types
 export BaGoLChain, MoveType, MoveProbs
 
@@ -33,5 +37,6 @@ include("rjmcmc.jl")
 include("hierarchical.jl")
 include("bagol.jl")
 include("images.jl")
+include("plots.jl")
 
 end # module

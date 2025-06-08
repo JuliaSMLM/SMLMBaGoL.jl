@@ -6,10 +6,15 @@ A lightweight demo showing SMLMBaGoL.bagol() with synthetic data from SMLMSim.
 Optimized for quick execution with fewer frames and localizations.
 """
 
+# Activate the dev environment automatically
+using Pkg
+Pkg.activate("dev")
+
 using SMLMSim
 using SMLMBaGoL
 using Statistics
 using Random
+using CairoMakie
 
 println("=== Simple BaGoL Demo ===\n")
 
@@ -20,7 +25,7 @@ println("1. Creating synthetic SMLM data...")
 
 # Smaller simulation for faster execution
 params = StaticSMLMParams(
-    density = 0.5,          # Moderate density: 0.5 patterns per μm²
+    density = 10,          # Moderate density: 0.5 patterns per μm²
     σ_psf = 0.13,           # 130nm PSF width
     minphotons = 50,        # Lower threshold: 50 minimum photons
     ndatasets = 1,          # single dataset
@@ -33,7 +38,13 @@ params = StaticSMLMParams(
 pattern = Nmer2D(n=2, d=0.1)  # 100nm diameter dimer
 
 # Fluorophore with higher on-rate and reasonable blinking
-fluor = GenericFluor(photons=5000.0, k_off=2.0, k_on=5.0)
+# Calculate k_on and k_off using frames to give about 5 localizations per emitter
+# emitters stay on for 1 frame on average, so 
+k_off = params.framerate  # 1 frame off time
+k_on = 5.0 / (params.nframes/params.framerate)  # 5 localizations per emitter
+
+
+fluor = GenericFluor(photons=50000.0, k_off=k_off, k_on=k_on)
 
 println("   - Pattern: $(pattern.n)-mer with $(pattern.d*1000) nm diameter")
 println("   - Density: $(params.density) patterns/μm²")
@@ -43,7 +54,8 @@ println("   - Frames: $(params.nframes)")
 smld_true, smld_model, smld_noisy = simulate(
     params;
     pattern=pattern,
-    molecule=fluor
+    molecule=fluor,
+    camera=IdealCamera(1:16, 1:16, 0.1)
 )
 
 n_true = length(smld_true.emitters)
@@ -81,26 +93,35 @@ if n_mapn > 0
     end
 end
 
-println("\n4. Saving results and posterior image...")
-
-# Save results to dev/output directory
 output_dir = joinpath("dev", "output")
 mkpath(output_dir)
 
-# Save summary
-summary_file = joinpath(output_dir, "simple_demo_results.txt")
-open(summary_file, "w") do f
-    println(f, "Simple BaGoL Demo Results")
-    println(f, "========================")
-    println(f, "Input: $(n_localizations) localizations")
-    println(f, "Output: $(n_mapn) emitters")
-    println(f, "Compression: $(round(n_localizations/n_mapn, digits=1)):1")
-    println(f, "")
-    println(f, "MAP-N Emitters:")
-    for (i, e) in enumerate(result.mapn_emitters)
-        println(f, "  $(i): ($(round(e.x*1000, digits=1)), $(round(e.y*1000, digits=1))) nm")
-    end
-end
+# Create circle plot showing localizations, MAP-N results, and true emitters
+fig2 = plot_circles(smld_noisy.emitters; 
+                   figsize=(900, 700))
+save(joinpath(output_dir, "circle_plot_localizations.png"), fig2)
+
+println("\n4. Creating circle plots...")
+
+# Create circle plot showing localizations, MAP-N results, and true emitters
+fig = plot_circles(smld_noisy.emitters; 
+                   mapn_results=result.mapn_emitters,
+                   figsize=(900, 700))
+
+println("   - Circle plot created with:")
+println("     • Gray circles: $(length(smld_noisy.emitters)) localizations")
+println("     • Green circles: $(length(smld_true.emitters)) true emitters")
+println("     • Red circles: $(length(result.mapn_emitters)) MAP-N emitters")
+
+println("\n5. Saving images...")
+
+# Save results to dev/output directory
+
+
+# Save the circle plot
+circle_plot_file = joinpath(output_dir, "circle_plot.png")
+save(circle_plot_file, fig)
+println("   - Circle plot saved to: $(circle_plot_file)")
 
 # Save posterior image as PNG with nice colormap
 if !isnothing(result.posterior) && !isempty(result.posterior)
@@ -121,26 +142,9 @@ if !isnothing(result.posterior) && !isempty(result.posterior)
     println("     • Hot colormap: $(hot_file)")
     println("     • Grayscale: $(gray_file)")
     println("   - Image size: $(size(result.posterior, 1)) x $(size(result.posterior, 2)) pixels")
-    
-    # Also save raw data as CSV for analysis
-    csv_file = joinpath(output_dir, "posterior_data.csv")
-    open(csv_file, "w") do f
-        println(f, "# BaGoL Posterior Probability Image Data")
-        println(f, "# Resolution: $(size(result.posterior, 1)) x $(size(result.posterior, 2)) pixels")
-        println(f, "# Each row represents a pixel row in the image")
-        
-        # Write the matrix
-        for i in 1:size(result.posterior, 1)
-            row_values = [string(result.posterior[i, j]) for j in 1:size(result.posterior, 2)]
-            println(f, join(row_values, ","))
-        end
-    end
-    println("     • Raw data: $(csv_file)")
 else
     println("   - No posterior image available to save")
 end
 
-println("   - Summary saved to: $(summary_file)")
-
-println("\n✓ Demo completed! All results saved to $(output_dir)")
+println("\n✓ Demo completed! All images saved to $(output_dir)")
 println("✓ BaGoL successfully processed synthetic SMLM data")
