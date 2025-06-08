@@ -69,8 +69,8 @@ println("\n2. Running BaGoL clustering...")
 # Run BaGoL with faster settings
 result = bagol(
     smld_noisy.emitters;
-    mcmc_steps=1000,        # Fewer MCMC steps
-    burnin=200,             # Shorter burn-in
+    mcmc_steps=4000,        # Fewer MCMC steps
+    burnin=2000,             # Shorter burn-in
     n_threads=1             # Single thread for simplicity
 )
 

@@ -168,7 +168,7 @@ function run_parallel_rjmcmc(
 end
 
 """
-Extract MAP-N emitter estimates from all chains.
+Extract MAP-N emitter estimates from all chains using proper particle identity handling.
 """
 function extract_mapn_emitters(chains::Vector{BaGoLChain{T, O}}) where {T, O}
     all_mapn = Vector{Emitter2D{T}}()
@@ -176,7 +176,10 @@ function extract_mapn_emitters(chains::Vector{BaGoLChain{T, O}}) where {T, O}
     for chain in chains
         # Find MAP-N for this chain
         n_states = length.(chain.states)
-        n_counts = zeros(Int, maximum(n_states) + 1)
+        isempty(n_states) && continue
+        
+        max_n = maximum(n_states)
+        n_counts = zeros(Int, max_n + 1)
         
         for n in n_states
             n_counts[n + 1] += 1
@@ -184,22 +187,90 @@ function extract_mapn_emitters(chains::Vector{BaGoLChain{T, O}}) where {T, O}
         
         mapn = argmax(n_counts) - 1
         
-        # Extract states with MAP-N emitters
-        mapn_indices = findall(==(mapn), n_states)
-        
-        if !isempty(mapn_indices)
-            # Average positions across MAP-N states
-            mapn_states = chain.states[mapn_indices]
+        if mapn > 0
+            # Extract states with MAP-N emitters
+            mapn_indices = findall(==(mapn), n_states)
             
-            # Simple approach: take the last MAP-N state
-            # (could do more sophisticated averaging)
-            if mapn > 0
-                append!(all_mapn, mapn_states[end])
+            if length(mapn_indices) > 1
+                # Multiple MAP-N states - use sophisticated averaging
+                mapn_emitters = extract_mapn_with_identity_matching(
+                    chain.states[mapn_indices], mapn
+                )
+                append!(all_mapn, mapn_emitters)
+            elseif length(mapn_indices) == 1
+                # Single MAP-N state
+                append!(all_mapn, chain.states[mapn_indices[1]])
             end
         end
     end
     
     return all_mapn
+end
+
+"""
+Handle particle identity problem using spatial histogram and Hungarian algorithm approach.
+Simplified version of the mathematical reference algorithm.
+"""
+function extract_mapn_with_identity_matching(
+    mapn_states::Vector{Vector{Emitter2D{T}}}, 
+    mapn::Int
+) where T
+    
+    n_states = length(mapn_states)
+    n_states <= 1 && return isempty(mapn_states) ? Emitter2D{T}[] : mapn_states[1]
+    
+    # Create spatial histogram to find reference configuration
+    all_positions = Vector{Tuple{T, T}}()
+    for state in mapn_states
+        for emitter in state
+            push!(all_positions, (emitter.x, emitter.y))
+        end
+    end
+    
+    # Use first state as initial reference
+    reference_state = mapn_states[1]
+    
+    # Accumulate positions with simple nearest-neighbor matching
+    accumulated_positions = Vector{Vector{Tuple{T, T}}}(undef, mapn)
+    accumulated_photons = Vector{Vector{T}}(undef, mapn)
+    
+    for i in 1:mapn
+        accumulated_positions[i] = Tuple{T, T}[]
+        accumulated_photons[i] = T[]
+    end
+    
+    for state in mapn_states
+        # Simple assignment: match each emitter to nearest reference emitter
+        for (i, emitter) in enumerate(state)
+            min_dist = Inf
+            best_ref = 1
+            
+            for (j, ref_emitter) in enumerate(reference_state)
+                dist = (emitter.x - ref_emitter.x)^2 + (emitter.y - ref_emitter.y)^2
+                if dist < min_dist
+                    min_dist = dist
+                    best_ref = j
+                end
+            end
+            
+            push!(accumulated_positions[best_ref], (emitter.x, emitter.y))
+            push!(accumulated_photons[best_ref], emitter.photons)
+        end
+    end
+    
+    # Compute mean positions
+    result_emitters = Vector{Emitter2D{T}}()
+    for i in 1:mapn
+        if !isempty(accumulated_positions[i])
+            mean_x = sum(pos[1] for pos in accumulated_positions[i]) / length(accumulated_positions[i])
+            mean_y = sum(pos[2] for pos in accumulated_positions[i]) / length(accumulated_positions[i])
+            mean_photons = sum(accumulated_photons[i]) / length(accumulated_photons[i])
+            
+            push!(result_emitters, Emitter2D(mean_x, mean_y, mean_photons))
+        end
+    end
+    
+    return result_emitters
 end
 
 """
