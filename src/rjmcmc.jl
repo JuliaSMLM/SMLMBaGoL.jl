@@ -3,6 +3,71 @@ using Distributions
 using Random
 using LinearAlgebra
 using StatsBase: sample, Weights
+using SMLMData: Emitter2D
+using SpecialFunctions: logfactorial, loggamma
+
+# Dirichlet-multinomial model for number of localizations per emitter
+function log_dirichlet_multinomial_pmf(n_obs, k_vec, α_vec)
+    N = length(k_vec)
+    
+    # Calculate the log-PMF of the Dirichlet-multinomial distribution
+    log_pmf = logfactorial(n_obs) - sum(logfactorial.(k_vec))
+    log_pmf += loggamma(sum(α_vec)) - loggamma(n_obs + sum(α_vec))
+    for i in 1:N
+        log_pmf += loggamma(k_vec[i] + α_vec[i]) - loggamma(α_vec[i])
+    end
+    
+    return log_pmf
+end
+
+function estimate_concentration_params(k_vec, prior_λ)
+    N = length(k_vec)
+    α_vec = zeros(N)
+    for i in 1:N
+        # Method of moments estimate
+        E_k = mean(prior_λ)
+        Var_k = var(prior_λ)
+        α_vec[i] = (E_k * (E_k - 1)) / Var_k
+    end
+    return α_vec
+end
+
+function log_dirichlet_multinomial_pmf(state::Vector{Emitter2D{T}}, allocations::Vector{Int}, prior::HierarchicalPrior{T}) where T
+    n_obs = length(allocations)
+    n_emitters = length(state)
+    
+    if n_emitters == 0
+        return zero(T)
+    end
+    
+    # Count localizations per emitter
+    k_vec = [count(==(i), allocations) for i in 1:n_emitters]
+    
+    # Estimate concentration parameters from hierarchical prior
+    α_vec = fill(prior.α, length(k_vec))
+    
+    return log_dirichlet_multinomial_pmf(n_obs, k_vec, α_vec)
+end
+
+# Build spatial prior as mixture of Gaussians
+function build_spatial_prior(observations::Vector{O}) where O
+    n_obs = length(observations)
+    means = Vector{Vector{Float64}}()
+    covs = Vector{Matrix{Float64}}()
+    
+    for obs in observations
+        σ_x = hasproperty(obs, :σ_x) ? obs.σ_x : 0.1
+        σ_y = hasproperty(obs, :σ_y) ? obs.σ_y : 0.1
+        
+        push!(means, [obs.y, obs.x])  # Note: y, x order for MvNormal
+        push!(covs, [σ_y^2 0.0; 0.0 σ_x^2])
+    end
+    
+    components = [MvNormal(mean, cov) for (mean, cov) in zip(means, covs)]
+    weights = fill(1.0/n_obs, n_obs)
+    
+    return MixtureModel(components, weights)
+end
 
 """
 Run a single RJMCMC chain for a subregion.
@@ -201,7 +266,7 @@ end
 # Move implementations
 
 """
-Move an emitter to a new position.
+Move an emitter to a new position using precision-weighted sampling.
 """
 function move_emitter!(
     state::Vector{Emitter2D{T}},
@@ -220,36 +285,50 @@ function move_emitter!(
     
     # Get observations allocated to this emitter
     obs_indices = findall(==(j), allocations)
-    isempty(obs_indices) && return false, log_prob_current
-    
-    # Propose new position (weighted average with noise)
-    x_new = zero(T)
-    y_new = zero(T)
-    weight_sum = zero(T)
-    
-    for i in obs_indices
-        obs = observations[i]
-        # Handle uncertainty if available
-        if hasproperty(obs, :σ_x)
-            weight = one(T) / (obs.σ_x * obs.σ_y)
-        else
-            weight = one(T)  # Equal weighting if no uncertainty
-        end
-        x_new += weight * obs.x
-        y_new += weight * obs.y
-        weight_sum += weight
-    end
-    
-    x_new /= weight_sum
-    y_new /= weight_sum
-    
-    # Add noise
-    σ_move = T(0.1)
-    x_new += σ_move * randn(rng, T)
-    y_new += σ_move * randn(rng, T)
     
     # Store old position
     old_emitter = state[j]
+    
+    if isempty(obs_indices)
+        # No allocated observations - sample from spatial prior
+        # (mixture of Gaussians centered on all observations)
+        i = rand(rng, 1:length(observations))
+        obs = observations[i]
+        σ_x = hasproperty(obs, :σ_x) ? obs.σ_x : T(0.1)
+        σ_y = hasproperty(obs, :σ_y) ? obs.σ_y : T(0.1)
+        x_new = obs.x + σ_x * randn(rng, T)
+        y_new = obs.y + σ_y * randn(rng, T)
+    else
+        # Precision-weighted posterior sampling
+        x_sum = zero(T)
+        y_sum = zero(T)
+        x_precision = zero(T)
+        y_precision = zero(T)
+        
+        for i in obs_indices
+            obs = observations[i]
+            if hasproperty(obs, :σ_x)
+                w_x = one(T) / (obs.σ_x^2)
+                w_y = one(T) / (obs.σ_y^2)
+            else
+                w_x = w_y = T(100.0)  # High precision if no uncertainty
+            end
+            x_sum += w_x * obs.x
+            y_sum += w_y * obs.y
+            x_precision += w_x
+            y_precision += w_y
+        end
+        
+        # Posterior mean and variance
+        x_mean = x_sum / x_precision
+        y_mean = y_sum / y_precision
+        x_var = one(T) / x_precision
+        y_var = one(T) / y_precision
+        
+        # Sample from posterior
+        x_new = x_mean + sqrt(x_var) * randn(rng, T)
+        y_new = y_mean + sqrt(y_var) * randn(rng, T)
+    end
     
     # Update state
     state[j] = Emitter2D(x_new, y_new, old_emitter.photons)
@@ -270,7 +349,7 @@ function move_emitter!(
 end
 
 """
-Add a new emitter.
+Add a new emitter with mathematically correct RJMCMC acceptance ratio.
 """
 function add_emitter!(
     state::Vector{Emitter2D{T}},
@@ -299,31 +378,50 @@ function add_emitter!(
     new_emitter = Emitter2D(x_new, y_new, obs.photons)
     push!(state, new_emitter)
     
+    # Store old allocations for reversion
+    old_allocations = copy(allocations)
+    
     # Reallocate observations
     reallocate_all!(allocations, state, observations, rng)
     
     # Compute new log probability
     log_prob_new = compute_log_posterior(state, allocations, observations, prior)
     
-    # Compute acceptance ratio (includes dimension matching term)
+    # Mathematically correct RJMCMC acceptance ratio using refactor-rjmcmc approach
     n_emitters_old = length(state) - 1
     n_emitters_new = length(state)
     
-    log_ratio = log_prob_new - log_prob_current
-    log_ratio += log(n_emitters_new) - log(n_obs)  # Proposal ratio
+    # Prior ratio for number of emitters (using convolved prior_k)
+    λ_mean = prior.α / prior.β
+    expected_emitters = n_obs / λ_mean
+    prior_ratio_k = logpdf(Poisson(expected_emitters), n_emitters_new) - 
+                    logpdf(Poisson(expected_emitters), n_emitters_old)
+    
+    # Proposal ratio with proper dimension matching
+    prior_proposal_ratio = prior_ratio_k + log(n_emitters_new) - log(n_obs)
+    
+    # Likelihood ratio for positions
+    likelihood_ratio_position = log_prob_new - log_prob_current
+    
+    # Likelihood ratio for number of localizations (Dirichlet-multinomial)
+    likelihood_ratio_number = log_dirichlet_multinomial_pmf(state, allocations, prior) - 
+                             log_dirichlet_multinomial_pmf(state[1:end-1], old_allocations, prior)
+    
+    # Combined acceptance ratio
+    log_ratio = prior_proposal_ratio + likelihood_ratio_position + likelihood_ratio_number
     
     if log(rand(rng)) < log_ratio
         return true, log_prob_new
     else
         # Revert
         pop!(state)
-        reallocate_all!(allocations, state, observations, rng)
+        copy!(allocations, old_allocations)
         return false, log_prob_current
     end
 end
 
 """
-Remove an emitter.
+Remove an emitter with mathematically correct RJMCMC acceptance ratio.
 """
 function remove_emitter!(
     state::Vector{Emitter2D{T}},
@@ -340,8 +438,9 @@ function remove_emitter!(
     # Select emitter to remove
     j = rand(rng, 1:n_emitters)
     
-    # Store removed emitter
+    # Store removed emitter and old allocations
     removed = state[j]
+    old_allocations = copy(allocations)
     
     # Remove emitter
     deleteat!(state, j)
@@ -361,20 +460,40 @@ function remove_emitter!(
     # Compute new log probability
     log_prob_new = compute_log_posterior(state, allocations, observations, prior)
     
-    # Compute acceptance ratio
+    # Mathematically correct RJMCMC acceptance ratio using refactor-rjmcmc approach
     n_emitters_old = n_emitters
     n_emitters_new = n_emitters - 1
     n_obs = length(observations)
     
-    log_ratio = log_prob_new - log_prob_current
-    log_ratio += log(n_obs) - log(n_emitters_old)  # Proposal ratio
+    # Create state before removal for comparison
+    state_old = copy(state)
+    insert!(state_old, j, removed)
+    
+    # Prior ratio for number of emitters (using convolved prior_k)
+    λ_mean = prior.α / prior.β
+    expected_emitters = n_obs / λ_mean
+    prior_ratio_k = logpdf(Poisson(expected_emitters), n_emitters_new) - 
+                    logpdf(Poisson(expected_emitters), n_emitters_old)
+    
+    # Proposal ratio with proper dimension matching (inverse of birth)
+    prior_proposal_ratio = prior_ratio_k + log(n_obs) - log(n_emitters_old)
+    
+    # Likelihood ratio for positions
+    likelihood_ratio_position = log_prob_new - log_prob_current
+    
+    # Likelihood ratio for number of localizations (Dirichlet-multinomial)
+    likelihood_ratio_number = log_dirichlet_multinomial_pmf(state, allocations, prior) - 
+                             log_dirichlet_multinomial_pmf(state_old, old_allocations, prior)
+    
+    # Combined acceptance ratio
+    log_ratio = prior_proposal_ratio + likelihood_ratio_position + likelihood_ratio_number
     
     if log(rand(rng)) < log_ratio
         return true, log_prob_new
     else
         # Revert
         insert!(state, j, removed)
-        reallocate_all!(allocations, state, observations, rng)
+        copy!(allocations, old_allocations)
         return false, log_prob_current
     end
 end
@@ -522,7 +641,7 @@ Compute log likelihood of observation given emitter.
 end
 
 """
-Compute full log posterior probability.
+Compute full log posterior probability with proper spatial priors.
 """
 function compute_log_posterior(
     state::Vector{Emitter2D{T}},
@@ -551,8 +670,32 @@ function compute_log_posterior(
     
     log_prob += logpdf(Poisson(expected_emitters), n_emitters)
     
-    # Prior on positions (improper uniform for now)
-    # Could add proper spatial prior if needed
+    # Prior on positions (mixture of Gaussians at observations)
+    # P(θⱼ) ∝ Σᵢ N(θⱼ | yᵢ, Σᵢ) as per math reference
+    if n_emitters > 0 && n_obs > 0
+        for emitter in state
+            # Sum log probabilities from mixture components
+            log_mixture_prob = -Inf
+            for obs in observations
+                σ_x = hasproperty(obs, :σ_x) ? obs.σ_x : T(0.1)
+                σ_y = hasproperty(obs, :σ_y) ? obs.σ_y : T(0.1)
+                
+                component_log_prob = logpdf(Normal(obs.x, σ_x), emitter.x) +
+                                   logpdf(Normal(obs.y, σ_y), emitter.y) -
+                                   log(T(n_obs))  # Equal mixture weights
+                
+                # LogSumExp trick for numerical stability
+                if log_mixture_prob == -Inf
+                    log_mixture_prob = component_log_prob
+                else
+                    max_val = max(log_mixture_prob, component_log_prob)
+                    log_mixture_prob = max_val + log(exp(log_mixture_prob - max_val) + 
+                                                   exp(component_log_prob - max_val))
+                end
+            end
+            log_prob += log_mixture_prob
+        end
+    end
     
     return log_prob
 end

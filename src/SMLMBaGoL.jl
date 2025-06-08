@@ -15,6 +15,7 @@ using StatsBase
 using Clustering
 using Images
 using CairoMakie
+using SpecialFunctions
 
 # Re-export key types from SMLMData
 export AbstractEmitter, Emitter2D, Emitter2DFit
@@ -28,8 +29,10 @@ export save_posterior_image
 # Plotting functions
 export circles!, plot_circles
 
-# Types
+# Types from refactor-rjmcmc integration
 export BaGoLChain, MoveType, MoveProbs
+export Params, Observations, Allocations, Localization2D
+export log_p_z_given_y, Posterior2D
 
 # Include all components
 include("types.jl")
