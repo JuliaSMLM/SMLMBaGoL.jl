@@ -5,6 +5,9 @@ using Distributions
 
 @testset "SMLMBaGoL Tests" begin
     
+    # Include analysis tests
+    include("test_analysis.jl")
+    
     @testset "Basic API" begin
         # Create synthetic data
         observations = [
