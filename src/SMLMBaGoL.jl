@@ -34,6 +34,12 @@ export BaGoLChain, MoveType, MoveProbs
 export Params, Observations, Allocations, Localization2D
 export log_p_z_given_y, Posterior2D
 
+# Analysis and diagnostics
+export statistics, ChainStatistics, AcceptanceRates
+export convergence_summary, summary
+export plot_trace, plot_acceptance_rates, plot_autocorrelation
+export plot_convergence, plot_chain_comparison
+
 # Include all components
 include("types.jl")
 include("rjmcmc_likelihood.jl")    # Basic likelihood functions (no dependencies)
@@ -44,6 +50,7 @@ include("rjmcmc_split_merge.jl")   # Split/merge (uses core + likelihood)
 include("rjmcmc_reallocate.jl")   # Reallocation (uses core + likelihood)
 include("hierarchical.jl")
 include("bagol.jl")
+include("analysis.jl")
 include("images.jl")
 include("plots.jl")
 
