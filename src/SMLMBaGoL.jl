@@ -36,7 +36,12 @@ export log_p_z_given_y, Posterior2D
 
 # Include all components
 include("types.jl")
-include("rjmcmc.jl")
+include("rjmcmc_likelihood.jl")    # Basic likelihood functions (no dependencies)
+include("rjmcmc_core.jl")          # Core infrastructure (uses likelihood)
+include("rjmcmc_moves.jl")         # Move functions (uses core + likelihood)
+include("rjmcmc_add_remove.jl")    # Add/remove (uses core + likelihood)  
+include("rjmcmc_split_merge.jl")   # Split/merge (uses core + likelihood)
+include("rjmcmc_reallocate.jl")   # Reallocation (uses core + likelihood)
 include("hierarchical.jl")
 include("bagol.jl")
 include("images.jl")
