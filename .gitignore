@@ -13,3 +13,4 @@ dev/output/
 
 **/.claude/settings.local.json
 .claude/code_review/
+.claude/local_memory/
