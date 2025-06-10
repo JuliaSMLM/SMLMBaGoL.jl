@@ -25,6 +25,7 @@ include("utils/emitter_utils.jl")
 # Moves
 include("moves/move_types.jl")
 include("moves/birth_death.jl")
+include("moves/split_merge.jl")
 include("moves/acceptance.jl")
 
 # Exports
