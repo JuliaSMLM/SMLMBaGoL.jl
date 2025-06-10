@@ -124,27 +124,32 @@ function run_bagol(localizations::Vector{L};
                   burn_in::Int = 2000,
                   thin::Int = 1,
                   initial_K::Int = max(1, length(localizations) ÷ 10),
-                  cluster_radius::Real = estimate_clustering_radius(localizations),
+                  partition_radius::Real = estimate_partitioning_radius(localizations),
+                  partition_data::Bool = true,
                   enable_hierarchical::Bool = false,
                   hierarchical_interval::Int = 100,
                   rng::AbstractRNG = Random.GLOBAL_RNG) where {E<:AbstractEmitter, L<:AbstractLocalization}
     
-    # Always cluster for performance (even single cluster if few points)
-    clustered_localizations = cluster_localizations(localizations; 
-                                                   radius=cluster_radius, 
-                                                   min_cluster_size=3)
+    # Partition data into spatial regions if requested
+    if partition_data
+        partitioned_localizations = partition_localizations(localizations; 
+                                                           radius=partition_radius, 
+                                                           min_partition_size=3)
+    else
+        partitioned_localizations = [localizations]  # Single partition
+    end
     
-    print_clustering_summary(clustered_localizations)
+    print_partitioning_summary(partitioned_localizations)
     
-    # Create chains for each cluster
+    # Create chains for each partition
     chains = Vector{RJMCMCChain}()
-    for (i, cluster_locs) in enumerate(clustered_localizations)
-        cluster_prior = enable_hierarchical ? 
-                       create_hierarchical_prior(cluster_locs) : 
-                       create_default_prior(cluster_locs)
+    for (i, partition_locs) in enumerate(partitioned_localizations)
+        partition_prior = enable_hierarchical ? 
+                         create_hierarchical_prior(partition_locs) : 
+                         create_default_prior(partition_locs)
         
-        chain = initialize_chain(cluster_locs, EmitterType, cluster_prior;
-                               initial_K=max(1, length(cluster_locs) ÷ 10),
+        chain = initialize_chain(partition_locs, EmitterType, partition_prior;
+                               initial_K=max(1, length(partition_locs) ÷ 10),
                                burn_in=burn_in, thin=thin, rng=rng)
         push!(chains, chain)
     end
@@ -184,15 +189,16 @@ function run_bagol(localizations::Vector{L};
     
     println("RJMCMC completed:")
     println("  Total iterations: $n_iterations")
-    println("  Clusters: $(length(chains))")
+    println("  Partitions: $(length(chains))")
     println("  Burn-in: $burn_in")
     println("  Total samples collected: $total_samples")
     println("  Average acceptance rate: $(round(avg_acceptance_rate, digits=3))")
+    println("  Data partitioning: $(partition_data ? "enabled" : "disabled (single partition)")")
     if enable_hierarchical
         println("  Hierarchical updates: enabled (every $hierarchical_interval iterations)")
     end
     
-    # Return single chain if only one cluster, otherwise return all chains
+    # Return single chain if only one partition, otherwise return all chains
     return length(chains) == 1 ? chains[1] : chains
 end
 

@@ -155,7 +155,7 @@ function refine_mapn_assignment!(mapn_states::Vector{<:BaGoLState}; n_iterations
     end
 end
 
-function compute_final_mapn_emitters(sorted_states::Vector{<:BaGoLState}, cluster_id::Int)
+function compute_final_mapn_emitters(sorted_states::Vector{<:BaGoLState}, partition_id::Int)
     isempty(sorted_states) && return eltype(sorted_states[1].emitters)[]
     
     n_emitters = length(sorted_states[1].emitters)
@@ -168,14 +168,14 @@ function compute_final_mapn_emitters(sorted_states::Vector{<:BaGoLState}, cluste
         x_mean = sum(state.emitters[emitter_idx].x for state in sorted_states) / n_states
         y_mean = sum(state.emitters[emitter_idx].y for state in sorted_states) / n_states
         
-        # Create emitter with cluster ID
-        push!(mapn_emitters, EmitterType(x_mean, y_mean, cluster_id))
+        # Create emitter with partition ID
+        push!(mapn_emitters, EmitterType(x_mean, y_mean, partition_id))
     end
     
     return mapn_emitters
 end
 
-function estimate_mapn_single_cluster(chain::RJMCMCChain, cluster_id::Int)
+function estimate_mapn_single_partition(chain::RJMCMCChain, partition_id::Int)
     # Step 1: Extract MAPN states (most frequent emitter count)
     mapn_states = extract_mapn_states(chain)
     
@@ -190,16 +190,16 @@ function estimate_mapn_single_cluster(chain::RJMCMCChain, cluster_id::Int)
     refine_mapn_assignment!(mapn_states; n_iterations=3)
     
     # Step 4: Compute final emitter positions
-    return compute_final_mapn_emitters(mapn_states, cluster_id)
+    return compute_final_mapn_emitters(mapn_states, partition_id)
 end
 
 function estimate_mapn(chains::Vector{<:RJMCMCChain})
     EmitterType = eltype(chains[1].current_state.emitters)
     all_mapn_emitters = EmitterType[]
     
-    for (cluster_id, chain) in enumerate(chains)
-        cluster_emitters = estimate_mapn_single_cluster(chain, cluster_id)
-        append!(all_mapn_emitters, cluster_emitters)
+    for (partition_id, chain) in enumerate(chains)
+        partition_emitters = estimate_mapn_single_partition(chain, partition_id)
+        append!(all_mapn_emitters, partition_emitters)
     end
     
     return all_mapn_emitters
