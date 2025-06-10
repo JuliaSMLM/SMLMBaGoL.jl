@@ -5,6 +5,7 @@ using LinearAlgebra
 using Statistics
 using Distributions
 using SpecialFunctions
+using StatsBase
 
 # Core types
 include("core/types.jl")
@@ -18,11 +19,21 @@ include("core/state.jl")
 include("core/priors.jl")
 include("core/likelihood.jl")
 
+# Utilities
+include("utils/emitter_utils.jl")
+
+# Moves
+include("moves/move_types.jl")
+include("moves/birth_death.jl")
+include("moves/acceptance.jl")
+
 # Exports
 export AbstractLocalization, AbstractEmitter, AbstractPrior, AbstractRJMCMCMove, AbstractChainState
 export Emitter2D, Localization2D, BaGoLState, RJMCMCChain
 export UniformSpatialPrior, GammaPrior, HierarchicalGammaPrior, CompoundPrior
-export log_likelihood, log_prior, log_prior_spatial, log_prior_K
+export Birth, Death, Split, Merge, Move, Allocate, inverse_move
+export log_likelihood, log_prior, log_prior_spatial, log_prior_K, log_posterior
 export sample_spatial_prior, create_spatial_prior_from_localizations
+export propose_move, accept_probability, log_acceptance_ratio
 
 end # module SMLMBaGoL
