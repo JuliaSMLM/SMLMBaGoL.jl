@@ -18,35 +18,46 @@ Each example script includes `Pkg.activate("examples")` at the top, so you can r
 
 ```bash
 # From SMLMBaGoL repository root:
-julia examples/basic_demo.jl
+julia examples/smlm_demo.jl
 ```
 
 This is much simpler than:
 ```bash
 # Alternative (not needed):
-cd examples && julia --project=. basic_demo.jl
+cd examples && julia --project=. smlm_demo.jl
 ```
 
 ## Available Examples
 
-### `basic_demo.jl`
-Complete simulation and analysis workflow:
-- Generates synthetic 6-mer complex data
-- Runs BaGoL analysis with realistic priors
-- Compares estimated vs true emitter positions
-- Demonstrates the full pipeline from simulation to results
+### `smlm_demo.jl`
+Complete SMLMBaGoL workflow with simulation, analysis, and visualization:
+- **User-configurable parameters** at the top of the script
+- Generates synthetic n-mer complex data with realistic photon noise
+- Runs BaGoL analysis with RJMCMC sampling
+- Computes MAPN estimates with uncertainty quantification
+- Generates super-resolution images (localizations, emitters, posterior)
+- Compares results to ground truth with quantitative metrics
 
 **Key features demonstrated:**
-- `simulate_n_mer()` with customizable parameters
-- `run_bagol()` with simulation-generated priors
-- Ground truth comparison and success metrics
-- Realistic photon noise modeling
+- `simulate_n_mer()` with customizable n-mer geometry
+- `run_bagol()` for Bayesian emitter detection
+- `estimate_mapn()` for optimal emitter positioning
+- `gen_sr_image()` for multiple visualization types
+- Ground truth comparison with position error analysis
+- Comprehensive summary statistics and recovery metrics
+
+**Configurable parameters:**
+- N-mer size, diameter, photon count
+- Localizations per emitter (mean/variance)
+- RJMCMC iterations and burn-in
+- Visualization pixel size and output options
 
 **Expected output:**
-- ~150 localizations from 6-mer simulation
-- BaGoL analysis with RJMCMC sampling
-- Position recovery within ~50 nm of true locations
-- Emitter count estimation (may vary due to stochasticity)
+- Synthetic data generation with realistic noise
+- RJMCMC analysis discovering emitter count from data
+- MAPN estimates with nm-scale uncertainties
+- Three types of super-resolution images (PNG files)
+- Quantitative position accuracy assessment
 
 ## Adding New Examples
 
