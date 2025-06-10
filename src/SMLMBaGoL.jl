@@ -44,6 +44,9 @@ include("hierarchical/updates.jl")
 # Simulation
 include("sim/n_mer.jl")
 
+# Visualization
+include("visualization/sr_image.jl")
+
 # Exports
 export AbstractLocalization, AbstractEmitter, AbstractPrior, AbstractRJMCMCMove, AbstractChainState
 export Emitter2D, Localization2D, BaGoLState, RJMCMCChain
@@ -56,5 +59,6 @@ export run_bagol, initialize_chain, run_rjmcmc!, rjmcmc_step!
 export partition_localizations, update_hierarchical!
 export estimate_mapn
 export simulate_n_mer, simulate_n_mer_with_prior
+export gen_sr_image
 
 end # module SMLMBaGoL

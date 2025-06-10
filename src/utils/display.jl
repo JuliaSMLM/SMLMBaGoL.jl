@@ -4,13 +4,14 @@ import Base: show
 
 # Pretty printing for Emitter2D
 function Base.show(io::IO, emitter::Emitter2D)
-    print(io, "Emitter2D(id=$(emitter.id), pos=($(round(emitter.x, digits=3)), $(round(emitter.y, digits=3))))")
+    print(io, "Emitter2D(id=$(emitter.id), pos=($(round(emitter.x, digits=3)), $(round(emitter.y, digits=3))), σ=($(round(emitter.σx, digits=3)), $(round(emitter.σy, digits=3))))")
 end
 
 function Base.show(io::IO, ::MIME"text/plain", emitter::Emitter2D)
     println(io, "Emitter2D:")
     println(io, "  ID: $(emitter.id)")
     println(io, "  Position: ($(round(emitter.x, digits=3)), $(round(emitter.y, digits=3))) μm")
+    println(io, "  Uncertainty: ($(round(emitter.σx, digits=3)), $(round(emitter.σy, digits=3))) μm")
 end
 
 # Pretty printing for Localization2D
@@ -36,14 +37,15 @@ function Base.show(io::IO, ::MIME"text/plain", emitters::Vector{E}) where E<:Abs
     end
     
     # Show first few emitters
-    show_count = min(n, 5)
+    max_shown = 10
+    show_count = min(n, max_shown)
     for i in 1:show_count
         emitter = emitters[i]
-        println(io, "  [$i] ID $(emitter.id): ($(round(emitter.x, digits=3)), $(round(emitter.y, digits=3))) μm")
+        println(io, "  [$i] ID $(emitter.id): ($(round(emitter.x, digits=3)), $(round(emitter.y, digits=3))) ± ($(round(emitter.σx, digits=3)), $(round(emitter.σy, digits=3))) μm")
     end
     
-    if n > 5
-        println(io, "  ... and $(n-5) more")
+    if n > max_shown
+        println(io, "  ... and $(n-max_shown) more")
     end
 end
 
@@ -97,7 +99,7 @@ function Base.show(io::IO, ::MIME"text/plain", state::BaGoLState)
         for i in 1:show_count
             emitter = state.emitters[i]
             n_allocated = count(==(i), state.allocations)
-            println(io, "    ID $(emitter.id): ($(round(emitter.x, digits=3)), $(round(emitter.y, digits=3))) μm ($(n_allocated) localizations)")
+            println(io, "    ID $(emitter.id): ($(round(emitter.x, digits=3)), $(round(emitter.y, digits=3))) ± ($(round(emitter.σx, digits=3)), $(round(emitter.σy, digits=3))) μm ($(n_allocated) localizations)")
         end
         if n_emitters > 3
             println(io, "    ... and $(n_emitters-3) more")

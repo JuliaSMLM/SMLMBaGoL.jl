@@ -7,8 +7,9 @@ function propose_move(::Type{Split}, state::BaGoLState{E,L,T}, rng=Random.GLOBAL
     
     # Create two new emitters at the same position as the original
     # They will be separated during reallocation
-    new_emitter1 = E(emitter_to_split.x, emitter_to_split.y, rand(rng, 1:1000000))
-    new_emitter2 = E(emitter_to_split.x, emitter_to_split.y, rand(rng, 1:1000000))
+    # Inherit uncertainty from original emitter
+    new_emitter1 = E(emitter_to_split.x, emitter_to_split.y, emitter_to_split.σx, emitter_to_split.σy, rand(rng, 1:1000000))
+    new_emitter2 = E(emitter_to_split.x, emitter_to_split.y, emitter_to_split.σx, emitter_to_split.σy, rand(rng, 1:1000000))
     
     # Create new emitter list by replacing split emitter with two new ones
     new_emitters = Vector{E}(undef, length(state.emitters) + 1)
@@ -53,10 +54,12 @@ function propose_move(::Type{Merge}, state::BaGoLState{E,L,T}, rng=Random.GLOBAL
     
     second_emitter = state.emitters[second_idx]
     
-    # Create merged emitter at average position
+    # Create merged emitter at average position with average uncertainty
     merged_x = (first_emitter.x + second_emitter.x) / 2
     merged_y = (first_emitter.y + second_emitter.y) / 2
-    merged_emitter = E(merged_x, merged_y, rand(rng, 1:1000000))
+    merged_σx = (first_emitter.σx + second_emitter.σx) / 2
+    merged_σy = (first_emitter.σy + second_emitter.σy) / 2
+    merged_emitter = E(merged_x, merged_y, merged_σx, merged_σy, rand(rng, 1:1000000))
     
     # Create new emitter list by removing both emitters and adding merged one
     indices_to_keep = [i for i in 1:length(state.emitters) if i != first_idx && i != second_idx]
