@@ -96,10 +96,12 @@ function initialize_chain(localizations::Vector{L},
     
     # Default move weights
     default_move_weights = Dict{Type{<:AbstractRJMCMCMove}, Float64}(
-        Birth => 0.25,
-        Death => 0.25, 
-        Split => 0.25,
-        Merge => 0.25
+        Birth => 0.2,
+        Death => 0.2, 
+        Split => 0.15,
+        Merge => 0.15,
+        Move => 0.2,
+        Allocate => 0.1
     )
     
     # Create chain
