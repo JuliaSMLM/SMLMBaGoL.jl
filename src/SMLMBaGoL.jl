@@ -28,6 +28,9 @@ include("moves/birth_death.jl")
 include("moves/split_merge.jl")
 include("moves/acceptance.jl")
 
+# Algorithms
+include("algorithms/rjmcmc.jl")
+
 # Exports
 export AbstractLocalization, AbstractEmitter, AbstractPrior, AbstractRJMCMCMove, AbstractChainState
 export Emitter2D, Localization2D, BaGoLState, RJMCMCChain
@@ -36,5 +39,6 @@ export Birth, Death, Split, Merge, Move, Allocate, inverse_move
 export log_likelihood, log_prior, log_prior_spatial, log_prior_K, log_posterior
 export sample_spatial_prior, create_spatial_prior_from_localizations
 export propose_move, accept_probability, log_acceptance_ratio
+export run_bagol, initialize_chain, run_rjmcmc!, rjmcmc_step!
 
 end # module SMLMBaGoL
