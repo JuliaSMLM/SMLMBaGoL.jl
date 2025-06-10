@@ -35,6 +35,10 @@ prior_var = round(prior.K_prior.α / prior.K_prior.β^2, digits=1)
 println("   Prior on emitter count: mean=$prior_mean, variance=$prior_var")
 println("   Internal Gamma parameters: α=$(round(prior.K_prior.α, digits=1)), β=$(round(prior.K_prior.β, digits=1))")
 
+println("\n   Localization summary:")
+show(stdout, MIME("text/plain"), localizations)
+println()
+
 # Step 2: Analyze with BaGoL
 println("\n2. Running BaGoL analysis...")
 result = run_bagol(
@@ -51,11 +55,14 @@ final_state = result.current_state
 n_estimated = length(final_state.emitters)
 println("   Estimated emitter count: $n_estimated (true: 6)")
 
+println("\n   Final state summary:")
+show(stdout, MIME("text/plain"), final_state)
+println()
+
 if n_estimated > 0
-    println("   Estimated emitter positions:")
-    for (i, emitter) in enumerate(final_state.emitters)
-        println("     Emitter $i: ($(round(emitter.x, digits=3)), $(round(emitter.y, digits=3)))")
-    end
+    println("\n   Estimated emitters:")
+    show(stdout, MIME("text/plain"), final_state.emitters)
+    println()
 end
 
 println("\n4. Ground Truth Comparison:")

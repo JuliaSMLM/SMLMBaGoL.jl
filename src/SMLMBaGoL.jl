@@ -23,6 +23,7 @@ include("core/likelihood.jl")
 
 # Utilities
 include("utils/emitter_utils.jl")
+include("utils/display.jl")
 
 # Moves
 include("moves/move_types.jl")
