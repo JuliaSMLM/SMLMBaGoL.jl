@@ -33,7 +33,7 @@ include("moves/allocate.jl")
 include("moves/acceptance.jl")
 
 # Algorithms
-include("algorithms/clustering.jl")
+include("algorithms/partitioning.jl")
 include("algorithms/rjmcmc.jl")
 include("algorithms/mapn.jl")
 
@@ -49,7 +49,7 @@ export log_likelihood, log_prior, log_prior_spatial, log_prior_K, log_posterior
 export sample_spatial_prior, create_spatial_prior_from_localizations, create_default_prior
 export propose_move, accept_probability, log_acceptance_ratio
 export run_bagol, initialize_chain, run_rjmcmc!, rjmcmc_step!
-export cluster_localizations, update_hierarchical!
+export partition_localizations, update_hierarchical!
 export estimate_mapn
 
 end # module SMLMBaGoL
