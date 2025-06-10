@@ -4,7 +4,8 @@ function simulate_n_mer(;
                         photons::Real = 1000,
                         sigma_psf::Real = 0.13,  # microns
                         min_photons::Real = 100,
-                        localizations_per_emitter::Int = 50,  # average localizations per emitter
+                        localizations_per_emitter_mean::Real = 6.0,      # mean localizations per emitter
+                        localizations_per_emitter_variance::Real = 6.0,  # variance in localizations per emitter
                         center_x::Real = 0.0,
                         center_y::Real = 0.0,
                         prior_K_mean::Real = 5.0,      # Mean of Gamma prior for emitter count
@@ -18,9 +19,14 @@ function simulate_n_mer(;
     all_localizations = Localization2D{Float64}[]
     frame_counter = 1
     
+    # Convert mean/variance to Gamma parameters for localizations per emitter
+    loc_alpha = localizations_per_emitter_mean^2 / localizations_per_emitter_variance
+    loc_beta = localizations_per_emitter_mean / localizations_per_emitter_variance
+    
     for (emitter_idx, (ex, ey)) in enumerate(emitter_positions)
-        # Sample number of localizations for this emitter (Poisson distributed)
-        n_locs = rand(rng, Poisson(localizations_per_emitter))
+        # Sample number of localizations for this emitter from Gamma distribution
+        n_locs_float = rand(rng, Gamma(loc_alpha, 1/loc_beta))  # Note: Distributions.jl uses scale parameterization
+        n_locs = max(1, round(Int, n_locs_float))  # Ensure at least 1 localization
         
         for _ in 1:n_locs
             # Sample photon count from exponential distribution

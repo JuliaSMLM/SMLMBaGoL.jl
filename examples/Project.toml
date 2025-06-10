@@ -1,0 +1,6 @@
+[deps]
+Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
+SMLMBaGoL = "70c4bcd9-ed9a-43d6-baf8-7d0db1eb70ee"
+
+[compat]
+julia = "1.6"
