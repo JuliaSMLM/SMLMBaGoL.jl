@@ -83,7 +83,9 @@ function initialize_chain(localizations::Vector{L},
     initial_emitters = Vector{E}(undef, initial_K)
     for i in 1:initial_K
         x, y = sample_spatial_prior(spatial_prior, rng)
-        initial_emitters[i] = E(x, y, i)
+        # Add default uncertainty for new emitters
+        σx, σy = 0.02, 0.02  # 20 nm default uncertainty
+        initial_emitters[i] = E(x, y, σx, σy, i)
     end
     
     # Initialize allocations randomly

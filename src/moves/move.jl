@@ -16,7 +16,7 @@ function propose_move(::Type{Move}, state::BaGoLState{E,L,T}, rng=Random.GLOBAL_
         spatial_prior = isa(state.prior, CompoundPrior) ? state.prior.spatial_prior :
                        create_spatial_prior_from_localizations(state.localizations)
         x_new, y_new = sample_spatial_prior(spatial_prior, rng)
-        new_emitter = E(x_new, y_new, emitter.id)
+        new_emitter = E(x_new, y_new, emitter.σx, emitter.σy, emitter.id)
     else
         # Propose new position based on allocated localizations with some noise
         # Use weighted average of allocated localizations as center
@@ -32,7 +32,7 @@ function propose_move(::Type{Move}, state::BaGoLState{E,L,T}, rng=Random.GLOBAL_
         x_new = x_center + randn(rng) * avg_sigma_x * 0.5
         y_new = y_center + randn(rng) * avg_sigma_y * 0.5
         
-        new_emitter = E(x_new, y_new, emitter.id)
+        new_emitter = E(x_new, y_new, emitter.σx, emitter.σy, emitter.id)
     end
     
     # Update emitter in new state

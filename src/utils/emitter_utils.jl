@@ -4,7 +4,9 @@ function sample_emitter_from_prior(localizations::Vector{<:AbstractLocalization}
                                    rng=Random.GLOBAL_RNG)
     x, y = sample_spatial_prior(spatial_prior, rng)
     id = rand(rng, 1:1000000)  # Generate random ID
-    return EmitterType(x, y, id)
+    # Default uncertainty for newly sampled emitters
+    σx, σy = 0.02, 0.02  # 20 nm default uncertainty
+    return EmitterType(x, y, σx, σy, id)
 end
 
 function sample_emitter_from_prior(localizations::Vector{<:AbstractLocalization}, 
@@ -13,7 +15,9 @@ function sample_emitter_from_prior(localizations::Vector{<:AbstractLocalization}
                                    rng=Random.GLOBAL_RNG) where T
     x, y = sample_spatial_prior(spatial_prior, rng)
     id = rand(rng, 1:1000000)
-    return Emitter2D{T}(T(x), T(y), id)
+    # Default uncertainty for newly sampled emitters
+    σx, σy = T(0.02), T(0.02)  # 20 nm default uncertainty
+    return Emitter2D{T}(T(x), T(y), σx, σy, id)
 end
 
 function log_spatial_prior_density(emitter::AbstractEmitter, spatial_prior::UniformSpatialPrior)

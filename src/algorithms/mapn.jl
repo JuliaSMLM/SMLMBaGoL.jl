@@ -141,9 +141,9 @@ function refine_mapn_assignment!(mapn_states::Vector{<:BaGoLState}; n_iterations
             x_mean = sum(state.emitters[i].x for state in mapn_states) / n_states
             y_mean = sum(state.emitters[i].y for state in mapn_states) / n_states
             
-            # Create mean emitter with temporary ID
+            # Create mean emitter with temporary ID and default uncertainty
             EmitterType = eltype(mapn_states[1].emitters)
-            mean_emitters[i] = EmitterType(x_mean, y_mean, 0)
+            mean_emitters[i] = EmitterType(x_mean, y_mean, 0.01, 0.01, 0)
         end
         
         # Create temporary reference state
@@ -168,8 +168,20 @@ function compute_final_mapn_emitters(sorted_states::Vector{<:BaGoLState}, partit
         x_mean = sum(state.emitters[emitter_idx].x for state in sorted_states) / n_states
         y_mean = sum(state.emitters[emitter_idx].y for state in sorted_states) / n_states
         
-        # Create emitter with partition ID
-        push!(mapn_emitters, EmitterType(x_mean, y_mean, partition_id))
+        # Compute uncertainty as standard deviation across MAPN states
+        if n_states > 1
+            x_var = sum((state.emitters[emitter_idx].x - x_mean)^2 for state in sorted_states) / (n_states - 1)
+            y_var = sum((state.emitters[emitter_idx].y - y_mean)^2 for state in sorted_states) / (n_states - 1)
+            σx = sqrt(x_var)
+            σy = sqrt(y_var)
+        else
+            # Default uncertainty if only one state
+            σx = 0.01  # 10 nm default uncertainty
+            σy = 0.01
+        end
+        
+        # Create emitter with uncertainty estimates
+        push!(mapn_emitters, EmitterType(x_mean, y_mean, σx, σy, partition_id))
     end
     
     return mapn_emitters
