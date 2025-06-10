@@ -199,31 +199,31 @@ where $N$ is the number of datasets and $M_i$ is the number of emitters in datas
 
 ### Integrated Analysis and Hierarchical Updates
 
-SMLMBaGoL integrates the RJMCMC analysis of clusters with periodic hierarchical Bayesian updates in a coordinated workflow:
+SMLMBaGoL integrates the RJMCMC analysis of partitions with periodic hierarchical Bayesian updates in a coordinated workflow:
 
 1. **Initial Setup**:
-   - Data is divided into disconnected clusters using DBSCAN
+   - Data is divided into disconnected partitions using DBSCAN
    - Initial hyperparameters $\alpha$ and $\beta$ are set based on prior knowledge or default values
-   - Each cluster is assigned an independent RJMCMC chain with the same prior distributions
+   - Each partition is assigned an independent RJMCMC chain with the same prior distributions
 
 2. **Interleaved RJMCMC and Hierarchical Updates**:
-   - Run RJMCMC chains on all clusters for a fixed number of iterations (`nsamples`)
-   - Collect the current states from all chains across all clusters
+   - Run RJMCMC chains on all partitions for a fixed number of iterations (`nsamples`)
+   - Collect the current states from all chains across all partitions
    - Extract the number of localizations per emitter from these states
    - Update the posterior distributions of $\alpha$ and $\beta$ using the collected data
    - Sample new values of $\alpha$ and $\beta$ using a Metropolis-Hastings step
    - Update the gamma prior $\Gamma(\alpha, \beta)$ in all chains with these new parameter values
-   - Continue RJMCMC sampling on all clusters with the updated prior
+   - Continue RJMCMC sampling on all partitions with the updated prior
    - Repeat this cycle for a specified number of hierarchical updates
 
 3. **Computational Advantages**:
-   - The RJMCMC chains for different clusters run in parallel between hierarchical updates
-   - Hierarchical updates use information pooled from all clusters
-   - This approach allows information about the blinking statistics to propagate across clusters
+   - The RJMCMC chains for different partitions run in parallel between hierarchical updates
+   - Hierarchical updates use information pooled from all partitions
+   - This approach allows information about the blinking statistics to propagate across partitions
    - The parallel nature of the algorithm maintains computational efficiency
 
 4. **Mathematical Formulation**:
-   - At hierarchical update step $t$, collect allocation counts $Y^{(t)} = \{Y_{ij}^{(t)}\}$ from all clusters
+   - At hierarchical update step $t$, collect allocation counts $Y^{(t)} = \{Y_{ij}^{(t)}\}$ from all partitions
    - Update the posterior distribution of hyperparameters:
      $$p(\alpha, \beta | Y^{(1:t)}) \propto p(Y^{(1:t)} | \alpha, \beta) \cdot p(\alpha) \cdot p(\beta)$$
    - Sample new hyperparameters $(\alpha^{(t+1)}, \beta^{(t+1)})$ from this posterior
@@ -234,32 +234,32 @@ This interleaved approach allows the algorithm to adaptively learn the distribut
 
 ## Mathematical Algorithms
 
-### Pre-clustering and Subregion Analysis
+### Data Partitioning and Subregion Analysis
 
-The BaGoL algorithm employs pre-clustering strategies to manage computational complexity and enable parallelization. The core RJMCMC algorithm scales as $O(N^2)$ with the number of localizations, making it computationally expensive for large datasets.
+The BaGoL algorithm employs data partitioning strategies to manage computational complexity and enable parallelization. The core RJMCMC algorithm scales as $O(N^2)$ with the number of localizations, making it computationally expensive for large datasets.
 
-#### DBSCAN Clustering
+#### DBSCAN Partitioning
 
-SMLMBaGoL uses Density-Based Spatial Clustering of Applications with Noise (DBSCAN) to break the problem into disconnected clusters:
+SMLMBaGoL uses Density-Based Spatial Clustering of Applications with Noise (DBSCAN) to break the problem into disconnected partitions:
 
 1. Localizations are treated as points in a spatial graph
 2. Points are connected if they are within distance $\epsilon$ of each other, where $\epsilon$ is typically set to a multiple of the mean localization uncertainty (e.g., $\epsilon = 4\sigma$)
-3. Clusters are formed as connected components in this graph
-4. Each cluster is processed independently using the RJMCMC algorithm
+3. Partitions are formed as connected components in this graph
+4. Each partition is processed independently using the RJMCMC algorithm
 
 The mathematical justification for this approach is that localizations separated by large distances (relative to their uncertainties) have negligible probability of originating from the same emitter.
 
-The clustering approach transforms the computational complexity from $O(N^2)$ for the entire dataset to $O(\sum_{i=1}^k n_i^2)$, where $k$ is the number of clusters and $n_i$ is the number of localizations in cluster $i$. When clusters are roughly equal in size with $n_i \approx N/k$, this reduces to $O(N^2/k)$, providing a significant speedup.
+The partitioning approach transforms the computational complexity from $O(N^2)$ for the entire dataset to $O(\sum_{i=1}^k n_i^2)$, where $k$ is the number of partitions and $n_i$ is the number of localizations in partition $i$. When partitions are roughly equal in size with $n_i \approx N/k$, this reduces to $O(N^2/k)$, providing a significant speedup.
 
 #### Parallel Processing
 
-After dividing the data into clusters using DBSCAN, SMLMBaGoL processes each cluster independently:
+After dividing the data into partitions using DBSCAN, SMLMBaGoL processes each partition independently:
 
 ```julia
-Threads.@threads for i in eachindex(subregions)
-    subregion = subregions[i]
-    chain, mapn_coords = rjmcmc(subregion.obs, prior_λ)
-    subregion.chains[1] = chain
+Threads.@threads for i in eachindex(partitions)
+    partition = partitions[i]
+    chain, mapn_coords = rjmcmc(partition.obs, prior_λ)
+    partition.chains[1] = chain
 end
 ```
 
@@ -267,11 +267,11 @@ This parallel processing approach enables effective utilization of multiple CPU 
 
 #### Combining Results
 
-To create the final posterior distribution, results from all clusters or subregions are merged by adding their contributions to a discretized posterior image:
+To create the final posterior distribution, results from all partitions are merged by adding their contributions to a discretized posterior image:
 
 $$P(\theta) = \sum_{i=1}^k P_i(\theta)$$
 
-where $P_i(\theta)$ is the posterior contribution from cluster $i$, normalized appropriately.
+where $P_i(\theta)$ is the posterior contribution from partition $i$, normalized appropriately.
 
 ### Allocation Algorithm
 
