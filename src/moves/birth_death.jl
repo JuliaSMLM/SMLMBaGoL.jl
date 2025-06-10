@@ -57,3 +57,11 @@ function log_acceptance_ratio_birth(current::BaGoLState, proposed::BaGoLState)
     
     return log_prior_ratio + log_likelihood_ratio + log_q_death - log_q_birth
 end
+
+function log_acceptance_ratio(::Type{Birth}, current::BaGoLState, proposed::BaGoLState)
+    log_acceptance_ratio_birth(current, proposed)
+end
+
+function log_acceptance_ratio(::Type{Death}, current::BaGoLState, proposed::BaGoLState)
+    -log_acceptance_ratio_birth(proposed, current)  # Mathematical inverse!
+end
