@@ -1,5 +1,3 @@
-using Clustering
-
 function cluster_localizations(localizations::Vector{<:AbstractLocalization}; 
                              radius::Real = 1.0,
                              min_cluster_size::Int = 3)

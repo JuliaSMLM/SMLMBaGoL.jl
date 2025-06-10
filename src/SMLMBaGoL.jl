@@ -6,6 +6,8 @@ using Statistics
 using Distributions
 using SpecialFunctions
 using StatsBase
+using Hungarian
+using Clustering
 
 # Core types
 include("core/types.jl")
@@ -33,6 +35,7 @@ include("moves/acceptance.jl")
 # Algorithms
 include("algorithms/clustering.jl")
 include("algorithms/rjmcmc.jl")
+include("algorithms/mapn.jl")
 
 # Hierarchical
 include("hierarchical/updates.jl")
@@ -47,5 +50,6 @@ export sample_spatial_prior, create_spatial_prior_from_localizations, create_def
 export propose_move, accept_probability, log_acceptance_ratio
 export run_bagol, initialize_chain, run_rjmcmc!, rjmcmc_step!
 export cluster_localizations, update_hierarchical!
+export estimate_mapn
 
 end # module SMLMBaGoL
