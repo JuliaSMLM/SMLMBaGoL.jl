@@ -29,7 +29,11 @@ include("moves/split_merge.jl")
 include("moves/acceptance.jl")
 
 # Algorithms
+include("algorithms/clustering.jl")
 include("algorithms/rjmcmc.jl")
+
+# Hierarchical
+include("hierarchical/updates.jl")
 
 # Exports
 export AbstractLocalization, AbstractEmitter, AbstractPrior, AbstractRJMCMCMove, AbstractChainState
@@ -40,5 +44,6 @@ export log_likelihood, log_prior, log_prior_spatial, log_prior_K, log_posterior
 export sample_spatial_prior, create_spatial_prior_from_localizations
 export propose_move, accept_probability, log_acceptance_ratio
 export run_bagol, initialize_chain, run_rjmcmc!, rjmcmc_step!
+export cluster_localizations, update_hierarchical!
 
 end # module SMLMBaGoL

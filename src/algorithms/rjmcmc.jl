@@ -122,26 +122,91 @@ function run_bagol(localizations::Vector{L};
                   burn_in::Int = 2000,
                   thin::Int = 1,
                   initial_K::Int = max(1, length(localizations) ÷ 10),
+                  cluster_radius::Real = estimate_clustering_radius(localizations),
+                  enable_hierarchical::Bool = false,
+                  hierarchical_interval::Int = 100,
                   rng::AbstractRNG = Random.GLOBAL_RNG) where {E<:AbstractEmitter, L<:AbstractLocalization}
     
-    # Initialize chain
-    chain = initialize_chain(localizations, EmitterType, prior; 
-                           initial_K=initial_K, burn_in=burn_in, thin=thin, rng=rng)
+    # Always cluster for performance (even single cluster if few points)
+    clustered_localizations = cluster_localizations(localizations; 
+                                                   radius=cluster_radius, 
+                                                   min_cluster_size=3)
     
-    # Run RJMCMC
-    acceptance_rate = run_rjmcmc!(chain, n_iterations)
+    print_clustering_summary(clustered_localizations)
+    
+    # Create chains for each cluster
+    chains = Vector{RJMCMCChain}()
+    for (i, cluster_locs) in enumerate(clustered_localizations)
+        cluster_prior = enable_hierarchical ? 
+                       create_hierarchical_prior(cluster_locs) : 
+                       create_default_prior(cluster_locs)
+        
+        chain = initialize_chain(cluster_locs, EmitterType, cluster_prior;
+                               initial_K=max(1, length(cluster_locs) ÷ 10),
+                               burn_in=burn_in, thin=thin, rng=rng)
+        push!(chains, chain)
+    end
+    
+    # Run parallel RJMCMC with optional hierarchical updates
+    total_acceptance = 0.0
+    for iter in 1:n_iterations
+        # Run RJMCMC step on each chain
+        accepted_count = 0
+        for chain in chains
+            if rjmcmc_step!(chain)
+                accepted_count += 1
+            end
+            
+            # Store samples
+            if should_store_sample(chain, iter)
+                push!(chain.samples, deepcopy(chain.current_state))
+            end
+        end
+        
+        total_acceptance += accepted_count / length(chains)
+        
+        # Hierarchical updates
+        if enable_hierarchical && iter % hierarchical_interval == 0 && iter > burn_in
+            update_hierarchical!(chains)
+        end
+        
+        # Progress reporting
+        if iter % 1000 == 0
+            avg_acceptance = total_acceptance / iter
+            println("Iteration $iter, average acceptance rate: $(round(avg_acceptance, digits=3))")
+        end
+    end
+    
+    avg_acceptance_rate = total_acceptance / n_iterations
+    total_samples = sum(length(chain.samples) for chain in chains)
     
     println("RJMCMC completed:")
     println("  Total iterations: $n_iterations")
+    println("  Clusters: $(length(chains))")
     println("  Burn-in: $burn_in")
-    println("  Samples collected: $(length(chain.samples))")
-    println("  Overall acceptance rate: $(round(acceptance_rate, digits=3))")
+    println("  Total samples collected: $total_samples")
+    println("  Average acceptance rate: $(round(avg_acceptance_rate, digits=3))")
+    if enable_hierarchical
+        println("  Hierarchical updates: enabled (every $hierarchical_interval iterations)")
+    end
     
-    return chain
+    # Return single chain if only one cluster, otherwise return all chains
+    return length(chains) == 1 ? chains[1] : chains
 end
 
 function create_default_prior(localizations::Vector{<:AbstractLocalization})
     spatial_prior = create_spatial_prior_from_localizations(localizations, 0.2)
     K_prior = GammaPrior(2.0, 1.0)
     return CompoundPrior(spatial_prior, K_prior)
+end
+
+function create_hierarchical_prior(localizations::Vector{<:AbstractLocalization})
+    spatial_prior = create_spatial_prior_from_localizations(localizations, 0.2)
+    # Start with reasonable hierarchical hyperpriors
+    hierarchical_K_prior = HierarchicalGammaPrior(
+        2.0, 1.0,          # Initial α, β
+        (1.0, 1.0),        # α hyperprior (a₀, b₀)
+        (1.0, 1.0)         # β hyperprior (c₀, d₀)
+    )
+    return CompoundPrior(spatial_prior, hierarchical_K_prior)
 end
