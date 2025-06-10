@@ -1,57 +1,24 @@
-"""
-SMLMBaGoL - Bayesian Grouping of Localizations for Single Molecule Localization Microscopy
-
-A high-performance Julia package for analyzing SMLM data using reversible jump MCMC
-with hierarchical Bayesian priors.
-"""
 module SMLMBaGoL
 
-using SMLMData
-using Distributions
 using Random
 using LinearAlgebra
 using Statistics
-using StatsBase
-using Clustering
-using Images
-using CairoMakie
-using SpecialFunctions
+using Distributions
 
-# Re-export key types from SMLMData
-export AbstractEmitter, Emitter2D, Emitter2DFit
+# Core types
+include("core/types.jl")
 
-# Main API
-export bagol, BaGoLResult, HierarchicalPrior
+# Concrete types
+include("emitters/emitter2d.jl")
+include("localizations/localization2d.jl")
 
-# Image functions
-export save_posterior_image
+# Core functionality
+include("core/state.jl")
+include("core/likelihood.jl")
 
-# Plotting functions
-export circles!, plot_circles
+# Exports
+export AbstractLocalization, AbstractEmitter, AbstractPrior, AbstractRJMCMCMove, AbstractChainState
+export Emitter2D, Localization2D, BaGoLState, RJMCMCChain
+export log_likelihood
 
-# Types from refactor-rjmcmc integration
-export BaGoLChain, MoveType, MoveProbs
-export Params, Observations, Allocations, Localization2D
-export log_p_z_given_y, Posterior2D
-
-# Analysis and diagnostics
-export statistics, ChainStatistics, AcceptanceRates
-export convergence_summary, summary
-export plot_trace, plot_acceptance_rates, plot_autocorrelation
-export plot_convergence, plot_chain_comparison
-
-# Include all components
-include("types.jl")
-include("rjmcmc_likelihood.jl")    # Basic likelihood functions (no dependencies)
-include("rjmcmc_core.jl")          # Core infrastructure (uses likelihood)
-include("rjmcmc_moves.jl")         # Move functions (uses core + likelihood)
-include("rjmcmc_add_remove.jl")    # Add/remove (uses core + likelihood)  
-include("rjmcmc_split_merge.jl")   # Split/merge (uses core + likelihood)
-include("rjmcmc_reallocate.jl")   # Reallocation (uses core + likelihood)
-include("hierarchical.jl")
-include("bagol.jl")
-include("analysis.jl")
-include("images.jl")
-include("plots.jl")
-
-end # module
+end # module SMLMBaGoL
