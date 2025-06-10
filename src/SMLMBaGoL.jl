@@ -26,6 +26,8 @@ include("utils/emitter_utils.jl")
 include("moves/move_types.jl")
 include("moves/birth_death.jl")
 include("moves/split_merge.jl")
+include("moves/move.jl")
+include("moves/allocate.jl")
 include("moves/acceptance.jl")
 
 # Algorithms
@@ -41,7 +43,7 @@ export Emitter2D, Localization2D, BaGoLState, RJMCMCChain
 export UniformSpatialPrior, GammaPrior, HierarchicalGammaPrior, CompoundPrior
 export Birth, Death, Split, Merge, Move, Allocate, inverse_move
 export log_likelihood, log_prior, log_prior_spatial, log_prior_K, log_posterior
-export sample_spatial_prior, create_spatial_prior_from_localizations
+export sample_spatial_prior, create_spatial_prior_from_localizations, create_default_prior
 export propose_move, accept_probability, log_acceptance_ratio
 export run_bagol, initialize_chain, run_rjmcmc!, rjmcmc_step!
 export cluster_localizations, update_hierarchical!
