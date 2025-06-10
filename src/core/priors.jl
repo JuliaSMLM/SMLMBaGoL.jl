@@ -19,7 +19,7 @@ end
 
 struct CompoundPrior{T<:Real} <: AbstractPrior
     spatial_prior::UniformSpatialPrior{T}
-    K_prior::GammaPrior{T}  # prior on number of emitters
+    K_prior::Union{GammaPrior{T}, HierarchicalGammaPrior{T}}  # prior on number of emitters
 end
 
 function log_prior_spatial(emitter::AbstractEmitter, prior::UniformSpatialPrior)
@@ -32,6 +32,11 @@ function log_prior_spatial(emitter::AbstractEmitter, prior::UniformSpatialPrior)
 end
 
 function log_prior_K(K::Int, prior::GammaPrior)
+    K < 0 && return -Inf
+    return (prior.α - 1) * log(K) - K / prior.β - loggamma(prior.α) - prior.α * log(prior.β)
+end
+
+function log_prior_K(K::Int, prior::HierarchicalGammaPrior)
     K < 0 && return -Inf
     return (prior.α - 1) * log(K) - K / prior.β - loggamma(prior.α) - prior.α * log(prior.β)
 end
