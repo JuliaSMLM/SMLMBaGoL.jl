@@ -8,6 +8,7 @@ using SpecialFunctions
 using StatsBase
 using Hungarian
 using Clustering
+using HypothesisTests
 
 # Core types
 include("core/types.jl")
@@ -47,6 +48,9 @@ include("sim/n_mer.jl")
 # Visualization
 include("visualization/sr_image.jl")
 
+# Diagnostics
+include("diagnostics/chain_diagnostics.jl")
+
 # Exports
 export AbstractLocalization, AbstractEmitter, AbstractPrior, AbstractRJMCMCMove, AbstractChainState
 export Emitter2D, Localization2D, BaGoLState, RJMCMCChain
@@ -60,5 +64,6 @@ export partition_localizations, update_hierarchical!
 export estimate_mapn
 export simulate_n_mer, simulate_n_mer_with_prior
 export gen_sr_image
+export diagnose_chains, quick_diagnose, assess_burn_in, assess_chain_length
 
 end # module SMLMBaGoL

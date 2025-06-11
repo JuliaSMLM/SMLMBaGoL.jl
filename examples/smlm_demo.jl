@@ -7,14 +7,16 @@ This comprehensive example demonstrates the complete SMLMBaGoL workflow:
 1. Generate synthetic n-mer complex data with realistic photon noise
 2. Analyze with BaGoL algorithm using RJMCMC sampling
 3. Extract MAPN estimates with uncertainty quantification
-4. Generate super-resolution images (localizations, emitters, posterior)
-5. Compare results to ground truth
+4. Assess chain quality with burn-in and mixing diagnostics
+5. Generate super-resolution images (localizations, emitters, posterior)
+6. Compare results to ground truth
 
 The demo is fully configurable via parameters at the top of the script.
 """
 
 using Pkg; Pkg.activate("examples")
 using SMLMBaGoL
+using Statistics
 
 #=============================================================================
 USER PARAMETERS - Configure your simulation here
@@ -22,14 +24,14 @@ USER PARAMETERS - Configure your simulation here
 
 # N-mer simulation parameters
 const N_EMITTERS = 6                    # Number of emitters in complex
-const NMER_DIAMETER = 0.025               # μm - diameter of circular complex
+const NMER_DIAMETER = 0.050               # μm - diameter of circular complex
 const PHOTONS_MEAN = 800                # Average photons per localization
 const LOCS_PER_EMITTER_MEAN = 8.0       # Mean localizations per emitter
 const LOCS_PER_EMITTER_VAR = 8.0        # Variance in localizations per emitter
 
 # Analysis parameters  
-const N_ITERATIONS = 50000               # RJMCMC iterations
-const BURN_IN = 10000                    # Burn-in period
+const N_ITERATIONS = 100000               # RJMCMC iterations
+const BURN_IN = 5000                    # Burn-in period
 const ENABLE_PARTITIONING = false       # Single partition for simple demo
 
 # Visualization parameters
@@ -102,9 +104,13 @@ if !isempty(mapn_emitters)
     println()
 end
 
-# Step 5: Generate super-resolution images
+# Step 5: Chain Diagnostics
+println("\n5. Chain Quality Diagnostics...")
+diagnosis = diagnose_chains(result)
+
+# Step 6: Generate super-resolution images
 if SAVE_IMAGES
-    println("\n5. Generating super-resolution images...")
+    println("\n6. Generating super-resolution images...")
     
     # SR image from localizations (uses localization precision)
     println("   - Localizations SR image...")
@@ -139,11 +145,11 @@ if SAVE_IMAGES
     end
     println("     Posterior image: range [$(round(minimum(posterior_image), digits=1)), $(round(maximum(posterior_image), digits=1))] counts")
 else
-    println("\n5. Image generation skipped (SAVE_IMAGES = false)")
+    println("\n6. Image generation skipped (SAVE_IMAGES = false)")
 end
 
-# Step 6: Ground Truth Comparison
-println("\n6. Ground Truth Comparison:")
+# Step 7: Ground Truth Comparison
+println("\n7. Ground Truth Comparison:")
 println("   True $(N_EMITTERS)-mer positions (radius = $(NMER_DIAMETER/2) μm):")
 true_radius = NMER_DIAMETER / 2
 true_positions = []
@@ -184,8 +190,8 @@ if !isempty(mapn_emitters) && length(mapn_emitters) == N_EMITTERS
     println("     Max position error: $(round(max_error, digits=1)) nm")
 end
 
-# Step 7: Summary statistics
-println("\n7. Summary:")
+# Step 8: Summary statistics
+println("\n8. Summary:")
 println("   Total RJMCMC samples: $(length(result.samples))")
 println("   Final log-likelihood: $(round(final_state.log_likelihood, digits=1))")
 
