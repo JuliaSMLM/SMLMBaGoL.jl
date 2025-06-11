@@ -22,14 +22,14 @@ USER PARAMETERS - Configure your simulation here
 
 # N-mer simulation parameters
 const N_EMITTERS = 6                    # Number of emitters in complex
-const NMER_DIAMETER = 0.1               # μm - diameter of circular complex
+const NMER_DIAMETER = 0.025               # μm - diameter of circular complex
 const PHOTONS_MEAN = 800                # Average photons per localization
 const LOCS_PER_EMITTER_MEAN = 8.0       # Mean localizations per emitter
 const LOCS_PER_EMITTER_VAR = 8.0        # Variance in localizations per emitter
 
 # Analysis parameters  
-const N_ITERATIONS = 5000               # RJMCMC iterations
-const BURN_IN = 1000                    # Burn-in period
+const N_ITERATIONS = 50000               # RJMCMC iterations
+const BURN_IN = 10000                    # Burn-in period
 const ENABLE_PARTITIONING = false       # Single partition for simple demo
 
 # Visualization parameters
