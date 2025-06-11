@@ -220,3 +220,42 @@ function create_hierarchical_prior(localizations::Vector{<:AbstractLocalization}
     )
     return CompoundPrior(spatial_prior, hierarchical_K_prior)
 end
+
+"""
+    run_bagol(smld::SMLMSim.BasicSMLD; kwargs...)
+
+Run BaGoL analysis on SMLMSim BasicSMLD data.
+
+This method automatically converts the SMLD structure to BaGoL Localization2D format
+and dispatches to the main run_bagol implementation.
+
+# Arguments
+- `smld`: SMLMSim BasicSMLD structure containing emitters
+- `kwargs...`: All arguments supported by the main run_bagol method
+
+# Returns
+- Vector of RJMCMCChain objects, same as main run_bagol method
+
+# Example
+```julia
+# Create SMLMSim data
+smld = simulate_static_smlm(density=0.1, σ_psf=0.13)
+
+# Run BaGoL analysis directly
+chains = run_bagol(smld; n_iterations=5000, burn_in=1000)
+
+# Extract results
+mapn_results = estimate_mapn(chains)
+```
+"""
+function run_bagol(smld::SMLMSim.BasicSMLD; kwargs...)
+    # Convert SMLD to BaGoL localization format
+    localizations = smld_to_localizations(smld)
+    
+    println("SMLMSim data conversion:")
+    println("  Input: $(length(smld.emitters)) emitters from SMLMSim")
+    println("  Output: $(length(localizations)) localizations for BaGoL")
+    
+    # Dispatch to main run_bagol implementation
+    return run_bagol(localizations; kwargs...)
+end
