@@ -35,6 +35,7 @@ Complete SMLMBaGoL workflow with simulation, analysis, and visualization:
 - Generates synthetic n-mer complex data with realistic photon noise
 - Runs BaGoL analysis with RJMCMC sampling
 - Computes MAPN estimates with uncertainty quantification
+- **Assesses chain quality** with burn-in and mixing diagnostics
 - Generates super-resolution images (localizations, emitters, posterior)
 - Compares results to ground truth with quantitative metrics
 
@@ -42,6 +43,7 @@ Complete SMLMBaGoL workflow with simulation, analysis, and visualization:
 - `simulate_n_mer()` with customizable n-mer geometry
 - `run_bagol()` for Bayesian emitter detection
 - `estimate_mapn()` for optimal emitter positioning
+- `diagnose_chains()` for chain quality assessment
 - `gen_sr_image()` for multiple visualization types
 - Ground truth comparison with position error analysis
 - Comprehensive summary statistics and recovery metrics
@@ -56,6 +58,7 @@ Complete SMLMBaGoL workflow with simulation, analysis, and visualization:
 - Synthetic data generation with realistic noise
 - RJMCMC analysis discovering emitter count from data
 - MAPN estimates with nm-scale uncertainties
+- Chain quality diagnostics (burn-in and mixing assessment)
 - Three types of super-resolution images (PNG files)
 - Quantitative position accuracy assessment
 
