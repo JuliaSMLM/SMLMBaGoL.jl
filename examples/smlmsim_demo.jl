@@ -1,15 +1,21 @@
 #!/usr/bin/env julia
 
 """
-SMLMSim Integration Demo: Complete Workflow with Visualization
+SMLMSim Integration Demo: Complete Workflow with Threading and Visualization
 
 This comprehensive example demonstrates the SMLMSim integration in SMLMBaGoL:
 1. Generate realistic SMLM data using SMLMSim's sophisticated noise models
 2. Analyze with BaGoL using multiple spatial partitions for efficient processing
-3. Extract MAPN estimates with uncertainty quantification
-4. Assess chain quality with comprehensive diagnostics
-5. Generate super-resolution images (localizations, emitters, posterior)
-6. Compare SMLMSim vs native BaGoL simulation approaches
+3. Utilize threading for parallel partition processing (requires julia --threads=N)
+4. Extract MAPN estimates with uncertainty quantification
+5. Assess chain quality with comprehensive diagnostics
+6. Generate super-resolution images (localizations, emitters, posterior)
+7. Compare SMLMSim vs native BaGoL simulation approaches
+
+USAGE:
+  julia --threads=16 --project=. smlmsim_demo.jl   # Recommended: 16 threads
+  julia --threads=auto --project=. smlmsim_demo.jl # Use all available threads
+  julia --project=. smlmsim_demo.jl                # Single-threaded mode
 
 The demo is fully configurable and generates publication-quality visualizations.
 """
@@ -33,7 +39,10 @@ const FRAMERATE = 100.0                 # Frames per second
 const N_ITERATIONS = 50000              # RJMCMC iterations
 const BURN_IN = 10000                   # Burn-in period
 const ENABLE_PARTITIONING = true        # Use multiple partitions for efficiency
-const PARTITION_RADIUS = 0.5            # Partition radius in μm
+const PARTITION_RADIUS = 0.5            # Partition radius in μm (4x avg uncertainty)
+const ENABLE_THREADING = true           # Use threading for parallel partition processing
+const ENABLE_HIERARCHICAL = false       # Use hierarchical updates
+const HIERARCHICAL_INTERVAL = 5000      # Hierarchical update interval
 
 # Visualization parameters
 const PIXEL_SIZE = 0.002                # μm per pixel (2 nm super-resolution)
@@ -58,6 +67,8 @@ println("• Spatial partitioning: $(ENABLE_PARTITIONING ? "enabled" : "disabled
 if ENABLE_PARTITIONING
     println("• Partition radius: $(PARTITION_RADIUS*1000) nm")
 end
+println("• Threading: $(ENABLE_THREADING ? "enabled" : "disabled") ($(Threads.nthreads()) threads available)")
+println("• Hierarchical updates: $(ENABLE_HIERARCHICAL ? "enabled (interval: $HIERARCHICAL_INTERVAL)" : "disabled")")
 println("• Image pixel size: $(PIXEL_SIZE*1000) nm")
 println()
 
@@ -101,7 +112,10 @@ chains = run_bagol(smld;
     n_iterations=N_ITERATIONS,
     burn_in=BURN_IN,
     partition_data=ENABLE_PARTITIONING,
-    partition_radius=PARTITION_RADIUS
+    partition_radius=PARTITION_RADIUS,
+    enable_threading=ENABLE_THREADING,
+    enable_hierarchical=ENABLE_HIERARCHICAL,
+    hierarchical_interval=HIERARCHICAL_INTERVAL
 )
 
 println("   ✓ Analysis completed with $(length(chains)) spatial partition(s)")
@@ -246,6 +260,11 @@ println()
 println("Spatial Partitioning Results:")
 if ENABLE_PARTITIONING
     println("• $(length(chains)) partitions processed in parallel")
+    if length(chains) > 1
+        all_partition_sizes = [length(chain.current_state.localizations) for chain in chains]
+        println("• Partition sizes: $(minimum(all_partition_sizes))-$(maximum(all_partition_sizes)) localizations")
+        println("• Computational efficiency: O(n²) → O($(maximum(all_partition_sizes))²) per partition")
+    end
     println("• Improved computational efficiency for large datasets")
     println("• Maintained analysis quality across partitions")
 else
