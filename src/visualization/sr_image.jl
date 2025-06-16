@@ -35,12 +35,12 @@ img2 = gen_sr_image(emitters, pixel_size=0.003)
 img3 = gen_sr_image(chain, mode=:posterior, filename="posterior.png")
 ```
 """
-function gen_sr_image(data::T; 
+function gen_sr_image(data; 
                      pixel_size::Real = 0.005,
                      image_size::Union{Nothing,Tuple{Int,Int}} = nothing,
                      bounds::Union{Nothing,NTuple{4,Real}} = nothing,
                      filename::Union{Nothing,String} = nothing,
-                     kwargs...) where T
+                     kwargs...)
     
     # Auto-calculate bounds and image size if not provided
     if bounds === nothing || image_size === nothing
@@ -61,6 +61,66 @@ function gen_sr_image(data::T;
     end
     
     return image
+end
+
+"""
+    gen_sr_image(smld::SMLMSim.BasicSMLD; pixel_size=nothing, filename=nothing, kwargs...)
+
+Generate a super-resolution image from SMLMSim.BasicSMLD data using camera bounds.
+
+This method automatically extracts the field of view from the camera stored in the SMLD
+to define the image bounds, following SMLMSim conventions for spatial coordinate systems.
+
+# Arguments
+- `smld`: SMLMSim.BasicSMLD data structure (contains camera information)
+- `pixel_size`: Reconstruction pixel size in microns (default: camera pixel size / 50 for super-resolution)
+- `filename`: Optional PNG export filename
+- `kwargs...`: Additional keyword arguments
+
+# Returns
+- Matrix{Float64}: Super-resolution image array
+
+# Examples
+```julia
+# Generate image using SMLD camera bounds with auto pixel size
+smld = simulate_static_smlm(npixelsx=128, npixelsy=64, pixelsize=0.1)
+image = gen_sr_image(smld; filename="output.png")  # Uses 0.1/50 = 0.002μm = 2nm pixels
+
+# Custom reconstruction pixel size
+image = gen_sr_image(smld; pixel_size=0.001, filename="output.png")  # 1nm pixels
+```
+"""
+function gen_sr_image(smld::SMLMSim.BasicSMLD; 
+                     pixel_size::Union{Nothing,Real} = nothing,
+                     filename::Union{Nothing,String} = nothing,
+                     kwargs...)
+    
+    # Extract camera field of view bounds from SMLD
+    camera = smld.camera
+    x_edges = camera.pixel_edges_x
+    y_edges = camera.pixel_edges_y
+    
+    # Get the bounds from the pixel edges
+    x_min, x_max = extrema(x_edges)
+    y_min, y_max = extrema(y_edges)
+    bounds = (x_min, x_max, y_min, y_max)
+    
+    # Determine pixel size: use camera pixel size / 50 if not specified
+    if pixel_size === nothing
+        # Get camera pixel size (assuming uniform pixels)
+        camera_pixel_size = (x_edges[2] - x_edges[1])  # Use first pixel width
+        pixel_size = camera_pixel_size / 50  # 50x super-resolution
+    end
+    
+    # Convert SMLD to localizations for image generation
+    localizations = smld_to_localizations(smld)
+    
+    # Generate image with camera-defined bounds
+    return gen_sr_image(localizations; 
+                       pixel_size=pixel_size,
+                       bounds=bounds,
+                       filename=filename,
+                       kwargs...)
 end
 
 """
@@ -178,9 +238,16 @@ function calculate_image_bounds_and_size(data, pixel_size::Real)
     x_coords, y_coords = extract_coordinates(data)
     margin = get_data_margin(data)
     
-    # Calculate bounds with margin
-    x_min, x_max = extrema(x_coords) .+ (-margin, margin)
-    y_min, y_max = extrema(y_coords) .+ (-margin, margin)
+    # Handle empty data case
+    if isempty(x_coords) || isempty(y_coords)
+        # Default to small bounds if no data
+        x_min, x_max = -margin, margin
+        y_min, y_max = -margin, margin
+    else
+        # Calculate bounds with margin
+        x_min, x_max = extrema(x_coords) .+ (-margin, margin)
+        y_min, y_max = extrema(y_coords) .+ (-margin, margin)
+    end
     
     # Calculate image size from bounds
     width = ceil(Int, (x_max - x_min) / pixel_size)
@@ -195,7 +262,11 @@ end
 Extract x,y coordinates from different data types.
 """
 function extract_coordinates(locs::Vector{<:AbstractLocalization})
-    return [loc.x for loc in locs], [loc.y for loc in locs]
+    if !isempty(locs)
+        return [loc.x for loc in locs], [loc.y for loc in locs]
+    else
+        return Float64[], Float64[]  # Return empty arrays for empty input
+    end
 end
 
 function extract_coordinates(emitters::Vector{<:AbstractEmitter})
@@ -220,8 +291,12 @@ Get appropriate margin for different data types.
 """
 function get_data_margin(locs::Vector{<:AbstractLocalization})
     # Use 3σ of largest localization precision as margin
-    max_σ = maximum(max(loc.σx, loc.σy) for loc in locs)
-    return 3 * max_σ
+    if !isempty(locs)
+        max_σ = maximum(max(loc.σx, loc.σy) for loc in locs)
+        return 3 * max_σ
+    else
+        return 0.1  # Default 100 nm margin for empty data
+    end
 end
 
 function get_data_margin(emitters::Vector{<:AbstractEmitter})

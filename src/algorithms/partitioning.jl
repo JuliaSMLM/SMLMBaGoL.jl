@@ -1,10 +1,10 @@
 function partition_localizations(localizations::Vector{<:AbstractLocalization}; 
                                radius::Real = 1.0,
-                               min_partition_size::Int = 3)
+                               min_partition_size::Int = 1)
     
-    if length(localizations) < min_partition_size
-        # Single partition if too few points
-        return [localizations]
+    if length(localizations) < 1
+        # Return empty if no data
+        return Vector{Vector{eltype(localizations)}}()
     end
     
     # Extract positions for spatial partitioning
@@ -15,7 +15,8 @@ function partition_localizations(localizations::Vector{<:AbstractLocalization};
     end
     
     # Run DBSCAN clustering for spatial partitioning
-    clusters = dbscan(positions, radius; min_neighbors=min_partition_size-1, min_cluster_size=min_partition_size)
+    # Use minimal parameters to create smallest possible partitions for computational efficiency
+    clusters = dbscan(positions, radius; min_neighbors=1, min_cluster_size=1)
     
     # Group localizations by spatial partition
     partitioned_localizations = Vector{Vector{eltype(localizations)}}()
