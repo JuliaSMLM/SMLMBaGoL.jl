@@ -9,6 +9,7 @@ using StatsBase
 using Hungarian
 using Clustering
 using HypothesisTests
+using SMLMSim
 
 # Core types
 include("core/types.jl")
@@ -44,6 +45,7 @@ include("hierarchical/updates.jl")
 
 # Simulation
 include("sim/n_mer.jl")
+include("sim/smlmsim_integration.jl")
 
 # Visualization
 include("visualization/sr_image.jl")
@@ -60,9 +62,11 @@ export log_likelihood, log_prior, log_prior_spatial, log_prior_K, log_posterior
 export sample_spatial_prior, create_spatial_prior_from_localizations, create_default_prior
 export propose_move, accept_probability, log_acceptance_ratio
 export run_bagol, initialize_chain, run_rjmcmc!, rjmcmc_step!
-export partition_localizations, update_hierarchical!
+export initialize_chains_from_data, handle_chain_continuation
+export partition_localizations, estimate_partitioning_radius, update_hierarchical!
 export estimate_mapn
 export simulate_n_mer, simulate_n_mer_with_prior
+export smld_to_localizations, simulate_static_smlm, simulate_nmer_smlmsim
 export gen_sr_image
 export diagnose_chains, quick_diagnose, assess_burn_in, assess_chain_length
 
