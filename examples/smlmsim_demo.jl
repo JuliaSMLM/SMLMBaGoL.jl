@@ -29,11 +29,12 @@ USER PARAMETERS - Configure your simulation here
 =============================================================================#
 
 # SMLMSim simulation parameters
-const DENSITY = 0.1                     # Emitters per μm² 
+const DENSITY = 1.0                     # Emitters per μm² 
 const PSF_WIDTH = 0.13                  # PSF width (130 nm)
 const MIN_PHOTONS = 300                 # Minimum photon threshold
 const N_FRAMES = 2000                   # Number of frames
 const FRAMERATE = 100.0                 # Frames per second
+const EXPECTED_LOCS_PER_EMITTER = 10    # Expected localizations per emitter
 
 # Analysis parameters  
 const N_ITERATIONS = 50000              # RJMCMC iterations
@@ -62,6 +63,7 @@ println("• SMLMSim density: $DENSITY emitters/μm²")
 println("• PSF width: $(PSF_WIDTH*1000) nm")
 println("• Minimum photons: $MIN_PHOTONS")
 println("• Simulation time: $(N_FRAMES/FRAMERATE) seconds")
+println("• Expected localizations per emitter: $EXPECTED_LOCS_PER_EMITTER")
 println("• RJMCMC iterations: $N_ITERATIONS (burn-in: $BURN_IN)")
 println("• Spatial partitioning: $(ENABLE_PARTITIONING ? "enabled" : "disabled")")
 if ENABLE_PARTITIONING
@@ -85,14 +87,26 @@ smld = simulate_static_smlm(
     minphotons=MIN_PHOTONS,
     nframes=N_FRAMES,
     framerate=FRAMERATE,
-    npixelsx=64,      # 256×256 pixels for larger field
+    npixelsx=64,      # 64×32 pixels for field
     npixelsy=32,
-    pixelsize=0.1      # 100nm pixels = 25.6μm × 25.6μm field
+    pixelsize=0.1,    # 100nm pixels = 6.4μm × 3.2μm field
+    loc_per_emitter=EXPECTED_LOCS_PER_EMITTER
 )
 
 println("   ✓ Created SMLD with $(length(smld.emitters)) noisy localizations")
 println("   ✓ PSF width: $(smld.metadata["σ_psf"]*1000) nm")
 println("   ✓ Simulation type: $(smld.metadata["simulation_type"])")
+
+# Calculate field size and expected emitters
+field_area = 64 * 32 * (0.1)^2  # 64×32 pixels × 0.1μm pixel size = area in μm²
+expected_emitters = DENSITY * field_area / EXPECTED_LOCS_PER_EMITTER
+actual_emitters = length(unique([e.id for e in smld.emitters]))
+actual_locs_per_emitter = length(smld.emitters) / actual_emitters
+
+println("   ✓ Field area: $(field_area) μm²")
+println("   ✓ Expected emitters: $(round(expected_emitters, digits=1))")
+println("   ✓ Actual emitters: $(actual_emitters)")
+println("   ✓ Actual localizations per emitter: $(round(actual_locs_per_emitter, digits=1))")
 
 # Calculate some statistics
 if length(smld.emitters) > 0
@@ -101,6 +115,18 @@ if length(smld.emitters) > 0
     
     println("   ✓ Photon statistics: mean=$(round(mean(photon_counts), digits=1)), std=$(round(std(photon_counts), digits=1))")
     println("   ✓ Localization precision: mean=$(round(mean(uncertainties_x)*1000, digits=1)) nm, std=$(round(std(uncertainties_x)*1000, digits=1)) nm")
+end
+
+# Convert SMLD to localizations and save localization image early
+println("   ✓ Converting to localizations and saving initial image...")
+localizations = smld_to_localizations(smld)
+
+if SAVE_IMAGES
+    # Generate localization image using SMLD camera bounds
+    println("   ✓ Creating localizations image with camera-defined bounds...")
+    loc_image = gen_sr_image(smld; pixel_size=PIXEL_SIZE,
+                            filename=joinpath(output_dir, "smlmsim_localizations_sr.png"))
+    println("   ✓ Localizations image saved to: $(joinpath(output_dir, "smlmsim_localizations_sr.png"))")
 end
 
 #=============================================================================
@@ -161,27 +187,27 @@ println()
 println("4. Generating super-resolution images...")
 
 if SAVE_IMAGES
-    # Convert SMLD to localizations for visualization
-    localizations = smld_to_localizations(smld)
+    # Generate MAPN emitter image if we have emitters
+    if !isempty(mapn_results.emitters)
+        println("   ✓ Creating MAPN emitters image...")
+        mapn_image = gen_sr_image(mapn_results.emitters; 
+                                 pixel_size=PIXEL_SIZE, 
+                                 filename=joinpath(output_dir, "smlmsim_mapn_emitters_sr.png"))
+    else
+        println("   ⚠ No emitters found, skipping MAPN emitters image")
+    end
     
-    # Generate localization image
-    println("   ✓ Creating localizations image...")
-    loc_image = gen_sr_image(localizations; pixel_size=PIXEL_SIZE, 
-                            image_type=:localizations, save_path=joinpath(output_dir, "smlmsim_localizations_sr.png"))
+    # Generate posterior uncertainty image if we have chains with samples
+    if !isempty(chains) && !isempty(chains[1].samples)
+        println("   ✓ Creating posterior uncertainty image...")
+        post_image = gen_sr_image(chains[1]; 
+                                 pixel_size=PIXEL_SIZE, 
+                                 filename=joinpath(output_dir, "smlmsim_posterior_uncertainty.png"))
+    else
+        println("   ⚠ No chain samples found, skipping posterior uncertainty image")
+    end
     
-    # Generate MAPN emitter image  
-    println("   ✓ Creating MAPN emitters image...")
-    mapn_image = gen_sr_image(localizations; pixel_size=PIXEL_SIZE, 
-                             emitters=mapn_results.emitters, image_type=:emitters,
-                             save_path=joinpath(output_dir, "smlmsim_mapn_emitters_sr.png"))
-    
-    # Generate posterior uncertainty image
-    println("   ✓ Creating posterior uncertainty image...")
-    post_image = gen_sr_image(localizations; pixel_size=PIXEL_SIZE, 
-                             emitters=mapn_results.emitters, uncertainties=mapn_results.uncertainties,
-                             image_type=:posterior, save_path=joinpath(output_dir, "smlmsim_posterior_uncertainty.png"))
-    
-    println("   ✓ All images saved to: $output_dir")
+    println("   ✓ Analysis images saved to: $output_dir")
 else
     println("   ⚠ Image generation disabled (SAVE_IMAGES = false)")
 end

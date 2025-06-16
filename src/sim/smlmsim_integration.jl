@@ -68,6 +68,7 @@ Create a static SMLM simulation using SMLMSim with sensible defaults.
 - `npixelsx`: Number of pixels in x direction (default: 64)
 - `npixelsy`: Number of pixels in y direction (default: 32)
 - `pixelsize`: Pixel size in micrometers (default: 0.1, giving 6.4μm × 3.2μm field)
+- `loc_per_emitter`: Target number of localizations per emitter (controls blinking rates, default: 10)
 - `return_noisy`: Return noisy localizations (true) or true positions (false)
 
 # Returns
@@ -98,6 +99,7 @@ function simulate_static_smlm(; density=0.1,
                                npixelsx=64,
                                npixelsy=32,
                                pixelsize=0.1,
+                               loc_per_emitter=10,
                                return_noisy=true)
     
     # Create SMLMSim parameters
@@ -115,12 +117,12 @@ function simulate_static_smlm(; density=0.1,
     # Create camera to define simulation field size
     camera = SMLMSim.IdealCamera(npixelsx, npixelsy, pixelsize)
     
-    # Create fluorophore with reasonable blinking rates for target ~10 events
-    # For nframes/framerate total time, want ~1 Hz rates for reasonable blinking
+    # Create fluorophore with blinking rates to achieve target localizations per emitter
+    # For nframes/framerate total time, calculate rates for target events
     total_time = nframes / framerate  # seconds
-    target_events = 10
-    k_off = target_events / (2 * total_time)  # ~5 off events
-    k_on = target_events / (2 * total_time)   # ~5 on events
+    target_events = loc_per_emitter
+    k_off = target_events / (2 * total_time)  # off events
+    k_on = target_events / (2 * total_time)   # on events
     
     fluor = SMLMSim.GenericFluor(photons=1e5, k_off=k_off, k_on=k_on)
     
