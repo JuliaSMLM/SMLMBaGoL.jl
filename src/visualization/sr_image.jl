@@ -1,8 +1,6 @@
 # Super-resolution image generation for SMLMBaGoL
 # Uses multiple dispatch to handle different data types
 
-using Images: save
-
 """
     gen_sr_image(data; kwargs...) -> Matrix{Float64}
 
@@ -43,10 +41,19 @@ function gen_sr_image(data;
                      kwargs...)
     
     # Auto-calculate bounds and image size if not provided
-    if bounds === nothing || image_size === nothing
+    if bounds === nothing
+        # No bounds provided - calculate both from data
         calc_bounds, calc_size = calculate_image_bounds_and_size(data, pixel_size)
-        bounds = bounds === nothing ? calc_bounds : bounds
+        bounds = calc_bounds
         image_size = image_size === nothing ? calc_size : image_size
+    else
+        # Bounds provided - calculate image size from bounds if needed
+        if image_size === nothing
+            x_min, x_max, y_min, y_max = bounds
+            width = ceil(Int, (x_max - x_min) / pixel_size)
+            height = ceil(Int, (y_max - y_min) / pixel_size)
+            image_size = (height, width)
+        end
     end
     
     # Initialize image array
@@ -328,5 +335,5 @@ function save_sr_image(image::Matrix{Float64}, filename::String)
     end
     
     # Save using Images.jl
-    save(filename, normalized_image)
+    Images.save(filename, normalized_image)
 end

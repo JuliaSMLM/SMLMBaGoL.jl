@@ -40,7 +40,7 @@ function circle!(x::Real, y::Real, radius::Real; n_points::Int=100, kwargs...)
     circle_y = y .+ radius .* sin.(θ)
     
     # Plot using lines!
-    lines!(circle_x, circle_y; kwargs...)
+    CairoMakie.lines!(circle_x, circle_y; kwargs...)
 end
 
 """
@@ -62,7 +62,7 @@ function circle!(ax, x::Real, y::Real, radius::Real; kwargs...)
     circle_y = y .+ radius .* sin.(θ)
     
     # Plot using lines!
-    lines!(ax, circle_x, circle_y; kwargs...)
+    CairoMakie.lines!(ax, circle_x, circle_y; kwargs...)
 end
 
 """
@@ -156,7 +156,7 @@ function sr_circles(localizations;
                    kwargs...)
     
     # Create figure
-    fig = Figure(; figure_kwargs...)
+    fig = CairoMakie.Figure(; figure_kwargs...)
     
     # Calculate axis bounds
     if camera !== nothing
@@ -185,10 +185,10 @@ function sr_circles(localizations;
     end
     
     # Create axis with SMLMData coordinate conventions
-    ax = Axis(fig[1, 1];
+    ax = CairoMakie.Axis(fig[1, 1];
               limits=(x_min, x_max, y_min, y_max),
               yreversed=true,                    # SMLMData: (0,0) at top-left
-              aspect=DataAspect(),               # Equal aspect ratio
+              aspect=CairoMakie.DataAspect(),               # Equal aspect ratio
               xlabel="x (μm)",
               ylabel="y (μm)",
               axis_kwargs...)
@@ -196,6 +196,192 @@ function sr_circles(localizations;
     # Plot circles
     sr_circles!(ax, localizations; uncertainty_field=uncertainty_field, 
                scale_factor=scale_factor, kwargs...)
+    
+    return fig, ax
+end
+
+"""
+    sr_circles_combined!(ax, localizations, mapn_results; 
+                        loc_uncertainty_field=:σx, mapn_uncertainty_field=:σx,
+                        loc_scale_factor=2.0, mapn_scale_factor=2.0,
+                        loc_color=:black, loc_alpha=0.4, loc_linewidth=1,
+                        mapn_color=:red, mapn_alpha=0.8, mapn_linewidth=2,
+                        kwargs...)
+
+Plot uncertainty circles for both localizations and MAPN results on the same axis.
+
+This function creates a comparison visualization showing raw localizations 
+(typically with more uncertainty) and refined MAPN emitter estimates on the
+same plot with different styling to distinguish between them.
+
+# Arguments
+- `ax`: The axis to plot on
+- `localizations`: Vector of localization objects (can be empty)
+- `mapn_results`: Vector of MAPN emitter objects (can be empty)
+
+# Localization styling (defaults)
+- `loc_uncertainty_field::Symbol = :σx`: Uncertainty field for localizations
+- `loc_scale_factor::Real = 2.0`: Scale factor for localization circles (2σ)
+- `loc_color = :black`: Color for localization circles
+- `loc_alpha::Real = 0.4`: Transparency for localization circles
+- `loc_linewidth::Real = 1`: Line width for localization circles
+
+# MAPN styling (defaults)  
+- `mapn_uncertainty_field::Symbol = :σx`: Uncertainty field for MAPN results
+- `mapn_scale_factor::Real = 2.0`: Scale factor for MAPN circles (2σ)
+- `mapn_color = :red`: Color for MAPN circles
+- `mapn_alpha::Real = 0.8`: Transparency for MAPN circles  
+- `mapn_linewidth::Real = 2`: Line width for MAPN circles
+
+# Examples
+```julia
+# Basic comparison plot
+sr_circles_combined!(ax, localizations, mapn_results)
+
+# Custom styling
+sr_circles_combined!(ax, localizations, mapn_results,
+                    loc_color=:gray, loc_alpha=0.3,
+                    mapn_color=:blue, mapn_linewidth=3)
+
+# Different scale factors
+sr_circles_combined!(ax, localizations, mapn_results,
+                    loc_scale_factor=1.0, mapn_scale_factor=3.0)
+```
+"""
+function sr_circles_combined!(ax, localizations, mapn_results;
+                             # Localization styling
+                             loc_uncertainty_field::Symbol=:σx,
+                             loc_scale_factor::Real=2.0,
+                             loc_color=:black,
+                             loc_alpha::Real=0.4,
+                             loc_linewidth::Real=1,
+                             # MAPN styling  
+                             mapn_uncertainty_field::Symbol=:σx,
+                             mapn_scale_factor::Real=2.0,
+                             mapn_color=:red,
+                             mapn_alpha::Real=0.8,
+                             mapn_linewidth::Real=2,
+                             # Additional kwargs passed to both
+                             kwargs...)
+    
+    # Plot localizations first (background layer)
+    if !isempty(localizations)
+        sr_circles!(ax, localizations; 
+                   uncertainty_field=loc_uncertainty_field,
+                   scale_factor=loc_scale_factor,
+                   color=loc_color,
+                   alpha=loc_alpha,
+                   linewidth=loc_linewidth,
+                   kwargs...)
+    end
+    
+    # Plot MAPN results on top (foreground layer)
+    if !isempty(mapn_results)
+        sr_circles!(ax, mapn_results;
+                   uncertainty_field=mapn_uncertainty_field,
+                   scale_factor=mapn_scale_factor,
+                   color=mapn_color,
+                   alpha=mapn_alpha,
+                   linewidth=mapn_linewidth,
+                   kwargs...)
+    end
+end
+
+"""
+    sr_circles_combined(localizations, mapn_results; camera=nothing,
+                       figure_kwargs=(;), axis_kwargs=(;), kwargs...)
+
+Create a new figure and plot uncertainty circles for both localizations and MAPN results.
+
+This function creates a comparison visualization showing raw localizations and refined 
+MAPN emitter estimates with appropriate styling defaults. The axis is configured 
+following SMLMData coordinate conventions with optional camera bounds.
+
+# Arguments
+- `localizations`: Vector of localization objects (can be empty)
+- `mapn_results`: Vector of MAPN emitter objects (can be empty)
+- `camera`: Camera object to define axis bounds (default: auto-calculate from data)
+- `figure_kwargs`: Keyword arguments for Figure creation
+- `axis_kwargs`: Keyword arguments for Axis creation
+- `kwargs...`: Additional arguments passed to sr_circles_combined!
+
+# Returns
+- `(fig, ax)`: Tuple of Figure and Axis objects
+
+# Examples
+```julia
+# Basic comparison with auto-calculated bounds
+fig, ax = sr_circles_combined(localizations, mapn_results)
+
+# Use camera bounds for consistent field-of-view
+fig, ax = sr_circles_combined(localizations, mapn_results, camera=camera)
+
+# Customized figure and styling
+fig, ax = sr_circles_combined(localizations, mapn_results,
+                             figure_kwargs=(size=(1000, 800),),
+                             axis_kwargs=(title="Localization vs MAPN Comparison",),
+                             loc_alpha=0.2, mapn_color=:blue)
+```
+"""
+function sr_circles_combined(localizations, mapn_results;
+                            camera=nothing,
+                            figure_kwargs=(;),
+                            axis_kwargs=(;),
+                            kwargs...)
+    
+    # Create figure
+    fig = CairoMakie.Figure(; figure_kwargs...)
+    
+    # Calculate axis bounds - use combined data for bounds calculation
+    if camera !== nothing
+        # Use camera bounds for consistent limits
+        x_edges = camera.pixel_edges_x
+        y_edges = camera.pixel_edges_y
+        x_min, x_max = extrema(x_edges)
+        y_min, y_max = extrema(y_edges)
+    else
+        # Auto-calculate bounds from combined data
+        # Extract coordinates from both datasets separately
+        x_coords, y_coords = Float64[], Float64[]
+        
+        if !isempty(localizations)
+            locs_x, locs_y = extract_coordinates(localizations)
+            append!(x_coords, locs_x)
+            append!(y_coords, locs_y)
+        end
+        
+        if !isempty(mapn_results)
+            mapn_x, mapn_y = extract_coordinates(mapn_results)
+            append!(x_coords, mapn_x)
+            append!(y_coords, mapn_y)
+        end
+        
+        if isempty(x_coords) || isempty(y_coords)
+            x_min, x_max = -1.0, 1.0
+            y_min, y_max = -1.0, 1.0
+        else
+            # Calculate margins from both datasets
+            loc_margin = isempty(localizations) ? 0.0 : get_data_margin(localizations)
+            mapn_margin = isempty(mapn_results) ? 0.0 : get_data_margin(mapn_results)
+            margin = max(loc_margin, mapn_margin, 0.1)  # At least 100nm margin
+            
+            # Calculate bounds with margin
+            x_min, x_max = extrema(x_coords) .+ (-margin, margin)
+            y_min, y_max = extrema(y_coords) .+ (-margin, margin)
+        end
+    end
+    
+    # Create axis with SMLMData coordinate conventions
+    ax = CairoMakie.Axis(fig[1, 1];
+              limits=(x_min, x_max, y_min, y_max),
+              yreversed=true,                    # SMLMData: (0,0) at top-left
+              aspect=CairoMakie.DataAspect(),               # Equal aspect ratio
+              xlabel="x (μm)",
+              ylabel="y (μm)",
+              axis_kwargs...)
+    
+    # Plot combined circles
+    sr_circles_combined!(ax, localizations, mapn_results; kwargs...)
     
     return fig, ax
 end

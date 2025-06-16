@@ -11,6 +11,7 @@ using Clustering
 using HypothesisTests
 using SMLMSim
 using CairoMakie
+using Images
 
 # Core types
 include("core/types.jl")
@@ -70,7 +71,7 @@ export estimate_mapn
 export simulate_n_mer, simulate_n_mer_with_prior
 export smld_to_localizations, simulate_static_smlm, simulate_nmer_smlmsim
 export gen_sr_image
-export circle!, sr_circles, sr_circles!
+export circle!, sr_circles, sr_circles!, sr_circles_combined, sr_circles_combined!
 export diagnose_chains, quick_diagnose, assess_burn_in, assess_chain_length
 
 end # module SMLMBaGoL
