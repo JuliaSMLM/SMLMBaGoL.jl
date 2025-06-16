@@ -78,13 +78,16 @@ println()
 
 println("1. Creating SMLMSim simulation with realistic noise...")
 
-# Create SMLMSim static simulation with proper blinking rates
+# Create SMLMSim static simulation with proper blinking rates and spatial control
 smld = simulate_static_smlm(
     density=DENSITY,
     σ_psf=PSF_WIDTH,
     minphotons=MIN_PHOTONS,
     nframes=N_FRAMES,
-    framerate=FRAMERATE
+    framerate=FRAMERATE,
+    npixelsx=64,      # 256×256 pixels for larger field
+    npixelsy=32,
+    pixelsize=0.1      # 100nm pixels = 25.6μm × 25.6μm field
 )
 
 println("   ✓ Created SMLD with $(length(smld.emitters)) noisy localizations")
@@ -112,7 +115,7 @@ chains = run_bagol(smld;
     n_iterations=N_ITERATIONS,
     burn_in=BURN_IN,
     partition_data=ENABLE_PARTITIONING,
-    partition_radius=PARTITION_RADIUS,
+    # partition_radius=PARTITION_RADIUS,
     enable_threading=ENABLE_THREADING,
     enable_hierarchical=ENABLE_HIERARCHICAL,
     hierarchical_interval=HIERARCHICAL_INTERVAL
@@ -214,26 +217,29 @@ println("   ✓ Complexity ratio: $(round(length(smld.emitters) / length(native_
 println()
 println("6. Advanced usage examples...")
 
-# Example 1: High-density simulation
+# Example 1: High-density simulation with custom field size
 println("   Example A: High-density simulation")
-dense_smld = simulate_static_smlm(density=0.3, minphotons=MIN_PHOTONS, nframes=1000)
+dense_smld = simulate_static_smlm(density=0.3, minphotons=MIN_PHOTONS, nframes=1000, 
+                                  npixelsx=128, npixelsy=128, pixelsize=0.05)  # 6.4μm × 6.4μm field
 println("     ✓ High-density: $(length(dense_smld.emitters)) localizations")
 
-# Example 2: Low-noise, high-photon simulation
+# Example 2: Low-noise, high-photon simulation with large field
 println("   Example B: High-photon simulation")
-bright_smld = simulate_static_smlm(density=0.05, minphotons=1000, nframes=1000)
+bright_smld = simulate_static_smlm(density=0.05, minphotons=1000, nframes=1000,
+                                   npixelsx=512, npixelsy=512, pixelsize=0.1)  # 51.2μm × 51.2μm field
 if length(bright_smld.emitters) > 0
     bright_precision = mean([e.σ_x for e in bright_smld.emitters]) * 1000
     println("     ✓ High-photon precision: $(round(bright_precision, digits=1)) nm")
 end
 
-# Example 3: Direct SMLMSim usage with custom fluorophore
+# Example 3: Direct SMLMSim usage with custom fluorophore and camera
 println("   Example C: Custom fluorophore parameters")
 custom_fluor = SMLMSim.GenericFluor(photons=5e4, k_off=2.0, k_on=1.0)
 params = SMLMSim.StaticSMLMParams(density=0.05, σ_psf=0.10, minphotons=200, 
                                   ndatasets=1, nframes=1000, framerate=100.0, 
                                   ndims=2, zrange=[-0.5, 0.5])
-smld_true, smld_model, smld_noisy = SMLMSim.simulate(params; molecule=custom_fluor)
+custom_camera = SMLMSim.IdealCamera(200, 200, 0.08)  # 16μm × 16μm field
+smld_true, smld_model, smld_noisy = SMLMSim.simulate(params; molecule=custom_fluor, camera=custom_camera)
 println("     ✓ Custom simulation: $(length(smld_noisy.emitters)) localizations")
 
 # Quick analysis of custom data

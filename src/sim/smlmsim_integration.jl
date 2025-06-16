@@ -52,7 +52,8 @@ end
 """
     simulate_static_smlm(; density=0.1, σ_psf=0.13, minphotons=100, 
                           nframes=1000, framerate=100.0, ndims=2, 
-                          zrange=[-0.5, 0.5], dataset_index=1) -> SMLMSim.BasicSMLD
+                          zrange=[-0.5, 0.5], npixelsx=128, npixelsy=128, 
+                          pixelsize=0.1, return_noisy=true) -> SMLMSim.BasicSMLD
 
 Create a static SMLM simulation using SMLMSim with sensible defaults.
 
@@ -64,18 +65,24 @@ Create a static SMLM simulation using SMLMSim with sensible defaults.
 - `framerate`: Frame rate in Hz
 - `ndims`: Number of spatial dimensions (2 or 3)
 - `zrange`: Z-range as [min, max] in micrometers for 3D
-- `dataset_index`: Which dataset to return (1-based, since simulate returns multiple)
+- `npixelsx`: Number of pixels in x direction (default: 64)
+- `npixelsy`: Number of pixels in y direction (default: 32)
+- `pixelsize`: Pixel size in micrometers (default: 0.1, giving 6.4μm × 3.2μm field)
+- `return_noisy`: Return noisy localizations (true) or true positions (false)
 
 # Returns
 - Single BasicSMLD structure ready for BaGoL analysis
 
 # Example
 ```julia
-# Quick simulation with defaults
+# Quick simulation with defaults (6.4μm × 3.2μm field)
 smld = simulate_static_smlm()
 
-# Custom simulation
-smld = simulate_static_smlm(density=0.2, σ_psf=0.10, minphotons=200)
+# Custom simulation with larger field (25.6μm × 25.6μm)
+smld = simulate_static_smlm(npixelsx=256, npixelsy=256, density=0.2)
+
+# Custom pixel size for different field size (3.2μm × 1.6μm)
+smld = simulate_static_smlm(pixelsize=0.05)
 
 # Run BaGoL directly
 chains = run_bagol(smld; n_iterations=5000)
@@ -88,6 +95,9 @@ function simulate_static_smlm(; density=0.1,
                                framerate=100.0, 
                                ndims=2, 
                                zrange=[-0.5, 0.5],
+                               npixelsx=64,
+                               npixelsy=32,
+                               pixelsize=0.1,
                                return_noisy=true)
     
     # Create SMLMSim parameters
@@ -102,6 +112,9 @@ function simulate_static_smlm(; density=0.1,
         zrange=zrange
     )
     
+    # Create camera to define simulation field size
+    camera = SMLMSim.IdealCamera(npixelsx, npixelsy, pixelsize)
+    
     # Create fluorophore with reasonable blinking rates for target ~10 events
     # For nframes/framerate total time, want ~1 Hz rates for reasonable blinking
     total_time = nframes / framerate  # seconds
@@ -112,7 +125,7 @@ function simulate_static_smlm(; density=0.1,
     fluor = SMLMSim.GenericFluor(photons=1e5, k_off=k_off, k_on=k_on)
     
     # Run simulation - returns (smld_true, smld_model, smld_noisy)
-    smld_true, smld_model, smld_noisy = SMLMSim.simulate(params; molecule=fluor)
+    smld_true, smld_model, smld_noisy = SMLMSim.simulate(params; molecule=fluor, camera=camera)
     
     # Return the noisy dataset by default (has Emitter2DFit with σ_x, σ_y)
     # or the true/model datasets if requested
