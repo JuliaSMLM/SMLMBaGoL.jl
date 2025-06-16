@@ -29,7 +29,7 @@ USER PARAMETERS - Configure your simulation here
 =============================================================================#
 
 # SMLMSim simulation parameters
-const DENSITY = 1.0                     # Emitters per μm² 
+const DENSITY = 0.1                     # Emitters per μm² 
 const PSF_WIDTH = 0.13                  # PSF width (130 nm)
 const MIN_PHOTONS = 300                 # Minimum photon threshold
 const N_FRAMES = 2000                   # Number of frames
@@ -184,17 +184,34 @@ println("     - Overall quality: $(diagnostic_results.overall_quality)")
 =============================================================================#
 
 println()
-println("4. Generating super-resolution images...")
+println("4. Generating super-resolution images and uncertainty plots...")
 
 if SAVE_IMAGES
+    # Convert SMLD to localizations for plotting
+    localizations = smld_to_localizations(smld)
+    
+    # Generate localization uncertainty circles
+    println("   ✓ Creating localization uncertainty circles...")
+    fig_locs, ax_locs = sr_circles(localizations, camera=smld.camera, 
+                                  scale_factor=2.0, color=:blue, alpha=0.6,
+                                  axis=(title="Localization Uncertainties (2σ)",))
+    save(joinpath(output_dir, "smlmsim_localizations_uncertainty.png"), fig_locs)
+    
     # Generate MAPN emitter image if we have emitters
     if !isempty(mapn_results.emitters)
         println("   ✓ Creating MAPN emitters image...")
         mapn_image = gen_sr_image(mapn_results.emitters; 
                                  pixel_size=PIXEL_SIZE, 
                                  filename=joinpath(output_dir, "smlmsim_mapn_emitters_sr.png"))
+        
+        # Generate MAPN uncertainty circles
+        println("   ✓ Creating MAPN uncertainty circles...")
+        fig_mapn, ax_mapn = sr_circles(mapn_results.emitters, camera=smld.camera,
+                                      scale_factor=1.0, color=:red, linewidth=2,
+                                      axis=(title="MAPN Emitter Uncertainties (1σ)",))
+        save(joinpath(output_dir, "smlmsim_mapn_uncertainty.png"), fig_mapn)
     else
-        println("   ⚠ No emitters found, skipping MAPN emitters image")
+        println("   ⚠ No emitters found, skipping MAPN emitters image and uncertainty circles")
     end
     
     # Generate posterior uncertainty image if we have chains with samples
@@ -207,7 +224,7 @@ if SAVE_IMAGES
         println("   ⚠ No chain samples found, skipping posterior uncertainty image")
     end
     
-    println("   ✓ Analysis images saved to: $output_dir")
+    println("   ✓ Analysis images and uncertainty plots saved to: $output_dir")
 else
     println("   ⚠ Image generation disabled (SAVE_IMAGES = false)")
 end
@@ -313,9 +330,11 @@ println()
 
 if SAVE_IMAGES
     println("Output Files Generated:")
-    println("• smlmsim_localizations_sr.png - Raw localization data")
-    println("• smlmsim_mapn_emitters_sr.png - Estimated emitter positions")
-    println("• smlmsim_posterior_uncertainty.png - Position uncertainties")
+    println("• smlmsim_localizations_sr.png - Raw localization super-resolution image")
+    println("• smlmsim_localizations_uncertainty.png - Localization uncertainty circles (2σ)")
+    println("• smlmsim_mapn_emitters_sr.png - MAPN emitter super-resolution image")
+    println("• smlmsim_mapn_uncertainty.png - MAPN emitter uncertainty circles (1σ)")
+    println("• smlmsim_posterior_uncertainty.png - Posterior position uncertainties")
     println("• All files saved to: $output_dir")
 end
 
