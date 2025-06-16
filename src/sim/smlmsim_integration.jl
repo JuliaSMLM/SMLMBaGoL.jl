@@ -118,11 +118,15 @@ function simulate_static_smlm(; density=0.1,
     camera = SMLMSim.IdealCamera(npixelsx, npixelsy, pixelsize)
     
     # Create fluorophore with blinking rates to achieve target localizations per emitter
-    # For nframes/framerate total time, calculate rates for target events
     total_time = nframes / framerate  # seconds
     target_events = loc_per_emitter
-    k_off = target_events / (2 * total_time)  # off events
-    k_on = target_events / (2 * total_time)   # on events
+    
+    # Use framerate as k_off (synchronized with frame acquisition)
+    k_off = framerate  # off rate tied to acquisition rate
+    
+    # k_on based on desired events over total time
+    # Some events will span multiple frames, giving 2-3x target localizations, but that's acceptable
+    k_on = target_events / total_time  # on rate to achieve target events
     
     fluor = SMLMSim.GenericFluor(photons=1e5, k_off=k_off, k_on=k_on)
     
