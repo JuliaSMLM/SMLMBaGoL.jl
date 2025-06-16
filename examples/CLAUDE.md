@@ -29,8 +29,40 @@ cd examples && julia --project=. smlm_demo.jl
 
 ## Available Examples
 
+### `smlmsim_demo.jl`
+Complete SMLMSim integration workflow with realistic SMLM simulation:
+- **SMLMSim simulation** with realistic photophysical noise and blinking
+- **Spatial partitioning** for efficient analysis of large datasets
+- **Threading support** for parallel partition processing
+- **Comprehensive diagnostics** with burn-in and convergence assessment
+- **Multiple visualization types** including uncertainty circle plots
+- **Camera-aware imaging** with proper field-of-view bounds
+
+**Key features demonstrated:**
+- `simulate_static_smlm()` with realistic noise models
+- `run_bagol()` with spatial partitioning and threading
+- `estimate_mapn()` for optimal emitter positioning
+- `diagnose_chains()` for chain quality assessment
+- `gen_sr_image()` for super-resolution visualization
+- `sr_circles()` for uncertainty visualization
+
+**Configurable parameters:**
+- SMLMSim density, PSF width, photon thresholds
+- Blinking rates and localization statistics
+- RJMCMC iterations, burn-in, and partitioning
+- Threading and hierarchical update settings
+- Visualization pixel sizes and output options
+
+### `smlmsim_advanced_examples.jl`
+Advanced SMLMSim integration patterns and specialized use cases:
+- **High-density simulations** with custom field sizes
+- **High-photon precision studies** for ultra-precise localization
+- **Direct SMLMSim API usage** with custom fluorophore parameters
+- **Large-scale simulation workflows** and scalability testing
+- **Custom analysis pipelines** with adaptive workflows
+
 ### `smlm_demo.jl`
-Complete SMLMBaGoL workflow with simulation, analysis, and visualization:
+Original SMLMBaGoL workflow with native simulation:
 - **User-configurable parameters** at the top of the script
 - Generates synthetic n-mer complex data with realistic photon noise
 - Runs BaGoL analysis with RJMCMC sampling

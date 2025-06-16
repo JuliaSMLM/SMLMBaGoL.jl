@@ -23,13 +23,15 @@ The demo is fully configurable and generates publication-quality visualizations.
 using Pkg; Pkg.activate("examples")
 using SMLMBaGoL
 using Statistics
+using CairoMakie
+using SMLMSim
 
 #=============================================================================
 USER PARAMETERS - Configure your simulation here
 =============================================================================#
 
 # SMLMSim simulation parameters
-const DENSITY = 1.0                     # Emitters per μm² 
+const DENSITY = 0.5                     # Emitters per μm² 
 const PSF_WIDTH = 0.13                  # PSF width (130 nm)
 const MIN_PHOTONS = 300                 # Minimum photon threshold
 const N_FRAMES = 2000                   # Number of frames
@@ -137,7 +139,7 @@ println()
 println("2. Running BaGoL analysis with spatial partitioning...")
 
 # Run BaGoL directly on SMLD data - automatic conversion happens internally
-chains = run_bagol(smld; 
+chains_result = run_bagol(smld; 
     n_iterations=N_ITERATIONS,
     burn_in=BURN_IN,
     partition_data=ENABLE_PARTITIONING,
@@ -146,6 +148,9 @@ chains = run_bagol(smld;
     enable_hierarchical=ENABLE_HIERARCHICAL,
     hierarchical_interval=HIERARCHICAL_INTERVAL
 )
+
+# Ensure chains is always a vector for consistent handling
+chains = isa(chains_result, Vector) ? chains_result : [chains_result]
 
 println("   ✓ Analysis completed with $(length(chains)) spatial partition(s)")
 total_samples = sum(length(chain.samples) for chain in chains)
@@ -168,32 +173,63 @@ println("3. Analyzing results and chain quality...")
 mapn_results = estimate_mapn(chains)
 
 println("   ✓ Original localizations: $(length(smld.emitters))")
-println("   ✓ Estimated emitters: $(length(mapn_results.emitters))")
-recovery_rate = length(mapn_results.emitters) / length(smld.emitters) * 100
+println("   ✓ Estimated emitters: $(length(mapn_results))")
+recovery_rate = length(mapn_results) / length(smld.emitters) * 100
 println("   ✓ Recovery rate: $(round(recovery_rate, digits=1))%")
 
 # Comprehensive chain diagnostics
 println("   ✓ Running chain diagnostics...")
-diagnostic_results = diagnose_chains(chains)
-println("     - Burn-in assessment: $(diagnostic_results.burn_in_adequate ? "adequate" : "insufficient")")
-println("     - Chain length: $(diagnostic_results.chain_length_adequate ? "adequate" : "insufficient")")
-println("     - Overall quality: $(diagnostic_results.overall_quality)")
+diagnostic_results = diagnose_chains(length(chains) == 1 ? chains[1] : chains)
+println("     - Burn-in recommendation: $(diagnostic_results.recommended_burn_in) iterations")
+println("     - Chain convergence: $(diagnostic_results.converged ? "converged" : "needs more samples")")
+println("     - Overall summary: $(diagnostic_results.summary)")
 
 #=============================================================================
 4. Visualization & Image Generation
 =============================================================================#
 
 println()
-println("4. Generating super-resolution images...")
+println("4. Generating super-resolution images and uncertainty plots...")
 
 if SAVE_IMAGES
-    # Generate MAPN emitter image if we have emitters
-    if !isempty(mapn_results.emitters)
+    # Convert SMLD to localizations for plotting
+    localizations = smld_to_localizations(smld)
+    
+    # Generate individual uncertainty circles for reference
+    println("   ✓ Creating localization uncertainty circles...")
+    fig_locs, ax_locs = sr_circles(localizations, camera=smld.camera, 
+                                  scale_factor=2.0, color=:blue, alpha=0.6, linewidth=1,
+                                  figure_kwargs=(size=(4800, 2400),),
+                                  axis_kwargs=(title="Localization Uncertainties (2σ)",))
+    save(joinpath(output_dir, "smlmsim_localizations_uncertainty.png"), fig_locs)
+    
+    # Generate MAPN emitter image and individual circles if we have emitters
+    if !isempty(mapn_results)
         println("   ✓ Creating MAPN emitters image...")
-        mapn_image = gen_sr_image(mapn_results.emitters; 
+        mapn_image = gen_sr_image(mapn_results; 
                                  pixel_size=PIXEL_SIZE, 
                                  filename=joinpath(output_dir, "smlmsim_mapn_emitters_sr.png"))
+        
+        println("   ✓ Creating MAPN uncertainty circles...")
+        fig_mapn, ax_mapn = sr_circles(mapn_results, camera=smld.camera,
+                                      scale_factor=2.0, color=:red, linewidth=2, alpha=0.8,
+                                      figure_kwargs=(size=(4800, 2400),),
+                                      axis_kwargs=(title="MAPN Emitter Uncertainties (2σ)",))
+        save(joinpath(output_dir, "smlmsim_mapn_uncertainty.png"), fig_mapn)
+        
+        # Generate combined comparison plot
+        println("   ✓ Creating combined uncertainty comparison...")
+        fig_combined, ax_combined = sr_circles_combined(localizations, mapn_results, camera=smld.camera,
+                                                       figure_kwargs=(size=(4800, 2400),),
+                                                       axis_kwargs=(title="Uncertainty Comparison: Localizations (black) vs MAPN (red) - 2σ",))
+        save(joinpath(output_dir, "smlmsim_uncertainty_comparison.png"), fig_combined)
     else
+        # Still create comparison plot with empty MAPN for consistency
+        println("   ✓ Creating comparison plot (localizations only)...")
+        fig_combined, ax_combined = sr_circles_combined(localizations, Emitter2D{Float64}[], camera=smld.camera,
+                                                       figure_kwargs=(size=(4800, 2400),),
+                                                       axis_kwargs=(title="Localization Uncertainties (2σ)",))
+        save(joinpath(output_dir, "smlmsim_uncertainty_comparison.png"), fig_combined)
         println("   ⚠ No emitters found, skipping MAPN emitters image")
     end
     
@@ -207,7 +243,7 @@ if SAVE_IMAGES
         println("   ⚠ No chain samples found, skipping posterior uncertainty image")
     end
     
-    println("   ✓ Analysis images saved to: $output_dir")
+    println("   ✓ Analysis images and uncertainty plots saved to: $output_dir")
 else
     println("   ⚠ Image generation disabled (SAVE_IMAGES = false)")
 end
@@ -220,7 +256,7 @@ println()
 println("5. Comparing with native BaGoL simulation...")
 
 # Estimate equivalent native parameters
-estimated_locs_per_emitter = length(smld.emitters) / length(mapn_results.emitters)
+estimated_locs_per_emitter = length(smld.emitters) / length(mapn_results)
 estimated_photons = length(smld.emitters) > 0 ? mean([e.photons for e in smld.emitters]) : 1000
 
 println("   ✓ Running equivalent native simulation...")
@@ -237,42 +273,19 @@ println("   ✓ SMLMSim simulation: $(length(smld.emitters)) localizations")
 println("   ✓ Complexity ratio: $(round(length(smld.emitters) / length(native_locs), digits=1))x more localizations")
 
 #=============================================================================
-6. Advanced Usage Examples
+6. Advanced Usage Note
 =============================================================================#
 
 println()
 println("6. Advanced usage examples...")
-
-# Example 1: High-density simulation with custom field size
-println("   Example A: High-density simulation")
-dense_smld = simulate_static_smlm(density=0.3, minphotons=MIN_PHOTONS, nframes=1000, 
-                                  npixelsx=128, npixelsy=128, pixelsize=0.05)  # 6.4μm × 6.4μm field
-println("     ✓ High-density: $(length(dense_smld.emitters)) localizations")
-
-# Example 2: Low-noise, high-photon simulation with large field
-println("   Example B: High-photon simulation")
-bright_smld = simulate_static_smlm(density=0.05, minphotons=1000, nframes=1000,
-                                   npixelsx=512, npixelsy=512, pixelsize=0.1)  # 51.2μm × 51.2μm field
-if length(bright_smld.emitters) > 0
-    bright_precision = mean([e.σ_x for e in bright_smld.emitters]) * 1000
-    println("     ✓ High-photon precision: $(round(bright_precision, digits=1)) nm")
-end
-
-# Example 3: Direct SMLMSim usage with custom fluorophore and camera
-println("   Example C: Custom fluorophore parameters")
-custom_fluor = SMLMSim.GenericFluor(photons=5e4, k_off=2.0, k_on=1.0)
-params = SMLMSim.StaticSMLMParams(density=0.05, σ_psf=0.10, minphotons=200, 
-                                  ndatasets=1, nframes=1000, framerate=100.0, 
-                                  ndims=2, zrange=[-0.5, 0.5])
-custom_camera = SMLMSim.IdealCamera(200, 200, 0.08)  # 16μm × 16μm field
-smld_true, smld_model, smld_noisy = SMLMSim.simulate(params; molecule=custom_fluor, camera=custom_camera)
-println("     ✓ Custom simulation: $(length(smld_noisy.emitters)) localizations")
-
-# Quick analysis of custom data
-if length(smld_noisy.emitters) > 100
-    custom_chains = run_bagol(smld_noisy; n_iterations=5000, burn_in=1000, partition_data=false)
-    println("     ✓ Custom analysis: $(length(custom_chains)) chains completed")
-end
+println("   ✓ For advanced examples including:")
+println("     - High-density simulations with custom field sizes")
+println("     - High-photon precision studies")
+println("     - Direct SMLMSim API usage with custom parameters")
+println("     - Large-scale simulation workflows")
+println("     - Custom analysis pipelines")
+println("   ✓ See: smlmsim_advanced_examples.jl")
+println("   ✓ Run: julia --project=examples examples/smlmsim_advanced_examples.jl")
 
 #=============================================================================
 Summary & Key Insights
@@ -307,15 +320,18 @@ println()
 println("Performance Metrics:")
 println("• Data complexity: $(length(smld.emitters)) localizations")
 println("• Emitter recovery: $(round(recovery_rate, digits=1))%")
-println("• Chain quality: $(diagnostic_results.overall_quality)")
+println("• Chain quality: $(diagnostic_results.summary)")
 println("• Analysis efficiency: $(ENABLE_PARTITIONING ? "enhanced with partitioning" : "standard single-partition")")
 println()
 
 if SAVE_IMAGES
     println("Output Files Generated:")
-    println("• smlmsim_localizations_sr.png - Raw localization data")
-    println("• smlmsim_mapn_emitters_sr.png - Estimated emitter positions")
-    println("• smlmsim_posterior_uncertainty.png - Position uncertainties")
+    println("• smlmsim_localizations_sr.png - Raw localization super-resolution image")
+    println("• smlmsim_localizations_uncertainty.png - Localization uncertainty circles (2σ)")
+    println("• smlmsim_mapn_emitters_sr.png - MAPN emitter super-resolution image")
+    println("• smlmsim_mapn_uncertainty.png - MAPN emitter uncertainty circles (2σ)")
+    println("• smlmsim_uncertainty_comparison.png - Combined comparison plot (localizations + MAPN)")
+    println("• smlmsim_posterior_uncertainty.png - Posterior position uncertainties")
     println("• All files saved to: $output_dir")
 end
 
