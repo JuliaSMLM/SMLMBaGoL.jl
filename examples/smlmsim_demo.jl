@@ -236,9 +236,12 @@ if SAVE_IMAGES
     # Generate posterior uncertainty image if we have chains with samples
     if !isempty(chains) && !isempty(chains[1].samples)
         println("   ✓ Creating posterior uncertainty image...")
-        post_image = gen_sr_image(chains[1]; 
+        # Use all chains if multiple partitions, or the single chain
+        chains_for_posterior = length(chains) > 1 ? chains : chains[1]
+        post_image = gen_sr_image(chains_for_posterior; 
                                  pixel_size=PIXEL_SIZE, 
                                  filename=joinpath(output_dir, "smlmsim_posterior_uncertainty.png"))
+        println("     • Using $(length(chains)) partition(s) for posterior image")
     else
         println("   ⚠ No chain samples found, skipping posterior uncertainty image")
     end

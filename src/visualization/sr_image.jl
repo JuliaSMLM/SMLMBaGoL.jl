@@ -170,6 +170,24 @@ function render_sr_data!(image::Matrix{Float64}, chain::RJMCMCChain,
 end
 
 """
+    render_sr_data!(image, chains, pixel_size, bounds; mode=:posterior, kwargs...)
+
+Render multiple RJMCMC chains (from partitions) as combined posterior histogram.
+"""
+function render_sr_data!(image::Matrix{Float64}, chains::Vector{RJMCMCChain}, 
+                        pixel_size::Real, bounds::NTuple{4,Real}; 
+                        mode::Symbol = :posterior, kwargs...)
+    if mode == :posterior
+        # Render each chain's posterior counts into the same image
+        for chain in chains
+            render_posterior_counts!(image, chain, pixel_size, bounds)
+        end
+    else
+        error("Unsupported mode: $mode")
+    end
+end
+
+"""
     render_gaussian_blob!(image, x, y, σx, σy, pixel_size, bounds)
 
 Render a normalized 2D gaussian blob into the image array.
@@ -291,6 +309,19 @@ function extract_coordinates(chain::RJMCMCChain)
     return x_coords, y_coords
 end
 
+function extract_coordinates(chains::Vector{RJMCMCChain})
+    x_coords, y_coords = Float64[], Float64[]
+    for chain in chains
+        for sample in chain.samples
+            for emitter in sample.emitters
+                push!(x_coords, emitter.x)
+                push!(y_coords, emitter.y)
+            end
+        end
+    end
+    return x_coords, y_coords
+end
+
 """
     get_data_margin(data) -> margin
 
@@ -318,6 +349,11 @@ end
 
 function get_data_margin(chain::RJMCMCChain)
     # Fixed margin for chain data
+    return 0.1  # 100 nm margin
+end
+
+function get_data_margin(chains::Vector{RJMCMCChain})
+    # Fixed margin for multiple chains
     return 0.1  # 100 nm margin
 end
 
