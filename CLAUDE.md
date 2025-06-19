@@ -1,1 +1,2 @@
 - using statements must only go in the main SMLMBaGoL.jl file. 
+- all `using` or `import` commands should be in main module file only, not in other files. 
