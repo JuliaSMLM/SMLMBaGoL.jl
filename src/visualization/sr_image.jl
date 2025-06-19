@@ -1,8 +1,11 @@
 # Super-resolution image generation for SMLMBaGoL
 # Uses multiple dispatch to handle different data types
 
+# Available colormaps for super-resolution images
+const AVAILABLE_COLORMAPS = [:inferno, :viridis, :plasma, :magma, :grays]
+
 """
-    gen_sr_image(data; kwargs...) -> Matrix{Float64}
+    gen_sr_image(data::Union{Vector{<:AbstractLocalization}, Vector{<:AbstractEmitter}, RJMCMCChain, Vector{RJMCMCChain}}; kwargs...) -> Matrix{Float64}
 
 Generate super-resolution image from SMLMBaGoL data.
 
@@ -15,8 +18,11 @@ Supports multiple data types via dispatch:
 - `pixel_size::Real = 0.005`: Pixel size in microns (5 nm default)
 - `image_size::Union{Nothing,Tuple{Int,Int}} = nothing`: Image size in pixels (auto-calculated if nothing)
 - `bounds::Union{Nothing,NTuple{4,Real}} = nothing`: (x_min, x_max, y_min, y_max) in microns (auto-calculated if nothing)
+- `min_percentile::Real = 0.0`: Lower percentile cutoff for intensity scaling (0-100)
+- `max_percentile::Real = 99.0`: Upper percentile cutoff for intensity scaling (0-100)
+- `colormap_name::Symbol = :inferno`: Colormap to use (:inferno, :viridis, :plasma, :magma, :grays)
 - `filename::Union{Nothing,String} = nothing`: Optional PNG export filename
-- `mode::Symbol = :posterior`: For RJMCMCChain, rendering mode
+- `mode::Symbol = :posterior`: For RJMCMCChain, rendering mode (:posterior only currently)
 
 # Returns
 - `Matrix{Float64}`: Super-resolution image array
@@ -33,12 +39,15 @@ img2 = gen_sr_image(emitters, pixel_size=0.003)
 img3 = gen_sr_image(chain, mode=:posterior, filename="posterior.png")
 ```
 """
-function gen_sr_image(data; 
+function gen_sr_image(data::Union{Vector{<:AbstractLocalization}, Vector{<:AbstractEmitter}, RJMCMCChain, Vector{RJMCMCChain}};
                      pixel_size::Real = 0.005,
                      image_size::Union{Nothing,Tuple{Int,Int}} = nothing,
                      bounds::Union{Nothing,NTuple{4,Real}} = nothing,
+                     min_percentile::Real = 0.0,
+                     max_percentile::Real = 99.0,
+                     colormap_name::Symbol = :inferno,
                      filename::Union{Nothing,String} = nothing,
-                     kwargs...)
+                     mode::Symbol = :posterior)
     
     # Auto-calculate bounds and image size if not provided
     if bounds === nothing
@@ -60,18 +69,18 @@ function gen_sr_image(data;
     image = zeros(Float64, image_size...)
     
     # Type-specific rendering (dispatches to methods below)
-    render_sr_data!(image, data, pixel_size, bounds; kwargs...)
+    render_sr_data!(image, data, pixel_size, bounds, mode)
     
-    # Optional PNG export
+    # Optional PNG export with colormap and percentile normalization
     if filename !== nothing
-        save_sr_image(image, filename)
+        save_sr_image(image, filename, min_percentile, max_percentile, colormap_name)
     end
     
     return image
 end
 
 """
-    gen_sr_image(smld::SMLMSim.BasicSMLD; pixel_size=nothing, filename=nothing, kwargs...)
+    gen_sr_image(smld::SMLMSim.BasicSMLD; kwargs...) -> Matrix{Float64}
 
 Generate a super-resolution image from SMLMSim.BasicSMLD data using camera bounds.
 
@@ -80,9 +89,11 @@ to define the image bounds, following SMLMSim conventions for spatial coordinate
 
 # Arguments
 - `smld`: SMLMSim.BasicSMLD data structure (contains camera information)
-- `pixel_size`: Reconstruction pixel size in microns (default: camera pixel size / 50 for super-resolution)
-- `filename`: Optional PNG export filename
-- `kwargs...`: Additional keyword arguments
+- `pixel_size::Union{Nothing,Real} = nothing`: Reconstruction pixel size in microns (default: camera pixel size / 50)
+- `min_percentile::Real = 0.0`: Lower percentile cutoff for intensity scaling (0-100)
+- `max_percentile::Real = 99.0`: Upper percentile cutoff for intensity scaling (0-100)
+- `colormap_name::Symbol = :inferno`: Colormap to use (:inferno, :viridis, :plasma, :magma, :grays)
+- `filename::Union{Nothing,String} = nothing`: Optional PNG export filename
 
 # Returns
 - Matrix{Float64}: Super-resolution image array
@@ -97,10 +108,12 @@ image = gen_sr_image(smld; filename="output.png")  # Uses 0.1/50 = 0.002μm = 2n
 image = gen_sr_image(smld; pixel_size=0.001, filename="output.png")  # 1nm pixels
 ```
 """
-function gen_sr_image(smld::SMLMSim.BasicSMLD; 
+function gen_sr_image(smld::SMLMSim.BasicSMLD;
                      pixel_size::Union{Nothing,Real} = nothing,
-                     filename::Union{Nothing,String} = nothing,
-                     kwargs...)
+                     min_percentile::Real = 0.0,
+                     max_percentile::Real = 99.0,
+                     colormap_name::Symbol = :inferno,
+                     filename::Union{Nothing,String} = nothing)
     
     # Extract camera field of view bounds from SMLD
     camera = smld.camera
@@ -123,45 +136,53 @@ function gen_sr_image(smld::SMLMSim.BasicSMLD;
     localizations = smld_to_localizations(smld)
     
     # Generate image with camera-defined bounds
-    return gen_sr_image(localizations; 
+    return gen_sr_image(localizations;
                        pixel_size=pixel_size,
                        bounds=bounds,
-                       filename=filename,
-                       kwargs...)
+                       min_percentile=min_percentile,
+                       max_percentile=max_percentile,
+                       colormap_name=colormap_name,
+                       filename=filename)
 end
 
 """
-    render_sr_data!(image, localizations, pixel_size, bounds; kwargs...)
+    render_sr_data!(image, localizations, pixel_size, bounds, mode)
 
 Render localizations as gaussian blobs using their localization precision.
 """
 function render_sr_data!(image::Matrix{Float64}, locs::Vector{<:AbstractLocalization}, 
-                        pixel_size::Real, bounds::NTuple{4,Real}; kwargs...)
+                        pixel_size::Real, bounds::NTuple{4,Real}, mode::Symbol)
     for loc in locs
         render_gaussian_blob!(image, loc.x, loc.y, loc.σx, loc.σy, pixel_size, bounds)
     end
 end
 
 """
-    render_sr_data!(image, emitters, pixel_size, bounds; kwargs...)
+    render_sr_data!(image, emitters, pixel_size, bounds, mode)
 
-Render emitters as gaussian blobs using their uncertainty estimates from MAPN.
+Render emitters as gaussian blobs using their uncertainty estimates (if available).
 """
 function render_sr_data!(image::Matrix{Float64}, emitters::Vector{<:AbstractEmitter}, 
-                        pixel_size::Real, bounds::NTuple{4,Real}; kwargs...)
+                        pixel_size::Real, bounds::NTuple{4,Real}, mode::Symbol)
     for emitter in emitters
-        render_gaussian_blob!(image, emitter.x, emitter.y, emitter.σx, emitter.σy, pixel_size, bounds)
+        if isa(emitter, Emitter2DFit)
+            # Use actual uncertainties for Emitter2DFit
+            render_gaussian_blob!(image, emitter.x, emitter.y, emitter.σ_x, emitter.σ_y, pixel_size, bounds)
+        else
+            # For basic Emitter2D, use default uncertainty based on typical localization precision
+            default_σ = 0.02  # 20 nm default
+            render_gaussian_blob!(image, emitter.x, emitter.y, default_σ, default_σ, pixel_size, bounds)
+        end
     end
 end
 
 """
-    render_sr_data!(image, chain, pixel_size, bounds; mode=:posterior, kwargs...)
+    render_sr_data!(image, chain, pixel_size, bounds, mode)
 
 Render RJMCMC chain as posterior histogram by counting emitter positions.
 """
 function render_sr_data!(image::Matrix{Float64}, chain::RJMCMCChain, 
-                        pixel_size::Real, bounds::NTuple{4,Real}; 
-                        mode::Symbol = :posterior, kwargs...)
+                        pixel_size::Real, bounds::NTuple{4,Real}, mode::Symbol)
     if mode == :posterior
         render_posterior_counts!(image, chain, pixel_size, bounds)
     else
@@ -170,13 +191,12 @@ function render_sr_data!(image::Matrix{Float64}, chain::RJMCMCChain,
 end
 
 """
-    render_sr_data!(image, chains, pixel_size, bounds; mode=:posterior, kwargs...)
+    render_sr_data!(image, chains, pixel_size, bounds, mode)
 
 Render multiple RJMCMC chains (from partitions) as combined posterior histogram.
 """
 function render_sr_data!(image::Matrix{Float64}, chains::Vector{RJMCMCChain}, 
-                        pixel_size::Real, bounds::NTuple{4,Real}; 
-                        mode::Symbol = :posterior, kwargs...)
+                        pixel_size::Real, bounds::NTuple{4,Real}, mode::Symbol)
     if mode == :posterior
         # Render each chain's posterior counts into the same image
         for chain in chains
@@ -340,7 +360,12 @@ end
 function get_data_margin(emitters::Vector{<:AbstractEmitter})
     # Use 3σ of largest emitter uncertainty as margin
     if !isempty(emitters)
-        max_σ = maximum(max(emitter.σx, emitter.σy) for emitter in emitters)
+        max_σ = 0.02  # Default 20 nm
+        for emitter in emitters
+            if isa(emitter, Emitter2DFit)
+                max_σ = max(max_σ, emitter.σ_x, emitter.σ_y)
+            end
+        end
         return 3 * max_σ
     else
         return 0.1  # Default 100 nm margin
@@ -358,18 +383,87 @@ function get_data_margin(chains::Vector{RJMCMCChain})
 end
 
 """
-    save_sr_image(image, filename)
+    save_sr_image(image, filename, min_percentile, max_percentile, colormap_name)
 
-Save image array as PNG file with proper normalization.
+Save image array as PNG file with percentile-based normalization and colormap.
+
+# Arguments
+- `image::Matrix{Float64}`: Raw image data
+- `filename::String`: Output filename
+- `min_percentile::Real`: Lower percentile for intensity scaling (0-100)
+- `max_percentile::Real`: Upper percentile for intensity scaling (0-100)
+- `colormap_name::Symbol`: Colormap to apply
 """
-function save_sr_image(image::Matrix{Float64}, filename::String)
-    # Normalize to [0,1] for display
-    if maximum(image) > 0
-        normalized_image = image ./ maximum(image)
+function save_sr_image(image::Matrix{Float64}, filename::String, 
+                      min_percentile::Real, max_percentile::Real, 
+                      colormap_name::Symbol)
+    # Validate colormap
+    if !(colormap_name in AVAILABLE_COLORMAPS)
+        error("Invalid colormap: $colormap_name. Available options: $(AVAILABLE_COLORMAPS)")
+    end
+    
+    # Validate percentiles
+    if min_percentile < 0 || min_percentile > 100
+        error("min_percentile must be between 0 and 100")
+    end
+    if max_percentile < 0 || max_percentile > 100
+        error("max_percentile must be between 0 and 100")
+    end
+    if min_percentile >= max_percentile
+        error("min_percentile must be less than max_percentile")
+    end
+    
+    # Apply percentile cutoffs
+    non_zero_pixels = image[image .> 0]
+    if isempty(non_zero_pixels)
+        # All zeros - save as black image
+        normalized_image = zeros(Gray{N0f8}, size(image))
     else
-        normalized_image = image
+        # Calculate percentile values
+        vmin = quantile(non_zero_pixels, min_percentile / 100)
+        vmax = quantile(non_zero_pixels, max_percentile / 100)
+        
+        # Avoid division by zero
+        if vmax ≈ vmin
+            vmax = vmin + eps(Float64)
+        end
+        
+        # Normalize to [0,1] with clipping
+        normalized = clamp.((image .- vmin) ./ (vmax - vmin), 0.0, 1.0)
+        
+        # Apply colormap
+        if colormap_name == :grays
+            # Special case for grayscale
+            normalized_image = Gray{N0f8}.(normalized)
+        else
+            # Apply scientific colormap using ColorSchemes
+            cmap = get_colormap(colormap_name)
+            # ColorSchemes expects values in [0,1]
+            normalized_image = [RGB{N0f8}(get(cmap, v)) for v in normalized]
+        end
     end
     
     # Save using Images.jl
     Images.save(filename, normalized_image)
+end
+
+"""
+    get_colormap(name::Symbol) -> ColorScheme
+
+Get a colormap by name from ColorSchemes.jl
+"""
+function get_colormap(name::Symbol)
+    if name == :inferno
+        return ColorSchemes.inferno
+    elseif name == :viridis
+        return ColorSchemes.viridis
+    elseif name == :plasma
+        return ColorSchemes.plasma
+    elseif name == :magma
+        return ColorSchemes.magma
+    elseif name == :grays
+        return ColorSchemes.grays
+    else
+        error("Unknown colormap: $name. Available options: $(AVAILABLE_COLORMAPS)")
+    end
 end

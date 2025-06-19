@@ -58,7 +58,7 @@ function update_gamma_hyperparameters(counts::Vector{Int},
     return new_α, new_β
 end
 
-function update_hierarchical!(chains::Vector{RJMCMCChain})
+function update_hierarchical!(chains::Vector{RJMCMCChain}, current_iteration::Int = 0)
     # Only proceed if all chains have hierarchical priors
     hierarchical_priors = HierarchicalGammaPrior[]
     
@@ -93,6 +93,11 @@ function update_hierarchical!(chains::Vector{RJMCMCChain})
         template_prior.α, template_prior.β,
         template_prior.α_prior, template_prior.β_prior
     )
+    
+    # Record the update in hierarchical history for all chains
+    for chain in chains
+        push!(chain.hierarchical_history, (current_iteration, new_α, new_β))
+    end
     
     # Create new hierarchical prior
     new_hierarchical_prior = HierarchicalGammaPrior(

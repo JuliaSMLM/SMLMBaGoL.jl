@@ -98,7 +98,16 @@ function sr_circles!(ax, localizations; uncertainty_field::Symbol=:σx, scale_fa
         # Get position and uncertainty
         x_pos = loc.x
         y_pos = loc.y
-        uncertainty = getfield(loc, uncertainty_field)
+        
+        # Handle different types with different field names
+        uncertainty = if isa(loc, Emitter2DFit)
+            # Emitter2DFit uses σ_x, σ_y (with underscore)
+            field_name = uncertainty_field == :σx ? :σ_x : :σ_y
+            getfield(loc, field_name)
+        else
+            # Localization2D uses σx, σy (without underscore)
+            getfield(loc, uncertainty_field)
+        end
         
         # Plot circle with scaled uncertainty as radius
         circle!(ax, x_pos, y_pos, uncertainty * scale_factor; kwargs...)
