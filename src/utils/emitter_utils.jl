@@ -3,10 +3,11 @@ function sample_emitter_from_prior(localizations::Vector{<:AbstractLocalization}
                                    spatial_prior::UniformSpatialPrior,
                                    rng=Random.GLOBAL_RNG)
     x, y = sample_spatial_prior(spatial_prior, rng)
-    id = rand(rng, 1:1000000)  # Generate random ID
-    # Default uncertainty for newly sampled emitters
-    σx, σy = 0.02, 0.02  # 20 nm default uncertainty
-    return EmitterType(x, y, σx, σy, id)
+    # For SMLMData's Emitter2D, we need photons not uncertainties
+    # Use a default photon count based on localizations
+    photons = isempty(localizations) ? 1000.0 : 
+              mean(loc.σx > 0 ? 1000.0 : 1000.0 for loc in localizations)  # Placeholder
+    return EmitterType(x, y, photons)
 end
 
 function sample_emitter_from_prior(localizations::Vector{<:AbstractLocalization}, 
@@ -14,10 +15,9 @@ function sample_emitter_from_prior(localizations::Vector{<:AbstractLocalization}
                                    spatial_prior::UniformSpatialPrior,
                                    rng=Random.GLOBAL_RNG) where T
     x, y = sample_spatial_prior(spatial_prior, rng)
-    id = rand(rng, 1:1000000)
-    # Default uncertainty for newly sampled emitters
-    σx, σy = T(0.02), T(0.02)  # 20 nm default uncertainty
-    return Emitter2D{T}(T(x), T(y), σx, σy, id)
+    # For SMLMData's Emitter2D, use default photon count
+    photons = T(1000.0)  # Default photon count
+    return Emitter2D{T}(T(x), T(y), photons)
 end
 
 function log_spatial_prior_density(emitter::AbstractEmitter, spatial_prior::UniformSpatialPrior)

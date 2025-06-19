@@ -68,6 +68,14 @@ function log_acceptance_ratio(::Type{Allocate}, current::BaGoLState, proposed::B
     old_emitter_idx = current.allocations[reallocated_idx]
     new_emitter_idx = proposed.allocations[reallocated_idx]
     
+    # Handle unallocated localizations (allocation = 0)
+    # This shouldn't happen in normal operation, but check for safety
+    if old_emitter_idx == 0 || new_emitter_idx == 0
+        # Can't compute proper acceptance ratio for unallocated localizations
+        # Accept the move with standard likelihood ratio
+        return proposed.log_likelihood - current.log_likelihood
+    end
+    
     # Likelihood ratio (already computed in states)
     log_likelihood_ratio = proposed.log_likelihood - current.log_likelihood
     

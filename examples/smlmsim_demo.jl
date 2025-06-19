@@ -39,12 +39,12 @@ const FRAMERATE = 100.0                 # Frames per second
 const EXPECTED_LOCS_PER_EMITTER = 10    # Expected localizations per emitter
 
 # Analysis parameters  
-const N_ITERATIONS = 50000              # RJMCMC iterations
+const N_ITERATIONS = 30000              # RJMCMC iterations
 const BURN_IN = 10000                   # Burn-in period
 const ENABLE_PARTITIONING = true        # Use multiple partitions for efficiency
 const PARTITION_RADIUS = 0.5            # Partition radius in μm (4x avg uncertainty)
 const ENABLE_THREADING = true           # Use threading for parallel partition processing
-const ENABLE_HIERARCHICAL = false       # Use hierarchical updates
+const ENABLE_HIERARCHICAL = true        # Use hierarchical updates
 const HIERARCHICAL_INTERVAL = 5000      # Hierarchical update interval
 
 # Visualization parameters
@@ -252,7 +252,43 @@ else
 end
 
 #=============================================================================
-5. Comparison with Native BaGoL Simulation
+5. Hierarchical Prior Visualization (if enabled)
+=============================================================================#
+
+if ENABLE_HIERARCHICAL
+    println()
+    println("5. Visualizing hierarchical prior updates...")
+    
+    # Get summary of hierarchical updates
+    hier_summary = get_hierarchical_summary(chains)
+    println("   • $(hier_summary.message)")
+    
+    if hier_summary.enabled && hier_summary.n_updates > 0
+        # Plot evolution of hyperparameters
+        plot_hierarchical_evolution(chains, 
+                                  filename=joinpath(output_dir, "hierarchical_evolution.png"))
+        println("   ✓ Created hierarchical evolution plot")
+        
+        # Plot Gamma distributions at different timepoints
+        plot_gamma_distributions(chains,
+                               filename=joinpath(output_dir, "gamma_distributions.png"),
+                               n_timepoints=4)
+        println("   ✓ Created Gamma distribution evolution plot")
+        
+        # Plot empirical vs fitted distribution
+        plot_emitter_count_histogram(chains,
+                                   filename=joinpath(output_dir, "emitter_count_fit.png"))
+        println("   ✓ Created empirical vs fitted distribution plot")
+        
+        # Check convergence
+        conv_result = analyze_hierarchical_convergence(chains)
+        println("   • Convergence: $(conv_result.message)")
+        println("   • Final parameters: α=$(round(conv_result.final_α, digits=3)), β=$(round(conv_result.final_β, digits=3))")
+    end
+end
+
+#=============================================================================
+6. Comparison with Native BaGoL Simulation
 =============================================================================#
 
 println()
@@ -276,11 +312,11 @@ println("   ✓ SMLMSim simulation: $(length(smld.emitters)) localizations")
 println("   ✓ Complexity ratio: $(round(length(smld.emitters) / length(native_locs), digits=1))x more localizations")
 
 #=============================================================================
-6. Advanced Usage Note
+7. Advanced Usage Note
 =============================================================================#
 
 println()
-println("6. Advanced usage examples...")
+println("7. Advanced usage examples...")
 println("   ✓ For advanced examples including:")
 println("     - High-density simulations with custom field sizes")
 println("     - High-photon precision studies")

@@ -54,10 +54,23 @@ function build_spatial_histogram(mapn_states::Vector{<:BaGoLState}, n_bins::Int=
     # Add small margin to avoid edge effects
     x_range = x_max - x_min
     y_range = y_max - y_min
-    x_min -= 0.1 * x_range
-    x_max += 0.1 * x_range
-    y_min -= 0.1 * y_range
-    y_max += 0.1 * y_range
+    
+    # Handle degenerate cases where all emitters are at the same position
+    if x_range == 0
+        x_min -= 0.1
+        x_max += 0.1
+    else
+        x_min -= 0.1 * x_range
+        x_max += 0.1 * x_range
+    end
+    
+    if y_range == 0
+        y_min -= 0.1
+        y_max += 0.1
+    else
+        y_min -= 0.1 * y_range
+        y_max += 0.1 * y_range
+    end
     
     # Build histogram
     histogram = zeros(Float64, n_bins, n_bins)
@@ -141,9 +154,10 @@ function refine_mapn_assignment!(mapn_states::Vector{<:BaGoLState}; n_iterations
             x_mean = sum(state.emitters[i].x for state in mapn_states) / n_states
             y_mean = sum(state.emitters[i].y for state in mapn_states) / n_states
             
-            # Create mean emitter with temporary ID and default uncertainty
+            # Create mean emitter for reference - use basic Emitter2D
             EmitterType = eltype(mapn_states[1].emitters)
-            mean_emitters[i] = EmitterType(x_mean, y_mean, 0.01, 0.01, 0)
+            photons = 1000.0  # Default photon count
+            mean_emitters[i] = EmitterType(x_mean, y_mean, photons)
         end
         
         # Create temporary reference state
@@ -156,12 +170,12 @@ function refine_mapn_assignment!(mapn_states::Vector{<:BaGoLState}; n_iterations
 end
 
 function compute_final_mapn_emitters(sorted_states::Vector{<:BaGoLState}, partition_id::Int)
-    isempty(sorted_states) && return eltype(sorted_states[1].emitters)[]
+    isempty(sorted_states) && return Emitter2DFit{Float64}[]
     
     n_emitters = length(sorted_states[1].emitters)
     n_states = length(sorted_states)
-    EmitterType = eltype(sorted_states[1].emitters)
-    mapn_emitters = EmitterType[]
+    # Always return Emitter2DFit for MAPN results
+    mapn_emitters = Emitter2DFit{Float64}[]
     
     for emitter_idx in 1:n_emitters
         # Mean position across all MAPN states
@@ -180,8 +194,19 @@ function compute_final_mapn_emitters(sorted_states::Vector{<:BaGoLState}, partit
             σy = 0.01
         end
         
-        # Create emitter with uncertainty estimates
-        push!(mapn_emitters, EmitterType(x_mean, y_mean, σx, σy, partition_id))
+        # Create Emitter2DFit with uncertainty estimates
+        # For MAPN results, we use sensible defaults for other fields
+        photons = 1000.0  # Default photon count
+        bg = 10.0         # Default background
+        σ_photons = 50.0  # Default photon uncertainty
+        σ_bg = 2.0        # Default background uncertainty
+        frame = 1         # MAPN is aggregated over all frames
+        dataset = 1       # Default dataset
+        track_id = 0      # No tracking for MAPN results
+        id = partition_id * 10000 + emitter_idx  # Unique ID combining partition and emitter index
+        
+        push!(mapn_emitters, Emitter2DFit(x_mean, y_mean, photons, bg, σx, σy, σ_photons, σ_bg, 
+                                         frame, dataset, track_id, id))
     end
     
     return mapn_emitters
@@ -191,8 +216,8 @@ function estimate_mapn_single_partition(chain::RJMCMCChain, partition_id::Int)
     # Step 1: Extract MAPN states (most frequent emitter count)
     mapn_states = extract_mapn_states(chain)
     
-    # Handle edge cases
-    isempty(mapn_states) && return eltype(chain.current_state.emitters)[]
+    # Handle edge cases - always return Emitter2DFit for MAPN
+    isempty(mapn_states) && return Emitter2DFit{Float64}[]
     
     # Step 2: Find reference state using spatial histogram
     reference_state = find_reference_state(mapn_states)
@@ -206,8 +231,8 @@ function estimate_mapn_single_partition(chain::RJMCMCChain, partition_id::Int)
 end
 
 function estimate_mapn(chains::Vector{<:RJMCMCChain})
-    EmitterType = eltype(chains[1].current_state.emitters)
-    all_mapn_emitters = EmitterType[]
+    # MAPN always returns Emitter2DFit with uncertainty estimates
+    all_mapn_emitters = Emitter2DFit{Float64}[]
     
     for (partition_id, chain) in enumerate(chains)
         partition_emitters = estimate_mapn_single_partition(chain, partition_id)

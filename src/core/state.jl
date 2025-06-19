@@ -15,4 +15,5 @@ mutable struct RJMCMCChain{T<:Real, E<:AbstractEmitter, L<:AbstractLocalization,
     burn_in::Int
     thin::Int
     rng::AbstractRNG
+    hierarchical_history::Vector{Tuple{Int, Float64, Float64}}  # (iteration, α, β)
 end
