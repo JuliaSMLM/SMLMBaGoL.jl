@@ -75,7 +75,7 @@ println()
 
 # Step 2: Run BaGoL analysis
 println("\n2. Running BaGoL analysis...")
-result = run_bagol(
+chains = run_bagol(
     localizations,
     prior = prior,
     n_iterations = N_ITERATIONS,
@@ -83,10 +83,23 @@ result = run_bagol(
     partition_data = ENABLE_PARTITIONING
 )
 
+# Handle both single chain and multi-partition results
+if isa(chains, Vector)
+    println("   Completed analysis with $(length(chains)) partition(s)")
+    # For multi-partition, combine all final states
+    all_emitters = vcat([chain.current_state.emitters for chain in chains]...)
+    final_state = chains[1].current_state  # Use first chain's state as representative
+else
+    # Single chain case
+    println("   Completed single-partition analysis")
+    all_emitters = chains.current_state.emitters
+    final_state = chains.current_state
+    chains = [chains]  # Convert to vector for consistency
+end
+
 # Step 3: Extract final state results
 println("\n3. Analysis Results:")
-final_state = result.current_state
-n_estimated = length(final_state.emitters)
+n_estimated = length(all_emitters)
 println("   Estimated emitter count: $n_estimated (true: $N_EMITTERS)")
 
 println("\n   Final state summary:")
@@ -95,7 +108,7 @@ println()
 
 # Step 4: Get MAPN estimates
 println("\n4. Computing MAPN estimates...")
-mapn_emitters = estimate_mapn([result])
+mapn_emitters = estimate_mapn(chains)
 println("   MAPN estimated $(length(mapn_emitters)) emitters")
 
 if !isempty(mapn_emitters)
@@ -106,7 +119,7 @@ end
 
 # Step 5: Chain Diagnostics
 println("\n5. Chain Quality Diagnostics...")
-diagnosis = diagnose_chains(result)
+diagnosis = diagnose_chains(chains)
 
 # Step 6: Generate super-resolution images
 if SAVE_IMAGES
@@ -130,12 +143,15 @@ if SAVE_IMAGES
     
     # Posterior uncertainty image (pixel counting histogram)
     println("   - Posterior uncertainty image...")
-    posterior_image = gen_sr_image(result,
+    # Use all chains if multiple partitions
+    chains_for_posterior = length(chains) > 1 ? chains : chains[1]
+    posterior_image = gen_sr_image(chains_for_posterior,
                                   pixel_size = PIXEL_SIZE,
                                   mode = :posterior,
                                   filename = joinpath(output_dir, "posterior_uncertainty.png"))
     println("     Saved: output/posterior_uncertainty.png ($(size(posterior_image)) pixels)")
     println("     Max counts per pixel: $(round(maximum(posterior_image), digits=1))")
+    println("     Using $(length(chains)) partition(s) for posterior image")
     
     # Image statistics
     println("\n   Image Statistics:")
@@ -192,7 +208,8 @@ end
 
 # Step 8: Summary statistics
 println("\n8. Summary:")
-println("   Total RJMCMC samples: $(length(result.samples))")
+total_samples = sum(length(chain.samples) for chain in chains)
+println("   Total RJMCMC samples: $total_samples (across $(length(chains)) partition(s))")
 println("   Final log-likelihood: $(round(final_state.log_likelihood, digits=1))")
 
 # Recovery metrics

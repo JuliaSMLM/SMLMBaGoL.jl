@@ -36,7 +36,7 @@ diagnosis = diagnose_chains(result)
 println(diagnosis.summary)
 ```
 """
-function diagnose_chains(chains::Union{RJMCMCChain, Vector{RJMCMCChain}}; 
+function diagnose_chains(chains::Union{RJMCMCChain, Vector{<:RJMCMCChain}}; 
                         pixel_size::Real = 0.005,
                         correlation_threshold::Float64 = 0.95,
                         verbose::Bool = true)
