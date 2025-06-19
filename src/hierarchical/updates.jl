@@ -83,10 +83,6 @@ function update_hierarchical!(chains::Vector{RJMCMCChain}, current_iteration::In
     # Collect counts from all chains
     all_counts = collect_emitter_counts(chains)
     
-    if length(all_counts) < 10  # Need sufficient data
-        return
-    end
-    
     # Update hyperparameters
     new_α, new_β = update_gamma_hyperparameters(
         all_counts,
@@ -111,7 +107,7 @@ function update_hierarchical!(chains::Vector{RJMCMCChain}, current_iteration::In
             # Update K_prior within CompoundPrior
             new_compound_prior = CompoundPrior(
                 chain.prior.spatial_prior,
-                GammaPrior(new_α, new_β)  # Convert to simple GammaPrior for efficiency
+                new_hierarchical_prior  # Keep as HierarchicalGammaPrior to allow future updates
             )
             chain.prior = new_compound_prior
             

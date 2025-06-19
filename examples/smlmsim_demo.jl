@@ -45,7 +45,7 @@ const ENABLE_PARTITIONING = true        # Use multiple partitions for efficiency
 const PARTITION_RADIUS = 0.5            # Partition radius in μm (4x avg uncertainty)
 const ENABLE_THREADING = true           # Use threading for parallel partition processing
 const ENABLE_HIERARCHICAL = true        # Use hierarchical updates
-const HIERARCHICAL_INTERVAL = 5000      # Hierarchical update interval
+const HIERARCHICAL_INTERVAL = 1000      # Hierarchical update interval
 
 # Visualization parameters
 const PIXEL_SIZE = 0.002                # μm per pixel (2 nm super-resolution)
@@ -266,24 +266,37 @@ if ENABLE_HIERARCHICAL
     if hier_summary.enabled && hier_summary.n_updates > 0
         # Plot evolution of hyperparameters
         plot_hierarchical_evolution(chains, 
-                                  filename=joinpath(output_dir, "hierarchical_evolution.png"))
+                                  filename=joinpath(output_dir, "smlmsim_hierarchical_evolution.png"))
         println("   ✓ Created hierarchical evolution plot")
         
         # Plot Gamma distributions at different timepoints
         plot_gamma_distributions(chains,
-                               filename=joinpath(output_dir, "gamma_distributions.png"),
+                               filename=joinpath(output_dir, "smlmsim_gamma_distributions.png"),
                                n_timepoints=4)
         println("   ✓ Created Gamma distribution evolution plot")
         
-        # Plot empirical vs fitted distribution
+        # Plot empirical vs fitted distribution with true value
         plot_emitter_count_histogram(chains,
-                                   filename=joinpath(output_dir, "emitter_count_fit.png"))
-        println("   ✓ Created empirical vs fitted distribution plot")
+                                   filename=joinpath(output_dir, "smlmsim_emitter_count_fit.png"),
+                                   true_mean=EXPECTED_LOCS_PER_EMITTER)
+        println("   ✓ Created empirical vs fitted distribution plot (with true mean)")
         
         # Check convergence
         conv_result = analyze_hierarchical_convergence(chains)
         println("   • Convergence: $(conv_result.message)")
         println("   • Final parameters: α=$(round(conv_result.final_α, digits=3)), β=$(round(conv_result.final_β, digits=3))")
+        
+        # Compare to true value
+        if conv_result.converged
+            # Gamma distribution mean = α * β
+            fitted_mean = conv_result.final_α * conv_result.final_β
+            true_mean = EXPECTED_LOCS_PER_EMITTER
+            error_percent = abs(fitted_mean - true_mean) / true_mean * 100
+            
+            println("   • True localizations per emitter: $true_mean")
+            println("   • Fitted mean (α×β): $(round(fitted_mean, digits=2))")
+            println("   • Relative error: $(round(error_percent, digits=1))%")
+        end
     end
 end
 
@@ -371,6 +384,11 @@ if SAVE_IMAGES
     println("• smlmsim_mapn_uncertainty.png - MAPN emitter uncertainty circles (2σ)")
     println("• smlmsim_uncertainty_comparison.png - Combined comparison plot (localizations + MAPN)")
     println("• smlmsim_posterior_uncertainty.png - Posterior position uncertainties")
+    if ENABLE_HIERARCHICAL
+        println("• smlmsim_hierarchical_evolution.png - Evolution of α and β hyperparameters")
+        println("• smlmsim_gamma_distributions.png - Gamma distribution evolution over time")
+        println("• smlmsim_emitter_count_fit.png - Empirical vs fitted distribution comparison")
+    end
     println("• All files saved to: $output_dir")
 end
 

@@ -139,7 +139,7 @@ function run_bagol(localizations::Vector{L};
                   partition_radius::Real = estimate_partitioning_radius(localizations),
                   partition_data::Bool = true,
                   enable_hierarchical::Bool = false,
-                  hierarchical_interval::Int = 100,
+                  hierarchical_interval::Int = 1000,
                   enable_threading::Bool = true,
                   existing_chains::Union{Vector{RJMCMCChain}, RJMCMCChain, Nothing} = nothing,
                   continuation_mode::Symbol = :extend,

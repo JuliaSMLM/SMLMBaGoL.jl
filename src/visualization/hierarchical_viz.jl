@@ -1,5 +1,3 @@
-using CairoMakie: Figure, lines!, scatter!, hist!, axislegend, save
-
 function plot_hierarchical_evolution(chains::Vector{RJMCMCChain};
                                    filename::Union{Nothing,String} = nothing,
                                    figsize::Tuple{Int,Int} = (800, 600))
@@ -127,7 +125,8 @@ end
 
 function plot_emitter_count_histogram(chains::Vector{RJMCMCChain};
                                     filename::Union{Nothing,String} = nothing,
-                                    figsize::Tuple{Int,Int} = (800, 600))
+                                    figsize::Tuple{Int,Int} = (800, 600),
+                                    true_mean::Union{Nothing,Real} = nothing)
     
     # Collect all emitter counts from samples
     all_counts = collect_emitter_counts(chains)
@@ -167,6 +166,12 @@ function plot_emitter_count_histogram(chains::Vector{RJMCMCChain};
         lines!(ax, k_values, pdf_values, 
                color=:red, linewidth=3,
                label="Fitted Gamma(α=$(round(final_α,digits=2)), β=$(round(final_β,digits=2)))")
+    end
+    
+    # Add true mean line if provided
+    if !isnothing(true_mean)
+        vlines!(ax, [true_mean], color=:green, linewidth=3, linestyle=:dash,
+                label="True mean = $true_mean")
     end
     
     # Add legend
