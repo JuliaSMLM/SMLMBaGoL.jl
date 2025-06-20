@@ -45,8 +45,13 @@ function log_acceptance_ratio_birth(current::BaGoLState, proposed::BaGoLState)
     log_prior_ratio = log_prior_K(length(proposed.emitters), K_prior) - 
                       log_prior_K(length(current.emitters), K_prior)
     
-    # Likelihood ratio
+    # Spatial likelihood ratio (for localizations given emitter positions)
     log_likelihood_ratio = proposed.log_likelihood - current.log_likelihood
+    
+    # Dirichlet-multinomial likelihood ratio (for allocation counts)
+    # This handles overdispersion in the allocation model
+    λ_prior = current.prior.λ_prior
+    log_dm_ratio = log_dirichlet_multinomial_ratio(current, proposed, λ_prior)
     
     # Proposal ratio: q(death)/q(birth)
     # q(death) = 1/|K+1| (uniform selection from K+1 emitters)
@@ -55,7 +60,7 @@ function log_acceptance_ratio_birth(current::BaGoLState, proposed::BaGoLState)
     log_q_death = -log(length(proposed.emitters))
     log_q_birth = log_spatial_prior_density(new_emitter, spatial_prior)
     
-    return log_prior_ratio + log_likelihood_ratio + log_q_death - log_q_birth
+    return log_prior_ratio + log_likelihood_ratio + log_dm_ratio + log_q_death - log_q_birth
 end
 
 function log_acceptance_ratio(::Type{Birth}, current::BaGoLState, proposed::BaGoLState)

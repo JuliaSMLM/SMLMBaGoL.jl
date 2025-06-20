@@ -32,6 +32,7 @@ include("core/likelihood.jl")
 
 # Utilities
 include("utils/emitter_utils.jl")
+include("utils/dirichlet_multinomial.jl")
 include("utils/display.jl")
 
 # Moves
