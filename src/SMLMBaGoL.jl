@@ -37,7 +37,6 @@ include("utils/display.jl")
 # Moves
 include("moves/move_types.jl")
 include("moves/birth_death.jl")
-include("moves/split_merge.jl")
 include("moves/move.jl")
 include("moves/allocate.jl")
 include("moves/acceptance.jl")
@@ -67,7 +66,7 @@ export AbstractLocalization, AbstractPrior, AbstractRJMCMCMove, AbstractChainSta
 # Note: AbstractEmitter, Emitter2D, Emitter2DFit come from SMLMData
 export Localization2D, BaGoLState, RJMCMCChain
 export UniformSpatialPrior, GammaPrior, HierarchicalGammaPrior, CompoundPrior
-export Birth, Death, Split, Merge, Move, Allocate, inverse_move
+export Birth, Death, Move, Allocate, inverse_move
 export log_likelihood, log_prior, log_prior_spatial, log_prior_K, log_posterior
 export sample_spatial_prior, create_spatial_prior_from_localizations, create_default_prior
 export propose_move, accept_probability, log_acceptance_ratio
