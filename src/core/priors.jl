@@ -20,6 +20,15 @@ end
 struct CompoundPrior{T<:Real} <: AbstractPrior
     spatial_prior::UniformSpatialPrior{T}
     K_prior::Union{GammaPrior{T}, HierarchicalGammaPrior{T}}  # prior on number of emitters
+    λ_prior::Union{GammaPrior{T}, HierarchicalGammaPrior{T}}  # prior on localizations per emitter
+end
+
+# Constructor for backward compatibility
+function CompoundPrior(spatial_prior::UniformSpatialPrior{T}, 
+                      K_prior::Union{GammaPrior{T}, HierarchicalGammaPrior{T}}) where T
+    # Default λ prior: mean 4 localizations per emitter
+    λ_prior = GammaPrior(T(4.0), T(1.0))
+    return CompoundPrior(spatial_prior, K_prior, λ_prior)
 end
 
 function log_prior_spatial(emitter::AbstractEmitter, prior::UniformSpatialPrior)
