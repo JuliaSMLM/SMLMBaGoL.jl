@@ -83,9 +83,9 @@ function initialize_chain(localizations::Vector{L},
     initial_emitters = Vector{E}(undef, initial_K)
     for i in 1:initial_K
         x, y = sample_spatial_prior(spatial_prior, rng)
-        # Add default uncertainty for new emitters
-        σx, σy = 0.02, 0.02  # 20 nm default uncertainty
-        initial_emitters[i] = E(x, y, σx, σy, i)
+        # Use default photon count for new emitters
+        photons = 1000.0  # Default photon count
+        initial_emitters[i] = E(x, y, photons)
     end
     
     # Initialize allocations randomly
@@ -106,8 +106,8 @@ function initialize_chain(localizations::Vector{L},
         Allocate => 0.1
     )
     
-    # Create chain
-    return RJMCMCChain(
+    # Create chain with hierarchical history
+    chain = RJMCMCChain(
         localizations,
         initial_state,
         prior,
@@ -115,8 +115,18 @@ function initialize_chain(localizations::Vector{L},
         BaGoLState{E,L,eltype(initial_likelihood)}[],
         burn_in,
         thin,
-        rng
+        rng,
+        Tuple{Int,Float64,Float64}[]  # Empty hierarchical history
     )
+    
+    # Record initial hierarchical parameters if applicable
+    if isa(prior, CompoundPrior) && isa(prior.K_prior, HierarchicalGammaPrior)
+        push!(chain.hierarchical_history, (0, prior.K_prior.α, prior.K_prior.β))
+    elseif isa(prior, HierarchicalGammaPrior)
+        push!(chain.hierarchical_history, (0, prior.α, prior.β))
+    end
+    
+    return chain
 end
 
 function run_bagol(localizations::Vector{L};
@@ -129,7 +139,7 @@ function run_bagol(localizations::Vector{L};
                   partition_radius::Real = estimate_partitioning_radius(localizations),
                   partition_data::Bool = true,
                   enable_hierarchical::Bool = false,
-                  hierarchical_interval::Int = 100,
+                  hierarchical_interval::Int = 1000,
                   enable_threading::Bool = true,
                   existing_chains::Union{Vector{RJMCMCChain}, RJMCMCChain, Nothing} = nothing,
                   continuation_mode::Symbol = :extend,
@@ -208,7 +218,7 @@ function run_bagol(localizations::Vector{L};
         # Hierarchical updates at end of epoch (synchronization point)
         if enable_hierarchical && epoch < n_hierarchical_epochs && total_iterations_completed > burn_in
             println("Hierarchical update at iteration $total_iterations_completed...")
-            update_hierarchical!(chains)
+            update_hierarchical!(chains, total_iterations_completed)
         end
         
         # Break if we've completed all requested iterations
@@ -340,11 +350,12 @@ end
 
 function create_hierarchical_prior(localizations::Vector{<:AbstractLocalization})
     spatial_prior = create_spatial_prior_from_localizations(localizations, 0.2)
-    # Start with reasonable hierarchical hyperpriors
+    # Start with better initial values and less restrictive hyperpriors
+    # Initial mean = α * β = 2.0 * 5.0 = 10.0 (reasonable starting point)
     hierarchical_K_prior = HierarchicalGammaPrior(
-        2.0, 1.0,          # Initial α, β
-        (1.0, 1.0),        # α hyperprior (a₀, b₀)
-        (1.0, 1.0)         # β hyperprior (c₀, d₀)
+        2.0, 5.0,          # Initial α, β (mean = 10.0)
+        (0.5, 0.1),        # α hyperprior (a₀, b₀) - less restrictive
+        (0.5, 0.1)         # β hyperprior (c₀, d₀) - less restrictive
     )
     return CompoundPrior(spatial_prior, hierarchical_K_prior)
 end

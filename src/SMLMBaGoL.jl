@@ -10,14 +10,19 @@ using Hungarian
 using Clustering
 using HypothesisTests
 using SMLMSim
+using SMLMData
+using SMLMData: AbstractEmitter, Emitter2D, Emitter2DFit
 using CairoMakie
 using Images
+using Images: Gray, RGB, N0f8
+using Colors
+using ColorSchemes
 
 # Core types
 include("core/types.jl")
 
 # Concrete types
-include("emitters/emitter2d.jl")
+# Emitter types come from SMLMData
 include("localizations/localization2d.jl")
 
 # Core functionality
@@ -52,13 +57,15 @@ include("sim/smlmsim_integration.jl")
 # Visualization
 include("visualization/sr_image.jl")
 include("visualization/plotting.jl")
+include("visualization/hierarchical_viz.jl")
 
 # Diagnostics
 include("diagnostics/chain_diagnostics.jl")
 
 # Exports
-export AbstractLocalization, AbstractEmitter, AbstractPrior, AbstractRJMCMCMove, AbstractChainState
-export Emitter2D, Localization2D, BaGoLState, RJMCMCChain
+export AbstractLocalization, AbstractPrior, AbstractRJMCMCMove, AbstractChainState
+# Note: AbstractEmitter, Emitter2D, Emitter2DFit come from SMLMData
+export Localization2D, BaGoLState, RJMCMCChain
 export UniformSpatialPrior, GammaPrior, HierarchicalGammaPrior, CompoundPrior
 export Birth, Death, Split, Merge, Move, Allocate, inverse_move
 export log_likelihood, log_prior, log_prior_spatial, log_prior_K, log_posterior
@@ -73,5 +80,7 @@ export smld_to_localizations, simulate_static_smlm, simulate_nmer_smlmsim
 export gen_sr_image
 export circle!, sr_circles, sr_circles!, sr_circles_combined, sr_circles_combined!
 export diagnose_chains, quick_diagnose, assess_burn_in, assess_chain_length
+export plot_hierarchical_evolution, plot_gamma_distributions, plot_emitter_count_histogram
+export analyze_hierarchical_convergence, get_hierarchical_summary
 
 end # module SMLMBaGoL

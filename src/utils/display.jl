@@ -2,17 +2,8 @@
 
 import Base: show
 
-# Pretty printing for Emitter2D
-function Base.show(io::IO, emitter::Emitter2D)
-    print(io, "Emitter2D(id=$(emitter.id), pos=($(round(emitter.x, digits=3)), $(round(emitter.y, digits=3))), σ=($(round(emitter.σx, digits=3)), $(round(emitter.σy, digits=3))))")
-end
-
-function Base.show(io::IO, ::MIME"text/plain", emitter::Emitter2D)
-    println(io, "Emitter2D:")
-    println(io, "  ID: $(emitter.id)")
-    println(io, "  Position: ($(round(emitter.x, digits=3)), $(round(emitter.y, digits=3))) μm")
-    println(io, "  Uncertainty: ($(round(emitter.σx, digits=3)), $(round(emitter.σy, digits=3))) μm")
-end
+# Pretty printing for emitters is handled by SMLMData
+# We only add display methods for types specific to SMLMBaGoL
 
 # Pretty printing for Localization2D
 function Base.show(io::IO, loc::Localization2D)
@@ -41,7 +32,12 @@ function Base.show(io::IO, ::MIME"text/plain", emitters::Vector{E}) where E<:Abs
     show_count = min(n, max_shown)
     for i in 1:show_count
         emitter = emitters[i]
-        println(io, "  [$i] ID $(emitter.id): ($(round(emitter.x, digits=3)), $(round(emitter.y, digits=3))) ± ($(round(emitter.σx, digits=3)), $(round(emitter.σy, digits=3))) μm")
+        if isa(emitter, Emitter2DFit)
+            println(io, "  [$i] ID $(emitter.id): ($(round(emitter.x, digits=3)), $(round(emitter.y, digits=3))) ± ($(round(emitter.σ_x, digits=3)), $(round(emitter.σ_y, digits=3))) μm")
+        else
+            # Basic Emitter2D doesn't have uncertainties
+            println(io, "  [$i]: ($(round(emitter.x, digits=3)), $(round(emitter.y, digits=3))) μm, $(round(emitter.photons, digits=0)) photons")
+        end
     end
     
     if n > max_shown
@@ -99,7 +95,12 @@ function Base.show(io::IO, ::MIME"text/plain", state::BaGoLState)
         for i in 1:show_count
             emitter = state.emitters[i]
             n_allocated = count(==(i), state.allocations)
-            println(io, "    ID $(emitter.id): ($(round(emitter.x, digits=3)), $(round(emitter.y, digits=3))) ± ($(round(emitter.σx, digits=3)), $(round(emitter.σy, digits=3))) μm ($(n_allocated) localizations)")
+            if isa(emitter, Emitter2DFit)
+                println(io, "    ID $(emitter.id): ($(round(emitter.x, digits=3)), $(round(emitter.y, digits=3))) ± ($(round(emitter.σ_x, digits=3)), $(round(emitter.σ_y, digits=3))) μm ($(n_allocated) localizations)")
+            else
+                # Basic Emitter2D
+                println(io, "    Emitter $i: ($(round(emitter.x, digits=3)), $(round(emitter.y, digits=3))) μm, $(round(emitter.photons, digits=0)) photons ($(n_allocated) localizations)")
+            end
         end
         if n_emitters > 3
             println(io, "    ... and $(n_emitters-3) more")

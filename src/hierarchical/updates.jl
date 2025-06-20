@@ -37,18 +37,22 @@ function update_gamma_hyperparameters(counts::Vector{Int},
     
     if sample_var > 0 && sample_mean > 0
         # Method of moments for Gamma parameters
+        # For Gamma(α, β) with β as scale parameter: mean = α*β, var = α*β²
+        # Therefore: α = mean²/var, β = var/mean
         α_mom = sample_mean^2 / sample_var
-        β_mom = sample_mean / sample_var
+        β_mom = sample_var / sample_mean  # Fixed: was incorrectly inverted
         
-        # Shrinkage toward prior (simple Bayesian update)
-        shrinkage_weight = 0.1  # 10% weight to prior
+        # Adaptive shrinkage: less weight on prior as we get more data
+        # Start with 20% shrinkage, decay to 5% as sample size grows
+        shrinkage_weight = max(0.05, 0.20 * exp(-n / 1000))
         
         new_α = (1 - shrinkage_weight) * α_mom + shrinkage_weight * current_α
         new_β = (1 - shrinkage_weight) * β_mom + shrinkage_weight * current_β
         
-        # Apply bounds based on hyperpriors
-        new_α = max(a₀, min(new_α, a₀ + 10.0))  # Bounded update
-        new_β = max(1.0 / d₀, min(new_β, 1.0 / c₀))  # Bounded update
+        # Apply much more relaxed bounds to allow convergence
+        # Allow α to vary widely around the hyperprior mean
+        new_α = max(0.1, min(new_α, 100.0))  # Very wide bounds
+        new_β = max(0.1, min(new_β, 100.0))  # Very wide bounds
     else
         # No update if insufficient variation
         new_α = current_α
@@ -58,7 +62,7 @@ function update_gamma_hyperparameters(counts::Vector{Int},
     return new_α, new_β
 end
 
-function update_hierarchical!(chains::Vector{RJMCMCChain})
+function update_hierarchical!(chains::Vector{RJMCMCChain}, current_iteration::Int = 0)
     # Only proceed if all chains have hierarchical priors
     hierarchical_priors = HierarchicalGammaPrior[]
     
@@ -83,16 +87,17 @@ function update_hierarchical!(chains::Vector{RJMCMCChain})
     # Collect counts from all chains
     all_counts = collect_emitter_counts(chains)
     
-    if length(all_counts) < 10  # Need sufficient data
-        return
-    end
-    
     # Update hyperparameters
     new_α, new_β = update_gamma_hyperparameters(
         all_counts,
         template_prior.α, template_prior.β,
         template_prior.α_prior, template_prior.β_prior
     )
+    
+    # Record the update in hierarchical history for all chains
+    for chain in chains
+        push!(chain.hierarchical_history, (current_iteration, new_α, new_β))
+    end
     
     # Create new hierarchical prior
     new_hierarchical_prior = HierarchicalGammaPrior(
@@ -106,7 +111,7 @@ function update_hierarchical!(chains::Vector{RJMCMCChain})
             # Update K_prior within CompoundPrior
             new_compound_prior = CompoundPrior(
                 chain.prior.spatial_prior,
-                GammaPrior(new_α, new_β)  # Convert to simple GammaPrior for efficiency
+                new_hierarchical_prior  # Keep as HierarchicalGammaPrior to allow future updates
             )
             chain.prior = new_compound_prior
             
@@ -131,5 +136,13 @@ function update_hierarchical!(chains::Vector{RJMCMCChain})
         end
     end
     
-    println("Hierarchical update: α = $(round(new_α, digits=3)), β = $(round(new_β, digits=3))")
+    # Calculate mean for reporting
+    old_mean = template_prior.α * template_prior.β
+    new_mean = new_α * new_β
+    empirical_mean = length(all_counts) > 0 ? Statistics.mean(all_counts) : 0.0
+    
+    println("Hierarchical update at iteration $current_iteration:")
+    println("  Old: α = $(round(template_prior.α, digits=3)), β = $(round(template_prior.β, digits=3)), mean = $(round(old_mean, digits=2))")
+    println("  New: α = $(round(new_α, digits=3)), β = $(round(new_β, digits=3)), mean = $(round(new_mean, digits=2))")
+    println("  Empirical mean from $(length(all_counts)) counts: $(round(empirical_mean, digits=2))")
 end
