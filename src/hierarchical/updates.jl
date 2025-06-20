@@ -141,8 +141,9 @@ function update_hierarchical!(chains::Vector{RJMCMCChain}, current_iteration::In
     new_mean = new_α * new_β
     empirical_mean = length(all_counts) > 0 ? Statistics.mean(all_counts) : 0.0
     
-    println("Hierarchical update at iteration $current_iteration:")
-    println("  Old: α = $(round(template_prior.α, digits=3)), β = $(round(template_prior.β, digits=3)), mean = $(round(old_mean, digits=2))")
-    println("  New: α = $(round(new_α, digits=3)), β = $(round(new_β, digits=3)), mean = $(round(new_mean, digits=2))")
-    println("  Empirical mean from $(length(all_counts)) counts: $(round(empirical_mean, digits=2))")
+    # Debug output disabled - uncomment for troubleshooting
+    # println("Hierarchical update at iteration $current_iteration:")
+    # println("  Old: α = $(round(template_prior.α, digits=3)), β = $(round(template_prior.β, digits=3)), mean = $(round(old_mean, digits=2))")
+    # println("  New: α = $(round(new_α, digits=3)), β = $(round(new_β, digits=3)), mean = $(round(new_mean, digits=2))")
+    # println("  Empirical mean from $(length(all_counts)) counts: $(round(empirical_mean, digits=2))")
 end

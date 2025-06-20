@@ -71,15 +71,19 @@ function estimate_partitioning_radius(localizations::Vector{<:AbstractLocalizati
 end
 
 function print_partitioning_summary(partitioned_localizations::Vector{Vector{T}}) where T<:AbstractLocalization
-    println("Partitioning summary:")
-    println("  Total partitions: $(length(partitioned_localizations))")
-    for (i, partition) in enumerate(partitioned_localizations)
-        if length(partition) > 0
-            x_coords = [loc.x for loc in partition]
-            y_coords = [loc.y for loc in partition]
-            x_center = sum(x_coords) / length(x_coords)
-            y_center = sum(y_coords) / length(y_coords)
-            println("    Partition $i: $(length(partition)) localizations at ($(round(x_center, digits=2)), $(round(y_center, digits=2)))")
-        end
+    # Minimal partitioning info - details commented out for cleaner output
+    if length(partitioned_localizations) > 1
+        total_locs = sum(length(p) for p in partitioned_localizations)
+        println("Data partitioned: $(length(partitioned_localizations)) partitions, $total_locs total localizations")
     end
+    # Detailed output available by uncommenting:
+    # for (i, partition) in enumerate(partitioned_localizations)
+    #     if length(partition) > 0
+    #         x_coords = [loc.x for loc in partition]
+    #         y_coords = [loc.y for loc in partition]
+    #         x_center = sum(x_coords) / length(x_coords)
+    #         y_center = sum(y_coords) / length(y_coords)
+    #         println("    Partition $i: $(length(partition)) localizations at ($(round(x_center, digits=2)), $(round(y_center, digits=2)))")
+    #     end
+    # end
 end
