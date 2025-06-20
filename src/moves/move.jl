@@ -18,19 +18,23 @@ function propose_move(::Type{Move}, state::BaGoLState{E,L,T}, rng=Random.GLOBAL_
         x_new, y_new = sample_spatial_prior(spatial_prior, rng)
         new_emitter = E(x_new, y_new, emitter.photons)
     else
-        # Propose new position based on allocated localizations with some noise
-        # Use weighted average of allocated localizations as center
-        x_center = sum(loc.x / (loc.σx^2) for loc in allocated_locs) / 
-                  sum(1 / (loc.σx^2) for loc in allocated_locs)
-        y_center = sum(loc.y / (loc.σy^2) for loc in allocated_locs) / 
-                  sum(1 / (loc.σy^2) for loc in allocated_locs)
+        # Sample new position from posterior distribution (proper Gibbs sampling)
+        # Following the mathematical reference equations 291-301
         
-        # Add small random perturbation
-        avg_sigma_x = sqrt(sum(loc.σx^2 for loc in allocated_locs) / length(allocated_locs))
-        avg_sigma_y = sqrt(sum(loc.σy^2 for loc in allocated_locs) / length(allocated_locs))
+        # Calculate precision-weighted mean (posterior mean)
+        x_precision_sum = sum(1 / (loc.σx^2) for loc in allocated_locs)
+        y_precision_sum = sum(1 / (loc.σy^2) for loc in allocated_locs)
         
-        x_new = x_center + randn(rng) * avg_sigma_x * 0.5
-        y_new = y_center + randn(rng) * avg_sigma_y * 0.5
+        x_mean = sum(loc.x / (loc.σx^2) for loc in allocated_locs) / x_precision_sum
+        y_mean = sum(loc.y / (loc.σy^2) for loc in allocated_locs) / y_precision_sum
+        
+        # Calculate posterior variance (inverse of summed precisions)
+        x_variance = 1 / x_precision_sum
+        y_variance = 1 / y_precision_sum
+        
+        # Sample from posterior distribution N(mean, variance)
+        x_new = x_mean + randn(rng) * sqrt(x_variance)
+        y_new = y_mean + randn(rng) * sqrt(y_variance)
         
         new_emitter = E(x_new, y_new, emitter.photons)
     end
