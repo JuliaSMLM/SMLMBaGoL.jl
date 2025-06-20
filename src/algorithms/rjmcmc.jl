@@ -350,11 +350,12 @@ end
 
 function create_hierarchical_prior(localizations::Vector{<:AbstractLocalization})
     spatial_prior = create_spatial_prior_from_localizations(localizations, 0.2)
-    # Start with reasonable hierarchical hyperpriors
+    # Start with better initial values and less restrictive hyperpriors
+    # Initial mean = α * β = 2.0 * 5.0 = 10.0 (reasonable starting point)
     hierarchical_K_prior = HierarchicalGammaPrior(
-        2.0, 1.0,          # Initial α, β
-        (1.0, 1.0),        # α hyperprior (a₀, b₀)
-        (1.0, 1.0)         # β hyperprior (c₀, d₀)
+        2.0, 5.0,          # Initial α, β (mean = 10.0)
+        (0.5, 0.1),        # α hyperprior (a₀, b₀) - less restrictive
+        (0.5, 0.1)         # β hyperprior (c₀, d₀) - less restrictive
     )
     return CompoundPrior(spatial_prior, hierarchical_K_prior)
 end
