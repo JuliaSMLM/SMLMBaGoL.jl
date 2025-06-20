@@ -58,10 +58,11 @@ function run_rjmcmc!(chain::RJMCMCChain, n_iterations::Int)
             push!(chain.samples, deepcopy(chain.current_state))
         end
         
-        # Optional: print progress
-        if iter % 1000 == 0
-            println("Iteration $iter, acceptance rate: $(round(acceptances/iter, digits=3))")
-        end
+        # Progress monitoring disabled for cleaner output
+        # Uncomment for detailed progress:
+        # if iter % 1000 == 0
+        #     println("Iteration $iter, acceptance rate: $(round(acceptances/iter, digits=3))")
+        # end
     end
     
     return acceptances / n_iterations
@@ -203,19 +204,20 @@ function run_bagol(localizations::Vector{L};
             
             total_acceptance += accepted_count / length(chains)
             
-            # Progress reporting
-            if global_iter % 1000 == 0
-                avg_acceptance = total_acceptance / global_iter
-                threading_status = enable_threading ? " (threaded)" : " (sequential)"
-                println("Iteration $global_iter$threading_status, average acceptance rate: $(round(avg_acceptance, digits=3))")
-            end
+            # Progress reporting - disabled for cleaner output
+            # Uncomment for detailed progress monitoring
+            # if global_iter % 1000 == 0
+            #     avg_acceptance = total_acceptance / global_iter
+            #     threading_status = enable_threading ? " (threaded)" : " (sequential)"
+            #     println("Iteration $global_iter$threading_status, average acceptance rate: $(round(avg_acceptance, digits=3))")
+            # end
         end
         
         total_iterations_completed += current_epoch_iterations
         
         # Hierarchical updates at end of epoch (synchronization point)
         if enable_hierarchical && epoch < n_hierarchical_epochs && total_iterations_completed > burn_in
-            println("Hierarchical update at iteration $total_iterations_completed...")
+            # Silent hierarchical update - details available in update_hierarchical! if needed
             update_hierarchical!(chains, total_iterations_completed)
         end
         
@@ -228,23 +230,8 @@ function run_bagol(localizations::Vector{L};
     avg_acceptance_rate = total_acceptance / total_iterations_completed
     total_samples = sum(length(chain.samples) for chain in chains)
     
-    println("RJMCMC completed:")
-    println("  Total iterations: $total_iterations_completed")
-    if enable_hierarchical
-        println("  Hierarchical epochs: $n_hierarchical_epochs (interval: $hierarchical_interval)")
-    end
-    println("  Partitions: $(length(chains))")
-    println("  Threading: $(enable_threading ? "enabled" : "disabled")")
-    if enable_threading && length(chains) > 1
-        println("  Thread utilization: $(min(Threads.nthreads(), length(chains)))/$(Threads.nthreads()) threads")
-    end
-    println("  Burn-in: $burn_in")
-    println("  Total samples collected: $total_samples")
-    println("  Average acceptance rate: $(round(avg_acceptance_rate, digits=3))")
-    println("  Data partitioning: $(partition_data ? "enabled" : "disabled (single partition)")")
-    if existing_chains !== nothing
-        println("  Chain continuation: $continuation_mode mode")
-    end
+    # Concise summary
+    println("RJMCMC completed: $total_iterations_completed iterations, $total_samples samples, acceptance rate: $(round(avg_acceptance_rate, digits=3))")
     
     # Return single chain if only one partition, otherwise return all chains
     return length(chains) == 1 ? chains[1] : chains
@@ -290,12 +277,12 @@ function handle_chain_continuation(existing_chains::Union{Vector{RJMCMCChain}, R
     
     if continuation_mode == :extend
         # Simply return existing chains - they will continue from current state
-        println("Continuing $(length(chains_vec)) existing chains...")
+        # Continuing existing chains silently
         return chains_vec
         
     elseif continuation_mode == :new_chain
         # Create new chains that will be concatenated with existing ones
-        println("Creating new chains to concatenate with $(length(chains_vec)) existing chains...")
+        # Creating new chains to concatenate
         new_chains = initialize_chains_from_data(localizations, EmitterType, partition_data,
                                                 partition_radius, enable_hierarchical, burn_in, thin, rng)
         
@@ -326,18 +313,24 @@ function handle_chain_continuation(existing_chains::Union{Vector{RJMCMCChain}, R
 end
 
 function print_partitioning_summary(chains::Vector{RJMCMCChain})
-    println("Partitioning summary:")
-    println("  Total partitions: $(length(chains))")
-    for (i, chain) in enumerate(chains)
-        partition = chain.localizations
-        if length(partition) > 0
-            x_coords = [loc.x for loc in partition]
-            y_coords = [loc.y for loc in partition]
-            x_center = sum(x_coords) / length(x_coords)
-            y_center = sum(y_coords) / length(y_coords)
-            println("    Partition $i: $(length(partition)) localizations at ($(round(x_center, digits=2)), $(round(y_center, digits=2)))")
-        end
+    # Minimal output for cleaner console
+    if length(chains) > 1
+        total_locs = sum(length(chain.localizations) for chain in chains)
+        println("Data partitioned: $(length(chains)) partitions, $total_locs total localizations")
     end
+    # Detailed output available by uncommenting:
+    # println("Partitioning summary:")
+    # println("  Total partitions: $(length(chains))")
+    # for (i, chain) in enumerate(chains)
+    #     partition = chain.localizations
+    #     if length(partition) > 0
+    #         x_coords = [loc.x for loc in partition]
+    #         y_coords = [loc.y for loc in partition]
+    #         x_center = sum(x_coords) / length(x_coords)
+    #         y_center = sum(y_coords) / length(y_coords)
+    #         println("    Partition $i: $(length(partition)) localizations at ($(round(x_center, digits=2)), $(round(y_center, digits=2)))")
+    #     end
+    # end
 end
 
 function create_default_prior(localizations::Vector{<:AbstractLocalization})
@@ -389,9 +382,8 @@ function run_bagol(smld::SMLMSim.BasicSMLD; kwargs...)
     # Convert SMLD to BaGoL localization format
     localizations = smld_to_localizations(smld)
     
-    println("SMLMSim data conversion:")
-    println("  Input: $(length(smld.emitters)) emitters from SMLMSim")
-    println("  Output: $(length(localizations)) localizations for BaGoL")
+    # Silent conversion - SMLMSim emitters to BaGoL localizations
+    # ($(length(smld.emitters)) emitters → $(length(localizations)) localizations)
     
     # Dispatch to main run_bagol implementation
     return run_bagol(localizations; kwargs...)

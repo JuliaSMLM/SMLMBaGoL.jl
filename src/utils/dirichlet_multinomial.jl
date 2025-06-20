@@ -78,10 +78,18 @@ function log_dirichlet_multinomial_likelihood(state::BaGoLState, prior_λ)
     K = length(state.emitters)
     counts = zeros(Int, K)
     
+    # Count allocated localizations
+    n_allocated = 0
     for alloc in state.allocations
         if 1 ≤ alloc ≤ K
             counts[alloc] += 1
+            n_allocated += 1
         end
+    end
+    
+    # If no localizations are allocated, return 0 (neutral likelihood)
+    if n_allocated == 0
+        return 0.0
     end
     
     # Estimate concentration parameters
@@ -90,9 +98,8 @@ function log_dirichlet_multinomial_likelihood(state::BaGoLState, prior_λ)
         push!(α, estimate_concentration_param(counts[k], prior_λ))
     end
     
-    # Calculate log probability
-    n_total = length(state.localizations)
-    return log_dirichlet_multinomial_pmf(n_total, counts, α)
+    # Calculate log probability using only allocated localizations
+    return log_dirichlet_multinomial_pmf(n_allocated, counts, α)
 end
 
 """
