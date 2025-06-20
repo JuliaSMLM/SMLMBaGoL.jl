@@ -81,6 +81,6 @@ export gen_sr_image
 export circle!, sr_circles, sr_circles!, sr_circles_combined, sr_circles_combined!
 export diagnose_chains, quick_diagnose, assess_burn_in, assess_chain_length
 export plot_hierarchical_evolution, plot_gamma_distributions, plot_emitter_count_histogram
-export analyze_hierarchical_convergence, get_hierarchical_summary
+export analyze_hierarchical_convergence, get_hierarchical_summary, plot_true_vs_hierarchical_distribution
 
 end # module SMLMBaGoL

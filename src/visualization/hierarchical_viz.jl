@@ -266,3 +266,75 @@ function get_hierarchical_summary(chains::Vector{RJMCMCChain})
         message = "Hierarchical prior adapted from α=$(round(initial_α,digits=2))→$(round(final_α,digits=2)), β=$(round(initial_β,digits=2))→$(round(final_β,digits=2))"
     )
 end
+
+function plot_true_vs_hierarchical_distribution(true_counts::Vector{Int}, chains::Vector{RJMCMCChain};
+                                              filename::Union{Nothing,String} = nothing,
+                                              figsize::Tuple{Int,Int} = (800, 600))
+    
+    # Get final hierarchical parameters if available
+    final_α, final_β = nothing, nothing
+    for chain in chains
+        if !isempty(chain.hierarchical_history)
+            last_entry = chain.hierarchical_history[end]
+            final_α, final_β = last_entry[2], last_entry[3]
+            break
+        end
+    end
+    
+    if isnothing(final_α)
+        @warn "No hierarchical parameters found in chains."
+        return nothing
+    end
+    
+    # Create figure
+    fig = Figure(size=figsize)
+    ax = CairoMakie.Axis(fig[1, 1], 
+              xlabel="Localizations per emitter", 
+              ylabel="Probability density",
+              title="True Distribution vs Hierarchical Prior")
+    
+    # Plot true distribution histogram
+    hist!(ax, true_counts, bins=0:maximum(true_counts)+1, 
+          normalization=:pdf, color=(:blue, 0.6), 
+          label="True distribution")
+    
+    # Calculate true statistics
+    true_mean = mean(true_counts)
+    true_std = std(true_counts)
+    
+    # Overlay fitted Gamma from hierarchical prior
+    k_values = 0:0.1:maximum(true_counts)+5
+    gamma_dist = Distributions.Gamma(final_α, final_β)
+    pdf_values = [Distributions.pdf(gamma_dist, k) for k in k_values]
+    fitted_mean = final_α * final_β
+    fitted_std = sqrt(final_α * final_β^2)
+    
+    lines!(ax, k_values, pdf_values, 
+           color=:red, linewidth=3,
+           label="Hierarchical prior Gamma($(round(final_α,digits=2)), $(round(final_β,digits=2)))")
+    
+    # Add vertical lines for means
+    vlines!(ax, [true_mean], color=:blue, linewidth=2, linestyle=:dash,
+            label="True mean = $(round(true_mean, digits=1))")
+    vlines!(ax, [fitted_mean], color=:red, linewidth=2, linestyle=:dash,
+            label="Prior mean = $(round(fitted_mean, digits=1))")
+    
+    # Add text box with statistics
+    text_str = "True: μ=$(round(true_mean,digits=1)), σ=$(round(true_std,digits=1))\n" *
+               "Prior: μ=$(round(fitted_mean,digits=1)), σ=$(round(fitted_std,digits=1))\n" *
+               "Error: $(round(abs(fitted_mean-true_mean)/true_mean*100,digits=1))%"
+    
+    text!(ax, 0.95, 0.95, text=text_str, 
+          align=(:right, :top), space=:relative,
+          fontsize=14, font="mono")
+    
+    # Add legend
+    axislegend(ax, position=:lt)
+    
+    # Save if filename provided
+    if !isnothing(filename)
+        save(filename, fig, px_per_unit=2)
+    end
+    
+    return fig
+end

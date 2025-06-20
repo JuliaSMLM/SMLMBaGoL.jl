@@ -22,6 +22,7 @@ The demo is fully configurable and generates publication-quality visualizations.
 
 using Pkg; Pkg.activate("examples")
 using SMLMBaGoL
+using SMLMBaGoL: count_allocations
 using Statistics
 using CairoMakie
 using SMLMSim
@@ -110,6 +111,25 @@ println("   ✓ Expected emitters: $(round(expected_emitters, digits=1))")
 println("   ✓ Actual emitters: $(actual_emitters)")
 println("   ✓ Actual localizations per emitter: $(round(actual_locs_per_emitter, digits=1))")
 
+# Analyze true localizations per emitter using track_id
+track_counts = Dict{Int, Int}()
+for emitter in smld.emitters
+    track_id = emitter.track_id
+    track_counts[track_id] = get(track_counts, track_id, 0) + 1
+end
+
+# Get distribution statistics
+true_counts = collect(values(track_counts))
+true_n_emitters = length(track_counts)
+true_mean_locs = mean(true_counts)
+true_std_locs = std(true_counts)
+
+println("\n   True localizations per emitter (using track_id):")
+println("   ✓ Number of true emitters: $true_n_emitters")
+println("   ✓ Mean localizations per emitter: $(round(true_mean_locs, digits=1))")
+println("   ✓ Std localizations per emitter: $(round(true_std_locs, digits=1))")
+println("   ✓ Min/Max: $(minimum(true_counts))/$(maximum(true_counts))")
+
 # Calculate some statistics
 if length(smld.emitters) > 0
     photon_counts = [e.photons for e in smld.emitters]
@@ -173,9 +193,10 @@ println("3. Analyzing results and chain quality...")
 mapn_results = estimate_mapn(chains)
 
 println("   ✓ Original localizations: $(length(smld.emitters))")
-println("   ✓ Estimated emitters: $(length(mapn_results))")
-recovery_rate = length(mapn_results) / length(smld.emitters) * 100
-println("   ✓ Recovery rate: $(round(recovery_rate, digits=1))%")
+println("   ✓ True emitters (from track_id): $true_n_emitters")
+println("   ✓ Estimated emitters (MAPN): $(length(mapn_results))")
+emitter_recovery_rate = length(mapn_results) / true_n_emitters * 100
+println("   ✓ Emitter recovery rate: $(round(emitter_recovery_rate, digits=1))% ($(length(mapn_results))/$true_n_emitters)")
 
 # Comprehensive chain diagnostics
 println("   ✓ Running chain diagnostics...")
@@ -281,6 +302,11 @@ if ENABLE_HIERARCHICAL
                                    true_mean=EXPECTED_LOCS_PER_EMITTER)
         println("   ✓ Created empirical vs fitted distribution plot (with true mean)")
         
+        # Plot true distribution vs hierarchical prior
+        plot_true_vs_hierarchical_distribution(true_counts, chains,
+                                             filename=joinpath(output_dir, "smlmsim_true_vs_hierarchical.png"))
+        println("   ✓ Created true distribution vs hierarchical prior plot")
+        
         # Check convergence
         conv_result = analyze_hierarchical_convergence(chains)
         println("   • Convergence: $(conv_result.message)")
@@ -290,12 +316,31 @@ if ENABLE_HIERARCHICAL
         if conv_result.converged
             # Gamma distribution mean = α * β
             fitted_mean = conv_result.final_α * conv_result.final_β
-            true_mean = EXPECTED_LOCS_PER_EMITTER
-            error_percent = abs(fitted_mean - true_mean) / true_mean * 100
             
-            println("   • True localizations per emitter: $true_mean")
-            println("   • Fitted mean (α×β): $(round(fitted_mean, digits=2))")
-            println("   • Relative error: $(round(error_percent, digits=1))%")
+            println("\n   Comparison with true distribution:")
+            println("   • True mean (from track_id): $(round(true_mean_locs, digits=1))")
+            println("   • True std: $(round(true_std_locs, digits=1))")
+            println("   • Hierarchical prior fitted mean: $(round(fitted_mean, digits=1))")
+            println("   • Hierarchical prior fitted std: $(round(sqrt(conv_result.final_α * conv_result.final_β^2), digits=1))")
+            
+            error_percent = abs(fitted_mean - true_mean_locs) / true_mean_locs * 100
+            println("   • Relative error in mean: $(round(error_percent, digits=1))%")
+            
+            # Also compare the actual distribution of allocations in the final state
+            if !isempty(chains)
+                all_emitter_counts = Int[]
+                for chain in (isa(chains, Vector) ? chains : [chains])
+                    counts = count_allocations(chain.current_state)
+                    append!(all_emitter_counts, counts[counts .> 0])
+                end
+                
+                if !isempty(all_emitter_counts)
+                    println("\n   Actual allocation distribution in final state:")
+                    println("   • Mean allocations per emitter: $(round(mean(all_emitter_counts), digits=1))")
+                    println("   • Std: $(round(std(all_emitter_counts), digits=1))")
+                    println("   • Min/Max: $(minimum(all_emitter_counts))/$(maximum(all_emitter_counts))")
+                end
+            end
         end
     end
 end
@@ -371,7 +416,7 @@ println()
 
 println("Performance Metrics:")
 println("• Data complexity: $(length(smld.emitters)) localizations")
-println("• Emitter recovery: $(round(recovery_rate, digits=1))%")
+println("• Emitter recovery: $(round(emitter_recovery_rate, digits=1))%")
 println("• Chain quality: $(diagnostic_results.summary)")
 println("• Analysis efficiency: $(ENABLE_PARTITIONING ? "enhanced with partitioning" : "standard single-partition")")
 println()
@@ -388,6 +433,7 @@ if SAVE_IMAGES
         println("• smlmsim_hierarchical_evolution.png - Evolution of α and β hyperparameters")
         println("• smlmsim_gamma_distributions.png - Gamma distribution evolution over time")
         println("• smlmsim_emitter_count_fit.png - Empirical vs fitted distribution comparison")
+        println("• smlmsim_true_vs_hierarchical.png - True distribution vs hierarchical prior")
     end
     println("• All files saved to: $output_dir")
 end
