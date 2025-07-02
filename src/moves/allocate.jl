@@ -34,7 +34,7 @@ function propose_move(::Type{Allocate}, state::BaGoLState{E,L,T}, rng=Random.GLO
         # CRITICAL: Include Pólya weight (n_j + κ) as per math spec Section 3
         for (i, emitter) in enumerate(state.emitters)
             # w_ij ∝ (n_j + κ) × L_ij
-            log_probs[i] = log(n_j[i] + κ) + log_likelihood(emitter, loc)
+            log_probs[i] = log(n_j[i] + κ) + log_likelihood(emitter, loc, state.τ²)
         end
         
         # Convert to probabilities (subtract max for numerical stability)
@@ -66,7 +66,7 @@ function propose_move(::Type{Allocate}, state::BaGoLState{E,L,T}, rng=Random.GLO
     # Recompute likelihood
     new_state = BaGoLState(new_state.emitters, new_state.localizations, 
                           new_state.allocations, new_state.spatial_prior,
-                          new_state.count_prior, log_likelihood(new_state))
+                          new_state.count_prior, state.τ², log_likelihood(new_state))
     
     return new_state
 end

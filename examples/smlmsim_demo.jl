@@ -39,7 +39,7 @@ const FRAMERATE = 100.0                 # Frames per second
 const EXPECTED_LOCS_PER_EMITTER = 10    # Expected localizations per emitter
 
 # Analysis parameters  
-const N_ITERATIONS = 50000              # RJMCMC iterations (reduced from 50000)
+const N_ITERATIONS = 10000              # RJMCMC iterations (reduced from 50000)
 const BURN_IN = 2000                    # Burn-in period (reduced from 10000)
 const ENABLE_PARTITIONING = true        # Use multiple partitions for efficiency
 const PARTITION_RADIUS = 0.5            # Partition radius in μm (4x avg uncertainty)
@@ -284,17 +284,17 @@ if ENABLE_HIERARCHICAL
         # Check convergence
         conv_result = analyze_hierarchical_convergence(chains)
         println("   • Convergence: $(conv_result.message)")
-        println("   • Final parameters: α=$(round(conv_result.final_α, digits=3)), β=$(round(conv_result.final_β, digits=3))")
+        println("   • Final parameters: μ=$(round(conv_result.final_μ, digits=3)), κ=$(round(conv_result.final_κ, digits=3)), τ²=$(round(conv_result.final_τ²*1e6, digits=1)) nm²")
         
         # Compare to true value
         if conv_result.converged
-            # Gamma distribution mean = α * β
-            fitted_mean = conv_result.final_α * conv_result.final_β
+            # For Negative Binomial, mean = μ
+            fitted_mean = conv_result.final_μ
             true_mean = EXPECTED_LOCS_PER_EMITTER
             error_percent = abs(fitted_mean - true_mean) / true_mean * 100
             
             println("   • True localizations per emitter: $true_mean")
-            println("   • Fitted mean (α×β): $(round(fitted_mean, digits=2))")
+            println("   • Fitted mean (μ): $(round(fitted_mean, digits=2))")
             println("   • Relative error: $(round(error_percent, digits=1))%")
         end
     end
@@ -385,8 +385,8 @@ if SAVE_IMAGES
     println("• smlmsim_uncertainty_comparison.png - Combined comparison plot (localizations + MAPN)")
     println("• smlmsim_posterior_uncertainty.png - Posterior position uncertainties")
     if ENABLE_HIERARCHICAL
-        println("• smlmsim_hierarchical_evolution.png - Evolution of α and β hyperparameters")
-        println("• smlmsim_gamma_distributions.png - Gamma distribution evolution over time")
+        println("• smlmsim_hierarchical_evolution.png - Evolution of μ, κ, and τ² hyperparameters")
+        println("• smlmsim_gamma_distributions.png - Negative Binomial distribution evolution over time")
         println("• smlmsim_emitter_count_fit.png - Empirical vs fitted distribution comparison")
     end
     println("• All files saved to: $output_dir")

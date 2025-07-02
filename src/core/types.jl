@@ -12,6 +12,7 @@ struct HierarchicalUpdate{T<:Real}
     iteration::Int
     μ::T                    # mean localizations per emitter
     κ::T                    # overdispersion parameter
+    τ²::T                   # additional localization variance
     mean_count::T          # empirical mean from data
     n_emitters::Int        # number of emitters in update
 end
