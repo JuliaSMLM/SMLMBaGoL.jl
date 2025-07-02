@@ -82,10 +82,21 @@ function create_prior_from_params(localizations::Vector{<:AbstractLocalization},
     # For Gamma: mean = α*β, so use this as μ
     μ = alpha * beta
     κ = 2.0  # Default concentration parameter
+    
+    # Calculate initial τ² estimate from localization precisions
+    if !isempty(localizations)
+        # Use 10% of median uncertainty squared as initial guess
+        median_σ = Statistics.median([sqrt(loc.σx^2 + loc.σy^2) for loc in localizations])
+        initial_τ² = (0.1 * median_σ)^2
+    else
+        initial_τ² = 1e-6  # 1 nm² default
+    end
+    
     count_prior = HierarchicalNegBinomialPrior(
-        μ, κ,                # Initial μ, κ
+        μ, κ, initial_τ²,    # Initial μ, κ, τ²
         (2.0, 0.2),          # μ hyperprior
-        (1.0, 0.5)           # κ hyperprior
+        (1.0, 0.5),          # κ hyperprior
+        (2.0, initial_τ² * 2.0)  # τ² hyperprior: InverseGamma(2, 2*initial_τ²)
     )
     
     return spatial_prior, count_prior
