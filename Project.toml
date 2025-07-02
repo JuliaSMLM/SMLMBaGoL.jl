@@ -23,6 +23,7 @@ StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 [compat]
 CairoMakie = "0.13, 0.14, 0.15"
 Clustering = "0.14 - 0.15"
+Colors = "0.13"
 Distributions = "0.25"
 Hungarian = "0.7.0"
 HypothesisTests = "0.11.5"
