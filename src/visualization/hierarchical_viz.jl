@@ -1,13 +1,13 @@
 function plot_hierarchical_evolution(chains::Vector{<:RJMCMCChain};
                                    filename::Union{Nothing,String} = nothing,
-                                   figsize::Tuple{Int,Int} = (800, 600))
+                                   figsize::Tuple{Int,Int} = (800, 900))  # Increased height for 3 plots
     
     # Collect hierarchical history from all chains
     all_histories = []
     for (i, chain) in enumerate(chains)
         if !isempty(chain.hierarchical_history)
             for update in chain.hierarchical_history
-                push!(all_histories, (update.iteration, update.μ, update.κ, i))
+                push!(all_histories, (update.iteration, update.μ, update.κ, update.τ², i))
             end
         end
     end
@@ -24,6 +24,7 @@ function plot_hierarchical_evolution(chains::Vector{<:RJMCMCChain};
     iterations = [h[1] for h in all_histories]
     mus = [h[2] for h in all_histories]
     kappas = [h[3] for h in all_histories]
+    tau2s = [h[4] for h in all_histories]
     
     # Create figure
     fig = Figure(size=figsize)
@@ -44,7 +45,15 @@ function plot_hierarchical_evolution(chains::Vector{<:RJMCMCChain};
     lines!(ax2, iterations, kappas, linewidth=2, color=:red)
     scatter!(ax2, iterations, kappas, markersize=8, color=:red)
     
-    # Grid is already enabled by default in CairoMakie
+    # Plot τ² evolution
+    ax3 = CairoMakie.Axis(fig[3, 1], 
+               xlabel="Iteration", 
+               ylabel="τ² (nm²)",
+               title="Hierarchical Prior Evolution: τ² (additional localization variance)")
+    # Convert to nm² for better readability
+    tau2s_nm2 = tau2s .* 1e6  # Convert from μm² to nm²
+    lines!(ax3, iterations, tau2s_nm2, linewidth=2, color=:green)
+    scatter!(ax3, iterations, tau2s_nm2, markersize=8, color=:green)
     
     # Save if filename provided
     if !isnothing(filename)
@@ -204,7 +213,7 @@ function analyze_hierarchical_convergence(chains::Vector{<:RJMCMCChain};
     all_updates = []
     for chain in chains
         for update in chain.hierarchical_history
-            push!(all_updates, (update.iteration, update.μ, update.κ))
+            push!(all_updates, (update.iteration, update.μ, update.κ, update.τ²))
         end
     end
     
@@ -218,21 +227,22 @@ function analyze_hierarchical_convergence(chains::Vector{<:RJMCMCChain};
     # Check parameter stability in recent updates
     recent_mus = [u[2] for u in all_updates[end-window_size+1:end]]
     recent_kappas = [u[3] for u in all_updates[end-window_size+1:end]]
+    recent_tau2s = [u[4] for u in all_updates[end-window_size+1:end]]
     
     μ_cv = std(recent_mus) / mean(recent_mus)  # Coefficient of variation
     κ_cv = std(recent_kappas) / mean(recent_kappas)
+    τ²_cv = std(recent_tau2s) / mean(recent_tau2s)
     
-    converged = μ_cv < 0.05 && κ_cv < 0.05  # Less than 5% variation
+    converged = μ_cv < 0.05 && κ_cv < 0.05 && τ²_cv < 0.05  # Less than 5% variation
     
     return (
         converged = converged,
         μ_cv = μ_cv,
         κ_cv = κ_cv,
+        τ²_cv = τ²_cv,
         final_μ = all_updates[end][2],
         final_κ = all_updates[end][3],
-        # For backward compatibility, also provide α, β names (μ=α*β, κ approximated)
-        final_α = all_updates[end][3],  # κ as shape-like parameter
-        final_β = all_updates[end][2] / all_updates[end][3],  # approximate scale
+        final_τ² = all_updates[end][4],
         n_updates = length(all_updates),
         message = converged ? "Hierarchical parameters have converged" : "Hierarchical parameters still changing"
     )
@@ -252,42 +262,38 @@ function get_hierarchical_summary(chains::Vector{<:RJMCMCChain})
     end
     
     # Get initial and final parameters
-    initial_μ, initial_κ = nothing, nothing
-    final_μ, final_κ = nothing, nothing
+    initial_μ, initial_κ, initial_τ² = nothing, nothing, nothing
+    final_μ, final_κ, final_τ² = nothing, nothing, nothing
     
     for chain in chains
         if !isempty(chain.hierarchical_history)
             if isnothing(initial_μ)
                 first_update = chain.hierarchical_history[1]
-                initial_μ, initial_κ = first_update.μ, first_update.κ
+                initial_μ, initial_κ, initial_τ² = first_update.μ, first_update.κ, first_update.τ²
             end
             last_update = chain.hierarchical_history[end]
-            final_μ, final_κ = last_update.μ, last_update.κ
+            final_μ, final_κ, final_τ² = last_update.μ, last_update.κ, last_update.τ²
         end
     end
     
     # Calculate change
     μ_change = (final_μ - initial_μ) / initial_μ * 100
     κ_change = (final_κ - initial_κ) / initial_κ * 100
+    τ²_change = (final_τ² - initial_τ²) / initial_τ² * 100
     
     return (
         enabled = true,
         n_updates = total_updates,
         initial_μ = initial_μ,
         initial_κ = initial_κ,
+        initial_τ² = initial_τ²,
         final_μ = final_μ,
         final_κ = final_κ,
-        # For backward compatibility
-        initial_α = initial_κ,
-        initial_β = initial_μ / initial_κ,
-        final_α = final_κ,
-        final_β = final_μ / final_κ,
+        final_τ² = final_τ²,
         μ_change_percent = μ_change,
         κ_change_percent = κ_change,
-        # For backward compatibility
-        α_change_percent = κ_change,
-        β_change_percent = μ_change / initial_κ * 100,
+        τ²_change_percent = τ²_change,
         convergence = analyze_hierarchical_convergence(chains),
-        message = "Hierarchical prior adapted from μ=$(round(initial_μ,digits=2))→$(round(final_μ,digits=2)), κ=$(round(initial_κ,digits=2))→$(round(final_κ,digits=2))"
+        message = "Hierarchical prior adapted from μ=$(round(initial_μ,digits=2))→$(round(final_μ,digits=2)), κ=$(round(initial_κ,digits=2))→$(round(final_κ,digits=2)), τ²=$(round(initial_τ²*1e6,digits=2))→$(round(final_τ²*1e6,digits=2)) nm²"
     )
 end
