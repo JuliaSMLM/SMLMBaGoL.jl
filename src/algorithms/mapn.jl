@@ -162,7 +162,8 @@ function refine_mapn_assignment!(mapn_states::Vector{<:BaGoLState}; n_iterations
         
         # Create temporary reference state
         temp_ref = BaGoLState(mean_emitters, mapn_states[1].localizations, 
-                             mapn_states[1].allocations, mapn_states[1].prior, 0.0)
+                             mapn_states[1].allocations, mapn_states[1].spatial_prior,
+                             mapn_states[1].count_prior, 0.0)
         
         # Re-sort using updated reference
         sort_mapn_states!(mapn_states, temp_ref)

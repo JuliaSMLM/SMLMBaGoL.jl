@@ -20,9 +20,7 @@ function sample_emitter_from_prior(localizations::Vector{<:AbstractLocalization}
     return Emitter2D{T}(T(x), T(y), photons)
 end
 
-function log_spatial_prior_density(emitter::AbstractEmitter, spatial_prior::UniformSpatialPrior)
-    return log_prior_spatial(emitter, spatial_prior)
-end
+# log_spatial_prior_density function is defined in priors.jl
 
 function propose_reallocation(state::BaGoLState{E,L,T}, rng=Random.GLOBAL_RNG) where {E,L,T}
     n_emitters = length(state.emitters)
