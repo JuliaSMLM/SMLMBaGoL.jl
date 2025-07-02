@@ -85,3 +85,9 @@ function log_acceptance_ratio(::Type{Allocate}, current::BaGoLState, proposed::B
     
     return log_likelihood_ratio
 end
+
+# Allocate function with chain access (for interface consistency)
+function propose_move(::Type{Allocate}, state::BaGoLState{E,L,T}, chain::RJMCMCChain, rng=Random.GLOBAL_RNG) where {E,L,T}
+    # Allocate doesn't need the birth proposal, so just call the original method
+    return propose_move(Allocate, state, rng)
+end

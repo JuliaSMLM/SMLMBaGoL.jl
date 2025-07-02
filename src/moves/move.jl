@@ -90,3 +90,9 @@ function log_acceptance_ratio(::Type{Move}, current::BaGoLState, proposed::BaGoL
     
     return log_prior_ratio + log_likelihood_ratio + log_proposal_ratio
 end
+
+# Move function with chain access (for interface consistency)
+function propose_move(::Type{Move}, state::BaGoLState{E,L,T}, chain::RJMCMCChain, rng=Random.GLOBAL_RNG) where {E,L,T}
+    # Move doesn't need the birth proposal, so just call the original method
+    return propose_move(Move, state, rng)
+end
