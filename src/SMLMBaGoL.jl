@@ -4,7 +4,7 @@ using Random
 using LinearAlgebra
 using Statistics
 using Distributions
-using Distributions: MixtureModel, MultivariateNormal, pdf, rand, logpdf, NegativeBinomial
+using Distributions: MixtureModel, MultivariateNormal, pdf, rand, logpdf, NegativeBinomial, InverseGamma
 using SpecialFunctions
 using StatsBase
 using Hungarian

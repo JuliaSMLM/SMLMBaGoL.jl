@@ -20,11 +20,11 @@ function propose_move(::Type{Move}, state::BaGoLState{E,L,T}, rng=Random.GLOBAL_
         # Following the mathematical reference equations 291-301
         
         # Calculate precision-weighted mean (posterior mean)
-        x_precision_sum = sum(1 / (loc.σx^2) for loc in allocated_locs)
-        y_precision_sum = sum(1 / (loc.σy^2) for loc in allocated_locs)
+        x_precision_sum = sum(1 / (loc.σx^2 + state.τ²) for loc in allocated_locs)
+        y_precision_sum = sum(1 / (loc.σy^2 + state.τ²) for loc in allocated_locs)
         
-        x_mean = sum(loc.x / (loc.σx^2) for loc in allocated_locs) / x_precision_sum
-        y_mean = sum(loc.y / (loc.σy^2) for loc in allocated_locs) / y_precision_sum
+        x_mean = sum(loc.x / (loc.σx^2 + state.τ²) for loc in allocated_locs) / x_precision_sum
+        y_mean = sum(loc.y / (loc.σy^2 + state.τ²) for loc in allocated_locs) / y_precision_sum
         
         # Calculate posterior variance (inverse of summed precisions)
         x_variance = 1 / x_precision_sum
@@ -43,7 +43,7 @@ function propose_move(::Type{Move}, state::BaGoLState{E,L,T}, rng=Random.GLOBAL_
     # Recompute likelihood
     new_state = BaGoLState(new_state.emitters, new_state.localizations, 
                           new_state.allocations, new_state.spatial_prior,
-                          new_state.count_prior, log_likelihood(new_state))
+                          new_state.count_prior, state.τ², log_likelihood(new_state))
     
     return new_state
 end
