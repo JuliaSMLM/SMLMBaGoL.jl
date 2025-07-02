@@ -96,7 +96,7 @@ function create_prior_from_params(localizations::Vector{<:AbstractLocalization},
         μ, κ, initial_τ²,    # Initial μ, κ, τ²
         (2.0, 0.2),          # μ hyperprior
         (1.0, 0.5),          # κ hyperprior
-        (2.0, initial_τ² * 2.0)  # τ² hyperprior: InverseGamma(2, 2*initial_τ²)
+        (3.0, initial_τ² * 4.0)  # τ² hyperprior: InverseGamma(3, 4*initial_τ²)
     )
     
     return spatial_prior, count_prior

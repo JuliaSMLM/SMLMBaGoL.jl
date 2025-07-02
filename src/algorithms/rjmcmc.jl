@@ -361,10 +361,11 @@ the reported per-localization uncertainties (σx, σy).
    - Uses 10% of median localization precision as conservative starting point
    - Adapts to the experimental data quality automatically
 
-2. **Hyperprior specification**: τ² ~ InverseGamma(2.0, 2×initial_τ²)
-   - Shape a_τ = 2.0: Weakly informative (ensures finite mean)
-   - Scale b_τ = 2×initial_τ²: Centers prior around data-driven estimate
-   - Prior mean ≈ 2×initial_τ²: Allows substantial learning from data
+2. **Hyperprior specification**: τ² ~ InverseGamma(3.0, 4×initial_τ²)
+   - Shape a_τ = 3.0: Moderately informative, allows learning while preventing extremes
+   - Scale b_τ = 4×initial_τ²: Reasonable regularization around estimate  
+   - Prior mean = 2×initial_τ²: Centered around data-driven estimate
+   - Prior mode = initial_τ²: Mode at initial estimate
 
 ## Physical Interpretation
 - initial_τ² ≈ 0.01×σ²: Conservative estimate assuming small systematic effects
@@ -389,12 +390,12 @@ function create_default_prior(localizations::Vector{<:AbstractLocalization})
     # Always hierarchical with sensible defaults
     # Prior on μ: mean=10, variance=50 → Gamma(2, 0.2)
     # Prior on κ: mean=2, variance=4 → Gamma(1, 0.5)
-    # Prior on τ²: InverseGamma(2, 2×initial_τ²) → weakly informative
+    # Prior on τ²: InverseGamma(3, 4×initial_τ²) → moderately informative, proper M-H sampling
     count_prior = HierarchicalNegBinomialPrior(
         10.0, 2.0, initial_τ²,      # Initial μ=10, κ=2, τ²
         (2.0, 0.2),                  # μ hyperprior
         (1.0, 0.5),                  # κ hyperprior
-        (2.0, initial_τ² * 2.0)      # τ² hyperprior: InverseGamma(2, 2*initial_τ²)
+        (3.0, initial_τ² * 4.0)      # τ² hyperprior: InverseGamma(3, 4*initial_τ²)
     )
     
     return spatial_prior, count_prior
