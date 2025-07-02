@@ -2,14 +2,23 @@ function rjmcmc_step!(chain::RJMCMCChain)
     # Select move type based on weights
     move_type = sample_move_type(chain.move_weights, chain.rng)
     
-    # Propose new state
-    proposed = propose_move(move_type, chain.current_state, chain.rng)
+    # Propose new state - pass chain for birth/death moves to access birth_proposal
+    proposed = propose_move(move_type, chain.current_state, chain, chain.rng)
     
     # Handle failed proposals
     proposed === nothing && return false
     
-    # Accept/reject
-    if rand(chain.rng) < accept_probability(move_type, chain.current_state, proposed)
+    # Accept/reject - pass chain for birth/death moves
+    acceptance_prob = if move_type in [Birth, Death]
+        # Use chain-aware acceptance calculation for birth/death
+        log_ratio = log_acceptance_ratio(move_type, chain.current_state, proposed, chain)
+        exp(min(0.0, log_ratio))
+    else
+        # Use standard acceptance for other moves
+        accept_probability(move_type, chain.current_state, proposed)
+    end
+    
+    if rand(chain.rng) < acceptance_prob
         chain.current_state = proposed
         return true
     else
@@ -104,6 +113,9 @@ function initialize_chain(localizations::Vector{L},
         Allocate => 0.40
     )
     
+    # Create birth proposal distribution
+    birth_proposal = create_birth_proposal(localizations)
+    
     # Create chain with hierarchical history
     chain = RJMCMCChain(
         localizations,
@@ -115,7 +127,8 @@ function initialize_chain(localizations::Vector{L},
         burn_in,
         thin,
         rng,
-        HierarchicalUpdate{eltype(initial_likelihood)}[]  # Empty hierarchical history
+        HierarchicalUpdate{eltype(initial_likelihood)}[],  # Empty hierarchical history
+        birth_proposal  # Cached birth proposal
     )
     
     # Record initial hierarchical parameters if applicable

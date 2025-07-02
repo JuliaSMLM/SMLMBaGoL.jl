@@ -18,6 +18,7 @@ mutable struct RJMCMCChain{T<:Real, E<:AbstractEmitter, L<:AbstractLocalization}
     thin::Int
     rng::AbstractRNG
     hierarchical_history::Vector{HierarchicalUpdate{T}}  # Better typing
+    birth_proposal::BirthProposalDistribution{T}  # Cached birth proposal distribution
 end
 
 # Log prior function (moved here from priors.jl due to dependency on BaGoLState)

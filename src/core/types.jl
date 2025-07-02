@@ -15,3 +15,10 @@ struct HierarchicalUpdate{T<:Real}
     mean_count::T          # empirical mean from data
     n_emitters::Int        # number of emitters in update
 end
+
+# Birth proposal distribution: mixture of Gaussians centered at localizations
+# q_birth(s*) = (1/N) Σ N(s*; (x_i, y_i), Σ_i)
+struct BirthProposalDistribution{T<:Real}
+    mixture::MixtureModel
+    localizations::Vector{<:AbstractLocalization}
+end
