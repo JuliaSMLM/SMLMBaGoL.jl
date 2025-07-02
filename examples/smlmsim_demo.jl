@@ -39,7 +39,7 @@ const FRAMERATE = 100.0                 # Frames per second
 const EXPECTED_LOCS_PER_EMITTER = 10    # Expected localizations per emitter
 
 # Analysis parameters  
-const N_ITERATIONS = 50000              # RJMCMC iterations (reduced from 50000)
+const N_ITERATIONS = 10000              # RJMCMC iterations (reduced from 50000)
 const BURN_IN = 2000                    # Burn-in period (reduced from 10000)
 const ENABLE_PARTITIONING = true        # Use multiple partitions for efficiency
 const PARTITION_RADIUS = 0.5            # Partition radius in μm (4x avg uncertainty)
