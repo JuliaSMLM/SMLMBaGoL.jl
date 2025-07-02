@@ -98,12 +98,15 @@ function initialize_chain(localizations::Vector{L},
     # Initialize allocations randomly
     initial_allocations = rand(rng, 1:initial_K, length(localizations))
     
-    # Create initial state
+    # Get initial τ² from count prior
+    initial_τ² = isa(count_prior, HierarchicalNegBinomialPrior) ? count_prior.τ² : 1e-6
+
+    # Create initial state with τ²
     temp_state = BaGoLState(initial_emitters, localizations, initial_allocations, 
-                           spatial_prior, count_prior, 0.0)
+                           spatial_prior, count_prior, initial_τ², 0.0)
     initial_likelihood = log_likelihood(temp_state)
     initial_state = BaGoLState(initial_emitters, localizations, initial_allocations, 
-                              spatial_prior, count_prior, initial_likelihood)
+                              spatial_prior, count_prior, initial_τ², initial_likelihood)
     
     # Default move weights
     default_move_weights = Dict{Type{<:AbstractRJMCMCMove}, Float64}(
@@ -134,7 +137,7 @@ function initialize_chain(localizations::Vector{L},
     # Record initial hierarchical parameters if applicable
     if isa(count_prior, HierarchicalNegBinomialPrior)
         push!(chain.hierarchical_history, HierarchicalUpdate(
-            0, count_prior.μ, count_prior.κ, 0.0, 0
+            0, count_prior.μ, count_prior.κ, count_prior.τ², 0.0, 0
         ))
     end
     
@@ -347,13 +350,23 @@ end
 function create_default_prior(localizations::Vector{<:AbstractLocalization})
     spatial_prior = create_spatial_prior_from_localizations(localizations, 0.2)
     
+    # Calculate initial τ² estimate from localization precisions
+    if !isempty(localizations)
+        # Use 10% of median uncertainty squared as initial guess
+        median_σ = median([sqrt(loc.σx^2 + loc.σy^2) for loc in localizations])
+        initial_τ² = (0.1 * median_σ)^2
+    else
+        initial_τ² = 1e-6  # 1 nm² default
+    end
+    
     # Always hierarchical with sensible defaults
     # Prior on μ: mean=10, variance=50 → Gamma(2, 0.2)
     # Prior on κ: mean=2, variance=4 → Gamma(1, 0.5)
     count_prior = HierarchicalNegBinomialPrior(
-        10.0, 2.0,           # Initial μ=10, κ=2
-        (2.0, 0.2),          # μ hyperprior
-        (1.0, 0.5)           # κ hyperprior
+        10.0, 2.0, initial_τ²,      # Initial μ=10, κ=2, τ²
+        (2.0, 0.2),                  # μ hyperprior
+        (1.0, 0.5),                  # κ hyperprior
+        (2.0, initial_τ² * 2.0)      # τ² hyperprior: InverseGamma(2, 2*initial_τ²)
     )
     
     return spatial_prior, count_prior

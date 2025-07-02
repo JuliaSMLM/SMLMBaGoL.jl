@@ -34,6 +34,34 @@ function update_mu_gibbs(counts::Vector{Int}, κ::Real, hyperprior::Tuple{Real,R
     return rand(Gamma(shape, 1/rate))
 end
 
+# Gibbs update for τ² using InverseGamma distribution
+function update_tau_squared_gibbs(chains::Vector{<:RJMCMCChain}, hyperprior::Tuple{Real,Real})
+    a_τ, b_τ = hyperprior
+    
+    # Collect residuals from all chains
+    sum_squared_residuals = 0.0
+    total_count = 0
+    
+    for chain in chains
+        state = chain.current_state
+        for (i, loc) in enumerate(state.localizations)
+            if 1 ≤ state.allocations[i] ≤ length(state.emitters)
+                emitter = state.emitters[state.allocations[i]]
+                # Squared residuals
+                sum_squared_residuals += (loc.x - emitter.x)^2 / (loc.σx^2 + state.τ²)
+                sum_squared_residuals += (loc.y - emitter.y)^2 / (loc.σy^2 + state.τ²)
+                total_count += 2  # x and y components
+            end
+        end
+    end
+    
+    # τ² ~ InverseGamma(a_τ + N/2, b_τ + sum_squared_residuals/2)
+    shape = a_τ + total_count / 2
+    scale = b_τ + sum_squared_residuals / 2
+    
+    return rand(InverseGamma(shape, scale))
+end
+
 # Slice sampling for κ (following math spec Section 8)
 function update_kappa_slice(counts::Vector{Int}, μ::Real, hyperprior::Tuple{Real,Real}, 
                            current_κ::Real; n_steps::Int=10)
@@ -119,6 +147,7 @@ function update_hierarchical!(chains::Vector{<:RJMCMCChain}, current_iteration::
     template_prior = hierarchical_priors[1]
     current_μ = template_prior.μ
     current_κ = template_prior.κ
+    current_τ² = template_prior.τ²
     
     # Collect all allocation counts
     all_counts = collect_emitter_counts(chains)
@@ -130,12 +159,14 @@ function update_hierarchical!(chains::Vector{<:RJMCMCChain}, current_iteration::
     # Gibbs updates
     new_μ = update_mu_gibbs(all_counts, current_κ, template_prior.μ_hyperprior)
     new_κ = update_kappa_slice(all_counts, new_μ, template_prior.κ_hyperprior, current_κ)
+    new_τ² = update_tau_squared_gibbs(chains, template_prior.τ²_hyperprior)
     
     # Create new hierarchical prior
     new_prior = HierarchicalNegBinomialPrior(
-        new_μ, new_κ,
+        new_μ, new_κ, new_τ²,
         template_prior.μ_hyperprior,
-        template_prior.κ_hyperprior
+        template_prior.κ_hyperprior,
+        template_prior.τ²_hyperprior
     )
     
     # Update all chains
@@ -145,6 +176,7 @@ function update_hierarchical!(chains::Vector{<:RJMCMCChain}, current_iteration::
             current_iteration,
             new_μ,
             new_κ,
+            new_τ²,
             mean(all_counts),
             length(all_counts)
         ))
@@ -157,6 +189,7 @@ function update_hierarchical!(chains::Vector{<:RJMCMCChain}, current_iteration::
             old_state.allocations,
             old_state.spatial_prior,
             new_prior,  # Updated count prior
+            new_τ²,     # Updated τ²
             old_state.log_likelihood
         )
         

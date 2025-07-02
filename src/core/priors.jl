@@ -14,8 +14,10 @@ end
 struct HierarchicalNegBinomialPrior{T<:Real} <: AbstractCountPrior
     μ::T  # mean number of localizations per emitter (NOT shape/scale!)
     κ::T  # overdispersion parameter (concentration)
+    τ²::T # additional localization variance (current value)
     μ_hyperprior::Tuple{T, T}  # (a₀, b₀) for Gamma prior on μ
     κ_hyperprior::Tuple{T, T}  # (c₀, d₀) for Gamma prior on κ
+    τ²_hyperprior::Tuple{T, T} # (a_τ, b_τ) for InverseGamma prior on τ²
 end
 
 

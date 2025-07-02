@@ -66,7 +66,7 @@ function propose_move(::Type{Birth}, state::BaGoLState{E,L,T}, chain::RJMCMCChai
     
     for (i, loc) in enumerate(state.localizations)
         # P(allocate loc i to new emitter) ∝ L(loc_i | new_emitter)
-        log_probs[i] = log_likelihood(new_emitter, loc)
+        log_probs[i] = log_likelihood(new_emitter, loc, state.τ²)
     end
     
     # Convert to probabilities
@@ -90,11 +90,11 @@ function propose_move(::Type{Birth}, state::BaGoLState{E,L,T}, chain::RJMCMCChai
     
     # Recompute likelihood
     new_state_temp = BaGoLState(new_emitters, state.localizations, new_allocations,
-                               state.spatial_prior, state.count_prior, state.log_likelihood)
+                               state.spatial_prior, state.count_prior, state.τ², state.log_likelihood)
     new_likelihood = log_likelihood(new_state_temp)
     
     return BaGoLState(new_emitters, state.localizations, new_allocations,
-                     state.spatial_prior, state.count_prior, new_likelihood)
+                     state.spatial_prior, state.count_prior, state.τ², new_likelihood)
 end
 
 function propose_move(::Type{Death}, state::BaGoLState{E,L,T}, chain::RJMCMCChain, rng=Random.GLOBAL_RNG) where {E,L,T}
@@ -114,7 +114,7 @@ function propose_move(::Type{Death}, state::BaGoLState{E,L,T}, chain::RJMCMCChai
     if !isempty(new_emitters) && !isempty(allocated_to_removed)
         # Create temporary state
         temp_state = BaGoLState(new_emitters, state.localizations, new_allocations, 
-                               state.spatial_prior, state.count_prior, T(0.0))
+                               state.spatial_prior, state.count_prior, state.τ², T(0.0))
         
         # Find which emitters received the reallocated localizations
         emitters_to_optimize = unique([new_allocations[i] for i in allocated_to_removed 
@@ -127,11 +127,11 @@ function propose_move(::Type{Death}, state::BaGoLState{E,L,T}, chain::RJMCMCChai
             
             if !isempty(allocated_locs)
                 # Calculate optimal position
-                x_precision_sum = sum(1 / (loc.σx^2) for loc in allocated_locs)
-                y_precision_sum = sum(1 / (loc.σy^2) for loc in allocated_locs)
+                x_precision_sum = sum(1 / (loc.σx^2 + state.τ²) for loc in allocated_locs)
+                y_precision_sum = sum(1 / (loc.σy^2 + state.τ²) for loc in allocated_locs)
                 
-                x_mean = sum(loc.x / (loc.σx^2) for loc in allocated_locs) / x_precision_sum
-                y_mean = sum(loc.y / (loc.σy^2) for loc in allocated_locs) / y_precision_sum
+                x_mean = sum(loc.x / (loc.σx^2 + state.τ²) for loc in allocated_locs) / x_precision_sum
+                y_mean = sum(loc.y / (loc.σy^2 + state.τ²) for loc in allocated_locs) / y_precision_sum
                 
                 # Update emitter position
                 old_emitter = new_emitters[emitter_idx]
@@ -143,10 +143,10 @@ function propose_move(::Type{Death}, state::BaGoLState{E,L,T}, chain::RJMCMCChai
     # Create final state with updated likelihood
     new_likelihood = log_likelihood(BaGoLState(new_emitters, state.localizations, 
                                               new_allocations, state.spatial_prior, 
-                                              state.count_prior, T(0.0)))
+                                              state.count_prior, state.τ², T(0.0)))
     
     return BaGoLState(new_emitters, state.localizations, new_allocations, 
-                     state.spatial_prior, state.count_prior, new_likelihood)
+                     state.spatial_prior, state.count_prior, state.τ², new_likelihood)
 end
 
 # Update acceptance ratio calculations to use the cached distribution
