@@ -70,15 +70,12 @@ end
 
 function initialize_chain(localizations::Vector{L}, 
                          EmitterType::Type{E},
-                         prior::AbstractPrior;
+                         spatial_prior::AbstractSpatialPrior,
+                         count_prior::AbstractCountPrior;
                          initial_K::Int = max(1, length(localizations) ÷ 10),
                          burn_in::Int = 1000,
                          thin::Int = 1,
                          rng::AbstractRNG = Random.GLOBAL_RNG) where {E<:AbstractEmitter, L<:AbstractLocalization}
-    
-    # Extract spatial prior for emitter initialization
-    spatial_prior = isa(prior, CompoundPrior) ? prior.spatial_prior :
-                   create_spatial_prior_from_localizations(localizations)
     
     # Initialize emitters randomly in spatial prior
     initial_emitters = Vector{E}(undef, initial_K)
@@ -93,9 +90,11 @@ function initialize_chain(localizations::Vector{L},
     initial_allocations = rand(rng, 1:initial_K, length(localizations))
     
     # Create initial state
-    temp_state = BaGoLState(initial_emitters, localizations, initial_allocations, prior, 0.0)
+    temp_state = BaGoLState(initial_emitters, localizations, initial_allocations, 
+                           spatial_prior, count_prior, 0.0)
     initial_likelihood = log_likelihood(temp_state)
-    initial_state = BaGoLState(initial_emitters, localizations, initial_allocations, prior, initial_likelihood)
+    initial_state = BaGoLState(initial_emitters, localizations, initial_allocations, 
+                              spatial_prior, count_prior, initial_likelihood)
     
     # Default move weights
     default_move_weights = Dict{Type{<:AbstractRJMCMCMove}, Float64}(
@@ -109,20 +108,21 @@ function initialize_chain(localizations::Vector{L},
     chain = RJMCMCChain(
         localizations,
         initial_state,
-        prior,
+        spatial_prior,
+        count_prior,
         default_move_weights,
         BaGoLState{E,L,eltype(initial_likelihood)}[],
         burn_in,
         thin,
         rng,
-        Tuple{Int,Float64,Float64}[]  # Empty hierarchical history
+        HierarchicalUpdate{eltype(initial_likelihood)}[]  # Empty hierarchical history
     )
     
     # Record initial hierarchical parameters if applicable
-    if isa(prior, CompoundPrior) && isa(prior.K_prior, HierarchicalGammaPrior)
-        push!(chain.hierarchical_history, (0, prior.K_prior.α, prior.K_prior.β))
-    elseif isa(prior, HierarchicalGammaPrior)
-        push!(chain.hierarchical_history, (0, prior.α, prior.β))
+    if isa(count_prior, HierarchicalNegBinomialPrior)
+        push!(chain.hierarchical_history, HierarchicalUpdate(
+            0, count_prior.μ, count_prior.κ, 0.0, 0
+        ))
     end
     
     return chain
@@ -130,7 +130,6 @@ end
 
 function run_bagol(localizations::Vector{L};
                   EmitterType::Type{E} = Emitter2D{Float64},
-                  prior::AbstractPrior = create_default_prior(localizations),
                   n_iterations::Int = 10000,
                   burn_in::Int = 2000,
                   thin::Int = 1,
@@ -253,11 +252,11 @@ function initialize_chains_from_data(localizations::Vector{L}, EmitterType::Type
     # Create chains for each partition
     chains = Vector{RJMCMCChain}()
     for (i, partition_locs) in enumerate(partitioned_localizations)
-        partition_prior = enable_hierarchical ? 
-                         create_hierarchical_prior(partition_locs) : 
-                         create_default_prior(partition_locs)
+        spatial_prior, count_prior = enable_hierarchical ? 
+                                    create_hierarchical_prior(partition_locs) : 
+                                    create_default_prior(partition_locs)
         
-        chain = initialize_chain(partition_locs, EmitterType, partition_prior;
+        chain = initialize_chain(partition_locs, EmitterType, spatial_prior, count_prior;
                                initial_K=max(1, length(partition_locs) ÷ 10),
                                burn_in=burn_in, thin=thin, rng=rng)
         push!(chains, chain)
@@ -335,20 +334,23 @@ end
 
 function create_default_prior(localizations::Vector{<:AbstractLocalization})
     spatial_prior = create_spatial_prior_from_localizations(localizations, 0.2)
-    K_prior = GammaPrior(2.0, 1.0)
-    return CompoundPrior(spatial_prior, K_prior)
+    # Default: 10 localizations per emitter with moderate overdispersion
+    count_prior = FixedNegBinomialPrior(10.0, 2.0)
+    return spatial_prior, count_prior
 end
 
 function create_hierarchical_prior(localizations::Vector{<:AbstractLocalization})
     spatial_prior = create_spatial_prior_from_localizations(localizations, 0.2)
-    # Start with better initial values and less restrictive hyperpriors
-    # Initial mean = α * β = 2.0 * 5.0 = 10.0 (reasonable starting point)
-    hierarchical_K_prior = HierarchicalGammaPrior(
-        2.0, 5.0,          # Initial α, β (mean = 10.0)
-        (0.5, 0.1),        # α hyperprior (a₀, b₀) - less restrictive
-        (0.5, 0.1)         # β hyperprior (c₀, d₀) - less restrictive
+    
+    # Hierarchical prior with sensible hyperpriors
+    # Prior on μ: mean=10, variance=50 → Gamma(2, 0.2)
+    # Prior on κ: mean=2, variance=4 → Gamma(1, 0.5)
+    count_prior = HierarchicalNegBinomialPrior(
+        10.0, 2.0,           # Initial μ=10, κ=2
+        (2.0, 0.2),          # μ hyperprior
+        (1.0, 0.5)           # κ hyperprior
     )
-    return CompoundPrior(spatial_prior, hierarchical_K_prior)
+    return spatial_prior, count_prior
 end
 
 """
