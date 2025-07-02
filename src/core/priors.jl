@@ -18,11 +18,6 @@ struct HierarchicalNegBinomialPrior{T<:Real} <: AbstractCountPrior
     κ_hyperprior::Tuple{T, T}  # (c₀, d₀) for Gamma prior on κ
 end
 
-# Add a simple fixed count prior for non-hierarchical mode
-struct FixedNegBinomialPrior{T<:Real} <: AbstractCountPrior
-    μ::T  # fixed mean localizations per emitter
-    κ::T  # fixed overdispersion
-end
 
 function log_prior_spatial(emitter::AbstractEmitter, prior::UniformSpatialPrior)
     if prior.x_min ≤ emitter.x ≤ prior.x_max && prior.y_min ≤ emitter.y ≤ prior.y_max
@@ -38,9 +33,6 @@ function get_concentration_parameter(prior::HierarchicalNegBinomialPrior)
     return prior.κ
 end
 
-function get_concentration_parameter(prior::FixedNegBinomialPrior)
-    return prior.κ
-end
 
 # Function to get spatial prior density (needed for birth/death moves)
 function log_spatial_prior_density(emitter::AbstractEmitter, prior::UniformSpatialPrior)
