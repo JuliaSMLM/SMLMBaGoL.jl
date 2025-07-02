@@ -34,7 +34,35 @@ function update_mu_gibbs(counts::Vector{Int}, κ::Real, hyperprior::Tuple{Real,R
     return rand(Gamma(shape, 1/rate))
 end
 
-# Gibbs update for τ² using InverseGamma distribution
+"""
+    update_tau_squared_gibbs(chains, hyperprior)
+
+Gibbs update for τ² (additional localization uncertainty) parameter.
+
+# Mathematical Model
+τ² represents systematic localization uncertainty beyond reported σx, σy.
+The total localization variance becomes: σ_total² = σ² + τ²
+
+# Prior Specification  
+τ² ~ InverseGamma(a_τ, b_τ) where hyperprior = (a_τ, b_τ)
+
+# Conjugate Update
+Given precision-weighted residuals from all allocated localizations:
+- a_posterior = a_τ + N/2 where N = total x,y components
+- b_posterior = b_τ + Σ[(residual/σ_total)²]/2
+- τ²_new ~ InverseGamma(a_posterior, b_posterior)
+
+# Arguments
+- `chains`: Vector of RJMCMC chains containing current states
+- `hyperprior`: Tuple (a_τ, b_τ) for InverseGamma prior parameters
+
+# Returns
+- New τ² sample from posterior distribution
+
+# Physical Interpretation
+τ² captures systematic errors like stage drift, PSF calibration errors,
+and environmental effects not captured in per-localization uncertainties.
+"""
 function update_tau_squared_gibbs(chains::Vector{<:RJMCMCChain}, hyperprior::Tuple{Real,Real})
     a_τ, b_τ = hyperprior
     

@@ -347,6 +347,33 @@ function print_partitioning_summary(chains::Vector{RJMCMCChain})
     # end
 end
 
+"""
+    create_default_prior(localizations)
+
+Create default hierarchical priors for BaGoL analysis with automatic τ² initialization.
+
+# τ² Prior System
+The τ² parameter captures additional systematic localization uncertainty beyond 
+the reported per-localization uncertainties (σx, σy). 
+
+## Automatic Initialization Strategy
+1. **Data-driven estimate**: initial_τ² = (0.1 × median_σ)²
+   - Uses 10% of median localization precision as conservative starting point
+   - Adapts to the experimental data quality automatically
+
+2. **Hyperprior specification**: τ² ~ InverseGamma(2.0, 2×initial_τ²)
+   - Shape a_τ = 2.0: Weakly informative (ensures finite mean)
+   - Scale b_τ = 2×initial_τ²: Centers prior around data-driven estimate
+   - Prior mean ≈ 2×initial_τ²: Allows substantial learning from data
+
+## Physical Interpretation
+- initial_τ² ≈ 0.01×σ²: Conservative estimate assuming small systematic effects
+- Final τ² learned via MCMC: Can be orders of magnitude larger if data supports it
+- Large τ² indicates significant systematic uncertainty (drift, calibration, etc.)
+
+# Returns
+- `(spatial_prior, count_prior)`: Tuple of priors for BaGoL analysis
+"""
 function create_default_prior(localizations::Vector{<:AbstractLocalization})
     spatial_prior = create_spatial_prior_from_localizations(localizations, 0.2)
     
@@ -362,6 +389,7 @@ function create_default_prior(localizations::Vector{<:AbstractLocalization})
     # Always hierarchical with sensible defaults
     # Prior on μ: mean=10, variance=50 → Gamma(2, 0.2)
     # Prior on κ: mean=2, variance=4 → Gamma(1, 0.5)
+    # Prior on τ²: InverseGamma(2, 2×initial_τ²) → weakly informative
     count_prior = HierarchicalNegBinomialPrior(
         10.0, 2.0, initial_τ²,      # Initial μ=10, κ=2, τ²
         (2.0, 0.2),                  # μ hyperprior
