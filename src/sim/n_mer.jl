@@ -54,7 +54,8 @@ function simulate_n_mer(;
     prior_K_alpha = prior_K_mean^2 / prior_K_variance  # shape parameter
     prior_K_beta = prior_K_mean / prior_K_variance      # rate parameter
     
-    return all_localizations, create_prior_from_params(all_localizations, prior_K_alpha, prior_K_beta)
+    spatial_prior, count_prior = create_prior_from_params(all_localizations, prior_K_alpha, prior_K_beta)
+    return all_localizations, spatial_prior, count_prior
 end
 
 function generate_circular_positions(n::Int, radius::Real, center_x::Real, center_y::Real)
@@ -73,13 +74,17 @@ end
 
 function create_prior_from_params(localizations::Vector{<:AbstractLocalization}, 
                                 alpha::Real, beta::Real)
-    # Create spatial prior from localization bounds
+    # Create spatial prior from localizations bounds  
     spatial_prior = create_spatial_prior_from_localizations(localizations, 0.2)
     
-    # Create gamma prior for emitter count
-    K_prior = GammaPrior(alpha, beta)
+    # Create equivalent fixed negative binomial prior
+    # Convert Gamma(α, β) parameters to approximate Negative Binomial (μ, κ)
+    # For Gamma: mean = α*β, so use this as μ
+    μ = alpha * beta
+    κ = 2.0  # Default concentration parameter
+    count_prior = FixedNegBinomialPrior(μ, κ)
     
-    return CompoundPrior(spatial_prior, K_prior)
+    return spatial_prior, count_prior
 end
 
 function simulate_n_mer_with_prior(prior::AbstractPrior; kwargs...)

@@ -39,8 +39,8 @@ const FRAMERATE = 100.0                 # Frames per second
 const EXPECTED_LOCS_PER_EMITTER = 10    # Expected localizations per emitter
 
 # Analysis parameters  
-const N_ITERATIONS = 50000              # RJMCMC iterations
-const BURN_IN = 10000                   # Burn-in period
+const N_ITERATIONS = 10000              # RJMCMC iterations (reduced from 50000)
+const BURN_IN = 2000                    # Burn-in period (reduced from 10000)
 const ENABLE_PARTITIONING = true        # Use multiple partitions for efficiency
 const PARTITION_RADIUS = 0.5            # Partition radius in μm (4x avg uncertainty)
 const ENABLE_THREADING = true           # Use threading for parallel partition processing
@@ -312,7 +312,7 @@ estimated_locs_per_emitter = length(smld.emitters) / length(mapn_results)
 estimated_photons = length(smld.emitters) > 0 ? mean([e.photons for e in smld.emitters]) : 1000
 
 println("   ✓ Running equivalent native simulation...")
-native_locs, native_prior = simulate_n_mer(
+native_locs, native_spatial_prior, native_count_prior = simulate_n_mer(
     n=6, 
     diameter=0.050,
     photons=estimated_photons,
