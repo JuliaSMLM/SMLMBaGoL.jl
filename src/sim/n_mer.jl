@@ -77,12 +77,16 @@ function create_prior_from_params(localizations::Vector{<:AbstractLocalization},
     # Create spatial prior from localizations bounds  
     spatial_prior = create_spatial_prior_from_localizations(localizations, 0.2)
     
-    # Create equivalent fixed negative binomial prior
+    # Create hierarchical negative binomial prior
     # Convert Gamma(α, β) parameters to approximate Negative Binomial (μ, κ)
     # For Gamma: mean = α*β, so use this as μ
     μ = alpha * beta
     κ = 2.0  # Default concentration parameter
-    count_prior = FixedNegBinomialPrior(μ, κ)
+    count_prior = HierarchicalNegBinomialPrior(
+        μ, κ,                # Initial μ, κ
+        (2.0, 0.2),          # μ hyperprior
+        (1.0, 0.5)           # κ hyperprior
+    )
     
     return spatial_prior, count_prior
 end

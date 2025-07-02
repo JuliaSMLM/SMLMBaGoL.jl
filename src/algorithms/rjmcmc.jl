@@ -265,9 +265,8 @@ function initialize_chains_from_data(localizations::Vector{L}, EmitterType::Type
     # Create chains for each partition
     chains = Vector{RJMCMCChain}()
     for (i, partition_locs) in enumerate(partitioned_localizations)
-        spatial_prior, count_prior = enable_hierarchical ? 
-                                    create_hierarchical_prior(partition_locs) : 
-                                    create_default_prior(partition_locs)
+        # Always create the same type of prior
+        spatial_prior, count_prior = create_default_prior(partition_locs)
         
         chain = initialize_chain(partition_locs, EmitterType, spatial_prior, count_prior;
                                initial_K=max(1, length(partition_locs) ÷ 10),
@@ -347,15 +346,8 @@ end
 
 function create_default_prior(localizations::Vector{<:AbstractLocalization})
     spatial_prior = create_spatial_prior_from_localizations(localizations, 0.2)
-    # Default: 10 localizations per emitter with moderate overdispersion
-    count_prior = FixedNegBinomialPrior(10.0, 2.0)
-    return spatial_prior, count_prior
-end
-
-function create_hierarchical_prior(localizations::Vector{<:AbstractLocalization})
-    spatial_prior = create_spatial_prior_from_localizations(localizations, 0.2)
     
-    # Hierarchical prior with sensible hyperpriors
+    # Always hierarchical with sensible defaults
     # Prior on μ: mean=10, variance=50 → Gamma(2, 0.2)
     # Prior on κ: mean=2, variance=4 → Gamma(1, 0.5)
     count_prior = HierarchicalNegBinomialPrior(
@@ -363,8 +355,10 @@ function create_hierarchical_prior(localizations::Vector{<:AbstractLocalization}
         (2.0, 0.2),          # μ hyperprior
         (1.0, 0.5)           # κ hyperprior
     )
+    
     return spatial_prior, count_prior
 end
+
 
 """
     run_bagol(smld::SMLMSim.BasicSMLD; kwargs...)
