@@ -4,6 +4,7 @@ struct BaGoLState{E<:AbstractEmitter, L<:AbstractLocalization, T<:Real} <: Abstr
     allocations::Vector{Int}  # maps localization i to emitter allocations[i]
     spatial_prior::AbstractSpatialPrior  # Changed from generic prior
     count_prior::AbstractCountPrior      # NEW: explicit count prior
+    τ²::T                    # additional localization variance
     log_likelihood::T
 end
 
