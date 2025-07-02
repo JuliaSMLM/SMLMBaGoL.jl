@@ -1,383 +1,180 @@
-# Mathematical Reference for SMLMBaGoL
+# Hierarchical Bayes RJMCMC for SMLM — Mathematical Specification
 
-This document provides a comprehensive reference for the mathematical and statistical foundations of the SMLMBaGoL package (Bayesian Grouping of Localizations for Single-Molecule Localization Microscopy).
+---
 
-## Table of Contents
+## 1. Problem Statement
 
-1. [Introduction to SMLM and BaGoL](#introduction-to-smlm-and-bagol)
-2. [Statistical Foundation](#statistical-foundation)
-3. [Reversible Jump Markov Chain Monte Carlo](#reversible-jump-markov-chain-monte-carlo)
-4. [Hierarchical Bayesian Model](#hierarchical-bayesian-model)
-5. [Mathematical Algorithms](#mathematical-algorithms)
-6. [Physical Model](#physical-model)
-7. [References](#references)
+Given a set of single-molecule localisation events
+$$\mathcal{D} = \{(x_i, y_i, \sigma_i)\}_{i=1}^{N}$$
+obtained from an upstream PSF-fitting algorithm, we seek to infer simultaneously:
 
-## Introduction to SMLM and BaGoL
+- The unknown number of emitters $k$
+- Their positions $\mathbf{s} = \{\mathbf{s}_j \in \mathbb{R}^2\}_{j=1}^{k}$  
+- The blinking-statistics hyperparameters $(\mu,\kappa)$ governing the distribution of localisations per emitter
 
-Single-Molecule Localization Microscopy (SMLM) is a super-resolution imaging technique that relies on the precise localization of individual fluorescent molecules. The precision of these localizations is limited by the number of photons collected from each molecule. By collecting multiple localizations from the same molecule (through blinking or binding events), the precision can be improved.
+**Key constraints:**
+1. Every localisation is assigned to exactly one emitter (no noise class)
+2. The localisation/emitter histogram is dataset-specific and learned *in situ*
+3. The posterior is explored with reversible-jump MCMC (RJMCMC) inside disjoint spatial partitions processed in parallel; global hyperparameters are synchronised every $T_{\mathrm{sync}}$ sweeps
 
-The Bayesian Grouping of Localizations (BaGoL) algorithm addresses this challenge by:
+---
 
-1. Identifying which localizations likely originate from the same physical emitter
-2. Grouping these localizations to obtain a more precise estimate of the emitter position
-3. Handling the uncertain number of underlying emitters
+## 2. Generative Hierarchy (per partition)
 
-The algorithm is based on a Bayesian statistical framework that explicitly models the uncertainty in both the number of emitters and their positions. BaGoL can achieve sub-nanometer precision under dense labeling conditions and is compatible with both dSTORM and DNA-PAINT data.
+The hierarchical model for each partition is defined as:
 
-## Statistical Foundation
+$$
+\begin{aligned}
+\lambda_j &\sim \mathrm{Gamma}(\kappa, \kappa/\mu) && \text{(emitter blinking rate)} \\[0.5em]
+n_j \mid \lambda_j &\sim \mathrm{Poisson}(\lambda_j), \quad n_j \geq 1 && \text{(observed blinks)} \\[0.5em]
+\mathbf{s}_j &\sim \mathrm{Uniform}(\text{ROI}) && \text{(flat spatial prior)} \\[0.5em]
+(x_i, y_i) \mid z_i = j &\sim \mathcal{N}_2(\mathbf{s}_j, \sigma_i^2 + \tau^2) && \text{(noisy observations)}
+\end{aligned}
+$$
 
-### Model Variables
+**Hyperpriors** (shared across partitions):
+$$\mu \sim \mathrm{Gamma}(a_\mu, b_\mu), \quad \kappa \sim \mathrm{Gamma}(a_\kappa, b_\kappa), \quad \tau^2 \sim \mathrm{InverseGamma}(a_\tau, b_\tau)$$
 
-- $Y = \{y_1, y_2, \ldots, y_N\}$: Set of observed localizations
-- $\Sigma = \{\sigma_1, \sigma_2, \ldots, \sigma_N\}$: Set of localization uncertainties
-- $T = \{t_1, t_2, \ldots, t_N\}$: Set of time stamps
-- $K$: Number of emitters
-- $\theta_K$: Emitter positions and movements
-- $Z$: Allocation of localizations to emitters (assignments)
+---
 
-Each localization $y_i$ is characterized by:
-- Position coordinates $(x_i, y_i)$
-- Uncertainty estimates $(\sigma_{x,i}, \sigma_{y,i})$
-- Frame number $t_i$
+## 3. Marginalisation over $\lambda_j$ ⟹ Negative Binomial Prior
 
-### Bayesian Framework
+Integrating out the latent blinking rates $\lambda_j$ yields:
 
-The posterior probability distribution according to Fazel et al. is:
+$$n_j \mid \mu, \kappa \sim \mathrm{NegativeBinomial}\left(\kappa, \frac{\kappa}{\kappa + \mu}\right), \quad \Pr(n_j = 0) = 0$$
 
-$$\pi(K, (\theta_K, Z)|Y, \Sigma, T) \propto P(Y, \Sigma, T|K, Z, \theta) \cdot P(K) \cdot P(Z|K) \cdot P(\theta_K|K, Z)$$
+The conditional predictive probability of assigning localisation $i$ to emitter $j$ becomes:
 
-where:
-- $P(Y, \Sigma, T|K, Z, \theta)$ is the likelihood of observing localizations $Y$ with uncertainties $\Sigma$ at times $T$
-- $P(Z|K)$ is the prior on allocations
-- $P(\theta_K|K, Z)$ is the prior on emitter positions
-- $P(K)$ is the prior on the number of emitters
+$$\boxed{w_{ij} \propto (n_j + \kappa) \cdot L_{ij}}$$
 
-### Likelihood Function
+where the spatial likelihood is:
+$$L_{ij} = \mathcal{N}_2((x_i, y_i); \mathbf{s}_j, \sigma_i^2 + \tau^2)$$
 
-The likelihood function models the probability of observing the localizations given the model parameters:
+---
 
-$$P(Y, \Sigma, T|K, Z, \theta) = \prod_{i=1}^{N} P(y_i|Z(i), \theta_K)$$
+## 4. Collapsed Gibbs Updates (fixed $k$)
 
-For a static emitter model, the likelihood of observing localization $y_i$ given it is associated with emitter $\theta_j$ is modeled as a Gaussian:
+With the blinking rates marginalised out, the Gibbs updates are:
 
-$$P(y_i|\theta_j, Z(i)=j) = \frac{1}{2\pi\sigma_{x,i}\sigma_{y,i}}\exp\left(-\frac{(x_i-x_j)^2}{2\sigma_{x,i}^2}-\frac{(y_i-y_j)^2}{2\sigma_{y,i}^2}\right)$$
+**Allocation variables** $z_i$:
+Sample from categorical distribution with probabilities $w_{ij}/\sum_r w_{ir}$
 
-For computational efficiency, this is often calculated in log space:
+**Emitter positions** $\mathbf{s}_j \mid \mathcal{L}_j, \tau^2$:
+$$\mathbf{s}_j \sim \mathcal{N}_2\left(\bar{\mathbf{r}}_j, W_j^{-1}\mathbf{I}\right)$$
+where $W_j = \sum_{i \in \mathcal{L}_j} \frac{1}{\sigma_i^2 + \tau^2}$ and $\bar{\mathbf{r}}_j$ is the precision-weighted mean
 
-$$\log P(y_i|\theta_j, Z(i)=j) = \log\mathcal{N}(x_i | x_j, \sigma_{x,i}^2) + \log\mathcal{N}(y_i | y_j, \sigma_{y,i}^2)$$
+**Hyperparameters:**
+$$
+\begin{aligned}
+\mu &\sim \mathrm{Gamma}\left(a_\mu + \sum_j n_j, \frac{1}{b_\mu + k\kappa}\right) \\[0.5em]
+\tau^2 &\sim \mathrm{InverseGamma}\left(a_\tau + \frac{N}{2}, b_\tau + \frac{1}{2}\sum_i Q_i\right) \\[0.5em]
+\kappa &\quad \text{slice sampling or Metropolis-Hastings on } \log\kappa
+\end{aligned}
+$$
 
-### Prior Distributions
+---
 
-#### Prior on Number of Emitters $P(K)$
+## 5. RJMCMC Dimension Moves (per partition)
 
-The prior on the number of emitters $K$ can be modeled using a Poisson or Gamma distribution:
+### 5.1 Birth Move: $k \to k+1$
 
-$$P(K) \propto \frac{(\lambda\gamma)^K \exp(-\lambda\gamma)}{\Gamma(K+1)}$$
+**Proposal distribution:** Define a mixture of normals centered at all observed localizations:
+$$q_{\mathrm{birth}}(\mathbf{s}_*) = \frac{1}{N} \sum_{i=1}^{N} \mathcal{N}_2(\mathbf{s}_*; (x_i, y_i), \sigma_i^2)$$
 
-where:
-- $\lambda$ is the mean number of localizations per emitter
-- $\gamma$ is a scale parameter
+**Birth procedure:**
+1. **Position proposal:** Draw new emitter position $\mathbf{s}_* \sim q_{\mathrm{birth}}(\cdot)$
+2. **Cloud size:** Draw $m \sim 1 + \mathrm{NegativeBinomial}(\kappa, \kappa/(\kappa + \mu))$
+3. **Allocation proposal:** Select $m$ localisations with probabilities proportional to $\mathcal{N}_2((x_i, y_i); \mathbf{s}_*, \sigma_i^2 + \tau^2)$
+4. **State update:** Form new emitter cluster $\mathcal{L}_*$ and increment $k \to k+1$
 
-#### Prior on Emitter Positions $P(\theta_K|K, Z)$
+### 5.2 Death Move: $k \to k-1$
 
-The prior on emitter positions is constructed as a sum of Gaussians centered on each localization, using their respective uncertainties:
+**Death procedure:**
+1. **Victim selection:** Choose emitter $r$ with probability $1/k$
+2. **Proposal density:** Evaluate $q_{\mathrm{birth}}(\mathbf{s}_r)$ for the victim's position
+3. **Reallocation:** Reassign localisations $\mathcal{L}_r$ to remaining emitters using weights $w_{ij}$
+4. **State update:** Remove $\mathbf{s}_r$ and decrement $k \to k-1$
 
-$$P(\theta_j) \propto \sum_{i=1}^{N} \mathcal{N}(\theta_j | y_i, \Sigma_i)$$
+### 5.3 Acceptance Probability
 
-where $\Sigma_i$ is the covariance matrix associated with localization $y_i$. This informative prior effectively creates a spatial probability distribution that follows the density of the observed localizations, weighted by their precision.
-
-#### Prior on Allocations $P(Z|K)$
-
-The prior on allocations is often modeled as a multinomial distribution with equal probabilities:
-
-$$P(Z|K) \propto \left(\frac{1}{K}\right)^N$$
-
-## Reversible Jump Markov Chain Monte Carlo
-
-The RJMCMC algorithm, introduced by Green (1995), explores the posterior distribution over the variable-dimension parameter space. This is essential for BaGoL since the number of emitters is unknown and must be estimated along with their positions and localization assignments.
-
-### Detailed Balance
-
-The RJMCMC algorithm satisfies the detailed balance condition, which ensures that the Markov chain converges to the target posterior distribution. For any two states $(\theta, Z, K)$ and $(\theta', Z', K')$, detailed balance requires:
-
-$$\pi(\theta, Z, K)P((\theta, Z, K) \to (\theta', Z', K')) = \pi(\theta', Z', K')P((\theta', Z', K') \to (\theta, Z, K))$$
-
-where $\pi(\theta, Z, K)$ is the target distribution and $P((\theta, Z, K) \to (\theta', Z', K'))$ is the transition probability from state $(\theta, Z, K)$ to $(\theta', Z', K')$.
-
-In RJMCMC, when the dimension of the parameter space changes (e.g., adding or removing an emitter), the detailed balance condition becomes more complex due to the dimension-matching requirement. This is handled by defining complementary pairs of moves (e.g., birth-death, split-merge) that can reverse each other's action.
-
-The algorithm employs several types of moves (jumps) to sample from the posterior distribution:
-
-### Move Types
-
-1. **Move**: Updates emitter positions using Gibbs sampling based on their allocated localizations
-2. **Allocate**: Reassigns localizations to emitters
-3. **Birth/Add**: Adds a new emitter to the model
-4. **Death/Remove**: Removes an existing emitter from the model
-
-The original implementation by Fazel et al. uses these four fundamental moves, while SMLMBaGoL may include additional moves like split/merge for improved mixing.
-
-### Implementation Details
-
-Typical RJMCMC parameters include:
-- 1000 burn-in jumps, followed by 2000 post-burn-in jumps
-- Equal jump probabilities for move, allocate, birth, and death (e.g., 0.25 each)
-
-### Birth-Death Process
-
-The birth-death process modifies the dimensionality of the parameter space by adding or removing emitters.
-
-#### Birth Jump
-For a birth jump that adds a new emitter:
-1. Sample a new emitter position from the prior
-2. Update allocations to include the new emitter
-3. Calculate the acceptance probability:
-
-$$\alpha_{birth} = \min\left(1, \frac{P(Y|\theta', Z', K+1) \cdot P(Z'|K+1) \cdot P(\theta'|K+1, Z') \cdot P(K+1)}{P(Y|\theta, Z, K) \cdot P(Z|K) \cdot P(\theta|K, Z) \cdot P(K)} \cdot \frac{q(\theta, Z, K|\theta', Z', K+1)}{q(\theta', Z', K+1|\theta, Z, K)}\right)$$
-
-where $q$ represents the proposal distribution.
-
-#### Death Jump
-For a death jump that removes an emitter:
-1. Select an emitter to remove
-2. Reallocate its localizations to other emitters
-3. Calculate the acceptance probability (inverse of birth jump)
-
-### Acceptance Criteria and Jump Pairs
-
-The RJMCMC method maintains detailed balance through carefully designed jump pairs that can reverse each other's actions. Each pair of jumps (like birth-death or split-merge) shares mathematical structures that ensure reversibility.
-
-The general form of the acceptance probability for a proposed move from state $(\theta, Z, K)$ to state $(\theta', Z', K')$ is:
-
-$$\alpha = \min\left(1, \frac{\pi(\theta', Z', K')}{\pi(\theta, Z, K)} \cdot \frac{q(\theta, Z, K|\theta', Z', K')}{q(\theta', Z', K'|\theta, Z, K)} \cdot |J|\right)$$
+The acceptance ratio incorporates the proposal density ratio:
+$$\log \alpha = \Delta \log p_{\mathrm{NB}} + \Delta \log L_{\mathrm{spatial}} + \Delta \log p(k) + \log \frac{q_{\mathrm{death}}}{q_{\mathrm{birth}}}$$
 
 where:
-- $\pi(\cdot)$ is the posterior distribution
-- $q(\cdot|\cdot)$ is the proposal distribution
-- $|J|$ is the Jacobian determinant of the transformation
+- **Birth:** $q_{\mathrm{fwd}} = q_{\mathrm{birth}}(\mathbf{s}_*) \times \Pr(\text{allocate } \mathcal{L}_*)$
+- **Death:** $q_{\mathrm{rev}} = q_{\mathrm{birth}}(\mathbf{s}_r) \times \Pr(\text{select emitter } r)$
 
-For dimension-changing moves like birth-death pairs, the same mathematical framework calculates both acceptance probabilities. For example, the death move acceptance probability is derived from the birth acceptance probability by swapping the states and inverting the ratio:
+**Note:** The sum-of-normals proposal ensures new emitters are positioned near observed data, improving acceptance rates compared to uniform spatial proposals.
 
-$$\alpha_{death} = \min\left(1, \frac{\pi(\theta, Z, K)}{\pi(\theta', Z', K+1)} \cdot \frac{q(\theta', Z', K+1|\theta, Z, K)}{q(\theta, Z, K|\theta', Z', K+1)} \cdot |J|^{-1}\right)$$
+---
 
-This symmetry in the mathematics ensures that detailed balance is maintained even as the dimension of the parameter space changes. The designed reversibility of jumps allows the Markov chain to freely explore models with different numbers of parameters while eventually converging to the correct posterior distribution.
+## 6. Parallel Partition Workflow
 
-## Hierarchical Bayesian Model
+1. **Spatial decomposition:** Divide ROI into $P$ overlapping tiles; distribute to threads
+2. **Local MCMC:** Each thread runs Gibbs+RJMCMC for $T_{\mathrm{sync}}$ iterations  
+3. **Synchronisation barrier:** Pool statistics $\{n_j, Q_i\}$ ⟹ global hyperparameter updates
+4. **Broadcast:** Distribute updated $(\mu, \kappa, \tau^2)$ to all threads
+5. **Merge:** After convergence, consolidate duplicate emitters in overlap regions
 
-SMLMBaGoL implements a hierarchical Bayesian approach to handle uncertainty in the distribution of localizations per emitter. This approach is integrated with the cluster-based analysis through periodic updates to the hyperparameters.
+---
 
-### Notation
+## 7. Key Algorithmic Advantages
 
-- $Y_{ij}$: Number of localizations for emitter $j$ in dataset $i$
-- $\alpha, \beta$: Shape and scale parameters of the gamma prior
-- $a_0, b_0, c_0, d_0$: Hyperparameters of the gamma hyperpriors
+- **Collapsed $\lambda_j$:** Reduces state space and improves mixing
+- **Pólya-weighted allocations:** Prevents pathological shrinkage behaviour  
+- **Gibbs positioning:** Eliminates distance penalties in death moves
+- **Parallel partitioning:** Near-linear scaling with periodic global synchronisation
 
-### Prior Distributions
+---
 
-- Gamma prior for the number of localizations per emitter:
-  $$Y_{ij} \sim \text{Gamma}(\alpha, \beta)$$
-  
-- Gamma hyperpriors for the shape and scale parameters:
-  $$\alpha \sim \text{Gamma}(a_0, b_0)$$
-  $$\beta \sim \text{Gamma}(c_0, d_0)$$
+## 8. Global Hyperparameter Synchronisation
 
-### Likelihood
+Pooling statistics across all partitions (total emitters $k_{\mathrm{total}}$, localisations $N_{\mathrm{total}}$):
 
-The likelihood of the observed data given the gamma prior is:
+$$
+\begin{aligned}
+\mu &\sim \mathrm{Gamma}\left(a_\mu + \sum_{\mathrm{all}} n_j, \frac{1}{b_\mu + k_{\mathrm{total}}\kappa}\right) \\[0.8em]
+\tau^2 &\sim \mathrm{InverseGamma}\left(a_\tau + \frac{N_{\mathrm{total}}}{2}, b_\tau + \frac{1}{2}\sum_{\mathrm{all}} Q_i\right)
+\end{aligned}
+$$
 
-$$\mathcal{L}(Y|\alpha, \beta) = \prod_{i=1}^{N} \prod_{j=1}^{M_i} \frac{\beta^{\alpha}}{\Gamma(\alpha)} Y_{ij}^{\alpha-1} e^{-\beta Y_{ij}}$$
+**Conditional density for $\kappa$** (slice sampling):
+$$
+\begin{aligned}
+\log p(\kappa \mid \mathbf{n}, \mu) &= (a_\kappa - 1)\log\kappa - b_\kappa\kappa \\
+&\quad - \sum_j \log\Gamma(\kappa) + \sum_j \log\Gamma(n_j + \kappa) \\
+&\quad - (N_{\mathrm{total}} + k_{\mathrm{total}}\kappa)\log(\kappa + \mu)
+\end{aligned}
+$$
 
-where $N$ is the number of datasets and $M_i$ is the number of emitters in dataset $i$.
+---
 
-### Posterior Distributions
+## 9. Posterior-Predictive Diagnostics
 
-- Posterior distribution of $\alpha$:
-  $$p(\alpha|Y) \propto \left(\prod_{i=1}^{N} \prod_{j=1}^{M_i} Y_{ij}^{\alpha-1}\right) \times \alpha^{a_0-1} e^{-b_0 \alpha}$$
+- **Goodness-of-fit:** Compare empirical histogram of $n_j$ against $\mathrm{NegBin}(\mu, \kappa)$
+- **Spatial residuals:** Check $r_i/\sqrt{\sigma_i^2 + \tau^2} \sim \chi^2_2$ distribution
+- **Convergence:** Monitor Gelman-Rubin $\hat{R} < 1.05$ for $(k, \mu, \kappa)$ across partitions
 
-- Posterior distribution of $\beta$:
-  $$p(\beta|Y) \propto \beta^{N \sum_{i=1}^{N} M_i \alpha - 1} e^{-\beta \left(\sum_{i=1}^{N} \sum_{j=1}^{M_i} Y_{ij} + d_0\right)}$$
+---
 
-### Integrated Analysis and Hierarchical Updates
+## 10. Computational Complexity (per partition)
 
-SMLMBaGoL integrates the RJMCMC analysis of partitions with periodic hierarchical Bayesian updates in a coordinated workflow:
+| Component | Memory | Cost per sweep |
+|-----------|--------|----------------|
+| Localisations $N$ | $O(N)$ | $O(N)$ |
+| Emitters $k$ | $O(k)$ | $O(k)$ |
+| **Total** | $O(N + k)$ | $O(N + k)$ |
 
-1. **Initial Setup**:
-   - Data is divided into disconnected partitions using DBSCAN
-   - Initial hyperparameters $\alpha$ and $\beta$ are set based on prior knowledge or default values
-   - Each partition is assigned an independent RJMCMC chain with the same prior distributions
+**Parallel efficiency:** $\approx P/(P+1)$ with $O(1)$ synchronisation overhead.
 
-2. **Interleaved RJMCMC and Hierarchical Updates**:
-   - Run RJMCMC chains on all partitions for a fixed number of iterations (`nsamples`)
-   - Collect the current states from all chains across all partitions
-   - Extract the number of localizations per emitter from these states
-   - Update the posterior distributions of $\alpha$ and $\beta$ using the collected data
-   - Sample new values of $\alpha$ and $\beta$ using a Metropolis-Hastings step
-   - Update the gamma prior $\Gamma(\alpha, \beta)$ in all chains with these new parameter values
-   - Continue RJMCMC sampling on all partitions with the updated prior
-   - Repeat this cycle for a specified number of hierarchical updates
+---
 
-3. **Computational Advantages**:
-   - The RJMCMC chains for different partitions run in parallel between hierarchical updates
-   - Hierarchical updates use information pooled from all partitions
-   - This approach allows information about the blinking statistics to propagate across partitions
-   - The parallel nature of the algorithm maintains computational efficiency
+## 11. Optional Extensions
 
-4. **Mathematical Formulation**:
-   - At hierarchical update step $t$, collect allocation counts $Y^{(t)} = \{Y_{ij}^{(t)}\}$ from all partitions
-   - Update the posterior distribution of hyperparameters:
-     $$p(\alpha, \beta | Y^{(1:t)}) \propto p(Y^{(1:t)} | \alpha, \beta) \cdot p(\alpha) \cdot p(\beta)$$
-   - Sample new hyperparameters $(\alpha^{(t+1)}, \beta^{(t+1)})$ from this posterior
-   - Update the prior on localizations per emitter for the next RJMCMC iterations:
-     $$p(Y | \alpha^{(t+1)}, \beta^{(t+1)}) = \Gamma(Y | \alpha^{(t+1)}, \beta^{(t+1)})$$
+- **Robust likelihood:** Replace Gaussian with 95/5% mixture for outlier resistance
+- **Anisotropic PSF:** Incorporate per-event covariance matrices $\Sigma_i$  
+- **Adaptive split/merge:** Enable advanced moves if effective sample size of $k$ is low
 
-This interleaved approach allows the algorithm to adaptively learn the distribution of localizations per emitter from the data while maintaining the computational efficiency of parallel processing.
+---
 
-## Mathematical Algorithms
-
-### Data Partitioning and Subregion Analysis
-
-The BaGoL algorithm employs data partitioning strategies to manage computational complexity and enable parallelization. The core RJMCMC algorithm scales as $O(N^2)$ with the number of localizations, making it computationally expensive for large datasets.
-
-#### DBSCAN Partitioning
-
-SMLMBaGoL uses Density-Based Spatial Clustering of Applications with Noise (DBSCAN) to break the problem into disconnected partitions:
-
-1. Localizations are treated as points in a spatial graph
-2. Points are connected if they are within distance $\epsilon$ of each other, where $\epsilon$ is typically set to a multiple of the mean localization uncertainty (e.g., $\epsilon = 4\sigma$)
-3. Partitions are formed as connected components in this graph
-4. Each partition is processed independently using the RJMCMC algorithm
-
-The mathematical justification for this approach is that localizations separated by large distances (relative to their uncertainties) have negligible probability of originating from the same emitter.
-
-The partitioning approach transforms the computational complexity from $O(N^2)$ for the entire dataset to $O(\sum_{i=1}^k n_i^2)$, where $k$ is the number of partitions and $n_i$ is the number of localizations in partition $i$. When partitions are roughly equal in size with $n_i \approx N/k$, this reduces to $O(N^2/k)$, providing a significant speedup.
-
-#### Parallel Processing
-
-After dividing the data into partitions using DBSCAN, SMLMBaGoL processes each partition independently:
-
-```julia
-Threads.@threads for i in eachindex(partitions)
-    partition = partitions[i]
-    chain, mapn_coords = rjmcmc(partition.obs, prior_λ)
-    partition.chains[1] = chain
-end
-```
-
-This parallel processing approach enables effective utilization of multiple CPU cores, significantly accelerating the analysis of large datasets.
-
-#### Combining Results
-
-To create the final posterior distribution, results from all partitions are merged by adding their contributions to a discretized posterior image:
-
-$$P(\theta) = \sum_{i=1}^k P_i(\theta)$$
-
-where $P_i(\theta)$ is the posterior contribution from partition $i$, normalized appropriately.
-
-### Allocation Algorithm
-
-The allocation of localizations to emitters follows:
-
-1. For each localization $y_i$:
-   - Calculate the log-likelihood of assignment to each emitter $\theta_j$:
-     $$\log P(Z(i) = j | y_i, \theta_j) = \log P(y_i | \theta_j, Z(i) = j) + \log P(Z(i) = j | \theta_j)$$
-   - Normalize these probabilities: 
-     $$P(Z(i) = j | y_i, \theta) = \frac{\exp(\log P(Z(i) = j | y_i, \theta_j))}{\sum_{k=1}^{K} \exp(\log P(Z(i) = k | y_i, \theta_k))}$$
-   - Sample the allocation from this categorical distribution
-
-### Emitter Position Update
-
-When updating emitter positions:
-
-1. For each emitter $\theta_j$:
-   - Calculate the weighted mean of its allocated localizations:
-     $$\hat{x}_j = \frac{\sum_{i: Z(i)=j} \frac{x_i}{\sigma_{x,i}^2}}{\sum_{i: Z(i)=j} \frac{1}{\sigma_{x,i}^2}}$$
-     $$\hat{y}_j = \frac{\sum_{i: Z(i)=j} \frac{y_i}{\sigma_{y,i}^2}}{\sum_{i: Z(i)=j} \frac{1}{\sigma_{y,i}^2}}$$
-   - Calculate the posterior variance:
-     $$\sigma_{\hat{x}_j}^2 = \left(\sum_{i: Z(i)=j} \frac{1}{\sigma_{x,i}^2}\right)^{-1}$$
-     $$\sigma_{\hat{y}_j}^2 = \left(\sum_{i: Z(i)=j} \frac{1}{\sigma_{y,i}^2}\right)^{-1}$$
-   - Sample the new position from:
-     $$x_j \sim \mathcal{N}(\hat{x}_j, \sigma_{\hat{x}_j}^2)$$
-     $$y_j \sim \mathcal{N}(\hat{y}_j, \sigma_{\hat{y}_j}^2)$$
-
-### Posterior Image Construction
-
-The posterior distribution of emitter positions is constructed as:
-
-1. Create a discretized grid with pixel size typically smaller than localization precision
-2. For each state in the MCMC chain:
-   - Add a count to each pixel where an emitter is located
-3. Normalize the resulting image to sum to 1.0
-
-### MAPN Generation: Addressing Particle Identity
-
-A key challenge in RJMCMC analysis is that particle identity is not preserved across the chain. Since emitters can be added, removed, or reallocated between iterations, tracking individual emitters becomes problematic. SMLMBaGoL addresses this challenge through a sophisticated Maximum A Posteriori Number (MAPN) emitter estimation approach:
-
-1. **Finding the MAPN**:
-   - Determine the most frequently occurring number of emitters across the chain states
-   - Extract a sub-chain containing only states with this number of emitters
-
-2. **Reference State Selection**:
-   - Create a spatial histogram from all emitter positions in the MAPN sub-chain
-   - Find the state with emitter configurations that best match this spatial distribution
-   - Use this state as an initial reference
-
-3. **Emitter Reordering with Hungarian Algorithm**:
-   - For each state in the MAPN sub-chain:
-     - Construct a cost matrix containing pairwise distances between emitters in the reference state and the current state
-     - Apply the Hungarian algorithm to find the optimal assignment that minimizes total distance
-     - Permute the emitters in the current state to match the reference ordering
-
-4. **Iterative Refinement**:
-   - Calculate mean positions for each emitter across all reordered states
-   - Use these mean positions as a new reference state
-   - Repeat the Hungarian assignment step for further refinement (typically 2 iterations)
-
-5. **Statistical Estimation**:
-   - For each emitter in the final ordered chain:
-     - Calculate the mean position across all states
-     - Compute the standard deviation as a measure of positional uncertainty
-
-This approach effectively addresses the particle identity issue in RJMCMC by leveraging optimal assignment algorithms and statistical averaging. The mathematical basis lies in the bipartite matching problem, which the Hungarian algorithm solves in $O(n^3)$ time, where $n$ is the number of emitters.
-
-The algorithm can be summarized by the following pseudo-equation for the position of emitter $j$:
-
-$$\hat{\theta}_j = \frac{1}{|C_{MAPN}|} \sum_{i \in C_{MAPN}} \theta_{\sigma_i(j)}^{(i)}$$
-
-where:
-- $\hat{\theta}_j$ is the estimated position of emitter $j$
-- $C_{MAPN}$ is the set of chain states with the MAPN number of emitters
-- $\theta_{\sigma_i(j)}^{(i)}$ is the position of the emitter in state $i$ assigned to index $j$ by permutation $\sigma_i$
-- $\sigma_i$ is the optimal assignment found by the Hungarian algorithm
-
-## Physical Model
-
-### Localization Precision
-
-The localization precision in SMLM is related to the number of photons $N$ detected from the emitter:
-
-$$\sigma_x \approx \frac{\sigma_{PSF}}{\sqrt{N}}$$
-
-where $\sigma_{PSF}$ is the standard deviation of the point spread function.
-
-### Precision Improvement
-
-The expected precision improvement when combining $n$ localizations is:
-
-$$\sigma_{combined} \approx \frac{\sigma_{individual}}{\sqrt{n}}$$
-
-This relationship forms the theoretical basis for the precision improvement achieved by BaGoL.
-
-### Blinking Process
-
-The blinking behavior of fluorophores is modeled stochastically:
-- The number of blinks per emitter follows a distribution (often geometric or gamma)
-- The temporal distribution of blinks depends on the photophysics of the fluorophore
-- For DNA-PAINT, the binding kinetics determine the temporal distribution of localizations
-
-## References
-
-1. Fazel M, Wester MJ, Rieger B, Jungmann R, Lidke KA. High-precision estimation of emitter positions using Bayesian grouping of localizations. Nature Communications. 2022;13(1):7152. [https://doi.org/10.1038/s41467-022-34894-2](https://doi.org/10.1038/s41467-022-34894-2)
-
-2. Green PJ. Reversible jump Markov chain Monte Carlo computation and Bayesian model determination. Biometrika. 1995;82(4):711-732.
-
-3. Richardson S, Green PJ. On Bayesian analysis of mixtures with an unknown number of components. Journal of the Royal Statistical Society, Series B. 1997;59(4):731-792.
+*This specification provides a complete mathematical foundation for implementation.*
