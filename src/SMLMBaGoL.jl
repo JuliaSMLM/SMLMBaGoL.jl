@@ -18,8 +18,11 @@ using Images: Gray, RGB, N0f8
 using Colors
 using ColorSchemes
 
-# Core types
+# Core types (must be first - defines abstract types used everywhere)
 include("core/types.jl")
+
+# Core priors (must be before state.jl which uses prior types)
+include("core/priors.jl")
 
 # Concrete types
 # Emitter types come from SMLMData
@@ -27,7 +30,6 @@ include("localizations/localization2d.jl")
 
 # Core functionality
 include("core/state.jl")
-include("core/priors.jl")
 include("core/likelihood.jl")
 
 # Utilities
@@ -66,10 +68,10 @@ include("diagnostics/chain_diagnostics.jl")
 export AbstractLocalization, AbstractPrior, AbstractRJMCMCMove, AbstractChainState
 # Note: AbstractEmitter, Emitter2D, Emitter2DFit come from SMLMData
 export Localization2D, BaGoLState, RJMCMCChain
-export UniformSpatialPrior, GammaPrior, HierarchicalGammaPrior, CompoundPrior
+export AbstractSpatialPrior, AbstractCountPrior, UniformSpatialPrior, HierarchicalNegBinomialPrior, FixedNegBinomialPrior, HierarchicalUpdate
 export Birth, Death, Move, Allocate, inverse_move
-export log_likelihood, log_prior, log_prior_spatial, log_prior_K, log_posterior
-export sample_spatial_prior, create_spatial_prior_from_localizations, create_default_prior
+export log_likelihood, log_prior, log_prior_spatial, log_posterior
+export sample_spatial_prior, create_spatial_prior_from_localizations, create_default_prior, create_hierarchical_prior
 export propose_move, accept_probability, log_acceptance_ratio
 export run_bagol, initialize_chain, run_rjmcmc!, rjmcmc_step!
 export initialize_chains_from_data, handle_chain_continuation
@@ -80,7 +82,7 @@ export smld_to_localizations, simulate_static_smlm, simulate_nmer_smlmsim
 export gen_sr_image
 export circle!, sr_circles, sr_circles!, sr_circles_combined, sr_circles_combined!
 export diagnose_chains, quick_diagnose, assess_burn_in, assess_chain_length
-export plot_hierarchical_evolution, plot_gamma_distributions, plot_emitter_count_histogram
+export plot_hierarchical_evolution, plot_gamma_distributions, plot_negbinomial_distributions, plot_emitter_count_histogram
 export analyze_hierarchical_convergence, get_hierarchical_summary
 
 end # module SMLMBaGoL

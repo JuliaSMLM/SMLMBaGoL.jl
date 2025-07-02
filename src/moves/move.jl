@@ -13,9 +13,7 @@ function propose_move(::Type{Move}, state::BaGoLState{E,L,T}, rng=Random.GLOBAL_
     
     if isempty(allocated_locs)
         # No localizations allocated - propose random position from spatial prior
-        spatial_prior = isa(state.prior, CompoundPrior) ? state.prior.spatial_prior :
-                       create_spatial_prior_from_localizations(state.localizations)
-        x_new, y_new = sample_spatial_prior(spatial_prior, rng)
+        x_new, y_new = sample_spatial_prior(state.spatial_prior, rng)
         new_emitter = E(x_new, y_new, emitter.photons)
     else
         # Sample new position from posterior distribution (proper Gibbs sampling)
@@ -44,8 +42,8 @@ function propose_move(::Type{Move}, state::BaGoLState{E,L,T}, rng=Random.GLOBAL_
     
     # Recompute likelihood
     new_state = BaGoLState(new_state.emitters, new_state.localizations, 
-                          new_state.allocations, new_state.prior, 
-                          log_likelihood(new_state))
+                          new_state.allocations, new_state.spatial_prior,
+                          new_state.count_prior, log_likelihood(new_state))
     
     return new_state
 end
@@ -67,14 +65,8 @@ function log_acceptance_ratio(::Type{Move}, current::BaGoLState, proposed::BaGoL
     proposed_emitter = proposed.emitters[moved_idx]
     
     # Prior ratio for the moved emitter
-    log_prior_ratio = log_prior_spatial(proposed_emitter, 
-                                       isa(current.prior, CompoundPrior) ? 
-                                       current.prior.spatial_prior :
-                                       create_spatial_prior_from_localizations(current.localizations)) -
-                     log_prior_spatial(current_emitter,
-                                      isa(current.prior, CompoundPrior) ? 
-                                      current.prior.spatial_prior :
-                                      create_spatial_prior_from_localizations(current.localizations))
+    log_prior_ratio = log_prior_spatial(proposed_emitter, current.spatial_prior) -
+                     log_prior_spatial(current_emitter, current.spatial_prior)
     
     # Likelihood ratio 
     log_likelihood_ratio = proposed.log_likelihood - current.log_likelihood

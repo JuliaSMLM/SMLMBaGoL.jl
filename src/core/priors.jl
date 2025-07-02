@@ -1,34 +1,27 @@
-struct UniformSpatialPrior{T<:Real} <: AbstractPrior
+# Add new abstract types for clarity
+abstract type AbstractSpatialPrior <: AbstractPrior end
+abstract type AbstractCountPrior <: AbstractPrior end
+
+# Spatial prior remains the same but inherits from new abstract type
+struct UniformSpatialPrior{T<:Real} <: AbstractSpatialPrior
     x_min::T
     x_max::T
     y_min::T
     y_max::T
 end
 
-struct GammaPrior{T<:Real} <: AbstractPrior
-    α::T  # shape parameter
-    β::T  # scale parameter
+# Rename and clarify hierarchical prior to match math spec
+struct HierarchicalNegBinomialPrior{T<:Real} <: AbstractCountPrior
+    μ::T  # mean number of localizations per emitter (NOT shape/scale!)
+    κ::T  # overdispersion parameter (concentration)
+    μ_hyperprior::Tuple{T, T}  # (a₀, b₀) for Gamma prior on μ
+    κ_hyperprior::Tuple{T, T}  # (c₀, d₀) for Gamma prior on κ
 end
 
-struct HierarchicalGammaPrior{T<:Real} <: AbstractPrior
-    α::T  # shape parameter
-    β::T  # scale parameter
-    α_prior::Tuple{T, T}  # (a₀, b₀) for α
-    β_prior::Tuple{T, T}  # (c₀, d₀) for β
-end
-
-struct CompoundPrior{T<:Real} <: AbstractPrior
-    spatial_prior::UniformSpatialPrior{T}
-    K_prior::Union{GammaPrior{T}, HierarchicalGammaPrior{T}}  # prior on number of emitters
-    λ_prior::Union{GammaPrior{T}, HierarchicalGammaPrior{T}}  # prior on localizations per emitter
-end
-
-# Constructor for backward compatibility
-function CompoundPrior(spatial_prior::UniformSpatialPrior{T}, 
-                      K_prior::Union{GammaPrior{T}, HierarchicalGammaPrior{T}}) where T
-    # Default λ prior: mean 4 localizations per emitter
-    λ_prior = GammaPrior(T(4.0), T(1.0))
-    return CompoundPrior(spatial_prior, K_prior, λ_prior)
+# Add a simple fixed count prior for non-hierarchical mode
+struct FixedNegBinomialPrior{T<:Real} <: AbstractCountPrior
+    μ::T  # fixed mean localizations per emitter
+    κ::T  # fixed overdispersion
 end
 
 function log_prior_spatial(emitter::AbstractEmitter, prior::UniformSpatialPrior)
@@ -40,29 +33,26 @@ function log_prior_spatial(emitter::AbstractEmitter, prior::UniformSpatialPrior)
     end
 end
 
-function log_prior_K(K::Int, prior::GammaPrior)
-    K < 0 && return -Inf
-    return (prior.α - 1) * log(K) - K / prior.β - loggamma(prior.α) - prior.α * log(prior.β)
+# Helper functions to extract κ from count priors
+function get_concentration_parameter(prior::HierarchicalNegBinomialPrior)
+    return prior.κ
 end
 
-function log_prior_K(K::Int, prior::HierarchicalGammaPrior)
-    K < 0 && return -Inf
-    return (prior.α - 1) * log(K) - K / prior.β - loggamma(prior.α) - prior.α * log(prior.β)
+function get_concentration_parameter(prior::FixedNegBinomialPrior)
+    return prior.κ
 end
 
-function log_prior(state::BaGoLState)
-    K = length(state.emitters)
-    
-    if isa(state.prior, CompoundPrior)
-        ll = log_prior_K(K, state.prior.K_prior)
-        for emitter in state.emitters
-            ll += log_prior_spatial(emitter, state.prior.spatial_prior)
-        end
-        return ll
+# Function to get spatial prior density (needed for birth/death moves)
+function log_spatial_prior_density(emitter::AbstractEmitter, prior::UniformSpatialPrior)
+    if prior.x_min ≤ emitter.x ≤ prior.x_max && prior.y_min ≤ emitter.y ≤ prior.y_max
+        area = (prior.x_max - prior.x_min) * (prior.y_max - prior.y_min)
+        return -log(area)
     else
-        error("Unsupported prior type: $(typeof(state.prior))")
+        return -Inf
     end
 end
+
+# log_prior function moved to state.jl since it depends on BaGoLState
 
 function sample_spatial_prior(prior::UniformSpatialPrior{T}, rng=Random.GLOBAL_RNG) where T
     x = prior.x_min + (prior.x_max - prior.x_min) * rand(rng, T)

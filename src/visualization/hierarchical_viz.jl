@@ -1,4 +1,4 @@
-function plot_hierarchical_evolution(chains::Vector{RJMCMCChain};
+function plot_hierarchical_evolution(chains::Vector{<:RJMCMCChain};
                                    filename::Union{Nothing,String} = nothing,
                                    figsize::Tuple{Int,Int} = (800, 600))
     
@@ -6,8 +6,8 @@ function plot_hierarchical_evolution(chains::Vector{RJMCMCChain};
     all_histories = []
     for (i, chain) in enumerate(chains)
         if !isempty(chain.hierarchical_history)
-            for (iter, α, β) in chain.hierarchical_history
-                push!(all_histories, (iter, α, β, i))
+            for update in chain.hierarchical_history
+                push!(all_histories, (update.iteration, update.μ, update.κ, i))
             end
         end
     end
@@ -22,27 +22,27 @@ function plot_hierarchical_evolution(chains::Vector{RJMCMCChain};
     
     # Extract data
     iterations = [h[1] for h in all_histories]
-    alphas = [h[2] for h in all_histories]
-    betas = [h[3] for h in all_histories]
+    mus = [h[2] for h in all_histories]
+    kappas = [h[3] for h in all_histories]
     
     # Create figure
     fig = Figure(size=figsize)
     
-    # Plot α evolution
+    # Plot μ evolution
     ax1 = CairoMakie.Axis(fig[1, 1], 
                xlabel="Iteration", 
-               ylabel="α (shape parameter)",
-               title="Hierarchical Prior Evolution: α")
-    lines!(ax1, iterations, alphas, linewidth=2, color=:blue)
-    scatter!(ax1, iterations, alphas, markersize=8, color=:blue)
+               ylabel="μ (mean localizations per emitter)",
+               title="Hierarchical Prior Evolution: μ")
+    lines!(ax1, iterations, mus, linewidth=2, color=:blue)
+    scatter!(ax1, iterations, mus, markersize=8, color=:blue)
     
-    # Plot β evolution
+    # Plot κ evolution
     ax2 = CairoMakie.Axis(fig[2, 1], 
                xlabel="Iteration", 
-               ylabel="β (scale parameter)",
-               title="Hierarchical Prior Evolution: β")
-    lines!(ax2, iterations, betas, linewidth=2, color=:red)
-    scatter!(ax2, iterations, betas, markersize=8, color=:red)
+               ylabel="κ (overdispersion parameter)",
+               title="Hierarchical Prior Evolution: κ")
+    lines!(ax2, iterations, kappas, linewidth=2, color=:red)
+    scatter!(ax2, iterations, kappas, markersize=8, color=:red)
     
     # Grid is already enabled by default in CairoMakie
     
@@ -54,19 +54,19 @@ function plot_hierarchical_evolution(chains::Vector{RJMCMCChain};
     return fig
 end
 
-function plot_gamma_distributions(chains::Vector{RJMCMCChain};
-                                filename::Union{Nothing,String} = nothing,
-                                n_timepoints::Int = 5,
-                                figsize::Tuple{Int,Int} = (800, 600))
+function plot_negbinomial_distributions(chains::Vector{<:RJMCMCChain};
+                                       filename::Union{Nothing,String} = nothing,
+                                       n_timepoints::Int = 5,
+                                       figsize::Tuple{Int,Int} = (800, 600))
     
     # Collect unique parameter sets from history
     all_params = Set{Tuple{Float64,Float64}}()
     iter_to_params = Dict{Int,Tuple{Float64,Float64}}()
     
     for chain in chains
-        for (iter, α, β) in chain.hierarchical_history
-            push!(all_params, (α, β))
-            iter_to_params[iter] = (α, β)
+        for update in chain.hierarchical_history
+            push!(all_params, (update.μ, update.κ))
+            iter_to_params[update.iteration] = (update.μ, update.κ)
         end
     end
     
@@ -90,7 +90,7 @@ function plot_gamma_distributions(chains::Vector{RJMCMCChain};
     ax = CairoMakie.Axis(fig[1, 1], 
               xlabel="Number of localizations per emitter (k)", 
               ylabel="P(k)",
-              title="Evolution of Gamma Prior Distribution")
+              title="Evolution of Negative Binomial Prior Distribution")
     
     # Color palette
     colors = [:blue, :green, :orange, :red, :purple]
@@ -100,15 +100,19 @@ function plot_gamma_distributions(chains::Vector{RJMCMCChain};
     k_values = 0:k_max
     
     for (i, iter) in enumerate(selected_iters)
-        α, β = iter_to_params[iter]
+        μ, κ = iter_to_params[iter]
         
-        # Compute Gamma PDF values
-        gamma_dist = Distributions.Gamma(α, β)
-        pdf_values = [Distributions.pdf(gamma_dist, k) for k in k_values]
+        # Compute Negative Binomial PMF values
+        # Convert μ, κ parameterization to r, p parameterization for Distributions.jl
+        # NegativeBinomial(r, p) where r = κ, p = κ/(κ + μ)
+        r = κ
+        p = κ / (κ + μ)
+        nb_dist = Distributions.NegativeBinomial(r, p)
+        pmf_values = [Distributions.pdf(nb_dist, k) for k in k_values]
         
         color = colors[mod1(i, length(colors))]
-        lines!(ax, k_values, pdf_values, 
-               label="Iter $iter (α=$(round(α,digits=2)), β=$(round(β,digits=2)))",
+        lines!(ax, k_values, pmf_values, 
+               label="Iter $iter (μ=$(round(μ,digits=2)), κ=$(round(κ,digits=2)))",
                linewidth=2, color=color)
     end
     
@@ -123,7 +127,12 @@ function plot_gamma_distributions(chains::Vector{RJMCMCChain};
     return fig
 end
 
-function plot_emitter_count_histogram(chains::Vector{RJMCMCChain};
+# Keep the old name for backward compatibility but call the new function
+function plot_gamma_distributions(chains::Vector{<:RJMCMCChain}; kwargs...)
+    return plot_negbinomial_distributions(chains; kwargs...)
+end
+
+function plot_emitter_count_histogram(chains::Vector{<:RJMCMCChain};
                                     filename::Union{Nothing,String} = nothing,
                                     figsize::Tuple{Int,Int} = (800, 600),
                                     true_mean::Union{Nothing,Real} = nothing)
@@ -137,11 +146,11 @@ function plot_emitter_count_histogram(chains::Vector{RJMCMCChain};
     end
     
     # Get final hierarchical parameters if available
-    final_α, final_β = nothing, nothing
+    final_μ, final_κ = nothing, nothing
     for chain in chains
         if !isempty(chain.hierarchical_history)
-            last_entry = chain.hierarchical_history[end]
-            final_α, final_β = last_entry[2], last_entry[3]
+            last_update = chain.hierarchical_history[end]
+            final_μ, final_κ = last_update.μ, last_update.κ
             break
         end
     end
@@ -158,14 +167,17 @@ function plot_emitter_count_histogram(chains::Vector{RJMCMCChain};
           normalization=:pdf, color=(:blue, 0.6), 
           label="Empirical")
     
-    # Overlay fitted Gamma if parameters available
-    if !isnothing(final_α) && !isnothing(final_β)
-        k_values = 0:0.1:maximum(all_counts)
-        gamma_dist = Distributions.Gamma(final_α, final_β)
-        pdf_values = [Distributions.pdf(gamma_dist, k) for k in k_values]
-        lines!(ax, k_values, pdf_values, 
-               color=:red, linewidth=3,
-               label="Fitted Gamma(α=$(round(final_α,digits=2)), β=$(round(final_β,digits=2)))")
+    # Overlay fitted Negative Binomial if parameters available
+    if !isnothing(final_μ) && !isnothing(final_κ)
+        k_values = 0:maximum(all_counts)
+        # Convert μ, κ parameterization to r, p parameterization for Distributions.jl
+        r = final_κ
+        p = final_κ / (final_κ + final_μ)
+        nb_dist = Distributions.NegativeBinomial(r, p)
+        pmf_values = [Distributions.pdf(nb_dist, k) for k in k_values]
+        scatter!(ax, k_values, pmf_values, 
+                color=:red, markersize=6,
+                label="Fitted NegBinom(μ=$(round(final_μ,digits=2)), κ=$(round(final_κ,digits=2)))")
     end
     
     # Add true mean line if provided
@@ -185,14 +197,14 @@ function plot_emitter_count_histogram(chains::Vector{RJMCMCChain};
     return fig
 end
 
-function analyze_hierarchical_convergence(chains::Vector{RJMCMCChain};
+function analyze_hierarchical_convergence(chains::Vector{<:RJMCMCChain};
                                         window_size::Int = 5)
     
     # Collect all parameter updates
     all_updates = []
     for chain in chains
-        for (iter, α, β) in chain.hierarchical_history
-            push!(all_updates, (iter, α, β))
+        for update in chain.hierarchical_history
+            push!(all_updates, (update.iteration, update.μ, update.κ))
         end
     end
     
@@ -204,26 +216,29 @@ function analyze_hierarchical_convergence(chains::Vector{RJMCMCChain};
     sort!(all_updates, by=x->x[1])
     
     # Check parameter stability in recent updates
-    recent_alphas = [u[2] for u in all_updates[end-window_size+1:end]]
-    recent_betas = [u[3] for u in all_updates[end-window_size+1:end]]
+    recent_mus = [u[2] for u in all_updates[end-window_size+1:end]]
+    recent_kappas = [u[3] for u in all_updates[end-window_size+1:end]]
     
-    α_cv = std(recent_alphas) / mean(recent_alphas)  # Coefficient of variation
-    β_cv = std(recent_betas) / mean(recent_betas)
+    μ_cv = std(recent_mus) / mean(recent_mus)  # Coefficient of variation
+    κ_cv = std(recent_kappas) / mean(recent_kappas)
     
-    converged = α_cv < 0.05 && β_cv < 0.05  # Less than 5% variation
+    converged = μ_cv < 0.05 && κ_cv < 0.05  # Less than 5% variation
     
     return (
         converged = converged,
-        α_cv = α_cv,
-        β_cv = β_cv,
-        final_α = all_updates[end][2],
-        final_β = all_updates[end][3],
+        μ_cv = μ_cv,
+        κ_cv = κ_cv,
+        final_μ = all_updates[end][2],
+        final_κ = all_updates[end][3],
+        # For backward compatibility, also provide α, β names (μ=α*β, κ approximated)
+        final_α = all_updates[end][3],  # κ as shape-like parameter
+        final_β = all_updates[end][2] / all_updates[end][3],  # approximate scale
         n_updates = length(all_updates),
         message = converged ? "Hierarchical parameters have converged" : "Hierarchical parameters still changing"
     )
 end
 
-function get_hierarchical_summary(chains::Vector{RJMCMCChain})
+function get_hierarchical_summary(chains::Vector{<:RJMCMCChain})
     
     # Count total updates
     total_updates = sum(length(chain.hierarchical_history) for chain in chains)
@@ -237,32 +252,42 @@ function get_hierarchical_summary(chains::Vector{RJMCMCChain})
     end
     
     # Get initial and final parameters
-    initial_α, initial_β = nothing, nothing
-    final_α, final_β = nothing, nothing
+    initial_μ, initial_κ = nothing, nothing
+    final_μ, final_κ = nothing, nothing
     
     for chain in chains
         if !isempty(chain.hierarchical_history)
-            if isnothing(initial_α)
-                initial_α, initial_β = chain.hierarchical_history[1][2:3]
+            if isnothing(initial_μ)
+                first_update = chain.hierarchical_history[1]
+                initial_μ, initial_κ = first_update.μ, first_update.κ
             end
-            final_α, final_β = chain.hierarchical_history[end][2:3]
+            last_update = chain.hierarchical_history[end]
+            final_μ, final_κ = last_update.μ, last_update.κ
         end
     end
     
     # Calculate change
-    α_change = (final_α - initial_α) / initial_α * 100
-    β_change = (final_β - initial_β) / initial_β * 100
+    μ_change = (final_μ - initial_μ) / initial_μ * 100
+    κ_change = (final_κ - initial_κ) / initial_κ * 100
     
     return (
         enabled = true,
         n_updates = total_updates,
-        initial_α = initial_α,
-        initial_β = initial_β,
-        final_α = final_α,
-        final_β = final_β,
-        α_change_percent = α_change,
-        β_change_percent = β_change,
+        initial_μ = initial_μ,
+        initial_κ = initial_κ,
+        final_μ = final_μ,
+        final_κ = final_κ,
+        # For backward compatibility
+        initial_α = initial_κ,
+        initial_β = initial_μ / initial_κ,
+        final_α = final_κ,
+        final_β = final_μ / final_κ,
+        μ_change_percent = μ_change,
+        κ_change_percent = κ_change,
+        # For backward compatibility
+        α_change_percent = κ_change,
+        β_change_percent = μ_change / initial_κ * 100,
         convergence = analyze_hierarchical_convergence(chains),
-        message = "Hierarchical prior adapted from α=$(round(initial_α,digits=2))→$(round(final_α,digits=2)), β=$(round(initial_β,digits=2))→$(round(final_β,digits=2))"
+        message = "Hierarchical prior adapted from μ=$(round(initial_μ,digits=2))→$(round(final_μ,digits=2)), κ=$(round(initial_κ,digits=2))→$(round(final_κ,digits=2))"
     )
 end

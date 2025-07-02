@@ -4,16 +4,27 @@ function propose_move(::Type{Allocate}, state::BaGoLState{E,L,T}, rng=Random.GLO
     
     new_state = deepcopy(state)
     
-    # Perform full Gibbs sweep: reallocate ALL localizations
-    # This follows the approach in the refactor-rjmcmc branch
+    # Count current allocations for each emitter (n_j in math spec)
+    n_j = zeros(Int, length(state.emitters))
+    for alloc in state.allocations
+        if 1 ≤ alloc ≤ length(state.emitters)
+            n_j[alloc] += 1
+        end
+    end
+    
+    # Extract κ from count prior
+    κ = get_concentration_parameter(state.count_prior)
+    
+    # Perform full Gibbs sweep with Pólya weights
     log_probs = Vector{Float64}(undef, length(state.emitters))
     
     for loc_idx in 1:length(state.localizations)
         loc = state.localizations[loc_idx]
         
-        # Compute likelihood-based probabilities for this localization
+        # CRITICAL: Include Pólya weight (n_j + κ) as per math spec Section 3
         for (i, emitter) in enumerate(state.emitters)
-            log_probs[i] = log_likelihood(emitter, loc)
+            # w_ij ∝ (n_j + κ) × L_ij
+            log_probs[i] = log(n_j[i] + κ) + log_likelihood(emitter, loc)
         end
         
         # Convert to probabilities (subtract max for numerical stability)
@@ -21,25 +32,22 @@ function propose_move(::Type{Allocate}, state::BaGoLState{E,L,T}, rng=Random.GLO
         probs = exp.(log_probs .- max_log_prob)
         probs ./= sum(probs)
         
-        # Sample new allocation
-        cumulative = cumsum(probs)
-        r = rand(rng)
-        new_allocation = 1
-        for i in eachindex(cumulative)
-            if r <= cumulative[i]
-                new_allocation = i
-                break
-            end
+        # Update n_j counts for real-time tracking
+        old_alloc = state.allocations[loc_idx]
+        if 1 ≤ old_alloc ≤ length(state.emitters)
+            n_j[old_alloc] -= 1
         end
         
-        # Update allocation for this localization
+        # Sample new allocation using StatsBase.Weights for robust sampling
+        new_allocation = sample(rng, 1:length(state.emitters), Weights(probs))
         new_state.allocations[loc_idx] = new_allocation
+        n_j[new_allocation] += 1
     end
     
-    # Recompute likelihood after all allocations updated
+    # Recompute likelihood
     new_state = BaGoLState(new_state.emitters, new_state.localizations, 
-                          new_state.allocations, new_state.prior, 
-                          log_likelihood(new_state))
+                          new_state.allocations, new_state.spatial_prior,
+                          new_state.count_prior, log_likelihood(new_state))
     
     return new_state
 end

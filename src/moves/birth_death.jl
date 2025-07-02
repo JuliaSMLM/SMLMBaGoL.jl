@@ -6,22 +6,20 @@ optimization after the structural change to improve acceptance rates.
 """
 
 function propose_move(::Type{Birth}, state::BaGoLState{E,L,T}, rng=Random.GLOBAL_RNG) where {E,L,T}
-    # Extract spatial prior from compound prior
-    spatial_prior = isa(state.prior, CompoundPrior) ? state.prior.spatial_prior : 
-                   error("Birth move requires CompoundPrior with spatial component")
-    
     # Sample new emitter from spatial prior
-    new_emitter = sample_emitter_from_prior(state.localizations, E, spatial_prior, rng)
+    new_emitter = sample_emitter_from_prior(state.localizations, E, state.spatial_prior, rng)
     new_emitters = [state.emitters; new_emitter]
     
     # Create temporary state for reallocation
-    temp_state = BaGoLState(new_emitters, state.localizations, state.allocations, state.prior, state.log_likelihood)
+    temp_state = BaGoLState(new_emitters, state.localizations, state.allocations, 
+                           state.spatial_prior, state.count_prior, state.log_likelihood)
     
     # Reallocate all localizations given new emitter set
     new_allocations = propose_reallocation(temp_state, rng)
     
     # Create state after allocation
-    allocated_state = BaGoLState(new_emitters, state.localizations, new_allocations, state.prior, T(0.0))
+    allocated_state = BaGoLState(new_emitters, state.localizations, new_allocations, 
+                                state.spatial_prior, state.count_prior, T(0.0))
     
     # Now optimize the position of the new emitter using allocated localizations
     new_emitter_idx = length(new_emitters)
@@ -44,9 +42,11 @@ function propose_move(::Type{Birth}, state::BaGoLState{E,L,T}, rng=Random.GLOBAL
     
     # Create final state with optimized position and updated likelihood
     new_likelihood = log_likelihood(BaGoLState(new_emitters, state.localizations, 
-                                              new_allocations, state.prior, T(0.0)))
+                                              new_allocations, state.spatial_prior, 
+                                              state.count_prior, T(0.0)))
     
-    return BaGoLState(new_emitters, state.localizations, new_allocations, state.prior, new_likelihood)
+    return BaGoLState(new_emitters, state.localizations, new_allocations, 
+                     state.spatial_prior, state.count_prior, new_likelihood)
 end
 
 function propose_move(::Type{Death}, state::BaGoLState{E,L,T}, rng=Random.GLOBAL_RNG) where {E,L,T}
@@ -66,7 +66,7 @@ function propose_move(::Type{Death}, state::BaGoLState{E,L,T}, rng=Random.GLOBAL
     if !isempty(new_emitters) && !isempty(allocated_to_removed)
         # Create temporary state
         temp_state = BaGoLState(new_emitters, state.localizations, new_allocations, 
-                               state.prior, T(0.0))
+                               state.spatial_prior, state.count_prior, T(0.0))
         
         # Find which emitters received the reallocated localizations
         emitters_to_optimize = unique([new_allocations[i] for i in allocated_to_removed 
@@ -94,46 +94,32 @@ function propose_move(::Type{Death}, state::BaGoLState{E,L,T}, rng=Random.GLOBAL
     
     # Create final state with updated likelihood
     new_likelihood = log_likelihood(BaGoLState(new_emitters, state.localizations, 
-                                              new_allocations, state.prior, T(0.0)))
+                                              new_allocations, state.spatial_prior, 
+                                              state.count_prior, T(0.0)))
     
-    return BaGoLState(new_emitters, state.localizations, new_allocations, state.prior, new_likelihood)
+    return BaGoLState(new_emitters, state.localizations, new_allocations, 
+                     state.spatial_prior, state.count_prior, new_likelihood)
 end
 
 # The acceptance ratios account for the position optimization
 function log_acceptance_ratio_birth(current::BaGoLState, proposed::BaGoLState)
     @assert length(proposed.emitters) == length(current.emitters) + 1
     
-    # Extract priors
-    spatial_prior = current.prior.spatial_prior
-    K_prior = current.prior.K_prior
+    # Spatial prior ratio for new emitter position
+    new_emitter = proposed.emitters[end]
+    log_spatial_ratio = log_prior_spatial(new_emitter, current.spatial_prior)
     
-    # Prior ratio: P(K+1)/P(K) 
-    log_prior_ratio = log_prior_K(length(proposed.emitters), K_prior) - 
-                      log_prior_K(length(current.emitters), K_prior)
-    
-    # Spatial likelihood ratio (for localizations given emitter positions)
+    # Likelihood ratio
     log_likelihood_ratio = proposed.log_likelihood - current.log_likelihood
     
-    # Dirichlet-multinomial likelihood ratio (for allocation counts)
-    λ_prior = current.prior.λ_prior
-    log_dm_ratio = log_dirichlet_multinomial_ratio(current, proposed, λ_prior)
+    # Proposal ratio (position sampling)
+    log_q_death = -log(length(proposed.emitters))  # 1/(K+1)
+    log_q_birth = log_spatial_prior_density(new_emitter, current.spatial_prior)
     
-    # Proposal ratio needs to account for the position optimization
-    # The birth proposal now includes:
-    # 1. Sampling initial position from prior: q_birth = 1/Area
-    # 2. Moving to optimal position given allocations (deterministic)
-    # The death proposal includes:
-    # 1. Selecting emitter to remove: q_death = 1/(K+1)
-    # 2. Optimizing remaining emitters (deterministic)
+    # Note: The Dirichlet-multinomial terms are already incorporated
+    # through the Pólya-weighted allocation process
     
-    new_emitter = proposed.emitters[end]
-    log_q_death = -log(length(proposed.emitters))
-    log_q_birth = log_spatial_prior_density(new_emitter, spatial_prior)
-    
-    # Note: The position optimization is deterministic given the allocations,
-    # so it doesn't contribute to the proposal ratio
-    
-    return log_prior_ratio + log_likelihood_ratio + log_dm_ratio + log_q_death - log_q_birth
+    return log_spatial_ratio + log_likelihood_ratio + log_q_death - log_q_birth
 end
 
 function log_acceptance_ratio(::Type{Birth}, current::BaGoLState, proposed::BaGoLState)
