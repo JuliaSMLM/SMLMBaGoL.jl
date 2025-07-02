@@ -40,17 +40,15 @@ end
 Gibbs update for τ² (additional localization uncertainty) parameter.
 
 # Mathematical Model
-τ² represents systematic localization uncertainty beyond reported σx, σy.
-The total localization variance becomes: σ_total² = σ² + τ²
+For model: loc ~ N(emitter_pos, diag(σx² + τ², σy² + τ²))
+This is NOT conjugate with InverseGamma prior, so we use Metropolis-within-Gibbs.
 
 # Prior Specification  
 τ² ~ InverseGamma(a_τ, b_τ) where hyperprior = (a_τ, b_τ)
 
-# Conjugate Update
-Given precision-weighted residuals from all allocated localizations:
-- a_posterior = a_τ + N/2 where N = total x,y components
-- b_posterior = b_τ + Σ[(residual/σ_total)²]/2
-- τ²_new ~ InverseGamma(a_posterior, b_posterior)
+# Metropolis-within-Gibbs Update
+Since the full conditional is not in closed form, we use M-H sampling
+with a proposal distribution and accept/reject based on the posterior ratio.
 
 # Arguments
 - `chains`: Vector of RJMCMC chains containing current states
@@ -66,28 +64,58 @@ and environmental effects not captured in per-localization uncertainties.
 function update_tau_squared_gibbs(chains::Vector{<:RJMCMCChain}, hyperprior::Tuple{Real,Real})
     a_τ, b_τ = hyperprior
     
-    # Collect residuals from all chains
-    sum_squared_residuals = 0.0
-    total_count = 0
+    # Get current τ² from first chain (should be same across all chains)
+    current_τ² = chains[1].current_state.τ²
     
+    # Metropolis-within-Gibbs proposal
+    # Use log-normal proposal to stay positive
+    proposal_scale = 0.1  # Tune this for acceptance rate
+    log_τ² = log(current_τ²)
+    log_τ²_new = log_τ² + proposal_scale * randn()
+    τ²_new = exp(log_τ²_new)
+    
+    # Calculate log posterior ratio
+    log_prior_ratio = (a_τ + 1) * (log(current_τ²) - log(τ²_new)) + 
+                     (τ²_new - current_τ²) / b_τ
+    
+    # Calculate likelihood ratio
+    log_likelihood_ratio = 0.0
     for chain in chains
         state = chain.current_state
         for (i, loc) in enumerate(state.localizations)
             if 1 ≤ state.allocations[i] ≤ length(state.emitters)
                 emitter = state.emitters[state.allocations[i]]
-                # Squared residuals
-                sum_squared_residuals += (loc.x - emitter.x)^2 / (loc.σx^2 + state.τ²)
-                sum_squared_residuals += (loc.y - emitter.y)^2 / (loc.σy^2 + state.τ²)
-                total_count += 2  # x and y components
+                
+                # Current likelihood
+                σx_total_old² = loc.σx^2 + current_τ²
+                σy_total_old² = loc.σy^2 + current_τ²
+                log_like_old = -0.5 * ((loc.x - emitter.x)^2 / σx_total_old² + 
+                                      (loc.y - emitter.y)^2 / σy_total_old² + 
+                                      log(σx_total_old²) + log(σy_total_old²))
+                
+                # Proposed likelihood  
+                σx_total_new² = loc.σx^2 + τ²_new
+                σy_total_new² = loc.σy^2 + τ²_new
+                log_like_new = -0.5 * ((loc.x - emitter.x)^2 / σx_total_new² + 
+                                      (loc.y - emitter.y)^2 / σy_total_new² + 
+                                      log(σx_total_new²) + log(σy_total_new²))
+                
+                log_likelihood_ratio += log_like_new - log_like_old
             end
         end
     end
     
-    # τ² ~ InverseGamma(a_τ + N/2, b_τ + sum_squared_residuals/2)
-    shape = a_τ + total_count / 2
-    scale = b_τ + sum_squared_residuals / 2
+    # Jacobian for log transformation
+    log_jacobian = log_τ²_new - log_τ²
     
-    return rand(InverseGamma(shape, scale))
+    # Accept/reject
+    log_acceptance_prob = log_prior_ratio + log_likelihood_ratio + log_jacobian
+    
+    if log(rand()) < log_acceptance_prob
+        return τ²_new
+    else
+        return current_τ²
+    end
 end
 
 # Slice sampling for κ (following math spec Section 8)
