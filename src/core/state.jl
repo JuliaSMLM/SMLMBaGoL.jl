@@ -2,6 +2,7 @@ struct BaGoLState{E<:AbstractEmitter, L<:AbstractLocalization, T<:Real} <: Abstr
     emitters::Vector{E}
     localizations::Vector{L}
     allocations::Vector{Int}  # maps localization i to emitter allocations[i]
+    latent_positions::Vector{Tuple{T,T}}  # NEW FIELD: latent true positions
     spatial_prior::AbstractSpatialPrior  # Changed from generic prior
     count_prior::AbstractCountPrior      # NEW: explicit count prior
     τ²::T                    # additional localization variance

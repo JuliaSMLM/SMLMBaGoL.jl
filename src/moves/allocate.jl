@@ -2,7 +2,16 @@ function propose_move(::Type{Allocate}, state::BaGoLState{E,L,T}, rng=Random.GLO
     length(state.emitters) == 0 && return nothing
     length(state.localizations) == 0 && return nothing
     
-    new_state = deepcopy(state)
+    new_state = BaGoLState(
+        copy(state.emitters),
+        state.localizations,
+        copy(state.allocations),
+        copy(state.latent_positions),
+        state.spatial_prior,
+        state.count_prior,
+        state.τ²,
+        state.log_likelihood
+    )
     
     # Pre-compute values for efficiency
     n_emitters = length(state.emitters)
@@ -65,11 +74,13 @@ function propose_move(::Type{Allocate}, state::BaGoLState{E,L,T}, rng=Random.GLO
     
     # Recompute likelihood
     new_state = BaGoLState(new_state.emitters, new_state.localizations, 
-                          new_state.allocations, new_state.spatial_prior,
-                          new_state.count_prior, state.τ², log_likelihood(new_state))
+                          new_state.allocations, new_state.latent_positions,
+                          new_state.spatial_prior, new_state.count_prior, 
+                          state.τ², log_likelihood(new_state))
     
     return new_state
 end
+
 
 function log_acceptance_ratio(::Type{Allocate}, current::BaGoLState, proposed::BaGoLState)
     # For full Gibbs sweep of allocations, the move is its own inverse
