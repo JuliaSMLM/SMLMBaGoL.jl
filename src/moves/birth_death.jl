@@ -88,13 +88,16 @@ function propose_move(::Type{Birth}, state::BaGoLState{E,L,T}, chain::RJMCMCChai
         new_allocations[idx] = new_emitter_idx
     end
     
-    # Recompute likelihood
+    # Initialize latent positions
+    latent_positions = [(loc.x, loc.y) for loc in state.localizations]
+    
     new_state_temp = BaGoLState(new_emitters, state.localizations, new_allocations,
-                               state.spatial_prior, state.count_prior, state.τ², state.log_likelihood)
+                               latent_positions, state.spatial_prior, state.count_prior, state.τ², state.log_likelihood)
+    
     new_likelihood = log_likelihood(new_state_temp)
     
     return BaGoLState(new_emitters, state.localizations, new_allocations,
-                     state.spatial_prior, state.count_prior, state.τ², new_likelihood)
+                     latent_positions, state.spatial_prior, state.count_prior, state.τ², new_likelihood)
 end
 
 function propose_move(::Type{Death}, state::BaGoLState{E,L,T}, chain::RJMCMCChain, rng=Random.GLOBAL_RNG) where {E,L,T}
@@ -113,8 +116,9 @@ function propose_move(::Type{Death}, state::BaGoLState{E,L,T}, chain::RJMCMCChai
     # If there are remaining emitters and some localizations need reallocation
     if !isempty(new_emitters) && !isempty(allocated_to_removed)
         # Create temporary state
+        temp_latent_positions = copy(state.latent_positions)
         temp_state = BaGoLState(new_emitters, state.localizations, new_allocations, 
-                               state.spatial_prior, state.count_prior, state.τ², T(0.0))
+                               temp_latent_positions, state.spatial_prior, state.count_prior, state.τ², T(0.0))
         
         # Find which emitters received the reallocated localizations
         emitters_to_optimize = unique([new_allocations[i] for i in allocated_to_removed 
@@ -140,13 +144,16 @@ function propose_move(::Type{Death}, state::BaGoLState{E,L,T}, chain::RJMCMCChai
         end
     end
     
+    # Keep current latent positions (will be updated by UpdateLatent move)
+    new_latent_positions = state.latent_positions
+    
     # Create final state with updated likelihood
     new_likelihood = log_likelihood(BaGoLState(new_emitters, state.localizations, 
-                                              new_allocations, state.spatial_prior, 
+                                              new_allocations, new_latent_positions, state.spatial_prior, 
                                               state.count_prior, state.τ², T(0.0)))
     
     return BaGoLState(new_emitters, state.localizations, new_allocations, 
-                     state.spatial_prior, state.count_prior, state.τ², new_likelihood)
+                     new_latent_positions, state.spatial_prior, state.count_prior, state.τ², new_likelihood)
 end
 
 # Update acceptance ratio calculations to use the cached distribution
