@@ -25,6 +25,7 @@ using SMLMBaGoL
 using Statistics
 using CairoMakie
 using SMLMSim
+using Distributions
 
 #=============================================================================
 USER PARAMETERS - Configure your simulation here
@@ -48,7 +49,7 @@ const ENABLE_HIERARCHICAL = true        # Use hierarchical updates
 const HIERARCHICAL_INTERVAL = 2000      # Hierarchical update interval
 
 # Systematic noise parameter
-const TAU = 0.005                         # Systematic noise parameter in μm (20 nm)
+const TAU = 0.003                         # Systematic noise parameter in μm (20 nm)
 
 # Visualization parameters
 const PIXEL_SIZE = 0.002                # μm per pixel (2 nm super-resolution)
@@ -152,7 +153,7 @@ chains_result = run_bagol(smld;
     enable_threading=ENABLE_THREADING,
     enable_hierarchical=ENABLE_HIERARCHICAL,
     hierarchical_interval=HIERARCHICAL_INTERVAL,
-    tau=TAU  # Set tau to match the simulation systematic noise parameter
+    tau_mean=TAU  # Set tau_mean to match the simulation systematic noise parameter
 )
 
 # Ensure chains is always a vector for consistent handling
@@ -287,6 +288,38 @@ if ENABLE_HIERARCHICAL
                                    true_mean=EXPECTED_LOCS_PER_EMITTER)
         println("   ✓ Created empirical vs fitted distribution plot (with true mean)")
         
+        # Plot tau prior distribution - extract actual prior from chains
+        # Get the actual hyperprior used in the analysis from the first chain
+        first_chain = length(chains) == 1 ? chains[1] : chains[1]
+        if isa(first_chain.count_prior, HierarchicalNegBinomialPrior)
+            # Extract actual hyperprior parameters
+            τ²_hyperprior = first_chain.count_prior.τ²_hyperprior
+            a_τ, b_τ = τ²_hyperprior
+            tau_prior = InverseGamma(a_τ, b_τ)
+            
+            # Create descriptive title
+            title_str = "τ² Hyperprior Distribution (InverseGamma($(round(a_τ, digits=2)), $(round(b_τ, digits=1))))"
+        else
+            # Fallback if not hierarchical
+            tau_prior = InverseGamma(1.1, TAU^2 * 0.1)  # Approximate
+            title_str = "τ² Prior Distribution (Approximate)"
+        end
+        
+        fig_tau_prior, ax_tau_prior = plot_tau_prior(tau_prior,
+                                                     figure_kwargs=(size=(800, 600),),
+                                                     axis_kwargs=(title=title_str,))
+        # Add vertical line for simulated tau squared value
+        tau_squared_sim_um2 = (TAU)^2  # TAU is in μm, so τ² is in μm²
+        tau_squared_sim_nm2 = tau_squared_sim_um2 * 1e6  # Convert to nm² for plotting
+        vlines!(ax_tau_prior, [tau_squared_sim_nm2], color=:red, linewidth=2, linestyle=:dash)
+        # Add text annotation using the actual prior
+        max_density = pdf(tau_prior, mode(tau_prior)) * 1e-6  # Adjust for unit conversion
+        text!(ax_tau_prior, tau_squared_sim_nm2 + 5, 0.8 * max_density, 
+              text="Simulated τ²=$(round(tau_squared_sim_nm2, digits=0)) nm²", 
+              color=:red, fontsize=12)
+        save(joinpath(output_dir, "smlmsim_tau_prior.png"), fig_tau_prior)
+        println("   ✓ Created tau prior distribution plot")
+        
         # Check convergence
         conv_result = analyze_hierarchical_convergence(chains)
         println("   • Convergence: $(conv_result.message)")
@@ -395,6 +428,7 @@ if SAVE_IMAGES
         println("• smlmsim_hierarchical_evolution.png - Evolution of μ, κ, and τ² hyperparameters")
         println("• smlmsim_gamma_distributions.png - Negative Binomial distribution evolution over time")
         println("• smlmsim_emitter_count_fit.png - Empirical vs fitted distribution comparison")
+        println("• smlmsim_tau_prior.png - τ² hyperprior distribution with simulated value")
     end
     println("• All files saved to: $output_dir")
 end

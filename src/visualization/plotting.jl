@@ -394,3 +394,78 @@ function sr_circles_combined(localizations, mapn_results;
     
     return fig, ax
 end
+
+"""
+    plot_tau_prior(tau_prior; title="τ² (additional localization variance) Prior Distribution",
+                   xlabel="τ² (nm²)", ylabel="Probability Density",
+                   figure_kwargs=(;), axis_kwargs=(;), kwargs...)
+
+Plot the prior distribution for τ² (tau-squared) parameter.
+
+This function creates a visualization of the InverseGamma prior distribution used for
+the additional localization variance parameter τ² in the hierarchical Bayesian model.
+
+# Arguments
+- `tau_prior`: InverseGamma distribution object for τ²
+- `title::String`: Plot title
+- `xlabel::String`: X-axis label
+- `ylabel::String`: Y-axis label
+- `figure_kwargs`: Keyword arguments for Figure creation
+- `axis_kwargs`: Keyword arguments for Axis creation
+- `kwargs...`: Additional styling arguments passed to lines!
+
+# Returns
+- `(fig, ax)`: Tuple of Figure and Axis objects
+
+# Examples
+```julia
+# Basic tau prior plot
+prior = InverseGamma(3.0, 2.2)
+fig, ax = plot_tau_prior(prior)
+
+# Custom styling
+fig, ax = plot_tau_prior(prior,
+                        title="Hierarchical Prior for Systematic Noise",
+                        color=:blue, linewidth=3,
+                        figure_kwargs=(size=(800, 600),))
+```
+"""
+function plot_tau_prior(tau_prior; 
+                       title="τ² (additional localization variance) Prior Distribution",
+                       xlabel="τ² (nm²)", 
+                       ylabel="Probability Density",
+                       figure_kwargs=(;),
+                       axis_kwargs=(;),
+                       kwargs...)
+    
+    # Create figure
+    fig = CairoMakie.Figure(; figure_kwargs...)
+    
+    # Create axis
+    ax = CairoMakie.Axis(fig[1, 1];
+              xlabel=xlabel,
+              ylabel=ylabel,
+              title=title,
+              axis_kwargs...)
+    
+    # Generate x values for plotting (convert μm² to nm²)
+    # Use quantiles to determine reasonable plotting range
+    x_min_um2 = quantile(tau_prior, 0.001)
+    x_max_um2 = quantile(tau_prior, 0.999)
+    x_range_um2 = range(x_min_um2, x_max_um2, length=1000)
+    
+    # Convert to nm² for plotting (1 μm² = 1e6 nm²)
+    x_range = x_range_um2 .* 1e6
+    
+    # Calculate probability density (use original μm² values for PDF)
+    y_values = pdf.(tau_prior, x_range_um2)
+    
+    # Adjust density for unit conversion (scale by 1e-6 to preserve integral)
+    y_values = y_values .* 1e-6
+    
+    # Plot the distribution
+    CairoMakie.lines!(ax, x_range, y_values; 
+                     color=:blue, linewidth=2, kwargs...)
+    
+    return fig, ax
+end
