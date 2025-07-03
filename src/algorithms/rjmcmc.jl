@@ -101,8 +101,29 @@ function initialize_chain(localizations::Vector{L},
     # Get initial τ² from count prior
     initial_τ² = isa(count_prior, HierarchicalNegBinomialPrior) ? count_prior.τ² : 1e-6
 
-    # Initialize latent positions
-    latent_positions = [(loc.x, loc.y) for loc in localizations]
+    # Initialize latent positions by sampling from posterior given initial allocations
+    latent_positions = Vector{Tuple{eltype(localizations[1].x), eltype(localizations[1].x)}}(undef, length(localizations))
+
+    for (i, loc) in enumerate(localizations)
+        emitter_idx = initial_allocations[i]
+        if 1 ≤ emitter_idx ≤ length(initial_emitters)
+            emitter = initial_emitters[emitter_idx]
+            
+            # Sample from posterior given emitter and observation
+            prec_x = 1/initial_τ² + 1/loc.σx^2
+            prec_y = 1/initial_τ² + 1/loc.σy^2
+            post_mean_x = (emitter.x/initial_τ² + loc.x/loc.σx^2) / prec_x
+            post_mean_y = (emitter.y/initial_τ² + loc.y/loc.σy^2) / prec_y
+            
+            latent_x = post_mean_x + randn(rng) / sqrt(prec_x)
+            latent_y = post_mean_y + randn(rng) / sqrt(prec_y)
+            
+            latent_positions[i] = (latent_x, latent_y)
+        else
+            # Unallocated - keep at observed position
+            latent_positions[i] = (loc.x, loc.y)
+        end
+    end
     
     # Create initial state
     temp_state = BaGoLState(initial_emitters, localizations, initial_allocations, 
