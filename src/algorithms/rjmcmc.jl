@@ -473,8 +473,8 @@ function create_default_prior(localizations::Vector{<:AbstractLocalization};
         # Use provided tau2_mean as initial value
         initial_τ² = tau2_mean
         # Create hyperprior centered on this value
-        a_τ = 1.1
-        b_τ = initial_τ² * (a_τ - 1)
+        a_τ = 3.0
+        b_τ = initial_τ² * (a_τ + 1)
     else
         # Default: 10% of median localization variance
         if !isempty(localizations)
@@ -485,8 +485,8 @@ function create_default_prior(localizations::Vector{<:AbstractLocalization};
             τ²_mean = 1e-6
         end
         # Exponential-like InverseGamma prior
-        a_τ = 1.1
-        b_τ = τ²_mean * (a_τ - 1)
+        a_τ = 3.0
+        b_τ = τ²_mean * (a_τ + 1)
         initial_τ² = b_τ / (a_τ + 1)
     end
     
