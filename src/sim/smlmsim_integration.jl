@@ -53,7 +53,8 @@ end
     simulate_static_smlm(; density=0.1, σ_psf=0.13, minphotons=100, 
                           nframes=1000, framerate=100.0, ndims=2, 
                           zrange=[-0.5, 0.5], npixelsx=128, npixelsy=128, 
-                          pixelsize=0.1, return_noisy=true) -> SMLMSim.BasicSMLD
+                          pixelsize=0.1, return_noisy=true,
+                          n_mer=nothing, n_mer_diameter=0.050, n_mer_x=nothing, n_mer_y=nothing) -> SMLMSim.BasicSMLD
 
 Create a static SMLM simulation using SMLMSim with sensible defaults.
 
@@ -70,6 +71,10 @@ Create a static SMLM simulation using SMLMSim with sensible defaults.
 - `pixelsize`: Pixel size in micrometers (default: 0.1, giving 6.4μm × 3.2μm field)
 - `loc_per_emitter`: Target number of localizations per emitter (controls blinking rates, default: 10)
 - `return_noisy`: Return noisy localizations (true) or true positions (false)
+- `n_mer`: Number of emitters in n-mer pattern (nothing for no pattern)
+- `n_mer_diameter`: Diameter of n-mer circle in micrometers (default: 0.050)
+- `n_mer_x`: X-center of n-mer pattern (default: center of field)
+- `n_mer_y`: Y-center of n-mer pattern (default: center of field)
 
 # Returns
 - Single BasicSMLD structure ready for BaGoL analysis
@@ -82,8 +87,11 @@ smld = simulate_static_smlm()
 # Custom simulation with larger field (25.6μm × 25.6μm)
 smld = simulate_static_smlm(npixelsx=256, npixelsy=256, density=0.2)
 
-# Custom pixel size for different field size (3.2μm × 1.6μm)
-smld = simulate_static_smlm(pixelsize=0.05)
+# Simulation with 6-mer pattern (50nm diameter)
+smld = simulate_static_smlm(n_mer=6, n_mer_diameter=0.050)
+
+# Simulation with 3-mer pattern (100nm diameter) at specific location
+smld = simulate_static_smlm(n_mer=3, n_mer_diameter=0.100, n_mer_x=3.2, n_mer_y=1.6)
 
 # Run BaGoL directly
 chains = run_bagol(smld; n_iterations=5000)
@@ -101,7 +109,11 @@ function simulate_static_smlm(; density=0.1,
                                pixelsize=0.1,
                                loc_per_emitter=10,
                                tau=0.0,
-                               return_noisy=true)
+                               return_noisy=true,
+                               n_mer=nothing,
+                               n_mer_diameter=0.050,
+                               n_mer_x=nothing,
+                               n_mer_y=nothing)
     
     # Create SMLMSim parameters
     params = SMLMSim.StaticSMLMParams(
@@ -131,8 +143,41 @@ function simulate_static_smlm(; density=0.1,
     
     fluor = SMLMSim.GenericFluor(photons=1e5, k_off=k_off, k_on=k_on)
     
+    # Create pattern if n-mer is requested
+    pattern = nothing
+    center_x = nothing
+    center_y = nothing
+    if n_mer !== nothing && n_mer > 0
+        # Calculate field center if not specified
+        field_width = npixelsx * pixelsize
+        field_height = npixelsy * pixelsize
+        center_x = n_mer_x === nothing ? field_width / 2 : n_mer_x
+        center_y = n_mer_y === nothing ? field_height / 2 : n_mer_y
+        
+        # Generate n-mer positions manually for precise control
+        radius = n_mer_diameter / 2
+        angles = range(0, 2π, length=n_mer+1)[1:end-1]  # n equally spaced angles
+        x_positions = [center_x + radius * cos(angle) for angle in angles]
+        y_positions = [center_y + radius * sin(angle) for angle in angles]
+        
+        # Create n-mer pattern using SMLMSim's built-in pattern system with explicit positions
+        pattern = SMLMSim.Nmer2D(n_mer, n_mer_diameter, x_positions, y_positions)
+    end
+    
     # Run simulation - returns (smld_true, smld_model, smld_noisy)
-    smld_true, smld_model, smld_noisy = SMLMSim.simulate(params; molecule=fluor, camera=camera)
+    if pattern !== nothing
+        smld_true, smld_model, smld_noisy = SMLMSim.simulate(params; molecule=fluor, camera=camera, pattern=pattern)
+        
+        # Store n-mer metadata
+        for smld in [smld_true, smld_model, smld_noisy]
+            smld.metadata["n_mer"] = n_mer
+            smld.metadata["n_mer_diameter"] = n_mer_diameter
+            smld.metadata["n_mer_center_x"] = center_x
+            smld.metadata["n_mer_center_y"] = center_y
+        end
+    else
+        smld_true, smld_model, smld_noisy = SMLMSim.simulate(params; molecule=fluor, camera=camera)
+    end
     
     # Return the noisy dataset by default (has Emitter2DFit with σ_x, σ_y)
     # or the true/model datasets if requested
@@ -173,12 +218,12 @@ end
 """
     simulate_nmer_smlmsim(; n=6, diameter=0.050, density=0.1, kwargs...) -> SMLMSim.BasicSMLD
 
-Create an n-mer pattern simulation using SMLMSim's pattern system.
+Create an n-mer pattern simulation using SMLMSim with background emitters.
 
 # Arguments
 - `n`: Number of emitters in the circular n-mer
-- `diameter`: Diameter of the n-mer circle in micrometers
-- `density`: Background emitter density
+- `diameter`: Diameter of the n-mer circle in micrometers (default: 0.050)
+- `density`: Background emitter density (default: 0.1)
 - `kwargs...`: Additional arguments passed to simulate_static_smlm
 
 # Returns
@@ -189,6 +234,9 @@ Create an n-mer pattern simulation using SMLMSim's pattern system.
 # Simulate a 6-mer with 50nm diameter
 smld = simulate_nmer_smlmsim(n=6, diameter=0.050)
 
+# Simulate a 3-mer with 100nm diameter and higher background density
+smld = simulate_nmer_smlmsim(n=3, diameter=0.100, density=0.5)
+
 # Run BaGoL analysis
 chains = run_bagol(smld)
 ```
@@ -198,17 +246,15 @@ function simulate_nmer_smlmsim(; n=6,
                                 density=0.1, 
                                 kwargs...)
     
-    # For now, just return a basic static simulation
-    # TODO: Add n-mer pattern support when SMLMSim API is clearer
-    println("Note: simulate_nmer_smlmsim currently returns basic static simulation.")
-    println("      N-mer pattern support will be added in future version.")
+    # Use the new n-mer functionality in simulate_static_smlm
+    smld = simulate_static_smlm(; 
+        density=density, 
+        n_mer=n, 
+        n_mer_diameter=diameter, 
+        kwargs...)
     
-    smld = simulate_static_smlm(; density=density, kwargs...)
-    
-    # Store n-mer metadata for reference
-    smld.metadata["nmer_n"] = n
-    smld.metadata["nmer_diameter"] = diameter
-    smld.metadata["simulation_type"] = "static_placeholder"
+    # Update metadata to indicate this is an n-mer simulation
+    smld.metadata["simulation_type"] = "nmer_pattern"
     
     return smld
 end
