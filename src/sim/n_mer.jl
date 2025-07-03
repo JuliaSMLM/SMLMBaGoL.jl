@@ -80,7 +80,7 @@ end
 
 
 function create_prior_from_params(localizations::Vector{<:AbstractLocalization}, 
-                                alpha::Real, beta::Real, tau::Real)
+                                alpha::Real, beta::Real, tau_mean::Real)
     # Create spatial prior from localizations bounds  
     spatial_prior = create_spatial_prior_from_localizations(localizations, 0.2)
     
@@ -90,25 +90,30 @@ function create_prior_from_params(localizations::Vector{<:AbstractLocalization},
     μ = alpha * beta
     κ = 2.0  # Default concentration parameter
     
-    # Use tau parameter to set initial τ² estimate  
-    if tau > 0.0
-        # Use the tau parameter from simulation (square it to get variance)
-        initial_τ² = tau^2
+    # Calculate τ² mean for exponential-like prior
+    if tau_mean > 0.0
+        τ²_mean = tau_mean^2
     else
-        # Fallback: calculate from localization precisions
+        # Default: 10% of median localization variance
         if !isempty(localizations)
-            median_σ = Statistics.median([sqrt(loc.σx^2 + loc.σy^2) for loc in localizations])
-            initial_τ² = (0.1 * median_σ)^2
+            all_σ² = [(loc.σx^2 + loc.σy^2)/2 for loc in localizations]
+            median_σ² = Statistics.median(all_σ²)
+            τ²_mean = median_σ² / 10
         else
-            initial_τ² = 1e-6  # 1 nm² default
+            τ²_mean = 1e-6
         end
     end
+    
+    # Exponential-like InverseGamma prior
+    a_τ = 1.1  # Shape parameter for exponential-like behavior
+    b_τ = τ²_mean * (a_τ - 1)
+    initial_τ² = b_τ / (a_τ + 1)
     
     count_prior = HierarchicalNegBinomialPrior(
         μ, κ, initial_τ²,    # Initial μ, κ, τ²
         (2.0, 0.2),          # μ hyperprior
         (1.0, 0.5),          # κ hyperprior
-        (3.0, initial_τ² * 4.0)  # τ² hyperprior: InverseGamma(3, 4*initial_τ²)
+        (a_τ, b_τ)           # τ² hyperprior: InverseGamma with exponential-like shape
     )
     
     return spatial_prior, count_prior

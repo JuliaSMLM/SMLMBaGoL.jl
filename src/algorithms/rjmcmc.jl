@@ -176,6 +176,49 @@ function initialize_chain(localizations::Vector{L},
     return chain
 end
 
+"""
+    run_bagol(localizations::Vector{L}; kwargs...) where L<:AbstractLocalization
+
+Run BaGoL (Bayesian Grouping of Localizations) analysis to detect emitters from localizations.
+
+This is the main BaGoL analysis function that performs Reversible Jump Markov Chain Monte Carlo 
+(RJMCMC) sampling to infer the number and positions of underlying emitters from a set of 
+localizations, accounting for localization uncertainties and systematic errors.
+
+# Arguments
+- `localizations::Vector{L}`: Vector of localization objects with positions and uncertainties
+- `EmitterType::Type{E} = Emitter2D{Float64}`: Type of emitters to create
+- `n_iterations::Int = 10000`: Number of RJMCMC iterations to run
+- `burn_in::Int = 2000`: Number of burn-in iterations to discard
+- `thin::Int = 1`: Thinning interval for storing samples
+- `initial_K::Int = max(1, length(localizations) ÷ 10)`: Initial number of emitters
+- `partition_radius::Real = estimate_partitioning_radius(localizations)`: Spatial partitioning radius
+- `partition_data::Bool = true`: Whether to use spatial partitioning for efficiency
+- `enable_hierarchical::Bool = false`: Whether to use hierarchical prior updates
+- `hierarchical_interval::Int = 1000`: Interval between hierarchical updates
+- `enable_threading::Bool = true`: Whether to use parallel processing across partitions
+- `existing_chains::Union{Vector{RJMCMCChain}, RJMCMCChain, Nothing} = nothing`: Existing chains for continuation
+- `continuation_mode::Symbol = :extend`: How to handle existing chains (:extend, :new_chain, :replace)
+- `tau_mean::Union{Nothing,Real} = nothing`: Mean systematic uncertainty τ in the same units 
+  as the localization positions. Sets the mean of an exponential-like prior on τ. 
+  If `nothing` (default), automatically estimates as sqrt(median_localization_variance/10).
+- `rng::AbstractRNG = Random.GLOBAL_RNG`: Random number generator
+
+# Returns
+- `Union{RJMCMCChain, Vector{RJMCMCChain}}`: Single chain (if no partitioning) or vector of chains (if partitioned)
+
+# Examples
+```julia
+# Basic usage
+chains = run_bagol(localizations; n_iterations=5000, burn_in=1000)
+
+# With systematic noise specification
+chains = run_bagol(localizations; tau_mean=0.002, n_iterations=10000)
+
+# Extract MAPN estimates
+mapn_results = estimate_mapn(chains)
+```
+"""
 function run_bagol(localizations::Vector{L};
                   EmitterType::Type{E} = Emitter2D{Float64},
                   n_iterations::Int = 10000,
@@ -189,18 +232,21 @@ function run_bagol(localizations::Vector{L};
                   enable_threading::Bool = true,
                   existing_chains::Union{Vector{RJMCMCChain}, RJMCMCChain, Nothing} = nothing,
                   continuation_mode::Symbol = :extend,
-                  tau = nothing,
+                  tau_mean::Union{Nothing,Real} = nothing,
                   rng::AbstractRNG = Random.GLOBAL_RNG) where {E<:AbstractEmitter, L<:AbstractLocalization}
+    
+    # Convert tau to tau² for internal use
+    tau2_mean = isnothing(tau_mean) ? nothing : tau_mean^2
     
     # Handle chain continuation or initialization
     chains = if existing_chains !== nothing
         handle_chain_continuation(existing_chains, localizations, continuation_mode,
                                 EmitterType, partition_data, partition_radius, 
-                                enable_hierarchical, burn_in, thin, tau, rng)
+                                enable_hierarchical, burn_in, thin, tau2_mean, rng)
     else
         # Initialize new chains
         initialize_chains_from_data(localizations, EmitterType, partition_data, 
-                                  partition_radius, enable_hierarchical, burn_in, thin, tau, rng)
+                                  partition_radius, enable_hierarchical, burn_in, thin, tau2_mean, rng)
     end
     
     print_partitioning_summary(chains)
@@ -288,7 +334,7 @@ end
 function initialize_chains_from_data(localizations::Vector{L}, EmitterType::Type{E}, 
                                    partition_data::Bool, partition_radius::Real,
                                    enable_hierarchical::Bool, burn_in::Int, thin::Int,
-                                   tau, rng::AbstractRNG) where {E<:AbstractEmitter, L<:AbstractLocalization}
+                                   tau2_mean::Union{Nothing,Real}, rng::AbstractRNG) where {E<:AbstractEmitter, L<:AbstractLocalization}
     # Partition data into spatial regions if requested
     if partition_data
         partitioned_localizations = partition_localizations(localizations; 
@@ -302,7 +348,7 @@ function initialize_chains_from_data(localizations::Vector{L}, EmitterType::Type
     chains = Vector{RJMCMCChain}()
     for (i, partition_locs) in enumerate(partitioned_localizations)
         # Always create the same type of prior
-        spatial_prior, count_prior = create_default_prior(partition_locs; tau=tau)
+        spatial_prior, count_prior = create_default_prior(partition_locs; tau2_mean=tau2_mean)
         
         chain = initialize_chain(partition_locs, EmitterType, spatial_prior, count_prior;
                                initial_K=max(1, length(partition_locs) ÷ 10),
@@ -317,7 +363,7 @@ function handle_chain_continuation(existing_chains::Union{Vector{RJMCMCChain}, R
                                  localizations::Vector{L}, continuation_mode::Symbol,
                                  EmitterType::Type{E}, partition_data::Bool, partition_radius::Real,
                                  enable_hierarchical::Bool, burn_in::Int, thin::Int,
-                                 tau, rng::AbstractRNG) where {E<:AbstractEmitter, L<:AbstractLocalization}
+                                 tau2_mean::Union{Nothing,Real}, rng::AbstractRNG) where {E<:AbstractEmitter, L<:AbstractLocalization}
     
     # Convert single chain to vector for uniform handling
     chains_vec = existing_chains isa Vector ? existing_chains : [existing_chains]
@@ -331,7 +377,7 @@ function handle_chain_continuation(existing_chains::Union{Vector{RJMCMCChain}, R
         # Create new chains that will be concatenated with existing ones
         # Creating new chains to concatenate
         new_chains = initialize_chains_from_data(localizations, EmitterType, partition_data,
-                                                partition_radius, enable_hierarchical, burn_in, thin, tau_mean, rng)
+                                                partition_radius, enable_hierarchical, burn_in, thin, tau2_mean, rng)
         
         # Store reference to existing chains for later concatenation
         for (i, new_chain) in enumerate(new_chains)
@@ -349,7 +395,7 @@ function handle_chain_continuation(existing_chains::Union{Vector{RJMCMCChain}, R
         
         # For now, create new chains normally - enhancement: use final states as initial states
         new_chains = initialize_chains_from_data(localizations, EmitterType, partition_data,
-                                                partition_radius, enable_hierarchical, burn_in, thin, tau_mean, rng)
+                                                partition_radius, enable_hierarchical, burn_in, thin, tau2_mean, rng)
         
         # TODO: Initialize from final states of existing chains
         return new_chains
@@ -381,7 +427,7 @@ function print_partitioning_summary(chains::Vector{RJMCMCChain})
 end
 
 """
-    create_default_prior(localizations; tau2_mean_um2=nothing)
+    create_default_prior(localizations; tau2_mean=nothing)
 
 Create default hierarchical priors for BaGoL analysis with automatic or manual τ² initialization.
 
@@ -418,47 +464,41 @@ the reported per-localization uncertainties (σx, σy).
 # Returns
 - `(spatial_prior, count_prior)`: Tuple of priors for BaGoL analysis
 """
-function create_default_prior(localizations::Vector{<:AbstractLocalization}; tau=nothing)
+function create_default_prior(localizations::Vector{<:AbstractLocalization}; 
+                             tau2_mean::Union{Nothing,Real} = nothing)
     spatial_prior = create_spatial_prior_from_localizations(localizations, 0.2)
     
-    # Determine initial τ² value
-    if tau !== nothing
-        # Use manually specified value (square it to get variance)
-        initial_τ² = tau^2
+    # Calculate τ² initial value and hyperprior
+    if !isnothing(tau2_mean)
+        # Use provided tau2_mean as initial value
+        initial_τ² = tau2_mean
+        # Create hyperprior centered on this value
+        a_τ = 1.1
+        b_τ = initial_τ² * (a_τ - 1)
     else
-        # Calculate initial τ² estimate from localization precisions
+        # Default: 10% of median localization variance
         if !isempty(localizations)
-            # Get all localization uncertainties
-            all_σ = [sqrt(loc.σx^2 + loc.σy^2) for loc in localizations]
-            median_σ = median(all_σ)
-            
-            # Conservative estimate: small fraction of localization precision
-            # For high-quality data (5 nm precision), expect τ² ~ 0.1-1 nm²
-            # For lower-quality data (20 nm precision), expect τ² ~ 1-4 nm²
-            percentage_based = 0.02 * median_σ  # 2% of median uncertainty
-            
-            # Minimum systematic error: 0.5 nm typical for well-calibrated systems
-            min_systematic = 0.0005  # 0.5 nm in μm
-            
-            # Use maximum of percentage-based and minimum estimates
-            initial_τ² = max(percentage_based^2, min_systematic^2)
-            
-            # Ensure reasonable bounds: 0.25 nm² to 25 nm²
-            initial_τ² = clamp(initial_τ², 2.5e-7, 2.5e-5)  # Between 0.25 nm² and 25 nm²
+            all_σ² = [(loc.σx^2 + loc.σy^2)/2 for loc in localizations]
+            median_σ² = median(all_σ²)
+            τ²_mean = median_σ² / 10
         else
-            initial_τ² = 1e-6  # 1 nm² default
+            τ²_mean = 1e-6
         end
+        # Exponential-like InverseGamma prior
+        a_τ = 1.1
+        b_τ = τ²_mean * (a_τ - 1)
+        initial_τ² = b_τ / (a_τ + 1)
     end
     
     # Always hierarchical with sensible defaults
     # Prior on μ: mean=10, variance=50 → Gamma(2, 0.2)
     # Prior on κ: mean=2, variance=4 → Gamma(1, 0.5)
-    # Prior on τ²: InverseGamma(3, 4×initial_τ²) → moderately informative, proper M-H sampling
+    # Prior on τ²: InverseGamma with exponential-like shape
     count_prior = HierarchicalNegBinomialPrior(
         10.0, 2.0, initial_τ²,      # Initial μ=10, κ=2, τ²
         (2.0, 0.2),                  # μ hyperprior
         (1.0, 0.5),                  # κ hyperprior
-        (3.0, initial_τ² * 4.0)      # τ² hyperprior: InverseGamma(3, 4*initial_τ²)
+        (a_τ, b_τ)                   # τ² hyperprior: InverseGamma(a_τ, b_τ)
     )
     
     return spatial_prior, count_prior
