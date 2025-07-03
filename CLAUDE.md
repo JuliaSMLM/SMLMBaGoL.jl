@@ -23,3 +23,5 @@
 
   The key is I should look at the first commit on the feature branch (9be0e2e) and see what it was based on, rather than just looking at merge-base with main. The git branch --contains <commit> command I used was the
   right approach to see that commit 8d6563f exists on negative-binomial-overdispersion.
+
+- use multiple threads when running examples

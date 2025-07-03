@@ -40,7 +40,7 @@ const FRAMERATE = 100.0                 # Frames per second
 const EXPECTED_LOCS_PER_EMITTER = 10    # Expected localizations per emitter
 
 # Analysis parameters  
-const N_ITERATIONS = 50000              # RJMCMC iterations (reduced from 50000)
+const N_ITERATIONS = 100000              # RJMCMC iterations (reduced from 50000)
 const BURN_IN = 2000                    # Burn-in period (reduced from 10000)
 const ENABLE_PARTITIONING = true        # Use multiple partitions for efficiency
 const PARTITION_RADIUS = 0.5            # Partition radius in μm (4x avg uncertainty)
@@ -153,7 +153,7 @@ chains_result = run_bagol(smld;
     enable_threading=ENABLE_THREADING,
     enable_hierarchical=ENABLE_HIERARCHICAL,
     hierarchical_interval=HIERARCHICAL_INTERVAL,
-    tau_mean=TAU  # Set tau_mean to match the simulation systematic noise parameter
+    tau_mean=TAU*2  # Set tau_mean to match the simulation systematic noise parameter
 )
 
 # Ensure chains is always a vector for consistent handling
@@ -288,6 +288,9 @@ if ENABLE_HIERARCHICAL
                                    true_mean=EXPECTED_LOCS_PER_EMITTER)
         println("   ✓ Created empirical vs fitted distribution plot (with true mean)")
         
+        # Check convergence first to get final tau² value
+        conv_result = analyze_hierarchical_convergence(chains)
+        
         # Plot tau prior distribution - extract actual prior from chains
         # Get the actual hyperprior used in the analysis from the first chain
         first_chain = length(chains) == 1 ? chains[1] : chains[1]
@@ -308,20 +311,27 @@ if ENABLE_HIERARCHICAL
         fig_tau_prior, ax_tau_prior = plot_tau_prior(tau_prior,
                                                      figure_kwargs=(size=(800, 600),),
                                                      axis_kwargs=(title=title_str,))
+        
         # Add vertical line for simulated tau squared value
         tau_squared_sim_um2 = (TAU)^2  # TAU is in μm, so τ² is in μm²
         tau_squared_sim_nm2 = tau_squared_sim_um2 * 1e6  # Convert to nm² for plotting
         vlines!(ax_tau_prior, [tau_squared_sim_nm2], color=:red, linewidth=2, linestyle=:dash)
-        # Add text annotation using the actual prior
+        
+        # Add vertical line for final (learned) tau squared value
+        tau_squared_final_nm2 = conv_result.final_τ² * 1e6  # Convert to nm² for plotting
+        vlines!(ax_tau_prior, [tau_squared_final_nm2], color=:green, linewidth=2, linestyle=:solid)
+        
+        # Add text annotations
         max_density = pdf(tau_prior, mode(tau_prior)) * 1e-6  # Adjust for unit conversion
         text!(ax_tau_prior, tau_squared_sim_nm2 + 5, 0.8 * max_density, 
               text="Simulated τ²=$(round(tau_squared_sim_nm2, digits=0)) nm²", 
               color=:red, fontsize=12)
+        text!(ax_tau_prior, tau_squared_final_nm2 + 5, 0.6 * max_density, 
+              text="Final τ²=$(round(tau_squared_final_nm2, digits=1)) nm²", 
+              color=:green, fontsize=12)
+        
         save(joinpath(output_dir, "smlmsim_tau_prior.png"), fig_tau_prior)
         println("   ✓ Created tau prior distribution plot")
-        
-        # Check convergence
-        conv_result = analyze_hierarchical_convergence(chains)
         println("   • Convergence: $(conv_result.message)")
         println("   • Final parameters: μ=$(round(conv_result.final_μ, digits=3)), κ=$(round(conv_result.final_κ, digits=3)), τ²=$(round(conv_result.final_τ²*1e6, digits=1)) nm²")
         
