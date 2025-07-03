@@ -100,6 +100,7 @@ function simulate_static_smlm(; density=0.1,
                                npixelsy=32,
                                pixelsize=0.1,
                                loc_per_emitter=10,
+                               tau=0.0,
                                return_noisy=true)
     
     # Create SMLMSim parameters
@@ -136,14 +137,35 @@ function simulate_static_smlm(; density=0.1,
     # Return the noisy dataset by default (has Emitter2DFit with σ_x, σ_y)
     # or the true/model datasets if requested
     if return_noisy
+        # Add additional systematic noise with tau parameter
+        if tau > 0.0
+            for emitter in smld_noisy.emitters
+                # Add additional Gaussian noise to positions (keep sigmas unchanged)
+                emitter.x += tau * randn()
+                emitter.y += tau * randn()
+                # Note: σ_x and σ_y remain as originally calculated (photon-noise limited)
+            end
+        end
+        
         # Store PSF width in metadata for reference
         smld_noisy.metadata["σ_psf"] = σ_psf
         smld_noisy.metadata["simulation_type"] = "noisy_localizations"
+        smld_noisy.metadata["tau"] = tau
         return smld_noisy
     else
+        # Add additional systematic noise with tau parameter for true positions
+        if tau > 0.0
+            for emitter in smld_true.emitters
+                # Add additional Gaussian noise to positions
+                emitter.x += tau * randn()
+                emitter.y += tau * randn()
+            end
+        end
+        
         # Return true positions if specifically requested
         smld_true.metadata["σ_psf"] = σ_psf
         smld_true.metadata["simulation_type"] = "true_positions"
+        smld_true.metadata["tau"] = tau
         return smld_true
     end
 end
