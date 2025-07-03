@@ -54,13 +54,21 @@ function should_store_sample(chain::RJMCMCChain, iteration::Int)
     return (iteration - chain.burn_in) % chain.thin == 0
 end
 
-function run_rjmcmc!(chain::RJMCMCChain, n_iterations::Int)
+function run_rjmcmc!(chain::RJMCMCChain, n_iterations::Int; debug::Bool=false)
     acceptances = 0
     
     for iter in 1:n_iterations
         # Perform RJMCMC step
         accepted = rjmcmc_step!(chain)
         accepted && (acceptances += 1)
+        
+        # Validate state consistency in debug mode
+        if debug && accepted
+            is_valid, errors = validate_state_consistency(chain.current_state)
+            if !is_valid
+                @warn "State inconsistency detected after move" errors
+            end
+        end
         
         # Store sample if needed
         if should_store_sample(chain, iter)
@@ -135,10 +143,9 @@ function initialize_chain(localizations::Vector{L},
     # Default move weights
     default_move_weights = Dict{Type{<:AbstractRJMCMCMove}, Float64}(
         Birth => 0.10,
-        Death => 0.10, 
-        Move => 0.30,         # Reduced from 0.40
-        Allocate => 0.30,     # Reduced from 0.40
-        UpdateLatent => 0.20  # NEW: 20% of moves update latent positions
+        Death => 0.10,
+        Move => 0.40,
+        Allocate => 0.40
     )
     
     # Create birth proposal distribution
@@ -405,11 +412,24 @@ function create_default_prior(localizations::Vector{<:AbstractLocalization})
     
     # Calculate initial τ² estimate from localization precisions
     if !isempty(localizations)
-        # Use 10% of median uncertainty squared as initial guess
-        median_σ = median([sqrt(loc.σx^2 + loc.σy^2) for loc in localizations])
-        initial_τ² = (0.1 * median_σ)^2
+        # Get all localization uncertainties
+        all_σ = [sqrt(loc.σx^2 + loc.σy^2) for loc in localizations]
+        median_σ = median(all_σ)
+        
+        # Expected systematic error sources (in μm):
+        # - Stage drift: 0.010-0.050 (10-50 nm)
+        # - Thermal/vibrational: 0.005-0.030 (5-30 nm)
+        # - Sample movement: 0.010-0.020 (10-20 nm)
+        expected_systematic = 0.020  # 20 nm typical
+        
+        # Use maximum of percentage-based and absolute estimates
+        percentage_based = 0.1 * median_σ
+        initial_τ² = max(percentage_based^2, expected_systematic^2)
+        
+        # Ensure reasonable bounds
+        initial_τ² = clamp(initial_τ², 1e-6, (0.1)^2)  # Between 1 nm² and 100 nm²
     else
-        initial_τ² = 1e-6  # 1 nm² default
+        initial_τ² = (0.020)^2  # 20 nm² default
     end
     
     # Always hierarchical with sensible defaults

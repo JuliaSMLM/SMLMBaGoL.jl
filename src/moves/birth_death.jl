@@ -154,11 +154,21 @@ function propose_move(::Type{Death}, state::BaGoLState{E,L,T}, chain::RJMCMCChai
             end
         end
         
-        # Now update emitter positions based on ALL their latent positions
-        for emitter_idx in 1:length(new_emitters)
+        # Track which emitters received reallocated localizations
+        affected_emitters = Set{Int}()
+        for loc_idx in allocated_to_removed
+            new_emitter_idx = new_allocations[loc_idx]
+            if 1 ≤ new_emitter_idx ≤ length(new_emitters)
+                push!(affected_emitters, new_emitter_idx)
+            end
+        end
+        
+        # Update positions only for emitters that received new localizations
+        for emitter_idx in affected_emitters
             # Get all latent positions for this emitter
-            latent_positions_for_emitter = [new_latent_positions[i] for i in eachindex(state.localizations) 
-                                            if new_allocations[i] == emitter_idx]
+            latent_positions_for_emitter = [new_latent_positions[i] 
+                                           for i in eachindex(state.localizations) 
+                                           if new_allocations[i] == emitter_idx]
             
             if !isempty(latent_positions_for_emitter)
                 # Calculate mean of latent positions
