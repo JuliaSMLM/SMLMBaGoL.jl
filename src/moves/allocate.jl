@@ -72,6 +72,27 @@ function propose_move(::Type{Allocate}, state::BaGoLState{E,L,T}, rng=Random.GLO
         n_j[new_allocation] += 1
     end
     
+    # Update latent positions for all localizations after reallocation
+    for loc_idx in 1:n_localizations
+        loc = state.localizations[loc_idx]
+        emitter_idx = new_state.allocations[loc_idx]
+        
+        if 1 ≤ emitter_idx ≤ n_emitters
+            emitter = state.emitters[emitter_idx]
+            
+            # Sample from posterior given emitter and observation
+            prec_x = 1/state.τ² + 1/loc.σx^2
+            prec_y = 1/state.τ² + 1/loc.σy^2
+            post_mean_x = (emitter.x/state.τ² + loc.x/loc.σx^2) / prec_x
+            post_mean_y = (emitter.y/state.τ² + loc.y/loc.σy^2) / prec_y
+            
+            latent_x = post_mean_x + randn(rng) / sqrt(prec_x)
+            latent_y = post_mean_y + randn(rng) / sqrt(prec_y)
+            
+            new_state.latent_positions[loc_idx] = (latent_x, latent_y)
+        end
+    end
+    
     # Recompute likelihood
     new_state = BaGoLState(new_state.emitters, new_state.localizations, 
                           new_state.allocations, new_state.latent_positions,
