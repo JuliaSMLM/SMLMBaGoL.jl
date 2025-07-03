@@ -92,7 +92,8 @@ smld = simulate_static_smlm(
     npixelsx=64,      # 64×32 pixels for field
     npixelsy=32,
     pixelsize=0.1,    # 100nm pixels = 6.4μm × 3.2μm field
-    loc_per_emitter=EXPECTED_LOCS_PER_EMITTER
+    loc_per_emitter=EXPECTED_LOCS_PER_EMITTER,
+    tau=0.02 # micron
 )
 
 println("   ✓ Created SMLD with $(length(smld.emitters)) noisy localizations")
@@ -317,7 +318,8 @@ native_locs, native_spatial_prior, native_count_prior = simulate_n_mer(
     diameter=0.050,
     photons=estimated_photons,
     localizations_per_emitter_mean=estimated_locs_per_emitter,
-    localizations_per_emitter_variance=estimated_locs_per_emitter
+    localizations_per_emitter_variance=estimated_locs_per_emitter,
+    tau=0.5
 )
 
 println("   ✓ Native simulation: $(length(native_locs)) localizations")

@@ -10,6 +10,7 @@ function simulate_n_mer(;
                         center_y::Real = 0.0,
                         prior_K_mean::Real = 5.0,      # Mean of Gamma prior for emitter count
                         prior_K_variance::Real = 5.0,  # Variance of Gamma prior for emitter count  
+                        tau::Real = 0.0,
                         rng::AbstractRNG = Random.GLOBAL_RNG)
     
     # Generate circular n-mer positions
@@ -38,9 +39,15 @@ function simulate_n_mer(;
             # Calculate localization precision (Cramér-Rao bound approximation)
             sigma_loc = sigma_psf / sqrt(sampled_photons)
             
-            # Add localization noise
+            # Add localization noise (photon-noise limited)
             loc_x = ex + sigma_loc * randn(rng)
             loc_y = ey + sigma_loc * randn(rng)
+            
+            # Add additional systematic noise with tau parameter
+            if tau > 0.0
+                loc_x += tau * randn(rng)
+                loc_y += tau * randn(rng)
+            end
             
             # Create localization with sequential frame numbering
             push!(all_localizations, Localization2D{Float64}(
