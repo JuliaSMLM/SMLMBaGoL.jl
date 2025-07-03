@@ -45,7 +45,7 @@ const ENABLE_PARTITIONING = true        # Use multiple partitions for efficiency
 const PARTITION_RADIUS = 0.5            # Partition radius in μm (4x avg uncertainty)
 const ENABLE_THREADING = true           # Use threading for parallel partition processing
 const ENABLE_HIERARCHICAL = true        # Use hierarchical updates
-const HIERARCHICAL_INTERVAL = 1000      # Hierarchical update interval
+const HIERARCHICAL_INTERVAL = 2000      # Hierarchical update interval
 
 # Visualization parameters
 const PIXEL_SIZE = 0.002                # μm per pixel (2 nm super-resolution)

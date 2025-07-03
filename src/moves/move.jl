@@ -1,7 +1,16 @@
 function propose_move(::Type{Move}, state::BaGoLState{E,L,T}, rng=Random.GLOBAL_RNG) where {E,L,T}
     length(state.emitters) == 0 && return nothing
     
-    new_state = deepcopy(state)
+    new_state = BaGoLState(
+        copy(state.emitters),
+        state.localizations,
+        copy(state.allocations),
+        copy(state.latent_positions),
+        state.spatial_prior,
+        state.count_prior,
+        state.τ²,
+        state.log_likelihood
+    )
     
     # Select random emitter to move
     emitter_idx = rand(rng, 1:length(state.emitters))
@@ -17,7 +26,7 @@ function propose_move(::Type{Move}, state::BaGoLState{E,L,T}, rng=Random.GLOBAL_
         new_emitter = E(x_new, y_new, emitter.photons)
     else
         # Sample new position from posterior distribution (proper Gibbs sampling)
-        # Following the mathematical reference equations 291-301
+        # using precision-weighted approach with observed localizations
         
         # Calculate precision-weighted mean (posterior mean)
         x_precision_sum = sum(1 / (loc.σx^2 + state.τ²) for loc in allocated_locs)
@@ -42,8 +51,9 @@ function propose_move(::Type{Move}, state::BaGoLState{E,L,T}, rng=Random.GLOBAL_
     
     # Recompute likelihood
     new_state = BaGoLState(new_state.emitters, new_state.localizations, 
-                          new_state.allocations, new_state.spatial_prior,
-                          new_state.count_prior, state.τ², log_likelihood(new_state))
+                          new_state.allocations, new_state.latent_positions,
+                          new_state.spatial_prior, new_state.count_prior, 
+                          state.τ², log_likelihood(new_state))
     
     return new_state
 end

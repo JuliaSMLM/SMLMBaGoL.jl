@@ -101,19 +101,23 @@ function initialize_chain(localizations::Vector{L},
     # Get initial τ² from count prior
     initial_τ² = isa(count_prior, HierarchicalNegBinomialPrior) ? count_prior.τ² : 1e-6
 
-    # Create initial state with τ²
+    # Initialize latent positions
+    latent_positions = [(loc.x, loc.y) for loc in localizations]
+    
+    # Create initial state
     temp_state = BaGoLState(initial_emitters, localizations, initial_allocations, 
-                           spatial_prior, count_prior, initial_τ², 0.0)
+                           latent_positions, spatial_prior, count_prior, initial_τ², 0.0)
     initial_likelihood = log_likelihood(temp_state)
     initial_state = BaGoLState(initial_emitters, localizations, initial_allocations, 
-                              spatial_prior, count_prior, initial_τ², initial_likelihood)
+                              latent_positions, spatial_prior, count_prior, initial_τ², initial_likelihood)
     
     # Default move weights
     default_move_weights = Dict{Type{<:AbstractRJMCMCMove}, Float64}(
         Birth => 0.10,
         Death => 0.10, 
-        Move => 0.40,
-        Allocate => 0.40
+        Move => 0.30,         # Reduced from 0.40
+        Allocate => 0.30,     # Reduced from 0.40
+        UpdateLatent => 0.20  # NEW: 20% of moves update latent positions
     )
     
     # Create birth proposal distribution

@@ -9,14 +9,11 @@ function count_allocations(state::BaGoLState)
     return emitter_counts
 end
 
-# Collect all emitter counts across chains
 function collect_emitter_counts(chains::Vector{<:RJMCMCChain})
     all_counts = Int[]
     for chain in chains
-        for sample in chain.samples
-            counts = count_allocations(sample)
-            append!(all_counts, counts)
-        end
+        counts = count_allocations(chain.current_state)
+        append!(all_counts, counts)
     end
     return all_counts
 end
@@ -37,85 +34,40 @@ end
 """
     update_tau_squared_gibbs(chains, hyperprior)
 
-Gibbs update for τ² (additional localization uncertainty) parameter.
+Conjugate update for τ² using latent positions.
+This is now a simple InverseGamma update with O(N) cost instead of O(N²).
 
-# Mathematical Model
-For model: loc ~ N(emitter_pos, diag(σx² + τ², σy² + τ²))
-This is NOT conjugate with InverseGamma prior, so we use Metropolis-within-Gibbs.
-
-# Prior Specification  
-τ² ~ InverseGamma(a_τ, b_τ) where hyperprior = (a_τ, b_τ)
-
-# Metropolis-within-Gibbs Update
-Since the full conditional is not in closed form, we use M-H sampling
-with a proposal distribution and accept/reject based on the posterior ratio.
-
-# Arguments
-- `chains`: Vector of RJMCMC chains containing current states
-- `hyperprior`: Tuple (a_τ, b_τ) for InverseGamma prior parameters
-
-# Returns
-- New τ² sample from posterior distribution
-
-# Physical Interpretation
-τ² captures systematic errors like stage drift, PSF calibration errors,
-and environmental effects not captured in per-localization uncertainties.
+τ² ~ InverseGamma(a_τ + n/2, b_τ + sum_squared_distances/2)
 """
 function update_tau_squared_gibbs(chains::Vector{<:RJMCMCChain}, hyperprior::Tuple{Real,Real})
     a_τ, b_τ = hyperprior
     
-    # Get current τ² from first chain (should be same across all chains)
-    current_τ² = chains[1].current_state.τ²
+    # Compute sufficient statistics: sum of squared distances from emitter to latent position
+    sum_sq_dist = 0.0
+    n_allocated = 0
     
-    # Metropolis-within-Gibbs proposal
-    # Use log-normal proposal to stay positive
-    proposal_scale = 0.1  # Tune this for acceptance rate
-    log_τ² = log(current_τ²)
-    log_τ²_new = log_τ² + proposal_scale * randn()
-    τ²_new = exp(log_τ²_new)
-    
-    # Calculate log posterior ratio
-    log_prior_ratio = (a_τ + 1) * (log(current_τ²) - log(τ²_new)) + 
-                     (τ²_new - current_τ²) / b_τ
-    
-    # Calculate likelihood ratio
-    log_likelihood_ratio = 0.0
     for chain in chains
         state = chain.current_state
-        for (i, loc) in enumerate(state.localizations)
-            if 1 ≤ state.allocations[i] ≤ length(state.emitters)
-                emitter = state.emitters[state.allocations[i]]
+        
+        for i in eachindex(state.allocations)
+            emitter_idx = state.allocations[i]
+            if 1 ≤ emitter_idx ≤ length(state.emitters)
+                emitter = state.emitters[emitter_idx]
+                latent = state.latent_positions[i]
                 
-                # Current likelihood
-                σx_total_old² = loc.σx^2 + current_τ²
-                σy_total_old² = loc.σy^2 + current_τ²
-                log_like_old = -0.5 * ((loc.x - emitter.x)^2 / σx_total_old² + 
-                                      (loc.y - emitter.y)^2 / σy_total_old² + 
-                                      log(σx_total_old²) + log(σy_total_old²))
-                
-                # Proposed likelihood  
-                σx_total_new² = loc.σx^2 + τ²_new
-                σy_total_new² = loc.σy^2 + τ²_new
-                log_like_new = -0.5 * ((loc.x - emitter.x)^2 / σx_total_new² + 
-                                      (loc.y - emitter.y)^2 / σy_total_new² + 
-                                      log(σx_total_new²) + log(σy_total_new²))
-                
-                log_likelihood_ratio += log_like_new - log_like_old
+                # Squared distance from emitter to latent position
+                sum_sq_dist += (latent[1] - emitter.x)^2 + (latent[2] - emitter.y)^2
+                n_allocated += 2  # x and y components
             end
         end
     end
     
-    # Jacobian for log transformation
-    log_jacobian = log_τ²_new - log_τ²
+    # Conjugate InverseGamma update
+    posterior_shape = a_τ + n_allocated / 2.0
+    posterior_scale = b_τ + sum_sq_dist / 2.0
     
-    # Accept/reject
-    log_acceptance_prob = log_prior_ratio + log_likelihood_ratio + log_jacobian
-    
-    if log(rand()) < log_acceptance_prob
-        return τ²_new
-    else
-        return current_τ²
-    end
+    # Sample from posterior
+    return rand(InverseGamma(posterior_shape, posterior_scale))
 end
 
 # Slice sampling for κ (following math spec Section 8)
@@ -243,6 +195,7 @@ function update_hierarchical!(chains::Vector{<:RJMCMCChain}, current_iteration::
             old_state.emitters,
             old_state.localizations,
             old_state.allocations,
+            old_state.latent_positions,
             old_state.spatial_prior,
             new_prior,  # Updated count prior
             new_τ²,     # Updated τ²
