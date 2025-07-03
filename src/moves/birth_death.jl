@@ -88,16 +88,32 @@ function propose_move(::Type{Birth}, state::BaGoLState{E,L,T}, chain::RJMCMCChai
         new_allocations[idx] = new_emitter_idx
     end
     
-    # Initialize latent positions
-    latent_positions = [(loc.x, loc.y) for loc in state.localizations]
+    # Initialize latent positions (keep existing ones, sample new ones for reallocated)
+    new_latent_positions = copy(state.latent_positions)
+
+    # Sample latent positions for newly allocated localizations
+    for idx in selected_indices
+        loc = state.localizations[idx]
+        
+        # Sample latent position given new emitter and observation
+        prec_x = 1/state.τ² + 1/loc.σx^2
+        prec_y = 1/state.τ² + 1/loc.σy^2
+        post_mean_x = (new_emitter.x/state.τ² + loc.x/loc.σx^2) / prec_x
+        post_mean_y = (new_emitter.y/state.τ² + loc.y/loc.σy^2) / prec_y
+        
+        latent_x = post_mean_x + randn(rng) / sqrt(prec_x)
+        latent_y = post_mean_y + randn(rng) / sqrt(prec_y)
+        
+        new_latent_positions[idx] = (latent_x, latent_y)
+    end
     
     new_state_temp = BaGoLState(new_emitters, state.localizations, new_allocations,
-                               latent_positions, state.spatial_prior, state.count_prior, state.τ², state.log_likelihood)
+                               new_latent_positions, state.spatial_prior, state.count_prior, state.τ², state.log_likelihood)
     
     new_likelihood = log_likelihood(new_state_temp)
     
     return BaGoLState(new_emitters, state.localizations, new_allocations,
-                     latent_positions, state.spatial_prior, state.count_prior, state.τ², new_likelihood)
+                     new_latent_positions, state.spatial_prior, state.count_prior, state.τ², new_likelihood)
 end
 
 function propose_move(::Type{Death}, state::BaGoLState{E,L,T}, chain::RJMCMCChain, rng=Random.GLOBAL_RNG) where {E,L,T}
@@ -115,37 +131,53 @@ function propose_move(::Type{Death}, state::BaGoLState{E,L,T}, chain::RJMCMCChai
     
     # If there are remaining emitters and some localizations need reallocation
     if !isempty(new_emitters) && !isempty(allocated_to_removed)
-        # Create temporary state
-        temp_latent_positions = copy(state.latent_positions)
-        temp_state = BaGoLState(new_emitters, state.localizations, new_allocations, 
-                               temp_latent_positions, state.spatial_prior, state.count_prior, state.τ², T(0.0))
+        # Keep track of updated latent positions
+        new_latent_positions = copy(state.latent_positions)
         
-        # Find which emitters received the reallocated localizations
-        emitters_to_optimize = unique([new_allocations[i] for i in allocated_to_removed 
-                                      if new_allocations[i] > 0])
-        
-        # Optimize positions of emitters that received new localizations
-        for emitter_idx in emitters_to_optimize
-            allocated_locs = [state.localizations[i] for i in eachindex(state.localizations) 
-                            if new_allocations[i] == emitter_idx]
-            
-            if !isempty(allocated_locs)
-                # Calculate optimal position
-                x_precision_sum = sum(1 / (loc.σx^2 + state.τ²) for loc in allocated_locs)
-                y_precision_sum = sum(1 / (loc.σy^2 + state.τ²) for loc in allocated_locs)
+        # For reallocated localizations, update their latent positions
+        for loc_idx in allocated_to_removed
+            new_emitter_idx = new_allocations[loc_idx]
+            if new_emitter_idx > 0
+                loc = state.localizations[loc_idx]
+                emitter = new_emitters[new_emitter_idx]
                 
-                x_mean = sum(loc.x / (loc.σx^2 + state.τ²) for loc in allocated_locs) / x_precision_sum
-                y_mean = sum(loc.y / (loc.σy^2 + state.τ²) for loc in allocated_locs) / y_precision_sum
+                # Sample new latent position given new emitter assignment
+                prec_x = 1/state.τ² + 1/loc.σx^2
+                prec_y = 1/state.τ² + 1/loc.σy^2
+                post_mean_x = (emitter.x/state.τ² + loc.x/loc.σx^2) / prec_x
+                post_mean_y = (emitter.y/state.τ² + loc.y/loc.σy^2) / prec_y
+                
+                latent_x = post_mean_x + randn(rng) / sqrt(prec_x)
+                latent_y = post_mean_y + randn(rng) / sqrt(prec_y)
+                
+                new_latent_positions[loc_idx] = (latent_x, latent_y)
+            end
+        end
+        
+        # Now update emitter positions based on ALL their latent positions
+        for emitter_idx in 1:length(new_emitters)
+            # Get all latent positions for this emitter
+            latent_positions_for_emitter = [new_latent_positions[i] for i in eachindex(state.localizations) 
+                                            if new_allocations[i] == emitter_idx]
+            
+            if !isempty(latent_positions_for_emitter)
+                # Calculate mean of latent positions
+                x_mean = mean(pos[1] for pos in latent_positions_for_emitter)
+                y_mean = mean(pos[2] for pos in latent_positions_for_emitter)
+                
+                # Sample from posterior
+                n_j = length(latent_positions_for_emitter)
+                x_new = x_mean + randn(rng) * sqrt(state.τ² / n_j)
+                y_new = y_mean + randn(rng) * sqrt(state.τ² / n_j)
                 
                 # Update emitter position
                 old_emitter = new_emitters[emitter_idx]
-                new_emitters[emitter_idx] = E(x_mean, y_mean, old_emitter.photons)
+                new_emitters[emitter_idx] = E(x_new, y_new, old_emitter.photons)
             end
         end
+    else
+        new_latent_positions = state.latent_positions
     end
-    
-    # Keep current latent positions (will be updated by UpdateLatent move)
-    new_latent_positions = state.latent_positions
     
     # Create final state with updated likelihood
     new_likelihood = log_likelihood(BaGoLState(new_emitters, state.localizations, 
