@@ -39,6 +39,10 @@ const N_FRAMES = 2000                   # Number of frames
 const FRAMERATE = 100.0                 # Frames per second
 const EXPECTED_LOCS_PER_EMITTER = 10    # Expected localizations per emitter
 
+# N-mer pattern parameters (set N_MER=nothing to disable pattern)
+const N_MER = 6                         # Number of emitters in n-mer pattern (nothing to disable)
+const N_MER_DIAMETER = 0.050            # Diameter of n-mer pattern in μm (50 nm)
+
 # Analysis parameters  
 const N_ITERATIONS = 100000              # RJMCMC iterations (reduced from 50000)
 const BURN_IN = 2000                    # Burn-in period (reduced from 10000)
@@ -49,7 +53,7 @@ const ENABLE_HIERARCHICAL = true        # Use hierarchical updates
 const HIERARCHICAL_INTERVAL = 2000      # Hierarchical update interval
 
 # Systematic noise parameter
-const TAU = 0.003                         # Systematic noise parameter in μm (20 nm)
+const TAU = 0.001                         # Systematic noise parameter in μm (20 nm)
 
 # Visualization parameters
 const PIXEL_SIZE = 0.002                # μm per pixel (2 nm super-resolution)
@@ -70,6 +74,11 @@ println("• PSF width: $(PSF_WIDTH*1000) nm")
 println("• Minimum photons: $MIN_PHOTONS")
 println("• Simulation time: $(N_FRAMES/FRAMERATE) seconds")
 println("• Expected localizations per emitter: $EXPECTED_LOCS_PER_EMITTER")
+if N_MER !== nothing
+    println("• N-mer pattern: $(N_MER)-mer with $(N_MER_DIAMETER*1000) nm diameter")
+else
+    println("• N-mer pattern: disabled")
+end
 println("• RJMCMC iterations: $N_ITERATIONS (burn-in: $BURN_IN)")
 println("• Spatial partitioning: $(ENABLE_PARTITIONING ? "enabled" : "disabled")")
 if ENABLE_PARTITIONING
@@ -98,12 +107,20 @@ smld = simulate_static_smlm(
     npixelsy=32,
     pixelsize=0.1,    # 100nm pixels = 6.4μm × 3.2μm field
     loc_per_emitter=EXPECTED_LOCS_PER_EMITTER,
-    tau=TAU
+    tau=TAU,
+    n_mer=N_MER,
+    n_mer_diameter=N_MER_DIAMETER
 )
 
 println("   ✓ Created SMLD with $(length(smld.emitters)) noisy localizations")
 println("   ✓ PSF width: $(smld.metadata["σ_psf"]*1000) nm")
 println("   ✓ Simulation type: $(smld.metadata["simulation_type"])")
+
+# Report n-mer pattern if present
+if haskey(smld.metadata, "n_mer") && smld.metadata["n_mer"] !== nothing
+    println("   ✓ N-mer pattern: $(smld.metadata["n_mer"])-mer with $(smld.metadata["n_mer_diameter"]*1000) nm diameter")
+    println("   ✓ N-mer center: ($(round(smld.metadata["n_mer_center_x"], digits=2)), $(round(smld.metadata["n_mer_center_y"], digits=2))) μm")
+end
 
 # Calculate field size and expected emitters
 field_area = 64 * 32 * (0.1)^2  # 64×32 pixels × 0.1μm pixel size = area in μm²
