@@ -40,8 +40,8 @@ const FRAMERATE = 100.0                 # Frames per second
 const EXPECTED_LOCS_PER_EMITTER = 10    # Expected localizations per emitter
 
 # N-mer pattern parameters (set N_MER=nothing to disable pattern)
-const N_MER = 6                         # Number of emitters in n-mer pattern (nothing to disable)
-const N_MER_DIAMETER = 0.050            # Diameter of n-mer pattern in μm (50 nm)
+const N_MER = 8                         # Number of emitters in n-mer pattern (nothing to disable)
+const N_MER_DIAMETER = 0.025            # Diameter of n-mer pattern in μm (50 nm)
 
 # Analysis parameters  
 const N_ITERATIONS = 100000              # RJMCMC iterations (reduced from 50000)
