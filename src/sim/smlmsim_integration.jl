@@ -54,7 +54,7 @@ end
                           nframes=1000, framerate=100.0, ndims=2, 
                           zrange=[-0.5, 0.5], npixelsx=128, npixelsy=128, 
                           pixelsize=0.1, return_noisy=true,
-                          n_mer=nothing, n_mer_diameter=0.050, n_mer_x=nothing, n_mer_y=nothing) -> SMLMSim.BasicSMLD
+                          n_mer=nothing, n_mer_diameter=0.050) -> SMLMSim.BasicSMLD
 
 Create a static SMLM simulation using SMLMSim with sensible defaults.
 
@@ -73,8 +73,6 @@ Create a static SMLM simulation using SMLMSim with sensible defaults.
 - `return_noisy`: Return noisy localizations (true) or true positions (false)
 - `n_mer`: Number of emitters in n-mer pattern (nothing for no pattern)
 - `n_mer_diameter`: Diameter of n-mer circle in micrometers (default: 0.050)
-- `n_mer_x`: X-center of n-mer pattern (default: center of field)
-- `n_mer_y`: Y-center of n-mer pattern (default: center of field)
 
 # Returns
 - Single BasicSMLD structure ready for BaGoL analysis
@@ -89,9 +87,6 @@ smld = simulate_static_smlm(npixelsx=256, npixelsy=256, density=0.2)
 
 # Simulation with 6-mer pattern (50nm diameter)
 smld = simulate_static_smlm(n_mer=6, n_mer_diameter=0.050)
-
-# Simulation with 3-mer pattern (100nm diameter) at specific location
-smld = simulate_static_smlm(n_mer=3, n_mer_diameter=0.100, n_mer_x=3.2, n_mer_y=1.6)
 
 # Run BaGoL directly
 chains = run_bagol(smld; n_iterations=5000)
@@ -111,9 +106,7 @@ function simulate_static_smlm(; density=0.1,
                                tau=0.0,
                                return_noisy=true,
                                n_mer=nothing,
-                               n_mer_diameter=0.050,
-                               n_mer_x=nothing,
-                               n_mer_y=nothing)
+                               n_mer_diameter=0.050)
     
     # Create SMLMSim parameters
     params = SMLMSim.StaticSMLMParams(
@@ -145,23 +138,9 @@ function simulate_static_smlm(; density=0.1,
     
     # Create pattern if n-mer is requested
     pattern = nothing
-    center_x = nothing
-    center_y = nothing
     if n_mer !== nothing && n_mer > 0
-        # Calculate field center if not specified
-        field_width = npixelsx * pixelsize
-        field_height = npixelsy * pixelsize
-        center_x = n_mer_x === nothing ? field_width / 2 : n_mer_x
-        center_y = n_mer_y === nothing ? field_height / 2 : n_mer_y
-        
-        # Generate n-mer positions manually for precise control
-        radius = n_mer_diameter / 2
-        angles = range(0, 2π, length=n_mer+1)[1:end-1]  # n equally spaced angles
-        x_positions = [center_x + radius * cos(angle) for angle in angles]
-        y_positions = [center_y + radius * sin(angle) for angle in angles]
-        
-        # Create n-mer pattern using SMLMSim's built-in pattern system with explicit positions
-        pattern = SMLMSim.Nmer2D(n_mer, n_mer_diameter, x_positions, y_positions)
+        # Create n-mer pattern using SMLMSim's default constructor
+        pattern = SMLMSim.Nmer2D(n=n_mer, d=n_mer_diameter)
     end
     
     # Run simulation - returns (smld_true, smld_model, smld_noisy)
@@ -172,8 +151,6 @@ function simulate_static_smlm(; density=0.1,
         for smld in [smld_true, smld_model, smld_noisy]
             smld.metadata["n_mer"] = n_mer
             smld.metadata["n_mer_diameter"] = n_mer_diameter
-            smld.metadata["n_mer_center_x"] = center_x
-            smld.metadata["n_mer_center_y"] = center_y
         end
     else
         smld_true, smld_model, smld_noisy = SMLMSim.simulate(params; molecule=fluor, camera=camera)
