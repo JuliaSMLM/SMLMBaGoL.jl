@@ -416,20 +416,21 @@ function create_default_prior(localizations::Vector{<:AbstractLocalization})
         all_σ = [sqrt(loc.σx^2 + loc.σy^2) for loc in localizations]
         median_σ = median(all_σ)
         
-        # Expected systematic error sources (in μm):
-        # - Stage drift: 0.010-0.050 (10-50 nm)
-        # - Thermal/vibrational: 0.005-0.030 (5-30 nm)
-        # - Sample movement: 0.010-0.020 (10-20 nm)
-        expected_systematic = 0.020  # 20 nm typical
+        # Conservative estimate: small fraction of localization precision
+        # For high-quality data (5 nm precision), expect τ² ~ 0.1-1 nm²
+        # For lower-quality data (20 nm precision), expect τ² ~ 1-4 nm²
+        percentage_based = 0.02 * median_σ  # 2% of median uncertainty
         
-        # Use maximum of percentage-based and absolute estimates
-        percentage_based = 0.1 * median_σ
-        initial_τ² = max(percentage_based^2, expected_systematic^2)
+        # Minimum systematic error: 0.5 nm typical for well-calibrated systems
+        min_systematic = 0.0005  # 0.5 nm in μm
         
-        # Ensure reasonable bounds
-        initial_τ² = clamp(initial_τ², 1e-6, (0.1)^2)  # Between 1 nm² and 100 nm²
+        # Use maximum of percentage-based and minimum estimates
+        initial_τ² = max(percentage_based^2, min_systematic^2)
+        
+        # Ensure reasonable bounds: 0.25 nm² to 25 nm²
+        initial_τ² = clamp(initial_τ², 2.5e-7, 2.5e-5)  # Between 0.25 nm² and 25 nm²
     else
-        initial_τ² = (0.020)^2  # 20 nm² default
+        initial_τ² = 1e-6  # 1 nm² default
     end
     
     # Always hierarchical with sensible defaults
