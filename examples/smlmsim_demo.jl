@@ -119,7 +119,6 @@ println("   ✓ Simulation type: $(smld.metadata["simulation_type"])")
 # Report n-mer pattern if present
 if haskey(smld.metadata, "n_mer") && smld.metadata["n_mer"] !== nothing
     println("   ✓ N-mer pattern: $(smld.metadata["n_mer"])-mer with $(smld.metadata["n_mer_diameter"]*1000) nm diameter")
-    println("   ✓ N-mer center: ($(round(smld.metadata["n_mer_center_x"], digits=2)), $(round(smld.metadata["n_mer_center_y"], digits=2))) μm")
 end
 
 # Calculate field size and expected emitters
