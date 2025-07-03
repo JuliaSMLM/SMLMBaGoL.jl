@@ -189,17 +189,18 @@ function run_bagol(localizations::Vector{L};
                   enable_threading::Bool = true,
                   existing_chains::Union{Vector{RJMCMCChain}, RJMCMCChain, Nothing} = nothing,
                   continuation_mode::Symbol = :extend,
+                  tau = nothing,
                   rng::AbstractRNG = Random.GLOBAL_RNG) where {E<:AbstractEmitter, L<:AbstractLocalization}
     
     # Handle chain continuation or initialization
     chains = if existing_chains !== nothing
         handle_chain_continuation(existing_chains, localizations, continuation_mode,
                                 EmitterType, partition_data, partition_radius, 
-                                enable_hierarchical, burn_in, thin, rng)
+                                enable_hierarchical, burn_in, thin, tau, rng)
     else
         # Initialize new chains
         initialize_chains_from_data(localizations, EmitterType, partition_data, 
-                                  partition_radius, enable_hierarchical, burn_in, thin, rng)
+                                  partition_radius, enable_hierarchical, burn_in, thin, tau, rng)
     end
     
     print_partitioning_summary(chains)
@@ -287,7 +288,7 @@ end
 function initialize_chains_from_data(localizations::Vector{L}, EmitterType::Type{E}, 
                                    partition_data::Bool, partition_radius::Real,
                                    enable_hierarchical::Bool, burn_in::Int, thin::Int,
-                                   rng::AbstractRNG) where {E<:AbstractEmitter, L<:AbstractLocalization}
+                                   tau, rng::AbstractRNG) where {E<:AbstractEmitter, L<:AbstractLocalization}
     # Partition data into spatial regions if requested
     if partition_data
         partitioned_localizations = partition_localizations(localizations; 
@@ -301,7 +302,7 @@ function initialize_chains_from_data(localizations::Vector{L}, EmitterType::Type
     chains = Vector{RJMCMCChain}()
     for (i, partition_locs) in enumerate(partitioned_localizations)
         # Always create the same type of prior
-        spatial_prior, count_prior = create_default_prior(partition_locs)
+        spatial_prior, count_prior = create_default_prior(partition_locs; tau=tau)
         
         chain = initialize_chain(partition_locs, EmitterType, spatial_prior, count_prior;
                                initial_K=max(1, length(partition_locs) ÷ 10),
@@ -316,7 +317,7 @@ function handle_chain_continuation(existing_chains::Union{Vector{RJMCMCChain}, R
                                  localizations::Vector{L}, continuation_mode::Symbol,
                                  EmitterType::Type{E}, partition_data::Bool, partition_radius::Real,
                                  enable_hierarchical::Bool, burn_in::Int, thin::Int,
-                                 rng::AbstractRNG) where {E<:AbstractEmitter, L<:AbstractLocalization}
+                                 tau, rng::AbstractRNG) where {E<:AbstractEmitter, L<:AbstractLocalization}
     
     # Convert single chain to vector for uniform handling
     chains_vec = existing_chains isa Vector ? existing_chains : [existing_chains]
@@ -330,7 +331,7 @@ function handle_chain_continuation(existing_chains::Union{Vector{RJMCMCChain}, R
         # Create new chains that will be concatenated with existing ones
         # Creating new chains to concatenate
         new_chains = initialize_chains_from_data(localizations, EmitterType, partition_data,
-                                                partition_radius, enable_hierarchical, burn_in, thin, rng)
+                                                partition_radius, enable_hierarchical, burn_in, thin, tau_mean, rng)
         
         # Store reference to existing chains for later concatenation
         for (i, new_chain) in enumerate(new_chains)
@@ -348,7 +349,7 @@ function handle_chain_continuation(existing_chains::Union{Vector{RJMCMCChain}, R
         
         # For now, create new chains normally - enhancement: use final states as initial states
         new_chains = initialize_chains_from_data(localizations, EmitterType, partition_data,
-                                                partition_radius, enable_hierarchical, burn_in, thin, rng)
+                                                partition_radius, enable_hierarchical, burn_in, thin, tau_mean, rng)
         
         # TODO: Initialize from final states of existing chains
         return new_chains
@@ -380,57 +381,73 @@ function print_partitioning_summary(chains::Vector{RJMCMCChain})
 end
 
 """
-    create_default_prior(localizations)
+    create_default_prior(localizations; tau2_mean_um2=nothing)
 
-Create default hierarchical priors for BaGoL analysis with automatic τ² initialization.
+Create default hierarchical priors for BaGoL analysis with automatic or manual τ² initialization.
+
+# Arguments
+- `localizations`: Vector of localizations to analyze
+- `tau2_mean_um2`: Optional manual specification of τ² mean in μm² units. 
+                   If not provided, automatically estimated from data.
 
 # τ² Prior System
 The τ² parameter captures additional systematic localization uncertainty beyond 
 the reported per-localization uncertainties (σx, σy). 
 
-## Automatic Initialization Strategy
-1. **Data-driven estimate**: initial_τ² = (0.1 × median_σ)²
-   - Uses 10% of median localization precision as conservative starting point
+## Initialization Strategy
+1. **Manual specification**: If `tau2_mean_um2` is provided, uses that value
+   - Directly sets initial_τ² = tau2_mean_um2
+   - Useful for enforcing consistent priors across analyses
+
+2. **Data-driven estimate** (when tau2_mean_um2 is not provided):
+   - initial_τ² = (0.02 × median_σ)²  
+   - Uses 2% of median localization precision as conservative starting point
    - Adapts to the experimental data quality automatically
 
-2. **Hyperprior specification**: τ² ~ InverseGamma(3.0, 4×initial_τ²)
+3. **Hyperprior specification**: τ² ~ InverseGamma(3.0, 4×initial_τ²)
    - Shape a_τ = 3.0: Moderately informative, allows learning while preventing extremes
    - Scale b_τ = 4×initial_τ²: Reasonable regularization around estimate  
    - Prior mean = 2×initial_τ²: Centered around data-driven estimate
    - Prior mode = initial_τ²: Mode at initial estimate
 
 ## Physical Interpretation
-- initial_τ² ≈ 0.01×σ²: Conservative estimate assuming small systematic effects
+- initial_τ² ≈ 0.0004×σ²: Conservative estimate assuming small systematic effects
 - Final τ² learned via MCMC: Can be orders of magnitude larger if data supports it
 - Large τ² indicates significant systematic uncertainty (drift, calibration, etc.)
 
 # Returns
 - `(spatial_prior, count_prior)`: Tuple of priors for BaGoL analysis
 """
-function create_default_prior(localizations::Vector{<:AbstractLocalization})
+function create_default_prior(localizations::Vector{<:AbstractLocalization}; tau=nothing)
     spatial_prior = create_spatial_prior_from_localizations(localizations, 0.2)
     
-    # Calculate initial τ² estimate from localization precisions
-    if !isempty(localizations)
-        # Get all localization uncertainties
-        all_σ = [sqrt(loc.σx^2 + loc.σy^2) for loc in localizations]
-        median_σ = median(all_σ)
-        
-        # Conservative estimate: small fraction of localization precision
-        # For high-quality data (5 nm precision), expect τ² ~ 0.1-1 nm²
-        # For lower-quality data (20 nm precision), expect τ² ~ 1-4 nm²
-        percentage_based = 0.02 * median_σ  # 2% of median uncertainty
-        
-        # Minimum systematic error: 0.5 nm typical for well-calibrated systems
-        min_systematic = 0.0005  # 0.5 nm in μm
-        
-        # Use maximum of percentage-based and minimum estimates
-        initial_τ² = max(percentage_based^2, min_systematic^2)
-        
-        # Ensure reasonable bounds: 0.25 nm² to 25 nm²
-        initial_τ² = clamp(initial_τ², 2.5e-7, 2.5e-5)  # Between 0.25 nm² and 25 nm²
+    # Determine initial τ² value
+    if tau !== nothing
+        # Use manually specified value (square it to get variance)
+        initial_τ² = tau^2
     else
-        initial_τ² = 1e-6  # 1 nm² default
+        # Calculate initial τ² estimate from localization precisions
+        if !isempty(localizations)
+            # Get all localization uncertainties
+            all_σ = [sqrt(loc.σx^2 + loc.σy^2) for loc in localizations]
+            median_σ = median(all_σ)
+            
+            # Conservative estimate: small fraction of localization precision
+            # For high-quality data (5 nm precision), expect τ² ~ 0.1-1 nm²
+            # For lower-quality data (20 nm precision), expect τ² ~ 1-4 nm²
+            percentage_based = 0.02 * median_σ  # 2% of median uncertainty
+            
+            # Minimum systematic error: 0.5 nm typical for well-calibrated systems
+            min_systematic = 0.0005  # 0.5 nm in μm
+            
+            # Use maximum of percentage-based and minimum estimates
+            initial_τ² = max(percentage_based^2, min_systematic^2)
+            
+            # Ensure reasonable bounds: 0.25 nm² to 25 nm²
+            initial_τ² = clamp(initial_τ², 2.5e-7, 2.5e-5)  # Between 0.25 nm² and 25 nm²
+        else
+            initial_τ² = 1e-6  # 1 nm² default
+        end
     end
     
     # Always hierarchical with sensible defaults

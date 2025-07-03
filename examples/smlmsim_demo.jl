@@ -47,6 +47,9 @@ const ENABLE_THREADING = true           # Use threading for parallel partition p
 const ENABLE_HIERARCHICAL = true        # Use hierarchical updates
 const HIERARCHICAL_INTERVAL = 2000      # Hierarchical update interval
 
+# Systematic noise parameter
+const TAU = 0.005                         # Systematic noise parameter in μm (20 nm)
+
 # Visualization parameters
 const PIXEL_SIZE = 0.002                # μm per pixel (2 nm super-resolution)
 const SAVE_IMAGES = true                # Generate PNG files
@@ -73,6 +76,7 @@ if ENABLE_PARTITIONING
 end
 println("• Threading: $(ENABLE_THREADING ? "enabled" : "disabled") ($(Threads.nthreads()) threads available)")
 println("• Hierarchical updates: $(ENABLE_HIERARCHICAL ? "enabled (interval: $HIERARCHICAL_INTERVAL)" : "disabled")")
+println("• Systematic noise (tau): $(TAU*1000) nm")
 println("• Image pixel size: $(PIXEL_SIZE*1000) nm")
 println()
 
@@ -93,7 +97,7 @@ smld = simulate_static_smlm(
     npixelsy=32,
     pixelsize=0.1,    # 100nm pixels = 6.4μm × 3.2μm field
     loc_per_emitter=EXPECTED_LOCS_PER_EMITTER,
-    tau=0.02 # micron
+    tau=TAU
 )
 
 println("   ✓ Created SMLD with $(length(smld.emitters)) noisy localizations")
@@ -147,7 +151,8 @@ chains_result = run_bagol(smld;
     # partition_radius=PARTITION_RADIUS,
     enable_threading=ENABLE_THREADING,
     enable_hierarchical=ENABLE_HIERARCHICAL,
-    hierarchical_interval=HIERARCHICAL_INTERVAL
+    hierarchical_interval=HIERARCHICAL_INTERVAL,
+    tau=TAU  # Set tau to match the simulation systematic noise parameter
 )
 
 # Ensure chains is always a vector for consistent handling
@@ -319,7 +324,7 @@ native_locs, native_spatial_prior, native_count_prior = simulate_n_mer(
     photons=estimated_photons,
     localizations_per_emitter_mean=estimated_locs_per_emitter,
     localizations_per_emitter_variance=estimated_locs_per_emitter,
-    tau=0.5
+    tau=TAU
 )
 
 println("   ✓ Native simulation: $(length(native_locs)) localizations")

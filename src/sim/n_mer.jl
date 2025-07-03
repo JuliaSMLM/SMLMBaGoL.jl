@@ -61,7 +61,7 @@ function simulate_n_mer(;
     prior_K_alpha = prior_K_mean^2 / prior_K_variance  # shape parameter
     prior_K_beta = prior_K_mean / prior_K_variance      # rate parameter
     
-    spatial_prior, count_prior = create_prior_from_params(all_localizations, prior_K_alpha, prior_K_beta)
+    spatial_prior, count_prior = create_prior_from_params(all_localizations, prior_K_alpha, prior_K_beta, tau)
     return all_localizations, spatial_prior, count_prior
 end
 
@@ -80,7 +80,7 @@ end
 
 
 function create_prior_from_params(localizations::Vector{<:AbstractLocalization}, 
-                                alpha::Real, beta::Real)
+                                alpha::Real, beta::Real, tau::Real)
     # Create spatial prior from localizations bounds  
     spatial_prior = create_spatial_prior_from_localizations(localizations, 0.2)
     
@@ -90,13 +90,18 @@ function create_prior_from_params(localizations::Vector{<:AbstractLocalization},
     μ = alpha * beta
     κ = 2.0  # Default concentration parameter
     
-    # Calculate initial τ² estimate from localization precisions
-    if !isempty(localizations)
-        # Use 10% of median uncertainty squared as initial guess
-        median_σ = Statistics.median([sqrt(loc.σx^2 + loc.σy^2) for loc in localizations])
-        initial_τ² = (0.1 * median_σ)^2
+    # Use tau parameter to set initial τ² estimate  
+    if tau > 0.0
+        # Use the tau parameter from simulation (square it to get variance)
+        initial_τ² = tau^2
     else
-        initial_τ² = 1e-6  # 1 nm² default
+        # Fallback: calculate from localization precisions
+        if !isempty(localizations)
+            median_σ = Statistics.median([sqrt(loc.σx^2 + loc.σy^2) for loc in localizations])
+            initial_τ² = (0.1 * median_σ)^2
+        else
+            initial_τ² = 1e-6  # 1 nm² default
+        end
     end
     
     count_prior = HierarchicalNegBinomialPrior(
