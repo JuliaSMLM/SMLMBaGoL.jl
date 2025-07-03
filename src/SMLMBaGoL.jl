@@ -72,7 +72,7 @@ export AbstractLocalization, AbstractPrior, AbstractRJMCMCMove, AbstractChainSta
 export Localization2D, BaGoLState, RJMCMCChain
 export AbstractSpatialPrior, AbstractCountPrior, UniformSpatialPrior, HierarchicalNegBinomialPrior, HierarchicalUpdate
 export Birth, Death, Move, Allocate, inverse_move
-export log_likelihood, log_prior, log_prior_spatial, log_posterior
+export log_likelihood, log_prior, log_prior_spatial, log_posterior, log_prior_k_given_N
 export sample_spatial_prior, create_spatial_prior_from_localizations, create_default_prior
 export propose_move, accept_probability, log_acceptance_ratio
 export run_bagol, initialize_chain, run_rjmcmc!, rjmcmc_step!
