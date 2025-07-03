@@ -25,23 +25,18 @@ function propose_move(::Type{Move}, state::BaGoLState{E,L,T}, rng=Random.GLOBAL_
         x_new, y_new = sample_spatial_prior(state.spatial_prior, rng)
         new_emitter = E(x_new, y_new, emitter.photons)
     else
-        # Sample new position from posterior distribution (proper Gibbs sampling)
-        # using precision-weighted approach with observed localizations
+        # Get latent positions for this emitter
+        latent_positions_for_emitter = [state.latent_positions[i] for i in eachindex(state.localizations) 
+                                        if state.allocations[i] == emitter_idx]
         
-        # Calculate precision-weighted mean (posterior mean)
-        x_precision_sum = sum(1 / (loc.σx^2 + state.τ²) for loc in allocated_locs)
-        y_precision_sum = sum(1 / (loc.σy^2 + state.τ²) for loc in allocated_locs)
+        # Calculate mean of latent positions (Section 4: r̄_j)
+        x_mean = mean(pos[1] for pos in latent_positions_for_emitter)
+        y_mean = mean(pos[2] for pos in latent_positions_for_emitter)
         
-        x_mean = sum(loc.x / (loc.σx^2 + state.τ²) for loc in allocated_locs) / x_precision_sum
-        y_mean = sum(loc.y / (loc.σy^2 + state.τ²) for loc in allocated_locs) / y_precision_sum
-        
-        # Calculate posterior variance (inverse of summed precisions)
-        x_variance = 1 / x_precision_sum
-        y_variance = 1 / y_precision_sum
-        
-        # Sample from posterior distribution N(mean, variance)
-        x_new = x_mean + randn(rng) * sqrt(x_variance)
-        y_new = y_mean + randn(rng) * sqrt(y_variance)
+        # Sample from posterior N(r̄_j, τ²/n_j I)
+        n_j = length(latent_positions_for_emitter)
+        x_new = x_mean + randn(rng) * sqrt(state.τ² / n_j)
+        y_new = y_mean + randn(rng) * sqrt(state.τ² / n_j)
         
         new_emitter = E(x_new, y_new, emitter.photons)
     end

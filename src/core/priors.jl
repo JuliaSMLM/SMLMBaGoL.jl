@@ -18,6 +18,23 @@ struct HierarchicalNegBinomialPrior{T<:Real} <: AbstractCountPrior
     μ_hyperprior::Tuple{T, T}  # (a₀, b₀) for Gamma prior on μ
     κ_hyperprior::Tuple{T, T}  # (c₀, d₀) for Gamma prior on κ
     τ²_hyperprior::Tuple{T, T} # (a_τ, b_τ) for InverseGamma prior on τ²
+    
+    # Inner constructor with validation
+    function HierarchicalNegBinomialPrior{T}(μ::T, κ::T, τ²::T, μ_hyperprior, κ_hyperprior, τ²_hyperprior) where T
+        μ > 0 || error("μ must be positive")
+        κ > 0 || error("κ must be positive")  
+        τ² > 0 || error("τ² must be positive")
+        all(x -> x > 0, μ_hyperprior) || error("μ hyperprior parameters must be positive")
+        all(x -> x > 0, κ_hyperprior) || error("κ hyperprior parameters must be positive")
+        all(x -> x > 0, τ²_hyperprior) || error("τ² hyperprior parameters must be positive")
+        
+        new{T}(μ, κ, τ², μ_hyperprior, κ_hyperprior, τ²_hyperprior)
+    end
+end
+
+# Outer constructor for type inference
+function HierarchicalNegBinomialPrior(μ::T, κ::T, τ²::T, μ_hyperprior, κ_hyperprior, τ²_hyperprior) where T
+    HierarchicalNegBinomialPrior{T}(μ, κ, τ², μ_hyperprior, κ_hyperprior, τ²_hyperprior)
 end
 
 
