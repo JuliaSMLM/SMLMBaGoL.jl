@@ -218,9 +218,19 @@ function log_acceptance_ratio(::Type{Birth}, current::BaGoLState, proposed::BaGo
     # Likelihood ratio
     log_likelihood_ratio = proposed.log_likelihood - current.log_likelihood
     
-    # Note: allocation probabilities cancel in forward/reverse moves
+    # NEW: Add prior on k given N total localizations
+    N = length(current.localizations)
+    k_current = length(current.emitters)
+    k_proposed = length(proposed.emitters)
     
-    return log_prior_ratio + log_likelihood_ratio + log_q_death - log_q_birth
+    # Extract hyperparameters from count prior
+    μ = chain.count_prior.μ
+    κ = chain.count_prior.κ
+    
+    log_prior_k_ratio = log_prior_k_given_N(k_proposed, N, μ, κ) - 
+                        log_prior_k_given_N(k_current, N, μ, κ)
+    
+    return log_prior_ratio + log_likelihood_ratio + log_q_death - log_q_birth + log_prior_k_ratio
 end
 
 function log_acceptance_ratio(::Type{Death}, current::BaGoLState, proposed::BaGoLState, chain::RJMCMCChain)
@@ -254,7 +264,19 @@ function log_acceptance_ratio(::Type{Death}, current::BaGoLState, proposed::BaGo
     # Likelihood ratio
     log_likelihood_ratio = proposed.log_likelihood - current.log_likelihood
     
-    return log_prior_ratio + log_likelihood_ratio + log_q_birth - log_q_death
+    # NEW: Add prior on k given N total localizations
+    N = length(current.localizations)
+    k_current = length(current.emitters)
+    k_proposed = length(proposed.emitters)
+    
+    # Extract hyperparameters from count prior
+    μ = chain.count_prior.μ
+    κ = chain.count_prior.κ
+    
+    log_prior_k_ratio = log_prior_k_given_N(k_proposed, N, μ, κ) - 
+                        log_prior_k_given_N(k_current, N, μ, κ)
+    
+    return log_prior_ratio + log_likelihood_ratio + log_q_birth - log_q_death + log_prior_k_ratio
 end
 
 # Fallback methods that don't use chain (for other parts of code that might call directly)

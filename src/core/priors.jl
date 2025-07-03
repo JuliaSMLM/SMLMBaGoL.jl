@@ -88,3 +88,30 @@ function create_spatial_prior_from_localizations(localizations::Vector{<:Abstrac
         y_max + margin * y_range
     )
 end
+
+"""
+    log_prior_k_given_N(k::Int, N::Int, μ::T, κ::T) where T<:Real
+
+Log prior probability of having k emitters given N total localizations.
+This prior is centered at k ≈ N/μ and uses a Negative Binomial distribution
+to allow overdispersion controlled by κ.
+
+This prior is crucial for preventing the pathological behavior where the model
+prefers many emitters (k → ∞) with no systematic noise (τ² → 0).
+"""
+function log_prior_k_given_N(k::Int, N::Int, μ::T, κ::T) where T<:Real
+    # Prior on k centered at N/μ with overdispersion controlled by κ
+    # Using Negative Binomial to allow more flexibility than Poisson
+    
+    # Expected number of emitters
+    k_expected = N / μ
+    
+    # Negative Binomial parameterization:
+    # Mean = k_expected, Variance = k_expected + k_expected²/κ
+    # This gives r = κ, p = κ/(κ + k_expected)
+    r = κ
+    p = κ / (κ + k_expected)
+    
+    # Return log probability
+    return logpdf(NegativeBinomial(r, p), k)
+end
