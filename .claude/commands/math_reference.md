@@ -1,4 +1,4 @@
-# Hierarchical Bayes RJMCMC for SMLM with Latent Positions — Revised Mathematical Specification
+# Hierarchical Bayes RJMCMC for SMLM with Latent Positions — Updated Mathematical Specification
 
 ---
 
@@ -18,6 +18,7 @@ obtained from an upstream PSF-fitting algorithm, we seek to infer simultaneously
 2. The localisation/emitter histogram is dataset-specific and learned *in situ*
 3. Latent positions are auxiliary variables maintained for computational efficiency
 4. The posterior is explored with reversible-jump MCMC (RJMCMC) inside disjoint spatial partitions processed in parallel; global hyperparameters are synchronised every $T_{\mathrm{sync}}$ sweeps
+5. **NEW**: The number of emitters $k$ is constrained by the total number of localizations $N$
 
 ---
 
@@ -48,7 +49,19 @@ $$\mu \sim \mathrm{Gamma}(a_\mu, b_\mu), \quad \kappa \sim \mathrm{Gamma}(a_\kap
 
 ---
 
-## 3. Marginalisation over $\lambda_j$ ⟹ Negative Binomial Prior
+## 3. Prior on Number of Emitters Given Total Count
+
+**CRITICAL UPDATE**: To prevent the pathological behavior where $k \to \infty$ and $\tau^2 \to 0$, we introduce a prior on $k$ that depends on the total number of localizations $N$:
+
+$$\boxed{k \mid N, \mu, \kappa \sim \mathrm{NegativeBinomial}\left(\kappa, \frac{\kappa}{\kappa + N/\mu}\right)}$$
+
+This prior is centered at $k \approx N/\mu$ (the expected number of emitters given $N$ localizations with mean $\mu$ per emitter) and has overdispersion controlled by $\kappa$.
+
+**Rationale**: Without this prior, the model can increase likelihood by adding emitters (increasing $k$) while reducing $\tau^2$, leading to a degenerate solution with one emitter per localization. The prior $P(k|N,\mu,\kappa)$ penalizes deviations from the expected number of emitters.
+
+---
+
+## 4. Marginalisation over $\lambda_j$ ⟹ Negative Binomial Prior
 
 Integrating out the latent blinking rates $\lambda_j$ yields:
 
@@ -63,11 +76,11 @@ $$L_{ij} = \mathcal{N}_2((x_i, y_i); \mathbf{s}_j, \mathrm{diag}(\sigma_{x,i}^2 
 
 ---
 
-## 4. Integrated MCMC Moves (fixed $k$)
+## 5. Integrated MCMC Moves (fixed $k$)
 
 **CRITICAL REVISION:** Latent positions $\mathbf{r}_i$ are auxiliary variables that must remain consistent with the model. They are updated **immediately** whenever their conditioning variables change, not as a separate move.
 
-### 4.1 Allocate Move: Update All Allocations with Integrated Latent Updates
+### 5.1 Allocate Move: Update All Allocations with Integrated Latent Updates
 
 1. **For each localization $i$:**
    - Sample new allocation $z_i$ from categorical distribution with probabilities $w_{ij}/\sum_r w_{ir}$
@@ -78,7 +91,7 @@ $$L_{ij} = \mathcal{N}_2((x_i, y_i); \mathbf{s}_j, \mathrm{diag}(\sigma_{x,i}^2 
    $$\boldsymbol{\Sigma}_{\mathrm{post}}^{-1} = \tau^{-2}\mathbf{I} + \mathrm{diag}(\sigma_{x,i}^{-2}, \sigma_{y,i}^{-2})$$
    $$\boldsymbol{\mu}_{\mathrm{post}} = \boldsymbol{\Sigma}_{\mathrm{post}} \left(\tau^{-2}\mathbf{s}_{z_i} + \mathrm{diag}(\sigma_{x,i}^{-2}, \sigma_{y,i}^{-2})(x_i, y_i)^T\right)$$
 
-### 4.2 Move: Update Emitter Position with Integrated Latent Updates
+### 5.2 Move: Update Emitter Position with Integrated Latent Updates
 
 1. **Select emitter $j$ uniformly at random**
 
@@ -89,23 +102,23 @@ $$L_{ij} = \mathcal{N}_2((x_i, y_i); \mathbf{s}_j, \mathrm{diag}(\sigma_{x,i}^2 
 3. **Immediately update latent positions for all localizations assigned to moved emitter:**
    For all $i$ where $z_i = j$, sample new $\mathbf{r}_i$ from posterior given new $\mathbf{s}_j$
 
-### 4.3 Hyperparameter Updates (at synchronization points)
+### 5.3 Hyperparameter Updates (at synchronization points)
 
-$$
+$
 \begin{aligned}
 \mu &\sim \mathrm{Gamma}\left(a_\mu + \sum_j n_j, \frac{1}{b_\mu + k\kappa}\right) \\[0.5em]
 \tau^2 &\sim \mathrm{InverseGamma}\left(a_\tau + \frac{N_{\mathrm{alloc}}}{2}, b_\tau + \frac{1}{2}\sum_{i: z_i \neq 0} \|\mathbf{r}_i - \mathbf{s}_{z_i}\|^2\right) \\[0.5em]
 \kappa &\quad \text{slice sampling or Metropolis-Hastings on } \log\kappa
 \end{aligned}
-$$
+$
 
 where $N_{\mathrm{alloc}} = 2 \times |\{i : z_i \neq 0\}|$ counts allocated coordinate dimensions.
 
 ---
 
-## 5. RJMCMC Dimension Moves (per partition)
+## 6. RJMCMC Dimension Moves (per partition)
 
-### 5.1 Birth Move: $k \to k+1$
+### 6.1 Birth Move: $k \to k+1$
 
 **Proposal distribution:** Define a mixture of normals centered at all observed localizations:
 $$q_{\mathrm{birth}}(\mathbf{s}_*) = \frac{1}{N} \sum_{i=1}^{N} \mathcal{N}_2(\mathbf{s}_*; (x_i, y_i), \mathrm{diag}(\sigma_{x,i}^2, \sigma_{y,i}^2))$$
@@ -117,7 +130,7 @@ $$q_{\mathrm{birth}}(\mathbf{s}_*) = \frac{1}{N} \sum_{i=1}^{N} \mathcal{N}_2(\m
 4. **Latent position initialization:** For each newly allocated localization, sample $\mathbf{r}_i$ from posterior given $\mathbf{s}_*$ and $(x_i, y_i)$
 5. **State update:** Form new emitter cluster and increment $k \to k+1$
 
-### 5.2 Death Move: $k \to k-1$
+### 6.2 Death Move: $k \to k-1$
 
 **Death procedure:**
 1. **Victim selection:** Choose emitter $r$ uniformly with probability $1/k$
@@ -129,36 +142,38 @@ $$q_{\mathrm{birth}}(\mathbf{s}_*) = \frac{1}{N} \sum_{i=1}^{N} \mathcal{N}_2(\m
    - Sample new position: $\mathbf{s}_j \sim \mathcal{N}_2(\bar{\mathbf{r}}_j, \tau^2/n_j\mathbf{I})$
 6. **State update:** Remove $\mathbf{s}_r$ and decrement $k \to k-1$
 
-### 5.3 Acceptance Probability
+### 6.3 Acceptance Probability
 
-The acceptance ratio incorporates the proposal density ratio:
-$$\log \alpha = \Delta \log p_{\mathrm{NB}} + \Delta \log L_{\mathrm{spatial}} + \Delta \log p(k) + \log \frac{q_{\mathrm{death}}}{q_{\mathrm{birth}}}$$
+The acceptance ratio incorporates the proposal density ratio **and the prior on k**:
+$$\log \alpha = \Delta \log p_{\mathrm{NB}} + \Delta \log L_{\mathrm{spatial}} + \boxed{\Delta \log P(k|N,\mu,\kappa)} + \Delta \log p(k) + \log \frac{q_{\mathrm{death}}}{q_{\mathrm{birth}}}$$
 
-Note: Likelihood calculations use the marginal form (integrating out latent positions).
+**NEW TERM**: $\Delta \log P(k|N,\mu,\kappa) = \log P(k_{\mathrm{proposed}}|N,\mu,\kappa) - \log P(k_{\mathrm{current}}|N,\mu,\kappa)$
+
+This additional term penalizes proposals that deviate from the expected number of emitters $N/\mu$.
 
 ---
 
-## 6. Algorithm Structure
+## 7. Algorithm Structure
 
-### 6.1 Within Each Partition
+### 7.1 Within Each Partition
 
 For each RJMCMC iteration:
 1. **Select move type** according to weights (e.g., 40% Allocate, 40% Move, 10% Birth, 10% Death)
 2. **Execute move** with integrated latent position updates
-3. **Accept/reject** according to Metropolis-Hastings ratio
+3. **Accept/reject** according to Metropolis-Hastings ratio (including k prior for Birth/Death)
 4. **Store sample** if past burn-in and meets thinning criteria
 
-### 6.2 Hierarchical Updates
+### 7.2 Hierarchical Updates
 
 Every $T_{\mathrm{sync}}$ iterations:
 1. **Synchronization barrier:** Wait for all partitions
 2. **Pool statistics:** Collect $\{n_j, \sum\|\mathbf{r}_i - \mathbf{s}_{z_i}\|^2\}$ across partitions
-3. **Update hyperparameters:** Sample new $(\mu, \kappa, \tau^2)$
+3. **Update hyperparameters:** Sample new $(\mu, \kappa, \tau^2)$ with minimum threshold
 4. **Broadcast:** Distribute updated hyperparameters to all partitions
 
 ---
 
-## 7. τ² Initialization Strategy
+## 8. τ² Initialization Strategy
 
 **Data-driven initialization with physical constraints:**
 
@@ -182,8 +197,9 @@ Where:
 
 ---
 
-## 8. Key Algorithmic Improvements
+## 9. Key Algorithmic Improvements
 
+- **Prior on k given N:** Prevents pathological k → ∞, τ² → 0 behavior
 - **Integrated updates:** Latent positions updated immediately with their conditioning variables
 - **Collapsed $\lambda_j$:** Reduces state space and improves mixing
 - **Pólya-weighted allocations:** Prevents pathological shrinkage behaviour  
@@ -193,7 +209,7 @@ Where:
 
 ---
 
-## 9. Computational Complexity (per partition per iteration)
+## 10. Computational Complexity (per partition per iteration)
 
 | Component | Memory | Cost |
 |-----------|--------|------|
@@ -202,13 +218,13 @@ Where:
 | Latent positions | $O(N)$ | $O(N)$ |
 | Allocate move | $O(1)$ | $O(Nk)$ |
 | Move operation | $O(1)$ | $O(n_j)$ |
-| Birth/Death | $O(1)$ | $O(N)$ |
+| Birth/Death | $O(1)$ | $O(N)$ + k prior eval |
 | $\tau^2$ update | $O(1)$ | $O(N)$ |
 | **Total** | $O(N + k)$ | $O(Nk)$ |
 
 ---
 
-## 10. Posterior Inference
+## 11. Posterior Inference
 
 **Important:** Final inference uses **emitter positions** $\mathbf{s}_j$, not latent positions $\mathbf{r}_i$:
 
@@ -224,4 +240,21 @@ The latent positions $\mathbf{r}_i$ are computational auxiliary variables that:
 
 ---
 
-*This revised specification maintains the mathematical elegance of latent positions while ensuring proper Gibbs sampling consistency through immediate updates.*
+## 12. Mathematical Justification for k Prior
+
+The joint posterior without the k prior is:
+$$P(k, \boldsymbol{\theta}, \mathbf{z} | \mathcal{D}) \propto P(\mathcal{D} | k, \boldsymbol{\theta}, \mathbf{z}) P(\mathbf{z} | k, \boldsymbol{\theta}) P(\boldsymbol{\theta}) P(k)$$
+
+With a flat prior P(k) ∝ 1, the model exhibits a **likelihood ridge** where:
+- Increasing k allows emitters closer to each localization
+- This reduces required τ² for good fit
+- Likelihood increases as τ² → 0
+
+The prior P(k | N, μ, κ) breaks this degeneracy by encoding the constraint:
+$$\mathbb{E}[k | N, \mu] = N/\mu$$
+
+This reflects the physical reality that emitters produce multiple localizations, preventing the pathological one-emitter-per-localization solution.
+
+---
+
+*This updated specification addresses the k → ∞, τ² → 0 pathology through principled Bayesian modeling of the relationship between emitter count and total localizations.*
