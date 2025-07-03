@@ -39,12 +39,12 @@ USER PARAMETERS - Configure your n-mer study here
 
 # Core n-mer parameters
 const N_EMITTERS = 6                    # Number of emitters in n-mer
-const DIAMETER = 0.050                  # n-mer diameter in μm (50 nm)
+const DIAMETER = 0.100                  # n-mer diameter in μm (50 nm)
 
 # Photophysics parameters  
 const PHOTONS_MEAN = 1000              # Mean photons per localization
-const LOCS_PER_EMITTER = 10            # Mean localizations per emitter
-const LOCS_VARIANCE = 5                # Variance in localizations per emitter
+const LOCS_PER_EMITTER = 50            # Mean localizations per emitter
+const LOCS_VARIANCE = LOCS_PER_EMITTER                # Variance in localizations per emitter
 
 # Noise parameters
 const PSF_WIDTH = 0.13                 # PSF sigma in μm (130 nm)
