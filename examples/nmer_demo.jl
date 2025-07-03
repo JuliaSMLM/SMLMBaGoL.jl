@@ -49,7 +49,7 @@ const LOCS_VARIANCE = 5                # Variance in localizations per emitter
 # Noise parameters
 const PSF_WIDTH = 0.13                 # PSF sigma in μm (130 nm)
 const MIN_PHOTONS = 300                # Minimum photon threshold
-const TAU = 0.020                      # Systematic noise in μm (20 nm)
+const TAU = 0.001                      # Systematic noise in μm (20 nm)
 
 # Analysis parameters
 const N_ITERATIONS = 50000             # RJMCMC iterations
@@ -219,51 +219,6 @@ function plot_k_posterior(k_trajectory::Vector{Int}, true_k::Int, burn_in::Int;
     return fig
 end
 
-function plot_ground_truth_comparison(localizations, mapn_results, true_positions;
-                                    filename::Union{Nothing,String} = nothing)
-    """Plot ground truth vs recovered positions"""
-    fig = Figure(size=(800, 800))
-    ax = Axis(fig[1, 1], 
-              xlabel="x (μm)", 
-              ylabel="y (μm)",
-              title="Ground Truth vs Recovered Positions",
-              aspect=DataAspect())
-    
-    # Plot localizations as small dots
-    x_locs = [loc.x for loc in localizations]
-    y_locs = [loc.y for loc in localizations]
-    scatter!(ax, x_locs, y_locs, markersize=3, color=(:black, 0.3), 
-             label="Localizations")
-    
-    # Plot true positions
-    true_x = [pos[1] for pos in true_positions]
-    true_y = [pos[2] for pos in true_positions]
-    scatter!(ax, true_x, true_y, markersize=15, color=:blue, 
-             marker=:circle, label="True positions")
-    
-    # Plot recovered positions with error bars if available
-    if !isempty(mapn_results)
-        mapn_x = [em.x for em in mapn_results]
-        mapn_y = [em.y for em in mapn_results]
-        
-        # Get uncertainties if available
-        if hasfield(typeof(mapn_results[1]), :σ_x) && hasfield(typeof(mapn_results[1]), :σ_y)
-            xerr = [em.σ_x for em in mapn_results]
-            yerr = [em.σ_y for em in mapn_results]
-            errorbars!(ax, mapn_x, mapn_y, xerr, yerr, color=:red, linewidth=2)
-        end
-        
-        scatter!(ax, mapn_x, mapn_y, markersize=12, color=:red, 
-                 marker=:diamond, label="Recovered positions")
-    end
-    
-    axislegend(ax, position=:rt)
-    
-    if !isnothing(filename)
-        save(filename, fig)
-    end
-    return fig
-end
 
 #=============================================================================
 5. Generate Visualizations
@@ -282,9 +237,13 @@ if SAVE_PLOTS
                     filename=joinpath(output_dir, "nmer_$(N_EMITTERS)_k_posterior.png"))
     println("   ✓ K posterior distribution saved")
     
-    # Ground truth comparison
-    plot_ground_truth_comparison(localizations, mapn_results, true_positions,
-                                filename=joinpath(output_dir, "nmer_$(N_EMITTERS)_ground_truth.png"))
+    # Ground truth comparison using circle plots
+    sr_circles_combined(localizations, mapn_results,
+                       true_positions=true_positions,
+                       true_color=:blue,
+                       true_markersize=20,
+                       true_marker=:xcross,
+                       filename=joinpath(output_dir, "nmer_$(N_EMITTERS)_ground_truth.png"))
     println("   ✓ Ground truth comparison saved")
     
     # Generate super-resolution images using existing functions
@@ -303,7 +262,7 @@ if SAVE_PLOTS
             println("   ✓ MAPN emitters SR image saved")
         end
         
-        # Uncertainty circles plot
+        # Uncertainty circles plot (standard)
         if !isempty(mapn_results)
             sr_circles_combined(localizations, mapn_results,
                               filename=joinpath(output_dir, "nmer_$(N_EMITTERS)_uncertainty.png"))
