@@ -2,6 +2,7 @@
 
 include("burn_in_assessment.jl")
 include("chain_length_assessment.jl")
+include("state_validation.jl")
 
 """
     diagnose_chains(chains::Union{RJMCMCChain, Vector{RJMCMCChain}}; 

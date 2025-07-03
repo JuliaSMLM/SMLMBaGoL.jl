@@ -43,7 +43,6 @@ include("moves/move_types.jl")
 include("moves/birth_death.jl")
 include("moves/move.jl")
 include("moves/allocate.jl")
-include("moves/latent_update.jl")
 include("moves/acceptance.jl")
 
 # Algorithms
@@ -65,13 +64,14 @@ include("visualization/hierarchical_viz.jl")
 
 # Diagnostics
 include("diagnostics/chain_diagnostics.jl")
+include("diagnostics/state_validation.jl")
 
 # Exports
 export AbstractLocalization, AbstractPrior, AbstractRJMCMCMove, AbstractChainState
 # Note: AbstractEmitter, Emitter2D, Emitter2DFit come from SMLMData
 export Localization2D, BaGoLState, RJMCMCChain
 export AbstractSpatialPrior, AbstractCountPrior, UniformSpatialPrior, HierarchicalNegBinomialPrior, HierarchicalUpdate
-export Birth, Death, Move, Allocate, UpdateLatent, inverse_move
+export Birth, Death, Move, Allocate, inverse_move
 export log_likelihood, log_prior, log_prior_spatial, log_posterior
 export sample_spatial_prior, create_spatial_prior_from_localizations, create_default_prior
 export propose_move, accept_probability, log_acceptance_ratio
@@ -84,6 +84,7 @@ export smld_to_localizations, simulate_static_smlm, simulate_nmer_smlmsim
 export gen_sr_image
 export circle!, sr_circles, sr_circles!, sr_circles_combined, sr_circles_combined!
 export diagnose_chains, quick_diagnose, assess_burn_in, assess_chain_length
+export validate_state_consistency
 export plot_hierarchical_evolution, plot_gamma_distributions, plot_negbinomial_distributions, plot_emitter_count_histogram
 export analyze_hierarchical_convergence, get_hierarchical_summary
 
