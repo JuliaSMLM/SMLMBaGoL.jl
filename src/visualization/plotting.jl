@@ -215,13 +215,15 @@ end
                         loc_scale_factor=2.0, mapn_scale_factor=2.0,
                         loc_color=:black, loc_alpha=0.4, loc_linewidth=1,
                         mapn_color=:red, mapn_alpha=0.8, mapn_linewidth=2,
+                        true_positions=nothing, true_color=:blue, true_markersize=15, true_marker=:xcross,
                         kwargs...)
 
 Plot uncertainty circles for both localizations and MAPN results on the same axis.
 
 This function creates a comparison visualization showing raw localizations 
 (typically with more uncertainty) and refined MAPN emitter estimates on the
-same plot with different styling to distinguish between them.
+same plot with different styling to distinguish between them. Optionally shows
+ground truth positions with X markers.
 
 # Arguments
 - `ax`: The axis to plot on
@@ -242,6 +244,12 @@ same plot with different styling to distinguish between them.
 - `mapn_alpha::Real = 0.8`: Transparency for MAPN circles  
 - `mapn_linewidth::Real = 2`: Line width for MAPN circles
 
+# Ground truth styling (defaults)
+- `true_positions = nothing`: Optional vector of ground truth positions (tuples or vectors of (x,y))
+- `true_color = :blue`: Color for ground truth markers
+- `true_markersize::Real = 15`: Size of ground truth markers
+- `true_marker = :xcross`: Marker style for ground truth positions
+
 # Examples
 ```julia
 # Basic comparison plot
@@ -255,6 +263,12 @@ sr_circles_combined!(ax, localizations, mapn_results,
 # Different scale factors
 sr_circles_combined!(ax, localizations, mapn_results,
                     loc_scale_factor=1.0, mapn_scale_factor=3.0)
+
+# Include ground truth positions
+true_positions = [(0.1, 0.2), (0.3, 0.4), (0.5, 0.6)]
+sr_circles_combined!(ax, localizations, mapn_results,
+                    true_positions=true_positions,
+                    true_color=:green, true_markersize=20)
 ```
 """
 function sr_circles_combined!(ax, localizations, mapn_results;
@@ -270,6 +284,11 @@ function sr_circles_combined!(ax, localizations, mapn_results;
                              mapn_color=:red,
                              mapn_alpha::Real=0.8,
                              mapn_linewidth::Real=2,
+                             # Ground truth styling
+                             true_positions=nothing,
+                             true_color=:blue,
+                             true_markersize::Real=15,
+                             true_marker=:xcross,
                              # Additional kwargs passed to both
                              kwargs...)
     
@@ -294,6 +313,19 @@ function sr_circles_combined!(ax, localizations, mapn_results;
                    linewidth=mapn_linewidth,
                    kwargs...)
     end
+    
+    # Plot ground truth positions on top (if provided)
+    if true_positions !== nothing && !isempty(true_positions)
+        # Extract coordinates from true positions (support both tuples and vectors)
+        true_x = [pos isa Tuple ? pos[1] : pos[1] for pos in true_positions]
+        true_y = [pos isa Tuple ? pos[2] : pos[2] for pos in true_positions]
+        
+        # Plot ground truth markers
+        CairoMakie.scatter!(ax, true_x, true_y; 
+                           color=true_color, 
+                           markersize=true_markersize, 
+                           marker=true_marker)
+    end
 end
 
 """
@@ -304,7 +336,8 @@ Create a new figure and plot uncertainty circles for both localizations and MAPN
 
 This function creates a comparison visualization showing raw localizations and refined 
 MAPN emitter estimates with appropriate styling defaults. The axis is configured 
-following SMLMData coordinate conventions with optional camera bounds.
+following SMLMData coordinate conventions with optional camera bounds. Optionally 
+shows ground truth positions with X markers.
 
 # Arguments
 - `localizations`: Vector of localization objects (can be empty)
@@ -312,7 +345,7 @@ following SMLMData coordinate conventions with optional camera bounds.
 - `camera`: Camera object to define axis bounds (default: auto-calculate from data)
 - `figure_kwargs`: Keyword arguments for Figure creation
 - `axis_kwargs`: Keyword arguments for Axis creation
-- `kwargs...`: Additional arguments passed to sr_circles_combined!
+- `kwargs...`: Additional arguments passed to sr_circles_combined! (including ground truth options)
 
 # Returns
 - `(fig, ax)`: Tuple of Figure and Axis objects
@@ -330,6 +363,12 @@ fig, ax = sr_circles_combined(localizations, mapn_results,
                              figure_kwargs=(size=(1000, 800),),
                              axis_kwargs=(title="Localization vs MAPN Comparison",),
                              loc_alpha=0.2, mapn_color=:blue)
+
+# Include ground truth positions
+true_positions = [(0.1, 0.2), (0.3, 0.4), (0.5, 0.6)]
+fig, ax = sr_circles_combined(localizations, mapn_results,
+                             true_positions=true_positions,
+                             true_color=:green, true_markersize=20)
 ```
 """
 function sr_circles_combined(localizations, mapn_results;
@@ -365,6 +404,15 @@ function sr_circles_combined(localizations, mapn_results;
             append!(y_coords, mapn_y)
         end
         
+        # Include ground truth positions in bounds calculation (if provided)
+        if haskey(kwargs, :true_positions) && kwargs[:true_positions] !== nothing && !isempty(kwargs[:true_positions])
+            true_positions = kwargs[:true_positions]
+            true_x = [pos isa Tuple ? pos[1] : pos[1] for pos in true_positions]
+            true_y = [pos isa Tuple ? pos[2] : pos[2] for pos in true_positions]
+            append!(x_coords, true_x)
+            append!(y_coords, true_y)
+        end
+        
         if isempty(x_coords) || isempty(y_coords)
             x_min, x_max = -1.0, 1.0
             y_min, y_max = -1.0, 1.0
@@ -389,8 +437,17 @@ function sr_circles_combined(localizations, mapn_results;
               ylabel="y (μm)",
               axis_kwargs...)
     
+    # Extract filename and filter it out of kwargs for plotting
+    filename = get(kwargs, :filename, nothing)
+    plot_kwargs = filter(p -> p.first != :filename, kwargs)
+    
     # Plot combined circles
-    sr_circles_combined!(ax, localizations, mapn_results; kwargs...)
+    sr_circles_combined!(ax, localizations, mapn_results; plot_kwargs...)
+    
+    # Save to file if filename is provided
+    if filename !== nothing
+        CairoMakie.save(filename, fig)
+    end
     
     return fig, ax
 end

@@ -74,9 +74,34 @@ function propose_move(::Type{Birth}, state::BaGoLState{E,L,T}, chain::RJMCMCChai
     probs = exp.(log_probs .- max_log)
     probs ./= sum(probs)
     
+    # Count how many localizations have positive probabilities
+    # Use a small threshold to avoid floating-point issues
+    threshold = 1e-100
+    n_positive = count(p -> p > threshold, probs)
+    
     # Sample m localizations without replacement
-    m_actual = min(m, n_locs)  # Can't allocate more than we have
-    selected_indices = StatsBase.sample(rng, 1:n_locs, StatsBase.Weights(probs), m_actual, replace=false)
+    m_actual = min(m, n_locs, n_positive)  # Can't allocate more than we have or more than positive probabilities
+    
+    # Add debug information if there's a potential issue
+    if m_actual < m
+        @debug "Birth move: Reduced sample size from $m to $m_actual due to insufficient positive probabilities" n_locs n_positive
+    end
+    
+    # Additional safety check
+    if m_actual == 0
+        @warn "Birth move: No localizations can be allocated (m_actual = 0)" m n_locs n_positive
+        return nothing  # Failed proposal
+    end
+    
+    # Double-check that we have enough positive probabilities
+    w = StatsBase.Weights(probs)
+    n_strictly_positive = count(x -> x > 0, w.values)
+    if m_actual > n_strictly_positive
+        @warn "Birth move: Insufficient strictly positive probabilities" m_actual n_strictly_positive n_locs
+        m_actual = n_strictly_positive
+    end
+    
+    selected_indices = StatsBase.sample(rng, 1:n_locs, w, m_actual, replace=false)
     
     # Step 4: Create new state
     new_emitters = [state.emitters; new_emitter]
