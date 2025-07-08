@@ -63,9 +63,12 @@ function generate_chain_movie(
         error("No samples to animate. Check that the chain has been run and samples collected.")
     end
     
-    # Setup figure
+    # Setup figure - use simpler layout to avoid Makie bugs
     fig = CairoMakie.Figure(size = figsize)
-    ax = CairoMakie.Axis(fig[1:3, 1:3], aspect = CairoMakie.DataAspect())
+    ax = CairoMakie.Axis(fig[1, 1])
+    
+    # Set aspect ratio manually instead of using DataAspect which causes issues
+    # CairoMakie.aspect!(ax, 1.0)
     
     # Determine coordinate bounds if not specified
     if isnothing(xlims) || isnothing(ylims)
@@ -85,11 +88,6 @@ function generate_chain_movie(
     emitter_history = Vector{Tuple{Float64, Float64}}()  # Store previous positions
     color_history = Vector{Int}()  # Store corresponding colors
     next_color_idx = [1]
-    
-    # Add metrics display if requested
-    if show_metrics
-        metrics_text = CairoMakie.Label(fig[0, 1:3], "", fontsize = 14, halign = :center)
-    end
     
     # Record animation
     CairoMakie.record(fig, output_path, 1:n_frames; framerate = fps) do frame_idx
@@ -114,13 +112,12 @@ function generate_chain_movie(
         # Plot emitters as X markers
         plot_emitters!(ax, state.emitters, emitter_colors, emitter_markersize)
         
-        # Update metrics display
-        if show_metrics
-            update_metrics_display!(
-                metrics_text, state, frame_idx, n_frames, 
-                isnothing(sample_range) ? frame_idx : sample_range[frame_idx]
-            )
-        end
+        # Update title with metrics info
+        K = length(state.emitters)
+        log_lik = state.log_likelihood
+        iteration = isnothing(sample_range) ? frame_idx : sample_range[frame_idx]
+        title_str = "Frame: $frame_idx/$n_frames | Iteration: $iteration | K: $K | Log-likelihood: $(round(log_lik, digits=2))"
+        ax.title = title_str
     end
     
     return nothing
@@ -305,11 +302,30 @@ function compute_bounds(samples, localizations)
     all_xs = vcat(loc_xs, emitter_xs)
     all_ys = vcat(loc_ys, emitter_ys)
     
+    # Handle empty or single-point cases
+    if isempty(all_xs) || isempty(all_ys)
+        # Default bounds if no data
+        return (0.0, 1.0), (0.0, 1.0)
+    end
+    
     x_min, x_max = extrema(all_xs)
     y_min, y_max = extrema(all_ys)
     
-    x_padding = 0.1 * (x_max - x_min)
-    y_padding = 0.1 * (y_max - y_min)
+    # Handle single point or identical coordinates
+    x_range = x_max - x_min
+    y_range = y_max - y_min
+    
+    if x_range ≈ 0
+        x_padding = 0.1
+    else
+        x_padding = 0.1 * x_range
+    end
+    
+    if y_range ≈ 0
+        y_padding = 0.1
+    else
+        y_padding = 0.1 * y_range
+    end
     
     xlims = (x_min - x_padding, x_max + x_padding)
     ylims = (y_min - y_padding, y_max + y_padding)
