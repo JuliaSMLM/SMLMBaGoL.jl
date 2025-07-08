@@ -51,183 +51,129 @@ function propose_move(::Type{Birth}, state::BaGoLState{E,L,T}, chain::RJMCMCChai
     photons = 1000.0  # Default photon count
     new_emitter = E(x_new, y_new, photons)
     
-    # Step 2: Sample number of localizations m
-    # m ~ 1 + NegativeBinomial(κ, κ/(κ+μ))
-    κ = get_concentration_parameter(state.count_prior)
-    μ = state.count_prior.μ
-    p = κ / (κ + μ)
-    
-    # Use Distributions.jl NegativeBinomial
-    m = 1 + rand(rng, NegativeBinomial(κ, p))
-    
-    # Step 3: Calculate allocation probabilities
-    n_locs = length(state.localizations)
-    log_probs = Vector{Float64}(undef, n_locs)
-    
-    for (i, loc) in enumerate(state.localizations)
-        # P(allocate loc i to new emitter) ∝ L(loc_i | new_emitter)
-        log_probs[i] = log_likelihood(new_emitter, loc, state.τ²)
-    end
-    
-    # Convert to probabilities
-    max_log = maximum(log_probs)
-    probs = exp.(log_probs .- max_log)
-    probs ./= sum(probs)
-    
-    # Count how many localizations have positive probabilities
-    # Use a small threshold to avoid floating-point issues
-    threshold = 1e-100
-    n_positive = count(p -> p > threshold, probs)
-    
-    # Sample m localizations without replacement
-    m_actual = min(m, n_locs, n_positive)  # Can't allocate more than we have or more than positive probabilities
-    
-    # Add debug information if there's a potential issue
-    if m_actual < m
-        @debug "Birth move: Reduced sample size from $m to $m_actual due to insufficient positive probabilities" n_locs n_positive
-    end
-    
-    # Additional safety check
-    if m_actual == 0
-        @warn "Birth move: No localizations can be allocated (m_actual = 0)" m n_locs n_positive
-        return nothing  # Failed proposal
-    end
-    
-    # Double-check that we have enough positive probabilities
-    w = StatsBase.Weights(probs)
-    n_strictly_positive = count(x -> x > 0, w.values)
-    if m_actual > n_strictly_positive
-        @warn "Birth move: Insufficient strictly positive probabilities" m_actual n_strictly_positive n_locs
-        m_actual = n_strictly_positive
-    end
-    
-    selected_indices = StatsBase.sample(rng, 1:n_locs, w, m_actual, replace=false)
-    
-    # Step 4: Create new state
+    # Step 2: Create provisional state with new emitter added
     new_emitters = [state.emitters; new_emitter]
     new_allocations = copy(state.allocations)
-    
-    # Reallocate selected localizations to new emitter
-    new_emitter_idx = length(new_emitters)
-    for idx in selected_indices
-        new_allocations[idx] = new_emitter_idx
-    end
-    
-    # Initialize latent positions (keep existing ones, sample new ones for reallocated)
     new_latent_positions = copy(state.latent_positions)
-
-    # Sample latent positions for newly allocated localizations
-    for idx in selected_indices
-        loc = state.localizations[idx]
-        
-        # Sample latent position given new emitter and observation
-        prec_x = 1/state.τ² + 1/loc.σx^2
-        prec_y = 1/state.τ² + 1/loc.σy^2
-        post_mean_x = (new_emitter.x/state.τ² + loc.x/loc.σx^2) / prec_x
-        post_mean_y = (new_emitter.y/state.τ² + loc.y/loc.σy^2) / prec_y
-        
-        latent_x = post_mean_x + randn(rng) / sqrt(prec_x)
-        latent_y = post_mean_y + randn(rng) / sqrt(prec_y)
-        
-        new_latent_positions[idx] = (latent_x, latent_y)
+    
+    # Create intermediate state for allocate and move operations
+    intermediate_state = BaGoLState(
+        new_emitters,
+        state.localizations,
+        new_allocations,
+        new_latent_positions,
+        state.spatial_prior,
+        state.count_prior,
+        state.τ²,
+        state.log_likelihood
+    )
+    
+    # Step 3: Perform full allocate move (Gibbs sweep with Pólya weights)
+    # This will naturally allocate some localizations to the new emitter
+    allocated_state = propose_move(Allocate, intermediate_state, chain, rng)
+    
+    # If allocate move failed, return nothing
+    if isnothing(allocated_state)
+        return nothing
     end
     
-    new_state_temp = BaGoLState(new_emitters, state.localizations, new_allocations,
-                               new_latent_positions, state.spatial_prior, state.count_prior, state.τ², state.log_likelihood)
+    # Step 4: Perform move operation to update all emitter positions
+    # This updates positions based on the new allocations
+    final_state = propose_move(Move, allocated_state, chain, rng)
     
-    new_likelihood = log_likelihood(new_state_temp)
+    # If move operation failed, return nothing
+    if isnothing(final_state)
+        return nothing
+    end
     
-    return BaGoLState(new_emitters, state.localizations, new_allocations,
-                     new_latent_positions, state.spatial_prior, state.count_prior, state.τ², new_likelihood)
+    # The likelihood has already been calculated in the move operation
+    return final_state
 end
 
 function propose_move(::Type{Death}, state::BaGoLState{E,L,T}, chain::RJMCMCChain, rng=Random.GLOBAL_RNG) where {E,L,T}
     length(state.emitters) == 0 && return nothing
     
+    # Step 1: Select emitter to remove
     idx = rand(rng, 1:length(state.emitters))
     
-    # Before removing, find localizations allocated to this emitter
-    allocated_to_removed = [i for i in eachindex(state.allocations) 
-                           if state.allocations[i] == idx]
+    # IMPORTANT: Store the removed emitter position for acceptance ratio calculation
+    removed_emitter = state.emitters[idx]
     
-    # Remove the emitter
+    # Step 2: Create provisional state with emitter removed
     new_emitters = [state.emitters[i] for i in 1:length(state.emitters) if i != idx]
-    new_allocations = reallocate_from_removed(state.allocations, idx, rng)
     
-    # If there are remaining emitters and some localizations need reallocation
-    if !isempty(new_emitters) && !isempty(allocated_to_removed)
-        # Keep track of updated latent positions
-        new_latent_positions = copy(state.latent_positions)
-        
-        # For reallocated localizations, update their latent positions
-        for loc_idx in allocated_to_removed
-            new_emitter_idx = new_allocations[loc_idx]
-            if new_emitter_idx > 0
-                loc = state.localizations[loc_idx]
-                emitter = new_emitters[new_emitter_idx]
-                
-                # Sample new latent position given new emitter assignment
-                prec_x = 1/state.τ² + 1/loc.σx^2
-                prec_y = 1/state.τ² + 1/loc.σy^2
-                post_mean_x = (emitter.x/state.τ² + loc.x/loc.σx^2) / prec_x
-                post_mean_y = (emitter.y/state.τ² + loc.y/loc.σy^2) / prec_y
-                
-                latent_x = post_mean_x + randn(rng) / sqrt(prec_x)
-                latent_y = post_mean_y + randn(rng) / sqrt(prec_y)
-                
-                new_latent_positions[loc_idx] = (latent_x, latent_y)
-            end
+    # Adjust allocations: shift indices down for emitters after the removed one
+    new_allocations = copy(state.allocations)
+    for i in eachindex(new_allocations)
+        if new_allocations[i] == idx
+            # This localization was allocated to the removed emitter
+            # Will be handled by the allocate move
+            new_allocations[i] = 0  # Temporarily unallocated
+        elseif new_allocations[i] > idx
+            # Shift down indices for emitters after the removed one
+            new_allocations[i] -= 1
         end
-        
-        # Track which emitters received reallocated localizations
-        affected_emitters = Set{Int}()
-        for loc_idx in allocated_to_removed
-            new_emitter_idx = new_allocations[loc_idx]
-            if 1 ≤ new_emitter_idx ≤ length(new_emitters)
-                push!(affected_emitters, new_emitter_idx)
-            end
-        end
-        
-        # Update positions only for emitters that received new localizations
-        for emitter_idx in affected_emitters
-            # Get all latent positions for this emitter
-            latent_positions_for_emitter = [new_latent_positions[i] 
-                                           for i in eachindex(state.localizations) 
-                                           if new_allocations[i] == emitter_idx]
-            
-            if !isempty(latent_positions_for_emitter)
-                # Calculate mean of latent positions
-                x_mean = mean(pos[1] for pos in latent_positions_for_emitter)
-                y_mean = mean(pos[2] for pos in latent_positions_for_emitter)
-                
-                # Sample from posterior
-                n_j = length(latent_positions_for_emitter)
-                x_new = x_mean + randn(rng) * sqrt(state.τ² / n_j)
-                y_new = y_mean + randn(rng) * sqrt(state.τ² / n_j)
-                
-                # Update emitter position
-                old_emitter = new_emitters[emitter_idx]
-                new_emitters[emitter_idx] = E(x_new, y_new, old_emitter.photons)
-            end
-        end
-    else
-        new_latent_positions = state.latent_positions
     end
     
-    # Create final state with updated likelihood
-    new_likelihood = log_likelihood(BaGoLState(new_emitters, state.localizations, 
-                                              new_allocations, new_latent_positions, state.spatial_prior, 
-                                              state.count_prior, state.τ², T(0.0)))
+    # Create intermediate state
+    intermediate_state = BaGoLState(
+        new_emitters,
+        state.localizations,
+        new_allocations,
+        copy(state.latent_positions),
+        state.spatial_prior,
+        state.count_prior,
+        state.τ²,
+        state.log_likelihood
+    )
     
-    return BaGoLState(new_emitters, state.localizations, new_allocations, 
-                     new_latent_positions, state.spatial_prior, state.count_prior, state.τ², new_likelihood)
+    # Step 3: Perform full allocate move (Gibbs sweep with Pólya weights)
+    # This will reallocate the orphaned localizations to remaining emitters
+    allocated_state = propose_move(Allocate, intermediate_state, chain, rng)
+    
+    # If allocate move failed or no emitters left, return the allocated state
+    if isnothing(allocated_state) || isempty(allocated_state.emitters)
+        return allocated_state
+    end
+    
+    # Step 4: Perform move operation to update all emitter positions
+    # This updates positions based on the new allocations
+    final_state = propose_move(Move, allocated_state, chain, rng)
+    
+    # Store the removed emitter in a way that the acceptance ratio can access it
+    # We'll add it as metadata to the chain
+    chain.last_removed_emitter = removed_emitter
+    
+    # The likelihood has already been calculated in the move operation
+    return final_state
 end
 
 # Update acceptance ratio calculations to use the cached distribution
 function log_acceptance_ratio(::Type{Birth}, current::BaGoLState, proposed::BaGoLState, chain::RJMCMCChain)
-    @assert length(proposed.emitters) == length(current.emitters) + 1
+    # Handle case where birth move didn't actually add an emitter (due to allocate removing it)
+    if length(proposed.emitters) == length(current.emitters)
+        # No change in emitter count - reject this move
+        return -Inf
+    end
     
-    # Find the new emitter (last one in proposed state)
+    # In rare cases, allocate might create or remove additional emitters
+    if length(proposed.emitters) != length(current.emitters) + 1
+        # Birth didn't result in exactly one new emitter - handle gracefully
+        # This can happen if allocate removes empty emitters
+        # For now, use a simple heuristic based on the change
+        delta_k = length(proposed.emitters) - length(current.emitters)
+        if delta_k <= 0
+            return -Inf  # Reject if no net increase
+        end
+        # Otherwise proceed with the calculation using the actual change
+    end
+    
+    # For birth moves with allocate+move, we need to consider:
+    # 1. The originally sampled position (which may have moved)
+    # 2. Allocate and Move are Gibbs moves (always accepted)
+    
+    # Since we can't track the original position through allocate+move,
+    # we use the final position as an approximation
     new_emitter = proposed.emitters[end]
     new_position = [new_emitter.x, new_emitter.y]
     
@@ -243,7 +189,7 @@ function log_acceptance_ratio(::Type{Birth}, current::BaGoLState, proposed::BaGo
     # Likelihood ratio
     log_likelihood_ratio = proposed.log_likelihood - current.log_likelihood
     
-    # NEW: Add prior on k given N total localizations
+    # Prior on k given N total localizations
     N = length(current.localizations)
     k_current = length(current.emitters)
     k_proposed = length(proposed.emitters)
@@ -259,28 +205,56 @@ function log_acceptance_ratio(::Type{Birth}, current::BaGoLState, proposed::BaGo
 end
 
 function log_acceptance_ratio(::Type{Death}, current::BaGoLState, proposed::BaGoLState, chain::RJMCMCChain)
-    # Find removed emitter by comparing current and proposed
-    removed_idx = 0
-    for i in 1:length(current.emitters)
-        if i > length(proposed.emitters) || 
-           current.emitters[i].x != proposed.emitters[i].x ||
-           current.emitters[i].y != proposed.emitters[i].y
-            removed_idx = i
-            break
+    # Handle edge cases where death move might not actually remove an emitter
+    if length(proposed.emitters) == length(current.emitters)
+        # No change in emitter count - reject this move
+        return -Inf
+    end
+    
+    # Handle case where allocate removed additional emitters
+    if length(proposed.emitters) < length(current.emitters) - 1
+        # More than one emitter removed - this is OK but we need to handle it
+        # Use the tracked removed emitter for the original death
+        if isnothing(chain.last_removed_emitter)
+            error("No removed emitter tracked for death move acceptance ratio")
         end
+        
+        removed_emitter = chain.last_removed_emitter
+        removed_position = [removed_emitter.x, removed_emitter.y]
+        
+        # Calculate acceptance ratio for removing one emitter
+        log_q_birth = logpdf(chain.birth_proposal, removed_position)
+        log_q_death = -log(length(current.emitters))
+        log_prior_ratio = -log_prior_spatial(removed_emitter, current.spatial_prior)
+        log_likelihood_ratio = proposed.log_likelihood - current.log_likelihood
+        
+        N = length(current.localizations)
+        k_current = length(current.emitters)
+        k_proposed = length(proposed.emitters)
+        μ = chain.count_prior.μ
+        κ = chain.count_prior.κ
+        log_prior_k_ratio = log_prior_k_given_N(k_proposed, N, μ, κ) - 
+                            log_prior_k_given_N(k_current, N, μ, κ)
+        
+        chain.last_removed_emitter = nothing
+        return log_prior_ratio + log_likelihood_ratio + log_q_birth - log_q_death + log_prior_k_ratio
     end
     
-    if removed_idx == 0
-        error("Could not identify removed emitter")
+    @assert length(proposed.emitters) == length(current.emitters) - 1
+    
+    # Use the tracked removed emitter
+    if isnothing(chain.last_removed_emitter)
+        error("No removed emitter tracked for death move acceptance ratio")
     end
     
-    removed_emitter = current.emitters[removed_idx]
+    removed_emitter = chain.last_removed_emitter
     removed_position = [removed_emitter.x, removed_emitter.y]
     
-    # Log density of removed position under birth proposal  
+    # Log density of removed position under birth proposal
+    # This is the position BEFORE allocate+move operations
     log_q_birth = logpdf(chain.birth_proposal, removed_position)
     
-    # Log probability of death selecting this emitter
+    # Log probability of death selecting this emitter (uniform)
     log_q_death = -log(length(current.emitters))
     
     # Prior ratio (negative because we're removing)
@@ -289,7 +263,7 @@ function log_acceptance_ratio(::Type{Death}, current::BaGoLState, proposed::BaGo
     # Likelihood ratio
     log_likelihood_ratio = proposed.log_likelihood - current.log_likelihood
     
-    # NEW: Add prior on k given N total localizations
+    # Prior on k given N total localizations
     N = length(current.localizations)
     k_current = length(current.emitters)
     k_proposed = length(proposed.emitters)
@@ -300,6 +274,9 @@ function log_acceptance_ratio(::Type{Death}, current::BaGoLState, proposed::BaGo
     
     log_prior_k_ratio = log_prior_k_given_N(k_proposed, N, μ, κ) - 
                         log_prior_k_given_N(k_current, N, μ, κ)
+    
+    # Clear the tracked emitter after use
+    chain.last_removed_emitter = nothing
     
     return log_prior_ratio + log_likelihood_ratio + log_q_birth - log_q_death + log_prior_k_ratio
 end

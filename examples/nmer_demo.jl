@@ -295,6 +295,34 @@ if !isempty(chains[1].hierarchical_history)
     end
 end
 
+# Generate movie of chain evolution
+if !isempty(chains)
+    try
+        # Select the chain with most samples
+        chain_for_movie = chains[1]
+        for c in chains
+            if length(c.samples) > length(chain_for_movie.samples)
+                chain_for_movie = c
+            end
+        end
+        
+        if !isempty(chain_for_movie.samples)
+            movie_filename = joinpath(output_dir, "nmer_$(N_EMITTERS)_chain_evolution.mp4")
+            generate_chain_movie(
+                chain_for_movie,
+                filename=movie_filename,
+                fps=10,
+                width=1200,
+                height=800,
+                sample_range=max(1, length(chain_for_movie.samples)-999):length(chain_for_movie.samples)  # Last 1000 samples
+            )
+            println("   ✓ Chain evolution movie saved: $(basename(movie_filename))")
+        end
+    catch e
+        println("   ⚠ Movie generation failed: $e")
+    end
+end
+
 # Chain diagnostics
 try
     diagnosis = diagnose_chains(chains[1])
