@@ -66,3 +66,72 @@ function reallocate_from_removed(allocations::Vector{Int}, removed_idx::Int, rng
     
     return new_allocations
 end
+
+"""
+    remove_empty_emitters(state::BaGoLState{E,L,T}) where {E,L,T}
+
+Remove emitters that have no allocated localizations.
+
+Returns a new BaGoLState with:
+- Empty emitters removed from the emitters vector
+- Allocation indices updated to reflect the removal
+- All other state components preserved
+
+# Example
+```julia
+cleaned_state = remove_empty_emitters(state)
+```
+"""
+function remove_empty_emitters(state::BaGoLState{E,L,T}) where {E,L,T}
+    # Count allocations for each emitter
+    n_emitters = length(state.emitters)
+    allocation_counts = zeros(Int, n_emitters)
+    
+    for alloc in state.allocations
+        if 1 ≤ alloc ≤ n_emitters
+            allocation_counts[alloc] += 1
+        end
+    end
+    
+    # Find non-empty emitters
+    non_empty_indices = findall(count -> count > 0, allocation_counts)
+    
+    # If all emitters have localizations, return state unchanged
+    if length(non_empty_indices) == n_emitters
+        return state
+    end
+    
+    # Create mapping from old indices to new indices
+    old_to_new = Dict{Int,Int}()
+    for (new_idx, old_idx) in enumerate(non_empty_indices)
+        old_to_new[old_idx] = new_idx
+    end
+    
+    # Filter emitters
+    new_emitters = state.emitters[non_empty_indices]
+    
+    # Update allocations
+    new_allocations = similar(state.allocations)
+    for (i, old_alloc) in enumerate(state.allocations)
+        if haskey(old_to_new, old_alloc)
+            new_allocations[i] = old_to_new[old_alloc]
+        else
+            # This shouldn't happen for valid allocations, but handle it gracefully
+            new_allocations[i] = old_alloc > n_emitters ? old_alloc : 0
+        end
+    end
+    
+    # Create new state with updated emitters and allocations
+    new_state = BaGoLState(
+        new_emitters,
+        state.localizations,
+        new_allocations,
+        state.latent_positions,
+        state.spatial_prior,
+        state.count_prior,
+        state.τ²,
+        state.log_likelihood  # Will be recalculated if needed
+    )
+    
+    return new_state
+end
