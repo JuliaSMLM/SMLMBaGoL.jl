@@ -310,10 +310,9 @@ if !isempty(chains)
             movie_filename = joinpath(output_dir, "nmer_$(N_EMITTERS)_chain_evolution.mp4")
             generate_chain_movie(
                 chain_for_movie,
-                filename=movie_filename,
+                movie_filename;
                 fps=10,
-                width=1200,
-                height=800,
+                figsize=(1200, 800),
                 sample_range=max(1, length(chain_for_movie.samples)-999):length(chain_for_movie.samples)  # Last 1000 samples
             )
             println("   ✓ Chain evolution movie saved: $(basename(movie_filename))")
