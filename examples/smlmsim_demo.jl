@@ -10,7 +10,8 @@ This comprehensive example demonstrates the SMLMSim integration in SMLMBaGoL:
 4. Extract MAPN estimates with uncertainty quantification
 5. Assess chain quality with comprehensive diagnostics
 6. Generate super-resolution images (localizations, emitters, posterior)
-7. Compare SMLMSim vs native BaGoL simulation approaches
+7. Create MCMC chain evolution movie showing allocation dynamics
+8. Compare SMLMSim vs native BaGoL simulation approaches
 
 USAGE:
   julia --threads=16 --project=. smlmsim_demo.jl   # Recommended: 16 threads
@@ -44,7 +45,7 @@ const N_MER = 8                         # Number of emitters in n-mer pattern (n
 const N_MER_DIAMETER = 0.025            # Diameter of n-mer pattern in μm (50 nm)
 
 # Analysis parameters  
-const N_ITERATIONS = 100000              # RJMCMC iterations (reduced from 50000)
+const N_ITERATIONS = 50000              # RJMCMC iterations (reduced from 50000)
 const BURN_IN = 2000                    # Burn-in period (reduced from 10000)
 const ENABLE_PARTITIONING = true        # Use multiple partitions for efficiency
 const PARTITION_RADIUS = 0.5            # Partition radius in μm (4x avg uncertainty)
@@ -269,6 +270,35 @@ if SAVE_IMAGES
         println("   ⚠ No chain samples found, skipping posterior uncertainty image")
     end
     
+    # Generate MCMC chain evolution movie
+    if !isempty(chains) && !isempty(chains[1].samples)
+        println("   ✓ Generating MCMC chain evolution movie...")
+        
+        # Use the first chain for movie generation
+        chain_for_movie = chains[1]
+        movie_filename = joinpath(output_dir, "smlmsim_chain_evolution.mp4")
+        
+        # Generate movie with custom settings for better visualization
+        generate_chain_movie(
+            chain_for_movie,
+            movie_filename,
+            fps = 15,  # Slightly faster playback
+            figsize = (1000, 800),  # Larger figure for clarity
+            color_palette = :Set1_9,  # Distinct colors
+            localization_alpha = 0.6,  # Semi-transparent localizations
+            emitter_markersize = 18,   # Prominent emitter markers
+            sample_range = 1:min(N_ITERATIONS, length(chain_for_movie.samples))  # First 100 samples for manageable file size
+        )
+        
+        println("   ✓ Chain evolution movie saved to: $movie_filename")
+        println("     • Shows progression of first $(min(100, length(chain_for_movie.samples))) samples from partition 1")
+        println("     • Localizations colored by allocated emitter")
+        println("     • Emitters shown as X markers with matching colors")
+        println("     • Displays K evolution and log-likelihood progression")
+    else
+        println("   ⚠ No chain samples available for movie generation")
+    end
+    
     println("   ✓ Analysis images and uncertainty plots saved to: $output_dir")
 else
     println("   ⚠ Image generation disabled (SAVE_IMAGES = false)")
@@ -450,6 +480,7 @@ if SAVE_IMAGES
     println("• smlmsim_mapn_uncertainty.png - MAPN emitter uncertainty circles (2σ)")
     println("• smlmsim_uncertainty_comparison.png - Combined comparison plot (localizations + MAPN)")
     println("• smlmsim_posterior_uncertainty.png - Posterior position uncertainties")
+    println("• smlmsim_chain_evolution.mp4 - MCMC chain evolution movie showing allocation dynamics")
     if ENABLE_HIERARCHICAL
         println("• smlmsim_hierarchical_evolution.png - Evolution of μ, κ, and τ² hyperparameters")
         println("• smlmsim_gamma_distributions.png - Negative Binomial distribution evolution over time")
