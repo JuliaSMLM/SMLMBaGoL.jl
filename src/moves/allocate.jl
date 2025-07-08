@@ -93,11 +93,14 @@ function propose_move(::Type{Allocate}, state::BaGoLState{E,L,T}, rng=Random.GLO
         end
     end
     
+    # Remove any emitters that have no allocations after reallocation
+    new_state = remove_empty_emitters(new_state)
+    
     # Recompute likelihood
     new_state = BaGoLState(new_state.emitters, new_state.localizations, 
                           new_state.allocations, new_state.latent_positions,
                           new_state.spatial_prior, new_state.count_prior, 
-                          state.τ², log_likelihood(new_state))
+                          new_state.τ², log_likelihood(new_state))
     
     return new_state
 end
