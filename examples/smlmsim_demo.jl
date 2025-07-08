@@ -42,10 +42,10 @@ const EXPECTED_LOCS_PER_EMITTER = 10    # Expected localizations per emitter
 
 # N-mer pattern parameters (set N_MER=nothing to disable pattern)
 const N_MER = 8                         # Number of emitters in n-mer pattern (nothing to disable)
-const N_MER_DIAMETER = 0.025            # Diameter of n-mer pattern in μm (50 nm)
+const N_MER_DIAMETER = 0.050            # Diameter of n-mer pattern in μm (50 nm)
 
 # Analysis parameters  
-const N_ITERATIONS = 50000              # RJMCMC iterations (reduced from 50000)
+const N_ITERATIONS = 5000              # RJMCMC iterations (reduced from 50000)
 const BURN_IN = 2000                    # Burn-in period (reduced from 10000)
 const ENABLE_PARTITIONING = true        # Use multiple partitions for efficiency
 const PARTITION_RADIUS = 0.5            # Partition radius in μm (4x avg uncertainty)
@@ -287,7 +287,7 @@ if SAVE_IMAGES
             color_palette = :Set1_9,  # Distinct colors
             localization_alpha = 0.6,  # Semi-transparent localizations
             emitter_markersize = 18,   # Prominent emitter markers
-            sample_range = 1:min(N_ITERATIONS, length(chain_for_movie.samples))  # First 100 samples for manageable file size
+            sample_range = 1:min(50, length(chain_for_movie.samples))  # First 50 samples for quick test
         )
         
         println("   ✓ Chain evolution movie saved to: $movie_filename")
