@@ -61,6 +61,7 @@ include("sim/smlmsim_integration.jl")
 include("visualization/sr_image.jl")
 include("visualization/plotting.jl")
 include("visualization/hierarchical_viz.jl")
+include("visualization/movie_generator.jl")
 
 # Diagnostics
 include("diagnostics/chain_diagnostics.jl")
@@ -83,6 +84,7 @@ export simulate_n_mer, simulate_n_mer_with_prior
 export smld_to_localizations, simulate_static_smlm, simulate_nmer_smlmsim
 export gen_sr_image
 export circle!, sr_circles, sr_circles!, sr_circles_combined, sr_circles_combined!, plot_tau_prior
+export generate_chain_movie
 export diagnose_chains, quick_diagnose, assess_burn_in, assess_chain_length
 export validate_state_consistency
 export plot_hierarchical_evolution, plot_gamma_distributions, plot_negbinomial_distributions, plot_emitter_count_histogram
