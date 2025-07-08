@@ -164,7 +164,8 @@ function initialize_chain(localizations::Vector{L},
         rng,
         HierarchicalUpdate{eltype(initial_likelihood)}[],  # Empty hierarchical history
         birth_proposal,  # Cached birth proposal
-        false  # diagnostics disabled by default
+        false,  # diagnostics disabled by default
+        nothing  # last_removed_emitter initially nothing
     )
     
     # Record initial hierarchical parameters if applicable
