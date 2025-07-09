@@ -1,3 +1,5 @@
+# Hierarchical updates module - imports already handled by main module
+
 # Count allocations per emitter
 function count_allocations(state::BaGoLState)
     emitter_counts = zeros(Int, length(state.emitters))
@@ -73,6 +75,13 @@ end
 # Slice sampling for κ (following math spec Section 8)
 function update_kappa_slice(counts::Vector{Int}, μ::Real, hyperprior::Tuple{Real,Real}, 
                            current_κ::Real; n_steps::Int=10)
+    # Use adaptive version by default
+    return update_kappa_slice_adaptive(counts, μ, hyperprior, current_κ; n_steps=n_steps)
+end
+
+# Adaptive slice sampling for κ with better exploration
+function update_kappa_slice_adaptive(counts::Vector{Int}, μ::Real, hyperprior::Tuple{Real,Real}, 
+                                   current_κ::Real; n_steps::Int=10, adapt_width::Bool=true)
     c₀, d₀ = hyperprior
     n = length(counts)
     sum_counts = sum(counts)
@@ -83,7 +92,7 @@ function update_kappa_slice(counts::Vector{Int}, μ::Real, hyperprior::Tuple{Rea
             return -Inf
         end
         
-        log_p = (c₀ - 1) * log(κ) - d₀ * κ
+        log_p = (c₀ - 1) * log(κ) - κ / d₀
         
         # Sum over emitters
         for n_j in counts
@@ -96,30 +105,42 @@ function update_kappa_slice(counts::Vector{Int}, μ::Real, hyperprior::Tuple{Rea
         return log_p
     end
     
-    # Simple slice sampling
+    # Initialize adaptive width based on current κ scale
+    width = adapt_width ? max(0.1, min(10.0, current_κ * 0.5)) : 2.0
+    
+    # Track acceptance for adaptation
+    accepted = 0
     κ = current_κ
-    for _ in 1:n_steps
+    
+    for step in 1:n_steps
+        κ_old = κ
+        
         # Sample height
         log_y = log_density(κ) + log(rand())
         
-        # Find slice interval
-        width = 2.0
+        # Find slice interval with current width
         lower = max(0.1, κ - width * rand())
         upper = κ + width * rand()
         
         # Expand interval
-        while lower > 0.1 && log_density(lower) > log_y
+        expand_steps = 0
+        while lower > 0.1 && log_density(lower) > log_y && expand_steps < 10
             lower = max(0.1, lower - width)
+            expand_steps += 1
         end
-        while log_density(upper) > log_y
+        expand_steps = 0
+        while log_density(upper) > log_y && expand_steps < 10
             upper = upper + width
+            expand_steps += 1
         end
         
-        # Sample from slice
-        while true
+        # Sample from slice with shrinkage
+        shrink_steps = 0
+        while shrink_steps < 100
             κ_new = lower + (upper - lower) * rand()
             if log_density(κ_new) > log_y
                 κ = κ_new
+                accepted += 1
                 break
             else
                 if κ_new < κ
@@ -127,15 +148,103 @@ function update_kappa_slice(counts::Vector{Int}, μ::Real, hyperprior::Tuple{Rea
                 else
                     upper = κ_new
                 end
+                shrink_steps += 1
             end
+        end
+        
+        # Adapt width based on acceptance
+        if adapt_width && step % 5 == 0
+            acceptance_rate = accepted / 5
+            if acceptance_rate < 0.3
+                width *= 0.8  # Shrink if rejecting too much
+            elseif acceptance_rate > 0.7
+                width *= 1.2  # Grow if accepting too much
+            end
+            width = clamp(width, 0.05, 20.0)
+            accepted = 0
         end
     end
     
     return κ
 end
 
+# Multi-start slice sampling for better global exploration
+function update_kappa_multistart(counts::Vector{Int}, μ::Real, hyperprior::Tuple{Real,Real}, 
+                               current_κ::Real; n_starts::Int=3, n_steps::Int=5, 
+                               diagnostic::Bool=false)
+    # Try multiple starting points
+    start_points = Float64[]
+    
+    # Always include current value
+    push!(start_points, current_κ)
+    
+    # Add data-driven starting point
+    m = mean(counts)
+    v = var(counts)
+    if v > m
+        κ_mom = m^2 / (v - m)
+        push!(start_points, clamp(κ_mom, 0.1, 1000.0))
+    else
+        # For Poisson-like data
+        push!(start_points, 100.0)
+    end
+    
+    # Add some dispersed points
+    push!(start_points, 1.0)
+    push!(start_points, 10.0)
+    push!(start_points, 50.0)
+    
+    if diagnostic
+        println("    Multi-start with points: $start_points")
+    end
+    
+    # Run short chains from each start
+    best_κ = current_κ
+    best_log_p = -Inf
+    
+    c₀, d₀ = hyperprior
+    n = length(counts)
+    sum_counts = sum(counts)
+    
+    function log_density(κ)
+        if κ ≤ 0
+            return -Inf
+        end
+        
+        log_p = (c₀ - 1) * log(κ) - κ / d₀
+        
+        for n_j in counts
+            log_p -= loggamma(κ)
+            log_p += loggamma(n_j + κ)
+        end
+        
+        log_p -= (sum_counts + n * κ) * log(κ + μ)
+        
+        return log_p
+    end
+    
+    for start_κ in start_points[1:min(n_starts, length(start_points))]
+        # Run short adaptive chain
+        κ_candidate = update_kappa_slice_adaptive(counts, μ, hyperprior, start_κ; 
+                                                 n_steps=n_steps, adapt_width=true)
+        
+        # Evaluate at endpoint
+        log_p = log_density(κ_candidate)
+        
+        if log_p > best_log_p
+            best_log_p = log_p
+            best_κ = κ_candidate
+        end
+    end
+    
+    # Run longer chain from best point
+    return update_kappa_slice_adaptive(counts, μ, hyperprior, best_κ; 
+                                     n_steps=n_steps*2, adapt_width=true)
+end
+
 # Main hierarchical update function
-function update_hierarchical!(chains::Vector{<:RJMCMCChain}, current_iteration::Int = 0)
+function update_hierarchical!(chains::Vector{<:RJMCMCChain}, current_iteration::Int = 0; 
+                            adaptive::Bool = true, diagnostic::Bool = false)
     # Check if all chains have hierarchical count priors
     hierarchical_priors = HierarchicalNegBinomialPrior[]
     
@@ -166,8 +275,44 @@ function update_hierarchical!(chains::Vector{<:RJMCMCChain}, current_iteration::
     
     # Gibbs updates
     new_μ = update_mu_gibbs(all_counts, current_κ, template_prior.μ_hyperprior)
-    new_κ = update_kappa_slice(all_counts, new_μ, template_prior.κ_hyperprior, current_κ)
+    
+    # Use adaptive or multi-start for κ if requested
+    if adaptive
+        # Check if data looks Poisson-like (low overdispersion)
+        emp_mean = mean(all_counts)
+        emp_var = var(all_counts)
+        variance_ratio = emp_var / emp_mean
+        
+        # Use multi-start if variance ratio suggests low overdispersion
+        # or after some burn-in for general robustness
+        if variance_ratio < 2.0 || current_iteration > 500
+            if diagnostic
+                println("  Using multi-start (var_ratio=$variance_ratio, iter=$current_iteration)")
+            end
+            new_κ = update_kappa_multistart(all_counts, new_μ, template_prior.κ_hyperprior, current_κ; 
+                                          n_starts=5, n_steps=10, diagnostic=diagnostic)
+        else
+            if diagnostic
+                println("  Using regular slice sampling")
+            end
+            new_κ = update_kappa_slice(all_counts, new_μ, template_prior.κ_hyperprior, current_κ)
+        end
+    else
+        new_κ = update_kappa_slice(all_counts, new_μ, template_prior.κ_hyperprior, current_κ)
+    end
+    
     new_τ² = update_tau_squared_gibbs(chains, template_prior.τ²_hyperprior)
+    
+    # Print diagnostic info if requested
+    if diagnostic
+        m = mean(all_counts)
+        v = var(all_counts)
+        println("Hierarchical update at iteration $current_iteration:")
+        println("  Data: mean=$(round(m, digits=2)), var=$(round(v, digits=2))")
+        println("  Old: μ=$(round(current_μ, digits=2)), κ=$(round(current_κ, digits=2))")
+        println("  New: μ=$(round(new_μ, digits=2)), κ=$(round(new_κ, digits=2))")
+        println("  Theoretical var: $(round(new_μ + new_μ^2/new_κ, digits=2))")
+    end
     
     # Create new hierarchical prior
     new_prior = HierarchicalNegBinomialPrior(
