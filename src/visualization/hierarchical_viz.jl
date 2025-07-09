@@ -144,7 +144,8 @@ end
 function plot_emitter_count_histogram(chains::Vector{<:RJMCMCChain};
                                     filename::Union{Nothing,String} = nothing,
                                     figsize::Tuple{Int,Int} = (800, 600),
-                                    true_mean::Union{Nothing,Real} = nothing)
+                                    true_mean::Union{Nothing,Real} = nothing,
+                                    show_fit_stats::Bool = true)
     
     # Collect all emitter counts from samples
     all_counts = collect_emitter_counts(chains)
@@ -156,10 +157,15 @@ function plot_emitter_count_histogram(chains::Vector{<:RJMCMCChain};
     
     # Get final hierarchical parameters if available
     final_μ, final_κ = nothing, nothing
+    prior = nothing
     for chain in chains
         if !isempty(chain.hierarchical_history)
             last_update = chain.hierarchical_history[end]
             final_μ, final_κ = last_update.μ, last_update.κ
+            # Get the actual prior object
+            if isa(chain.current_state.count_prior, HierarchicalNegBinomialPrior)
+                prior = chain.current_state.count_prior
+            end
             break
         end
     end
@@ -187,6 +193,26 @@ function plot_emitter_count_histogram(chains::Vector{<:RJMCMCChain};
         scatter!(ax, k_values, pmf_values, 
                 color=:red, markersize=6,
                 label="Fitted NegBinom(μ=$(round(final_μ,digits=2)), κ=$(round(final_κ,digits=2)))")
+        
+        # Add fit statistics if requested and prior is available
+        if show_fit_stats && !isnothing(prior)
+            stats = assess_negbinomial_fit(all_counts, prior)
+            
+            # Add text box with fit statistics
+            textstr = """
+            Fit Quality:
+            χ² p-value: $(round(stats.chi_squared_pvalue, digits=3))
+            KS p-value: $(round(stats.ks_pvalue, digits=3))
+            
+            Empirical: μ=$(round(stats.empirical_mean, digits=1)), σ²=$(round(stats.empirical_var, digits=1))
+            Fitted: μ=$(round(stats.fitted_mean, digits=1)), σ²=$(round(stats.fitted_var, digits=1))
+            """
+            
+            text!(ax, 0.95, 0.5, text=textstr, 
+                  align=(:right, :center),
+                  fontsize=12,
+                  space=:relative)
+        end
     end
     
     # Add true mean line if provided
@@ -246,6 +272,168 @@ function analyze_hierarchical_convergence(chains::Vector{<:RJMCMCChain};
         n_updates = length(all_updates),
         message = converged ? "Hierarchical parameters have converged" : "Hierarchical parameters still changing"
     )
+end
+
+function plot_negbinomial_diagnostic(chains::Vector{<:RJMCMCChain};
+                                   filename::Union{Nothing,String} = nothing,
+                                   figsize::Tuple{Int,Int} = (1200, 800),
+                                   show_qq::Bool = true,
+                                   show_residuals::Bool = true)
+    
+    # Collect data
+    all_counts = collect_emitter_counts(chains)
+    if isempty(all_counts)
+        @warn "No emitter count data found."
+        return nothing
+    end
+    
+    # Get final parameters and prior
+    prior = nothing
+    for chain in chains
+        if isa(chain.current_state.count_prior, HierarchicalNegBinomialPrior)
+            prior = chain.current_state.count_prior
+            break
+        end
+    end
+    
+    if isnothing(prior)
+        @warn "No hierarchical prior found."
+        return nothing
+    end
+    
+    # Create multi-panel figure
+    fig = Figure(size=figsize)
+    
+    # Panel 1: Histogram comparison (top left)
+    ax1 = CairoMakie.Axis(fig[1, 1], 
+                title="Empirical vs Fitted Distribution",
+                xlabel="Localizations per emitter", 
+                ylabel="Frequency")
+    
+    hist!(ax1, all_counts, bins=0:maximum(all_counts)+1, 
+          normalization=:pdf, color=(:blue, 0.6), label="Empirical")
+    
+    # Overlay fitted
+    k_values = 0:maximum(all_counts)
+    r = prior.κ
+    p = prior.κ / (prior.κ + prior.μ)
+    nb_dist = NegativeBinomial(r, p)
+    pmf_values = [pdf(nb_dist, k) for k in k_values]
+    scatter!(ax1, k_values, pmf_values, color=:red, markersize=6,
+            label="Fitted NegBinom(μ=$(round(prior.μ,digits=2)), κ=$(round(prior.κ,digits=2)))")
+    axislegend(ax1, position=:rt)
+    
+    # Panel 2: Q-Q plot (top right)
+    if show_qq
+        ax2 = CairoMakie.Axis(fig[1, 2], 
+                    title="Q-Q Plot",
+                    xlabel="Theoretical Quantiles", 
+                    ylabel="Empirical Quantiles")
+        
+        # Compute quantiles
+        sorted_counts = sort(all_counts)
+        n = length(sorted_counts)
+        theoretical_quantiles = Float64[]
+        empirical_quantiles = Float64[]
+        
+        for i in 1:n
+            p = (i - 0.5) / n
+            # Find theoretical quantile
+            q_theory = quantile(nb_dist, p)
+            push!(theoretical_quantiles, q_theory)
+            push!(empirical_quantiles, sorted_counts[i])
+        end
+        
+        scatter!(ax2, theoretical_quantiles, empirical_quantiles, 
+                markersize=4, color=:blue)
+        
+        # Add diagonal reference line
+        lims = [minimum([theoretical_quantiles; empirical_quantiles]),
+                maximum([theoretical_quantiles; empirical_quantiles])]
+        lines!(ax2, lims, lims, color=:red, linestyle=:dash, linewidth=2)
+    end
+    
+    # Panel 3: Residual plot (bottom left)
+    if show_residuals
+        ax3 = CairoMakie.Axis(fig[2, 1], 
+                    title="Standardized Residuals",
+                    xlabel="Count value", 
+                    ylabel="Standardized Residual")
+        
+        # Compute residuals
+        max_count = maximum(all_counts)
+        count_vals = Int[]
+        residuals = Float64[]
+        
+        # Get observed frequencies
+        obs_freq = zeros(max_count + 1)
+        for c in all_counts
+            obs_freq[c + 1] += 1
+        end
+        obs_freq ./= length(all_counts)
+        
+        for k in 0:max_count
+            expected = pdf(nb_dist, k)
+            observed = obs_freq[k + 1]
+            
+            if expected > 0
+                # Standardized residual
+                std_resid = (observed - expected) / sqrt(expected * (1 - expected) / length(all_counts))
+                push!(count_vals, k)
+                push!(residuals, std_resid)
+            end
+        end
+        
+        scatter!(ax3, count_vals, residuals, markersize=6, color=:blue)
+        hlines!(ax3, [-2, 0, 2], color=[:red, :black, :red], 
+                linestyle=[:dash, :solid, :dash], linewidth=[1, 2, 1])
+    end
+    
+    # Panel 4: Fit statistics (bottom right)
+    ax4 = CairoMakie.Axis(fig[2, 2], title="Fit Statistics")
+    hidedecorations!(ax4)
+    hidespines!(ax4)
+    
+    # Compute fit statistics
+    stats = assess_negbinomial_fit(all_counts, prior)
+    
+    # Create text summary
+    text_lines = [
+        "Goodness-of-Fit Tests:",
+        "  χ² test: p = $(round(stats.chi_squared_pvalue, digits=3))",
+        "  KS test: p = $(round(stats.ks_pvalue, digits=3))",
+        "",
+        "Moment Comparison:",
+        "  Empirical: μ = $(round(stats.empirical_mean, digits=2)), σ² = $(round(stats.empirical_var, digits=2))",
+        "  Fitted:    μ = $(round(stats.fitted_mean, digits=2)), σ² = $(round(stats.fitted_var, digits=2))",
+        "",
+        "PMF Errors:",
+        "  Mean absolute: $(round(stats.mean_abs_error, digits=4))",
+        "  Maximum: $(round(stats.max_abs_error, digits=4))",
+        "",
+        "Information Criteria:",
+        "  AIC = $(round(stats.aic, digits=2))",
+        "  BIC = $(round(stats.bic, digits=2))"
+    ]
+    
+    # Add diagnosis if poor fit
+    if stats.chi_squared_pvalue < 0.05 || stats.ks_pvalue < 0.05
+        push!(text_lines, "")
+        push!(text_lines, "⚠️ Fit Issues Detected")
+    else
+        push!(text_lines, "")
+        push!(text_lines, "✓ Fit Appears Adequate")
+    end
+    
+    text!(ax4, 0.1, 0.9, text=join(text_lines, "\n"),
+          align=(:left, :top), fontsize=12, font="monospace")
+    
+    # Save if requested
+    if !isnothing(filename)
+        save(filename, fig, px_per_unit=2)
+    end
+    
+    return fig
 end
 
 function get_hierarchical_summary(chains::Vector{<:RJMCMCChain})
