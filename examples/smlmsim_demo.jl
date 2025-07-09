@@ -45,13 +45,13 @@ const N_MER = 8                         # Number of emitters in n-mer pattern (n
 const N_MER_DIAMETER = 0.050            # Diameter of n-mer pattern in μm (50 nm)
 
 # Analysis parameters  
-const N_ITERATIONS = 5000              # RJMCMC iterations (reduced from 50000)
+const N_ITERATIONS = 10000              # RJMCMC iterations (reduced from 50000)
 const BURN_IN = 2000                    # Burn-in period (reduced from 10000)
 const ENABLE_PARTITIONING = true        # Use multiple partitions for efficiency
 const PARTITION_RADIUS = 0.5            # Partition radius in μm (4x avg uncertainty)
 const ENABLE_THREADING = true           # Use threading for parallel partition processing
 const ENABLE_HIERARCHICAL = true        # Use hierarchical updates
-const HIERARCHICAL_INTERVAL = 2000      # Hierarchical update interval
+const HIERARCHICAL_INTERVAL = 1000      # Hierarchical update interval
 
 # Systematic noise parameter
 const TAU = 0.001                         # Systematic noise parameter in μm (20 nm)
