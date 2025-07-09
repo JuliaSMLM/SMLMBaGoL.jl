@@ -287,11 +287,11 @@ if SAVE_IMAGES
             color_palette = :Set1_9,  # Distinct colors
             localization_alpha = 0.6,  # Semi-transparent localizations
             emitter_markersize = 18,   # Prominent emitter markers
-            sample_range = 1:min(50, length(chain_for_movie.samples))  # First 50 samples for quick test
+            sample_range = max(1, length(chain_for_movie.samples)-999):length(chain_for_movie.samples)  # Last 1000 frames
         )
         
         println("   ✓ Chain evolution movie saved to: $movie_filename")
-        println("     • Shows progression of first $(min(100, length(chain_for_movie.samples))) samples from partition 1")
+        println("     • Shows progression of last $(min(1000, length(chain_for_movie.samples))) samples from partition 1")
         println("     • Localizations colored by allocated emitter")
         println("     • Emitters shown as X markers with matching colors")
         println("     • Displays K evolution and log-likelihood progression")
