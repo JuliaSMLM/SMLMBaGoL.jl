@@ -493,13 +493,19 @@ function create_default_prior(localizations::Vector{<:AbstractLocalization};
     end
     
     # Always hierarchical with sensible defaults
-    # Prior on μ: mean=10, variance=50 → Gamma(2, 0.2)
-    # Prior on κ: mean=2, variance=4 → Gamma(1, 0.5)
+    # Prior on μ: mean=10, variance=50 → Gamma(2, 5) has mean=2*5=10, var=2*5²=50
+    # Prior on κ: mean=10, variance=200 → Gamma(0.5, 20) has mean=10, var=200
     # Prior on τ²: InverseGamma with exponential-like shape
+    
+    # Better initialization: estimate from typical cluster size
+    n_locs = length(localizations)
+    initial_μ = min(50.0, max(5.0, n_locs / 100.0))  # Rough estimate
+    initial_κ = 10.0  # Start with moderate overdispersion, not extreme
+    
     count_prior = HierarchicalNegBinomialPrior(
-        10.0, 2.0, initial_τ²,      # Initial μ=10, κ=2, τ²
-        (2.0, 0.2),                  # μ hyperprior
-        (1.0, 0.5),                  # κ hyperprior
+        initial_μ, initial_κ, initial_τ²,    # Better initial values
+        (2.0, 5.0),                  # μ hyperprior: Gamma(2,5) → mean=10
+        (0.5, 20.0),                 # κ hyperprior: Gamma(0.5,20) → mean=10, allows wide range
         (a_τ, b_τ)                   # τ² hyperprior: InverseGamma(a_τ, b_τ)
     )
     

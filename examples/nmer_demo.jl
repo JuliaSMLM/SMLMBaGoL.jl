@@ -290,6 +290,26 @@ if !isempty(chains[1].hierarchical_history)
         println("   • $(conv_result.message)")
         println("   • Final μ: $(round(conv_result.final_μ, digits=2)) (true: $LOCS_PER_EMITTER)")
         println("   • Final τ: $(round(sqrt(conv_result.final_τ²)*1000, digits=1)) nm (true: $(TAU*1000) nm)")
+        
+        # NEW: Enhanced histogram with fit statistics
+        plot_emitter_count_histogram(chains,
+            filename=joinpath(output_dir, "nmer_$(N_EMITTERS)_count_histogram_enhanced.png"),
+            true_mean=LOCS_PER_EMITTER,
+            show_fit_stats=true)
+        println("   ✓ Enhanced count histogram with fit statistics saved")
+        
+        # NEW: Comprehensive diagnostic plot
+        plot_negbinomial_diagnostic(chains,
+            filename=joinpath(output_dir, "nmer_$(N_EMITTERS)_negbinomial_diagnostic.png"))
+        println("   ✓ Negative Binomial diagnostic plot saved")
+        
+        # NEW: Print fit summary
+        if isa(chains[1].current_state.count_prior, HierarchicalNegBinomialPrior)
+            all_counts = SMLMBaGoL.collect_emitter_counts(chains)
+            stats = assess_negbinomial_fit(all_counts, chains[1].current_state.count_prior)
+            print_fit_summary(stats)
+        end
+        
     catch e
         println("   ⚠ Hierarchical analysis failed: $e")
     end

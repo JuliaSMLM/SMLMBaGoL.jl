@@ -4,9 +4,10 @@ using Random
 using LinearAlgebra
 using Statistics
 using Distributions
-using Distributions: MixtureModel, MultivariateNormal, pdf, rand, logpdf, NegativeBinomial, InverseGamma
+using Distributions: MixtureModel, MultivariateNormal, pdf, rand, logpdf, NegativeBinomial, InverseGamma, Gamma, Chisq, quantile, cdf
 using SpecialFunctions
 using StatsBase
+using Optim
 using Hungarian
 using Clustering
 using HypothesisTests
@@ -51,6 +52,8 @@ include("algorithms/rjmcmc.jl")
 include("algorithms/mapn.jl")
 
 # Hierarchical
+include("hierarchical/initialization.jl")
+include("hierarchical/diagnostics.jl")
 include("hierarchical/updates.jl")
 
 # Simulation
@@ -88,6 +91,9 @@ export generate_chain_movie
 export diagnose_chains, quick_diagnose, assess_burn_in, assess_chain_length
 export validate_state_consistency
 export plot_hierarchical_evolution, plot_gamma_distributions, plot_negbinomial_distributions, plot_emitter_count_histogram
-export analyze_hierarchical_convergence, get_hierarchical_summary
+export analyze_hierarchical_convergence, get_hierarchical_summary, plot_negbinomial_diagnostic
+export fit_negbinomial_prior, fit_negbinomial_mle, fit_negbinomial_mom, initialize_hierarchical_prior
+export assess_negbinomial_fit, FitStatistics, print_fit_summary
+export update_kappa_slice_adaptive, update_kappa_multistart
 
 end # module SMLMBaGoL
