@@ -268,6 +268,16 @@ if SAVE_PLOTS
                               filename=joinpath(output_dir, "nmer_$(N_EMITTERS)_uncertainty.png"))
             println("   ✓ Uncertainty circles plot saved")
         end
+        
+        # Posterior uncertainty plot
+        if !isempty(chains) && !isempty(chains[1].samples)
+            println("   ✓ Creating posterior uncertainty image...")
+            chains_for_posterior = length(chains) > 1 ? chains : chains[1]
+            gen_sr_image(chains_for_posterior; 
+                        pixel_size=PIXEL_SIZE, 
+                        filename=joinpath(output_dir, "nmer_$(N_EMITTERS)_posterior_uncertainty.png"))
+            println("   ✓ Posterior uncertainty plot saved")
+        end
     catch e
         println("   ⚠ Some SR visualizations failed: $e")
     end
@@ -303,11 +313,13 @@ if !isempty(chains[1].hierarchical_history)
             filename=joinpath(output_dir, "nmer_$(N_EMITTERS)_negbinomial_diagnostic.png"))
         println("   ✓ Negative Binomial diagnostic plot saved")
         
-        # NEW: Print fit summary
+        # NEW: Print fit summary (brief version)
         if isa(chains[1].current_state.count_prior, HierarchicalNegBinomialPrior)
             all_counts = SMLMBaGoL.collect_emitter_counts(chains)
             stats = assess_negbinomial_fit(all_counts, chains[1].current_state.count_prior)
-            print_fit_summary(stats)
+            # Brief summary instead of full verbose output
+            println("   • Negative Binomial fit: χ² p-value = $(round(stats.chi_squared_pvalue, digits=3))")
+            println("   • Mean absolute error: $(round(stats.mean_abs_error, digits=3))")
         end
         
     catch e
