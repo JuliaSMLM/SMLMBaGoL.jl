@@ -217,7 +217,7 @@ function plot_emitter_count_histogram(chains::Vector{<:RJMCMCChain};
     
     # Add true mean line if provided
     if !isnothing(true_mean)
-        vlines!(ax, [true_mean], color=:green, linewidth=3, linestyle=:dash,
+        vlines!(ax, [true_mean], color=:green, linewidth=3, linestyle="-",
                 label="True mean = $true_mean")
     end
     
@@ -350,7 +350,7 @@ function plot_negbinomial_diagnostic(chains::Vector{<:RJMCMCChain};
         # Add diagonal reference line
         lims = [minimum([theoretical_quantiles; empirical_quantiles]),
                 maximum([theoretical_quantiles; empirical_quantiles])]
-        lines!(ax2, lims, lims, color=:red, linestyle=:dash, linewidth=2)
+        lines!(ax2, lims, lims, color=:red, linestyle="-", linewidth=2)
     end
     
     # Panel 3: Residual plot (bottom left)
@@ -386,7 +386,7 @@ function plot_negbinomial_diagnostic(chains::Vector{<:RJMCMCChain};
         
         scatter!(ax3, count_vals, residuals, markersize=6, color=:blue)
         hlines!(ax3, [-2, 0, 2], color=[:red, :black, :red], 
-                linestyle=[:dash, :solid, :dash], linewidth=[1, 2, 1])
+                linewidth=[1, 2, 1])
     end
     
     # Panel 4: Fit statistics (bottom right)
