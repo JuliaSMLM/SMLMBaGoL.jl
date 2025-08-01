@@ -11,11 +11,23 @@ function count_allocations(state::BaGoLState)
     return emitter_counts
 end
 
-function collect_emitter_counts(chains::Vector{<:RJMCMCChain})
+function collect_emitter_counts(chains::Vector{<:RJMCMCChain}; min_count::Int = 3)
+    """
+    Collect emitter allocation counts for hierarchical fitting.
+    
+    Filters out emitters with fewer than min_count allocations to avoid
+    bias from spurious low-count emitters that inflate variance estimates.
+    
+    Args:
+        chains: Vector of RJMCMC chains
+        min_count: Minimum number of allocations to include an emitter (default: 3)
+    """
     all_counts = Int[]
     for chain in chains
         counts = count_allocations(chain.current_state)
-        append!(all_counts, counts)
+        # Filter out emitters with too few allocations to avoid spurious variance inflation
+        filtered_counts = filter(c -> c >= min_count, counts)
+        append!(all_counts, filtered_counts)
     end
     return all_counts
 end
@@ -181,18 +193,25 @@ function update_kappa_multistart(counts::Vector{Int}, μ::Real, hyperprior::Tupl
     # Add data-driven starting point
     m = mean(counts)
     v = var(counts)
+    variance_ratio = v / m
+    
     if v > m
         κ_mom = m^2 / (v - m)
         push!(start_points, clamp(κ_mom, 0.1, 1000.0))
     else
-        # For Poisson-like data
-        push!(start_points, 100.0)
+        # For under-dispersed data, try larger κ values
+        push!(start_points, 50.0)
+        push!(start_points, 20.0)
     end
     
-    # Add some dispersed points
-    push!(start_points, 1.0)
-    push!(start_points, 10.0)
-    push!(start_points, 50.0)
+    # Add strategically chosen points based on variance ratio
+    if variance_ratio < 1.1  # Under-dispersed
+        append!(start_points, [5.0, 15.0, 30.0])
+    elseif variance_ratio < 2.0  # Low overdispersion  
+        append!(start_points, [2.0, 8.0, 25.0])
+    else  # High overdispersion
+        append!(start_points, [0.5, 2.0, 10.0])
+    end
     
     if diagnostic
         println("    Multi-start with points: $start_points")
@@ -266,11 +285,19 @@ function update_hierarchical!(chains::Vector{<:RJMCMCChain}, current_iteration::
     current_κ = template_prior.κ
     current_τ² = template_prior.τ²
     
-    # Collect all allocation counts
-    all_counts = collect_emitter_counts(chains)
+    # Collect allocation counts with filtering to remove spurious low-count emitters
+    all_counts = collect_emitter_counts(chains; min_count=3)
     
     if isempty(all_counts)
-        return  # No data to update from
+        # Try with lower threshold if no emitters meet min_count=3
+        all_counts = collect_emitter_counts(chains; min_count=2)
+        if isempty(all_counts)
+            # Fallback to all emitters if still empty
+            all_counts = collect_emitter_counts(chains; min_count=1)
+            if isempty(all_counts)
+                return  # No data to update from
+            end
+        end
     end
     
     # Gibbs updates
@@ -283,20 +310,28 @@ function update_hierarchical!(chains::Vector{<:RJMCMCChain}, current_iteration::
         emp_var = var(all_counts)
         variance_ratio = emp_var / emp_mean
         
-        # Use multi-start if variance ratio suggests low overdispersion
-        # or after some burn-in for general robustness
-        if variance_ratio < 2.0 || current_iteration > 500
-            if diagnostic
-                println("  Using multi-start (var_ratio=$variance_ratio, iter=$current_iteration)")
-            end
-            new_κ = update_kappa_multistart(all_counts, new_μ, template_prior.κ_hyperprior, current_κ; 
-                                          n_starts=5, n_steps=10, diagnostic=diagnostic)
-        else
-            if diagnostic
-                println("  Using regular slice sampling")
-            end
-            new_κ = update_kappa_slice(all_counts, new_μ, template_prior.κ_hyperprior, current_κ)
+        # Always use multi-start for better global exploration
+        # Especially important for under-dispersed data (ratio < 1) 
+        # where optimal κ can be large but slice sampling gets trapped
+        if diagnostic
+            println("  Using multi-start (var_ratio=$(round(variance_ratio, digits=2)), iter=$current_iteration)")
         end
+        
+        # Use better initialization strategy based on data characteristics
+        better_start_κ = if variance_ratio ≤ 1.1  # Under-dispersed or nearly Poisson
+            # Start with moderately large κ for under-dispersed data
+            20.0
+        elseif variance_ratio < 2.0  # Low overdispersion
+            # Method of moments estimate with safety bounds
+            κ_mom = emp_mean^2 / max(1.0, emp_var - emp_mean)
+            clamp(κ_mom, 5.0, 50.0)
+        else  # High overdispersion
+            # Start conservatively
+            current_κ
+        end
+        
+        new_κ = update_kappa_multistart(all_counts, new_μ, template_prior.κ_hyperprior, better_start_κ; 
+                                      n_starts=7, n_steps=15, diagnostic=diagnostic)
     else
         new_κ = update_kappa_slice(all_counts, new_μ, template_prior.κ_hyperprior, current_κ)
     end

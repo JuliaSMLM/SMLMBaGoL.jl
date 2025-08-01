@@ -48,6 +48,7 @@ const N_MER_DIAMETER = 0.050            # Diameter of n-mer pattern in μm (50 n
 const N_ITERATIONS = 10000              # RJMCMC iterations (reduced from 50000)
 const BURN_IN = 2000                    # Burn-in period (reduced from 10000)
 const ENABLE_PARTITIONING = true        # Use multiple partitions for efficiency
+const ENABLE_MOVIE_GENERATION = false   # Generate MCMC chain evolution movie (disable for testing)
 const PARTITION_RADIUS = 0.5            # Partition radius in μm (4x avg uncertainty)
 const ENABLE_THREADING = true           # Use threading for parallel partition processing
 const ENABLE_HIERARCHICAL = true        # Use hierarchical updates
@@ -271,7 +272,7 @@ if SAVE_IMAGES
     end
     
     # Generate MCMC chain evolution movie
-    if !isempty(chains) && !isempty(chains[1].samples)
+    if ENABLE_MOVIE_GENERATION && !isempty(chains) && !isempty(chains[1].samples)
         println("   ✓ Generating MCMC chain evolution movie...")
         
         # Use the first chain for movie generation
@@ -295,8 +296,10 @@ if SAVE_IMAGES
         println("     • Localizations colored by allocated emitter")
         println("     • Emitters shown as X markers with matching colors")
         println("     • Displays K evolution and log-likelihood progression")
-    else
+    elseif ENABLE_MOVIE_GENERATION
         println("   ⚠ No chain samples available for movie generation")
+    else
+        println("   ⚠ Movie generation disabled (ENABLE_MOVIE_GENERATION = false)")
     end
     
     println("   ✓ Analysis images and uncertainty plots saved to: $output_dir")
@@ -480,7 +483,9 @@ if SAVE_IMAGES
     println("• smlmsim_mapn_uncertainty.png - MAPN emitter uncertainty circles (2σ)")
     println("• smlmsim_uncertainty_comparison.png - Combined comparison plot (localizations + MAPN)")
     println("• smlmsim_posterior_uncertainty.png - Posterior position uncertainties")
-    println("• smlmsim_chain_evolution.mp4 - MCMC chain evolution movie showing allocation dynamics")
+    if ENABLE_MOVIE_GENERATION
+        println("• smlmsim_chain_evolution.mp4 - MCMC chain evolution movie showing allocation dynamics")
+    end
     if ENABLE_HIERARCHICAL
         println("• smlmsim_hierarchical_evolution.png - Evolution of μ, κ, and τ² hyperparameters")
         println("• smlmsim_gamma_distributions.png - Negative Binomial distribution evolution over time")

@@ -10,6 +10,7 @@ examples/.vscode/settings.json
 *.gif
 *.png
 dev/output/
+dev/*/output/
 examples/output/
 
 **/.claude/settings.local.json

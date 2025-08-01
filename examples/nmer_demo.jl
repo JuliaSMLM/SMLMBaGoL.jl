@@ -58,6 +58,7 @@ const HIERARCHICAL_INTERVAL = 1000     # Update hyperparameters every N iteratio
 
 # Visualization parameters
 const SAVE_PLOTS = true                # Generate PNG files
+const ENABLE_MOVIE_GENERATION = false  # Generate MCMC chain evolution movie (disable for testing)
 const PIXEL_SIZE = 0.002               # μm per pixel for SR images
 
 #=============================================================================
@@ -315,7 +316,7 @@ if !isempty(chains[1].hierarchical_history)
         
         # NEW: Print fit summary (brief version)
         if isa(chains[1].current_state.count_prior, HierarchicalNegBinomialPrior)
-            all_counts = SMLMBaGoL.collect_emitter_counts(chains)
+            all_counts = SMLMBaGoL.collect_emitter_counts(chains; min_count=3)
             stats = assess_negbinomial_fit(all_counts, chains[1].current_state.count_prior)
             # Brief summary instead of full verbose output
             println("   • Negative Binomial fit: χ² p-value = $(round(stats.chi_squared_pvalue, digits=3))")
@@ -328,7 +329,7 @@ if !isempty(chains[1].hierarchical_history)
 end
 
 # Generate movie of chain evolution
-if !isempty(chains)
+if ENABLE_MOVIE_GENERATION && !isempty(chains)
     try
         # Select the chain with most samples
         chain_for_movie = chains[1]
@@ -352,6 +353,10 @@ if !isempty(chains)
     catch e
         println("   ⚠ Movie generation failed: $e")
     end
+elseif ENABLE_MOVIE_GENERATION
+    println("   ⚠ No chains available for movie generation")
+else
+    println("   ⚠ Movie generation disabled (ENABLE_MOVIE_GENERATION = false)")
 end
 
 # Chain diagnostics
