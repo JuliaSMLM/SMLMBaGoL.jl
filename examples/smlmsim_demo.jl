@@ -52,7 +52,7 @@ const ENABLE_MOVIE_GENERATION = false   # Generate MCMC chain evolution movie (d
 const PARTITION_RADIUS = 0.5            # Partition radius in μm (4x avg uncertainty)
 const ENABLE_THREADING = true           # Use threading for parallel partition processing
 const ENABLE_HIERARCHICAL = true        # Use hierarchical updates
-const HIERARCHICAL_INTERVAL = 1000      # Hierarchical update interval
+const HIERARCHICAL_INTERVAL = 5000      # Hierarchical update interval
 
 # Systematic noise parameter
 const TAU = 0.001                         # Systematic noise parameter in μm (20 nm)

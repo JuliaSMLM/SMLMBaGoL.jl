@@ -111,8 +111,8 @@ function create_prior_from_params(localizations::Vector{<:AbstractLocalization},
     
     count_prior = HierarchicalNegBinomialPrior(
         μ, κ, initial_τ²,    # Initial μ, κ, τ²
-        (2.0, 0.2),          # μ hyperprior
-        (1.0, 0.5),          # κ hyperprior
+        (2.0, 5.0),          # μ hyperprior: Gamma(2,5) → mean=10
+        (5.0, 2.0),          # κ hyperprior: Gamma(5,2) → mean=10, prevents κ<1 bias
         (a_τ, b_τ)           # τ² hyperprior: InverseGamma with exponential-like shape
     )
     
