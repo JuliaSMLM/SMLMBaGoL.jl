@@ -197,7 +197,7 @@ localizations, accounting for localization uncertainties and systematic errors.
 - `partition_radius::Real = estimate_partitioning_radius(localizations)`: Spatial partitioning radius
 - `partition_data::Bool = true`: Whether to use spatial partitioning for efficiency
 - `enable_hierarchical::Bool = false`: Whether to use hierarchical prior updates
-- `hierarchical_interval::Int = 1000`: Interval between hierarchical updates
+- `hierarchical_interval::Int = 5000`: Interval between hierarchical updates
 - `enable_threading::Bool = true`: Whether to use parallel processing across partitions
 - `existing_chains::Union{Vector{RJMCMCChain}, RJMCMCChain, Nothing} = nothing`: Existing chains for continuation
 - `continuation_mode::Symbol = :extend`: How to handle existing chains (:extend, :new_chain, :replace)
@@ -230,7 +230,7 @@ function run_bagol(localizations::Vector{L};
                   partition_radius::Real = estimate_partitioning_radius(localizations),
                   partition_data::Bool = true,
                   enable_hierarchical::Bool = false,
-                  hierarchical_interval::Int = 1000,
+                  hierarchical_interval::Int = 5000,
                   enable_threading::Bool = true,
                   existing_chains::Union{Vector{RJMCMCChain}, RJMCMCChain, Nothing} = nothing,
                   continuation_mode::Symbol = :extend,
@@ -494,13 +494,37 @@ function create_default_prior(localizations::Vector{<:AbstractLocalization};
     
     # Always hierarchical with sensible defaults
     # Prior on μ: mean=10, variance=50 → Gamma(2, 5) has mean=2*5=10, var=2*5²=50
-    # Prior on κ: mean=10, variance=200 → Gamma(0.5, 20) has mean=10, var=200
+    # Prior on κ: mean=10, variance=4 → Gamma(5, 2) has mean=5*2=10, var=5*2²=20
     # Prior on τ²: InverseGamma with exponential-like shape
     
-    # Better initialization: estimate from typical cluster size
+    # Better initialization: estimate from data characteristics
     n_locs = length(localizations)
-    initial_μ = min(50.0, max(5.0, n_locs / 100.0))  # Rough estimate
-    initial_κ = 10.0  # Start with moderate overdispersion, not extreme
+    
+    # Use spatial clustering to estimate initial number of emitters
+    # Typical localization precision is ~20-50nm, so use 100nm as clustering radius
+    clustering_radius = 0.1  # 100 nm in μm
+    x_coords = [loc.x for loc in localizations]
+    y_coords = [loc.y for loc in localizations]
+    points = hcat(x_coords, y_coords)'
+    
+    # Simple DBSCAN-like clustering to estimate number of groups
+    clustering_result = dbscan(points, clustering_radius)
+    n_clusters = length(clustering_result.clusters)
+    
+    # Estimate μ from cluster analysis
+    if n_clusters > 0
+        # Average localizations per cluster
+        cluster_sizes = [length(c.core_indices) + length(c.boundary_indices) for c in clustering_result.clusters]
+        initial_μ = mean(cluster_sizes)
+        # Clamp to reasonable range
+        initial_μ = clamp(initial_μ, 5.0, 100.0)
+    else
+        # Fallback if clustering fails
+        initial_μ = min(50.0, max(5.0, n_locs / 50.0))
+    end
+    
+    # Start with moderate overdispersion
+    initial_κ = 10.0
     
     count_prior = HierarchicalNegBinomialPrior(
         initial_μ, initial_κ, initial_τ²,    # Better initial values

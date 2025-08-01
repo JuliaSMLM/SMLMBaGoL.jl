@@ -54,7 +54,7 @@ const TAU = 0.001                      # Systematic noise in μm (20 nm)
 # Analysis parameters
 const N_ITERATIONS = 50000             # RJMCMC iterations
 const BURN_IN = 5000                   # Burn-in period
-const HIERARCHICAL_INTERVAL = 1000     # Update hyperparameters every N iterations
+const HIERARCHICAL_INTERVAL = 5000     # Update hyperparameters every N iterations
 
 # Visualization parameters
 const SAVE_PLOTS = true                # Generate PNG files
