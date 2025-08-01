@@ -3,6 +3,7 @@ CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
 SMLMBaGoL = "70c4bcd9-ed9a-43d6-baf8-7d0db1eb70ee"
+SMLMSim = "5a0a87e4-02d4-41f5-bf26-b8c94c784a04"
 
 [compat]
 julia = "1.6"

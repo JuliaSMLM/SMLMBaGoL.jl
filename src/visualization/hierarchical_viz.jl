@@ -147,8 +147,14 @@ function plot_emitter_count_histogram(chains::Vector{<:RJMCMCChain};
                                     true_mean::Union{Nothing,Real} = nothing,
                                     show_fit_stats::Bool = true)
     
-    # Collect all emitter counts from samples
-    all_counts = collect_emitter_counts(chains)
+    # Collect emitter counts with filtering (same as hierarchical updates)
+    all_counts = collect_emitter_counts(chains; min_count=3)
+    if isempty(all_counts)
+        all_counts = collect_emitter_counts(chains; min_count=2)
+        if isempty(all_counts)
+            all_counts = collect_emitter_counts(chains; min_count=1)
+        end
+    end
     
     if isempty(all_counts)
         @warn "No emitter count data found in chain samples."
@@ -281,7 +287,14 @@ function plot_negbinomial_diagnostic(chains::Vector{<:RJMCMCChain};
                                    show_residuals::Bool = true)
     
     # Collect data
-    all_counts = collect_emitter_counts(chains)
+    # Use filtered counts for consistency with hierarchical updates
+    all_counts = collect_emitter_counts(chains; min_count=3)
+    if isempty(all_counts)
+        all_counts = collect_emitter_counts(chains; min_count=2)
+        if isempty(all_counts)
+            all_counts = collect_emitter_counts(chains; min_count=1)
+        end
+    end
     if isempty(all_counts)
         @warn "No emitter count data found."
         return nothing

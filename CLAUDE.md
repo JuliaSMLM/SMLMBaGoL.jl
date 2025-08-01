@@ -25,3 +25,37 @@
   right approach to see that commit 8d6563f exists on negative-binomial-overdispersion.
 
 - use multiple threads when running examples
+
+# Code Architecture Overview
+
+## Key Type Hierarchy
+- `AbstractLocalization` - Base type for localization data
+- `AbstractEmitter` (from SMLMData) - Base type for emitters
+- `AbstractPrior` - Base type for priors
+  - `AbstractSpatialPrior` → `UniformSpatialPrior`
+  - `AbstractCountPrior` → `HierarchicalNegBinomialPrior`
+- `AbstractRJMCMCMove` - Base type for MCMC moves (Birth, Death, Move, Allocate)
+- `AbstractChainState` → `BaGoLState`
+
+## Main Entry Points
+- `run_bagol()` - Primary analysis function
+- `simulate_static_smlm()` - SMLMSim integration for realistic simulations
+- `estimate_mapn()` - Extract MAP-N (Maximum A Posteriori Number) emitter positions
+- `diagnose_chains()` - Assess MCMC chain quality
+
+## Common Workflows
+1. **Basic Analysis**: localizations → `run_bagol()` → `estimate_mapn()` → results
+2. **With Visualization**: Add `gen_sr_image()` and `sr_circles()` for uncertainty plots
+3. **Hierarchical Bayes**: Enable with `hierarchical_interval` parameter in `run_bagol()`
+4. **Parallel Processing**: Use `partition_radius` for spatial partitioning with threading
+
+## Performance Tips
+- Enable threading with `julia --threads=auto` for parallel partition processing
+- Use spatial partitioning for large datasets (>10k localizations)
+- Pre-compile with small test run before large analyses
+- Hierarchical updates improve convergence but add computational cost
+
+## Current Development Focus
+- Improving Negative Binomial prior fitting for better handling of under-dispersed data
+- Enhanced filtering of spurious low-count emitters
+- Better κ (overdispersion) parameter initialization strategies
