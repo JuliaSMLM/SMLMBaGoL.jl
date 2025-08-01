@@ -59,3 +59,27 @@
 - Improving Negative Binomial prior fitting for better handling of under-dispersed data
 - Enhanced filtering of spurious low-count emitters
 - Better κ (overdispersion) parameter initialization strategies
+
+## Consistency Likelihood - New Development
+
+### Problem Identified
+The standard Gaussian likelihood systematically over-segments because it penalizes ALL deviation, including statistically expected variation. This is a fundamental issue, not a prior or parameter problem.
+
+### Solution Implemented
+Created `consistency_log_likelihood()` that penalizes variance mismatch using KL divergence:
+```julia
+# In addition to standard likelihood, adds penalty:
+Penalty = α * n/2 * (var - log(var) - 1)
+```
+
+Key features:
+- Penalizes both overfitting (var < 1) and underfitting (var > 1)
+- Parameter α controls penalty strength (α ≈ 20 works well)
+- `adaptive_consistency_likelihood()` auto-adjusts α based on K/N ratio
+
+### Status
+- ✅ Implemented in `/src/likelihood/consistency_likelihood.jl`
+- ✅ Demonstrated to prevent over-segmentation with sufficient α
+- ⏳ TODO: Integrate into RJMCMC algorithm
+- ⏳ TODO: Test on real examples (nmer_demo, smlmsim_demo)
+- ⏳ TODO: Optimize α parameter selection
