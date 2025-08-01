@@ -8,14 +8,29 @@ function rjmcmc_step!(chain::RJMCMCChain)
     # Handle failed proposals
     proposed === nothing && return false
     
-    # Accept/reject - pass chain for birth/death moves
+    # Update proposed state's likelihood using configured likelihood
+    if proposed !== nothing
+        new_ll = compute_log_likelihood(proposed, chain.likelihood_config)
+        proposed = BaGoLState(
+            proposed.emitters,
+            proposed.localizations,
+            proposed.allocations,
+            proposed.latent_positions,
+            proposed.spatial_prior,
+            proposed.count_prior,
+            proposed.τ²,
+            new_ll
+        )
+    end
+    
+    # Accept/reject - use configured likelihood
     acceptance_prob = if move_type in [Birth, Death]
         # Use chain-aware acceptance calculation for birth/death
         log_ratio = log_acceptance_ratio(move_type, chain.current_state, proposed, chain)
         exp(min(0.0, log_ratio))
     else
-        # Use standard acceptance for other moves
-        accept_probability(move_type, chain.current_state, proposed)
+        # Use configured likelihood for acceptance
+        accept_probability_with_config(move_type, chain.current_state, proposed, chain.likelihood_config)
     end
     
     if rand(chain.rng) < acceptance_prob
@@ -92,7 +107,8 @@ function initialize_chain(localizations::Vector{L},
                          initial_K::Int = max(1, length(localizations) ÷ 10),
                          burn_in::Int = 1000,
                          thin::Int = 1,
-                         rng::AbstractRNG = Random.GLOBAL_RNG) where {E<:AbstractEmitter, L<:AbstractLocalization}
+                         rng::AbstractRNG = Random.GLOBAL_RNG,
+                         likelihood_config::AbstractLikelihoodConfig = StandardLikelihood()) where {E<:AbstractEmitter, L<:AbstractLocalization}
     
     # Initialize emitters randomly in spatial prior
     initial_emitters = Vector{E}(undef, initial_K)
@@ -136,7 +152,7 @@ function initialize_chain(localizations::Vector{L},
     # Create initial state
     temp_state = BaGoLState(initial_emitters, localizations, initial_allocations, 
                            latent_positions, spatial_prior, count_prior, initial_τ², 0.0)
-    initial_likelihood = log_likelihood(temp_state)
+    initial_likelihood = compute_log_likelihood(temp_state, likelihood_config)
     initial_state = BaGoLState(initial_emitters, localizations, initial_allocations, 
                               latent_positions, spatial_prior, count_prior, initial_τ², initial_likelihood)
     
@@ -165,7 +181,8 @@ function initialize_chain(localizations::Vector{L},
         HierarchicalUpdate{eltype(initial_likelihood)}[],  # Empty hierarchical history
         birth_proposal,  # Cached birth proposal
         false,  # diagnostics disabled by default
-        nothing  # last_removed_emitter initially nothing
+        nothing,  # last_removed_emitter initially nothing
+        likelihood_config  # NEW: likelihood configuration
     )
     
     # Record initial hierarchical parameters if applicable
@@ -235,6 +252,7 @@ function run_bagol(localizations::Vector{L};
                   existing_chains::Union{Vector{RJMCMCChain}, RJMCMCChain, Nothing} = nothing,
                   continuation_mode::Symbol = :extend,
                   tau_mean::Union{Nothing,Real} = nothing,
+                  likelihood_config::AbstractLikelihoodConfig = StandardLikelihood(),
                   rng::AbstractRNG = Random.GLOBAL_RNG) where {E<:AbstractEmitter, L<:AbstractLocalization}
     
     # Convert tau to tau² for internal use
@@ -244,11 +262,13 @@ function run_bagol(localizations::Vector{L};
     chains = if existing_chains !== nothing
         handle_chain_continuation(existing_chains, localizations, continuation_mode,
                                 EmitterType, partition_data, partition_radius, 
-                                enable_hierarchical, burn_in, thin, tau2_mean, rng)
+                                enable_hierarchical, burn_in, thin, tau2_mean, 
+                                likelihood_config, rng)
     else
         # Initialize new chains
         initialize_chains_from_data(localizations, EmitterType, partition_data, 
-                                  partition_radius, enable_hierarchical, burn_in, thin, tau2_mean, rng)
+                                  partition_radius, enable_hierarchical, burn_in, thin, tau2_mean, 
+                                  likelihood_config, rng)
     end
     
     print_partitioning_summary(chains)
@@ -336,7 +356,9 @@ end
 function initialize_chains_from_data(localizations::Vector{L}, EmitterType::Type{E}, 
                                    partition_data::Bool, partition_radius::Real,
                                    enable_hierarchical::Bool, burn_in::Int, thin::Int,
-                                   tau2_mean::Union{Nothing,Real}, rng::AbstractRNG) where {E<:AbstractEmitter, L<:AbstractLocalization}
+                                   tau2_mean::Union{Nothing,Real}, 
+                                   likelihood_config::AbstractLikelihoodConfig,
+                                   rng::AbstractRNG) where {E<:AbstractEmitter, L<:AbstractLocalization}
     # Partition data into spatial regions if requested
     if partition_data
         partitioned_localizations = partition_localizations(localizations; 
@@ -354,7 +376,8 @@ function initialize_chains_from_data(localizations::Vector{L}, EmitterType::Type
         
         chain = initialize_chain(partition_locs, EmitterType, spatial_prior, count_prior;
                                initial_K=max(1, length(partition_locs) ÷ 10),
-                               burn_in=burn_in, thin=thin, rng=rng)
+                               burn_in=burn_in, thin=thin, rng=rng,
+                               likelihood_config=likelihood_config)
         push!(chains, chain)
     end
     
@@ -365,7 +388,9 @@ function handle_chain_continuation(existing_chains::Union{Vector{RJMCMCChain}, R
                                  localizations::Vector{L}, continuation_mode::Symbol,
                                  EmitterType::Type{E}, partition_data::Bool, partition_radius::Real,
                                  enable_hierarchical::Bool, burn_in::Int, thin::Int,
-                                 tau2_mean::Union{Nothing,Real}, rng::AbstractRNG) where {E<:AbstractEmitter, L<:AbstractLocalization}
+                                 tau2_mean::Union{Nothing,Real}, 
+                                 likelihood_config::AbstractLikelihoodConfig,
+                                 rng::AbstractRNG) where {E<:AbstractEmitter, L<:AbstractLocalization}
     
     # Convert single chain to vector for uniform handling
     chains_vec = existing_chains isa Vector ? existing_chains : [existing_chains]
@@ -379,7 +404,8 @@ function handle_chain_continuation(existing_chains::Union{Vector{RJMCMCChain}, R
         # Create new chains that will be concatenated with existing ones
         # Creating new chains to concatenate
         new_chains = initialize_chains_from_data(localizations, EmitterType, partition_data,
-                                                partition_radius, enable_hierarchical, burn_in, thin, tau2_mean, rng)
+                                                partition_radius, enable_hierarchical, burn_in, thin, tau2_mean, 
+                                                likelihood_config, rng)
         
         # Store reference to existing chains for later concatenation
         for (i, new_chain) in enumerate(new_chains)
@@ -397,7 +423,8 @@ function handle_chain_continuation(existing_chains::Union{Vector{RJMCMCChain}, R
         
         # For now, create new chains normally - enhancement: use final states as initial states
         new_chains = initialize_chains_from_data(localizations, EmitterType, partition_data,
-                                                partition_radius, enable_hierarchical, burn_in, thin, tau2_mean, rng)
+                                                partition_radius, enable_hierarchical, burn_in, thin, tau2_mean, 
+                                                likelihood_config, rng)
         
         # TODO: Initialize from final states of existing chains
         return new_chains
