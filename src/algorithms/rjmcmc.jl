@@ -505,7 +505,7 @@ function create_default_prior(localizations::Vector{<:AbstractLocalization};
     count_prior = HierarchicalNegBinomialPrior(
         initial_μ, initial_κ, initial_τ²,    # Better initial values
         (2.0, 5.0),                  # μ hyperprior: Gamma(2,5) → mean=10
-        (0.5, 20.0),                 # κ hyperprior: Gamma(0.5,20) → mean=10, allows wide range
+        (5.0, 2.0),                  # κ hyperprior: Gamma(5,2) → mean=10, concentrated, prevents κ<1 bias
         (a_τ, b_τ)                   # τ² hyperprior: InverseGamma(a_τ, b_τ)
     )
     
