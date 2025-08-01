@@ -198,8 +198,8 @@ function log_acceptance_ratio(::Type{Birth}, current::BaGoLState, proposed::BaGo
     μ = chain.count_prior.μ
     κ = chain.count_prior.κ
     
-    log_prior_k_ratio = log_prior_k_given_N(k_proposed, N, μ, κ) - 
-                        log_prior_k_given_N(k_current, N, μ, κ)
+    log_prior_k_ratio = log_prior_k_independent(k_proposed, N) - 
+                        log_prior_k_independent(k_current, N)
     
     return log_prior_ratio + log_likelihood_ratio + log_q_death - log_q_birth + log_prior_k_ratio
 end
@@ -272,8 +272,8 @@ function log_acceptance_ratio(::Type{Death}, current::BaGoLState, proposed::BaGo
     μ = chain.count_prior.μ
     κ = chain.count_prior.κ
     
-    log_prior_k_ratio = log_prior_k_given_N(k_proposed, N, μ, κ) - 
-                        log_prior_k_given_N(k_current, N, μ, κ)
+    log_prior_k_ratio = log_prior_k_independent(k_proposed, N) - 
+                        log_prior_k_independent(k_current, N)
     
     # Clear the tracked emitter after use
     chain.last_removed_emitter = nothing

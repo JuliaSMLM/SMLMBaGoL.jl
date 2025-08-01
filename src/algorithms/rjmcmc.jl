@@ -500,28 +500,9 @@ function create_default_prior(localizations::Vector{<:AbstractLocalization};
     # Better initialization: estimate from data characteristics
     n_locs = length(localizations)
     
-    # Use spatial clustering to estimate initial number of emitters
-    # Typical localization precision is ~20-50nm, so use 100nm as clustering radius
-    clustering_radius = 0.1  # 100 nm in μm
-    x_coords = [loc.x for loc in localizations]
-    y_coords = [loc.y for loc in localizations]
-    points = hcat(x_coords, y_coords)'
-    
-    # Simple DBSCAN-like clustering to estimate number of groups
-    clustering_result = dbscan(points, clustering_radius)
-    n_clusters = length(clustering_result.clusters)
-    
-    # Estimate μ from cluster analysis
-    if n_clusters > 0
-        # Average localizations per cluster
-        cluster_sizes = [length(c.core_indices) + length(c.boundary_indices) for c in clustering_result.clusters]
-        initial_μ = mean(cluster_sizes)
-        # Clamp to reasonable range
-        initial_μ = clamp(initial_μ, 5.0, 100.0)
-    else
-        # Fallback if clustering fails
-        initial_μ = min(50.0, max(5.0, n_locs / 50.0))
-    end
+    # Simple initial μ estimate based on data size
+    # Typical clusters have 10-50 localizations per emitter
+    initial_μ = min(50.0, max(5.0, n_locs / 20.0))  # Rough estimate
     
     # Start with moderate overdispersion
     initial_κ = 10.0
