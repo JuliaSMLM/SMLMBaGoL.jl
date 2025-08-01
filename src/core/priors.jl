@@ -112,6 +112,36 @@ function log_prior_k_given_N(k::Int, N::Int, μ::T, κ::T) where T<:Real
     r = κ
     p = κ / (κ + k_expected)
     
-    # Return log probability
+    # Return log probability  
     return logpdf(NegativeBinomial(r, p), k)
+end
+
+"""
+    log_prior_k_independent(k::Int, N::Int; λ::Real = 8.0, max_k::Int = 50)
+
+Log prior probability of having k emitters, independent of μ to break circular dependency.
+Uses a truncated Poisson distribution P(K) ~ TruncatedPoisson(λ, 1, max_k).
+
+This solves the circular dependency problem where P(K|N,μ,κ) depends on μ,
+but μ is estimated from the current K, creating a feedback loop that leads to
+systematic over-estimation of the number of emitters.
+
+Parameters:
+- λ: Expected number of emitters (default: 8.0, tuned for typical SMLM data)
+- max_k: Maximum allowed number of emitters (default: 50)
+"""
+function log_prior_k_independent(k::Int, N::Int; λ::Real = 8.0, max_k::Int = 50)
+    # Prevent pathological cases
+    if k < 1 || k > max_k
+        return -Inf
+    end
+    
+    # Base Poisson log probability
+    base_logpdf = logpdf(Poisson(λ), k)
+    
+    # Normalization constant for truncation
+    # P(1 ≤ K ≤ max_k) = P(K ≤ max_k) - P(K = 0)
+    normalization = log(cdf(Poisson(λ), max_k) - pdf(Poisson(λ), 0))
+    
+    return base_logpdf - normalization
 end
