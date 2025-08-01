@@ -23,6 +23,7 @@ mutable struct RJMCMCChain{T<:Real, E<:AbstractEmitter, L<:AbstractLocalization}
     birth_proposal::BirthProposalDistribution{T}  # Cached birth proposal distribution
     diagnostics::Bool  # Enable diagnostic output
     last_removed_emitter::Union{Nothing, E}  # Track removed emitter for death move acceptance ratio
+    likelihood_config::AbstractLikelihoodConfig  # NEW: Configurable likelihood
 end
 
 # Log prior function (moved here from priors.jl due to dependency on BaGoLState)
