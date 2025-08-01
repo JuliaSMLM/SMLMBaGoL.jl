@@ -26,6 +26,9 @@ include("core/types.jl")
 # Core priors (must be before state.jl which uses prior types)
 include("core/priors.jl")
 
+# Likelihood types (must be before state.jl which uses AbstractLikelihoodConfig)
+include("core/likelihood_types.jl")
+
 # Concrete types
 # Emitter types come from SMLMData
 include("localizations/localization2d.jl")
@@ -34,6 +37,7 @@ include("localizations/localization2d.jl")
 include("core/state.jl")
 include("core/likelihood.jl")
 include("likelihood/consistency_likelihood.jl")
+include("core/likelihood_config.jl")
 
 # Utilities
 include("utils/emitter_utils.jl")
@@ -46,6 +50,7 @@ include("moves/birth_death.jl")
 include("moves/move.jl")
 include("moves/allocate.jl")
 include("moves/acceptance.jl")
+include("moves/acceptance_with_config.jl")
 
 # Algorithms
 include("algorithms/partitioning.jl")
@@ -79,6 +84,8 @@ export AbstractSpatialPrior, AbstractCountPrior, UniformSpatialPrior, Hierarchic
 export Birth, Death, Move, Allocate, inverse_move
 export log_likelihood, log_prior, log_prior_spatial, log_posterior, log_prior_k_given_N
 export standard_log_likelihood, consistency_log_likelihood, adaptive_consistency_likelihood
+export AbstractLikelihoodConfig, StandardLikelihood, ConsistencyLikelihood, AdaptiveConsistencyLikelihood
+export compute_log_likelihood
 export sample_spatial_prior, create_spatial_prior_from_localizations, create_default_prior
 export propose_move, accept_probability, log_acceptance_ratio
 export run_bagol, initialize_chain, run_rjmcmc!, rjmcmc_step!
