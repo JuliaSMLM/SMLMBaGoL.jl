@@ -1,7 +1,7 @@
 name = "SMLMBaGoL"
 uuid = "70c4bcd9-ed9a-43d6-baf8-7d0db1eb70ee"
-authors = ["klidke@unm.edu"]
 version = "0.1.0"
+authors = ["klidke@unm.edu"]
 
 [deps]
 CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
@@ -30,7 +30,7 @@ Hungarian = "0.7.0"
 HypothesisTests = "0.11.5"
 Images = "0.26"
 SMLMData = "0.3"
-SMLMSim = "0.3.3"
+SMLMSim = "0.3.3, 0.4"
 SpecialFunctions = "2.5.1"
 Statistics = "1"
 StatsBase = "0.34"
