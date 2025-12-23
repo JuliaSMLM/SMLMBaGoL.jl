@@ -11,6 +11,16 @@ function draw_circle!(ax, x, y, r; color=:black, linewidth=1.0, alpha=1.0)
 end
 
 """
+Draw an X marker at (x, y) with half-size r.
+"""
+function draw_x!(ax, x, y, r; color=:blue, linewidth=2.0, alpha=1.0)
+    # Diagonal from top-left to bottom-right
+    CairoMakie.lines!(ax, [x - r, x + r], [y + r, y - r], color=(color, alpha), linewidth=linewidth)
+    # Diagonal from bottom-left to top-right
+    CairoMakie.lines!(ax, [x - r, x + r], [y - r, y + r], color=(color, alpha), linewidth=linewidth)
+end
+
+"""
 Plot BaGoL results with proper visualization:
 - Localizations as 1σ circles (gray)
 - Chain emitter positions as scatter (light red)
@@ -60,13 +70,12 @@ function plot_bagol(
         CairoMakie.scatter!(ax1, [ex], [ey], color=:red, markersize=8)
     end
 
-    # 4. True positions as X (blue)
+    # 4. True positions as X (blue) - size based on median loc sigma
     if !isempty(true_positions)
-        true_xs = [p[1] for p in true_positions]
-        true_ys = [p[2] for p in true_positions]
-        CairoMakie.scatter!(ax1, true_xs, true_ys,
-            color=:blue, marker=:xcross, markersize=15, strokewidth=3,
-            label="True ($(length(true_positions)))")
+        median_σ = median([mean([loc.σ_x, loc.σ_y]) for loc in locs])
+        for (tx, ty) in true_positions
+            draw_x!(ax1, tx, ty, median_σ; color=:blue, linewidth=2.0)
+        end
     end
 
     # Right: Posterior on K
@@ -123,12 +132,12 @@ function plot_mapn(
         CairoMakie.scatter!(ax1, [ex], [ey], color=:red, markersize=8)
     end
 
-    # True positions as X
+    # True positions as X - size based on median loc sigma
     if !isempty(true_positions)
-        true_xs = [p[1] for p in true_positions]
-        true_ys = [p[2] for p in true_positions]
-        CairoMakie.scatter!(ax1, true_xs, true_ys,
-            color=:blue, marker=:xcross, markersize=15, strokewidth=3)
+        median_σ = median([mean([loc.σ_x, loc.σ_y]) for loc in locs])
+        for (tx, ty) in true_positions
+            draw_x!(ax1, tx, ty, median_σ; color=:blue, linewidth=2.0)
+        end
     end
 
     # Posterior on K
