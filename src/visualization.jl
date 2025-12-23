@@ -1,140 +1,151 @@
 # Visualization for BaGoL
 
 """
-Generate super-resolution image from localizations using Gaussian rendering.
+Draw a circle at (x, y) with radius r.
 """
-function gen_sr_image(
-    locs::Vector{<:SMLMData.AbstractEmitter};
-    pixel_size::Float64 = 0.010,  # 10 nm pixels
-    n_sigma::Float64 = 3.0
-)
-    if isempty(locs)
-        return zeros(1, 1), (0.0, 0.0, 0.0, 0.0)
-    end
-
-    xs = [loc.x for loc in locs]
-    ys = [loc.y for loc in locs]
-    σs = [mean([loc.σ_x, loc.σ_y]) for loc in locs]
-
-    x_min, x_max = extrema(xs)
-    y_min, y_max = extrema(ys)
-
-    # Add padding
-    pad = maximum(σs) * n_sigma
-    x_min -= pad
-    x_max += pad
-    y_min -= pad
-    y_max += pad
-
-    nx = ceil(Int, (x_max - x_min) / pixel_size)
-    ny = ceil(Int, (y_max - y_min) / pixel_size)
-
-    img = zeros(ny, nx)
-
-    for (loc, σ) in zip(locs, σs)
-        # Convert to pixel coordinates
-        px = (loc.x - x_min) / pixel_size
-        py = (loc.y - y_min) / pixel_size
-        pσ = σ / pixel_size
-
-        # Render Gaussian
-        r = ceil(Int, n_sigma * pσ)
-        px_int = round(Int, px)
-        py_int = round(Int, py)
-
-        for dy in -r:r
-            for dx in -r:r
-                ix = px_int + dx
-                iy = py_int + dy
-                if 1 <= ix <= nx && 1 <= iy <= ny
-                    d2 = ((ix - px)^2 + (iy - py)^2)
-                    img[iy, ix] += exp(-d2 / (2 * pσ^2))
-                end
-            end
-        end
-    end
-
-    return img, (x_min, x_max, y_min, y_max)
+function draw_circle!(ax, x, y, r; color=:black, linewidth=1.0, alpha=1.0)
+    θ = range(0, 2π, length=50)
+    cx = x .+ r .* cos.(θ)
+    cy = y .+ r .* sin.(θ)
+    CairoMakie.lines!(ax, cx, cy, color=(color, alpha), linewidth=linewidth)
 end
 
 """
-Plot localizations with uncertainty circles.
+Plot BaGoL results with proper visualization:
+- Localizations as 1σ circles (gray)
+- Chain emitter positions as scatter (light red)
+- MAP-N emitters as 1σ circles (red)
+- True positions as X markers (blue) if provided
 """
-function plot_localizations(
+function plot_bagol(
+    chain::RJMCMCChain,
+    result::MAPNResult,
     locs::Vector{<:SMLMData.AbstractEmitter};
-    ax = nothing,
-    color = :blue,
-    alpha = 0.3,
-    show_sigma::Bool = true
+    true_positions::Vector{Tuple{Float64, Float64}} = Tuple{Float64, Float64}[],
+    save_path::Union{String, Nothing} = nothing
 )
-    if ax === nothing
-        fig = CairoMakie.Figure(size = (600, 600))
-        ax = CairoMakie.Axis(fig[1, 1], aspect = CairoMakie.DataAspect())
+    fig = CairoMakie.Figure(size=(1200, 500))
+
+    # Left: Main visualization
+    ax1 = CairoMakie.Axis(fig[1, 1], title="BaGoL Results",
+                          xlabel="x (μm)", ylabel="y (μm)",
+                          aspect=CairoMakie.DataAspect())
+
+    # 1. Localizations as 1σ circles (gray)
+    for loc in locs
+        σ = mean([loc.σ_x, loc.σ_y])
+        draw_circle!(ax1, loc.x, loc.y, σ; color=:gray, linewidth=0.5, alpha=0.4)
     end
 
-    xs = [loc.x for loc in locs]
-    ys = [loc.y for loc in locs]
-
-    CairoMakie.scatter!(ax, xs, ys, color = color, markersize = 3)
-
-    if show_sigma
-        for loc in locs
-            σ = mean([loc.σ_x, loc.σ_y])
-            θ = range(0, 2π, length = 50)
-            cx = loc.x .+ σ .* cos.(θ)
-            cy = loc.y .+ σ .* sin.(θ)
-            CairoMakie.lines!(ax, cx, cy, color = (color, alpha), linewidth = 0.5)
+    # 2. Chain emitter positions as scatter (all samples)
+    chain_xs = Float64[]
+    chain_ys = Float64[]
+    for sample in chain.samples
+        for emitter in sample.emitters
+            push!(chain_xs, emitter.x)
+            push!(chain_ys, emitter.y)
         end
     end
+    if !isempty(chain_xs)
+        CairoMakie.scatter!(ax1, chain_xs, chain_ys,
+            color=(:red, 0.05), markersize=3, label="Chain samples")
+    end
 
-    return ax
+    # 3. MAP-N emitters as 1σ circles (red)
+    for ((ex, ey), (σx, σy)) in zip(result.emitters, result.uncertainties)
+        σ = mean([σx, σy])
+        if σ > 0
+            draw_circle!(ax1, ex, ey, σ; color=:red, linewidth=2.0)
+        end
+        CairoMakie.scatter!(ax1, [ex], [ey], color=:red, markersize=8)
+    end
+
+    # 4. True positions as X (blue)
+    if !isempty(true_positions)
+        true_xs = [p[1] for p in true_positions]
+        true_ys = [p[2] for p in true_positions]
+        CairoMakie.scatter!(ax1, true_xs, true_ys,
+            color=:blue, marker=:xcross, markersize=15, strokewidth=3,
+            label="True ($(length(true_positions)))")
+    end
+
+    # Right: Posterior on K
+    ax2 = CairoMakie.Axis(fig[1, 2], title="Posterior P(K)",
+                          xlabel="Number of emitters", ylabel="Probability")
+
+    k_vals = 0:(length(result.posterior_k) - 1)
+    probs = result.posterior_k ./ sum(result.posterior_k)
+    CairoMakie.barplot!(ax2, k_vals, probs, color=:steelblue)
+
+    # Mark true K and MAP-N
+    if !isempty(true_positions)
+        CairoMakie.vlines!(ax2, [length(true_positions)], color=:blue,
+            linestyle=:dash, linewidth=2, label="True K")
+    end
+    CairoMakie.vlines!(ax2, [result.n_emitters], color=:red,
+        linestyle=:solid, linewidth=2, label="MAP-N = $(result.n_emitters)")
+    CairoMakie.axislegend(ax2, position=:rt)
+
+    if save_path !== nothing
+        CairoMakie.save(save_path, fig)
+    end
+
+    return fig
 end
 
 """
-Plot MAP-N results with emitter positions and uncertainties.
+Simple plot without chain samples (for quick visualization).
 """
 function plot_mapn(
     result::MAPNResult,
     locs::Vector{<:SMLMData.AbstractEmitter};
+    true_positions::Vector{Tuple{Float64, Float64}} = Tuple{Float64, Float64}[],
     save_path::Union{String, Nothing} = nothing
 )
-    fig = CairoMakie.Figure(size = (1200, 500))
+    fig = CairoMakie.Figure(size=(1200, 500))
 
-    # Left: SR image with emitter circles
-    ax1 = CairoMakie.Axis(fig[1, 1], title = "Localizations + Emitters",
-                          aspect = CairoMakie.DataAspect())
+    ax1 = CairoMakie.Axis(fig[1, 1], title="Localizations + MAP-N Emitters",
+                          xlabel="x (μm)", ylabel="y (μm)",
+                          aspect=CairoMakie.DataAspect())
 
-    # Plot localizations
-    xs = [loc.x for loc in locs]
-    ys = [loc.y for loc in locs]
-    CairoMakie.scatter!(ax1, xs, ys, color = :gray, markersize = 3, alpha = 0.5)
-
-    # Plot emitters
-    for (i, ((ex, ey), (σx, σy))) in enumerate(zip(result.emitters, result.uncertainties))
-        CairoMakie.scatter!(ax1, [ex], [ey], color = :red, markersize = 10, marker = :star5)
-
-        # Uncertainty circle (mean of x and y uncertainty)
-        σ = mean([σx, σy])
-        if σ > 0
-            θ = range(0, 2π, length = 50)
-            cx = ex .+ σ .* cos.(θ)
-            cy = ey .+ σ .* sin.(θ)
-            CairoMakie.lines!(ax1, cx, cy, color = :red, linewidth = 1.5)
-        end
+    # Localizations as 1σ circles
+    for loc in locs
+        σ = mean([loc.σ_x, loc.σ_y])
+        draw_circle!(ax1, loc.x, loc.y, σ; color=:gray, linewidth=0.5, alpha=0.4)
     end
 
-    # Right: Posterior on K
-    ax2 = CairoMakie.Axis(fig[1, 2], title = "Posterior P(K)",
-                          xlabel = "Number of emitters", ylabel = "Probability")
+    # MAP-N emitters as 1σ circles
+    for ((ex, ey), (σx, σy)) in zip(result.emitters, result.uncertainties)
+        σ = mean([σx, σy])
+        if σ > 0
+            draw_circle!(ax1, ex, ey, σ; color=:red, linewidth=2.0)
+        end
+        CairoMakie.scatter!(ax1, [ex], [ey], color=:red, markersize=8)
+    end
+
+    # True positions as X
+    if !isempty(true_positions)
+        true_xs = [p[1] for p in true_positions]
+        true_ys = [p[2] for p in true_positions]
+        CairoMakie.scatter!(ax1, true_xs, true_ys,
+            color=:blue, marker=:xcross, markersize=15, strokewidth=3)
+    end
+
+    # Posterior on K
+    ax2 = CairoMakie.Axis(fig[1, 2], title="Posterior P(K)",
+                          xlabel="Number of emitters", ylabel="Probability")
 
     k_vals = 0:(length(result.posterior_k) - 1)
     probs = result.posterior_k ./ sum(result.posterior_k)
-    CairoMakie.barplot!(ax2, k_vals, probs, color = :steelblue)
+    CairoMakie.barplot!(ax2, k_vals, probs, color=:steelblue)
 
-    # Mark MAP-N
-    CairoMakie.vlines!(ax2, [result.n_emitters], color = :red, linestyle = :dash,
-                       label = "MAP-N = $(result.n_emitters)")
-    CairoMakie.axislegend(ax2, position = :rt)
+    if !isempty(true_positions)
+        CairoMakie.vlines!(ax2, [length(true_positions)], color=:blue,
+            linestyle=:dash, linewidth=2, label="True K")
+    end
+    CairoMakie.vlines!(ax2, [result.n_emitters], color=:red,
+        linestyle=:solid, linewidth=2, label="MAP-N")
+    CairoMakie.axislegend(ax2, position=:rt)
 
     if save_path !== nothing
         CairoMakie.save(save_path, fig)

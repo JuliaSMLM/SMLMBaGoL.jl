@@ -102,28 +102,8 @@ println("="^60)
 println("True emitters: $total_emitters")
 println("MAP-N: $(result.n_emitters)")
 
-# Visualization
-fig = CairoMakie.Figure(size=(1000, 500))
-
-ax1 = CairoMakie.Axis(fig[1, 1], title="N-mers: True vs Estimated", aspect=CairoMakie.DataAspect())
-xs = [loc.x for loc in all_locs]
-ys = [loc.y for loc in all_locs]
-CairoMakie.scatter!(ax1, xs, ys, color=:gray, markersize=3, alpha=0.5)
-CairoMakie.scatter!(ax1, [p[1] for p in all_positions], [p[2] for p in all_positions],
-    color=:blue, markersize=10, marker=:circle, label="True ($total_emitters)")
-if !isempty(result.emitters)
-    CairoMakie.scatter!(ax1, [p[1] for p in result.emitters], [p[2] for p in result.emitters],
-        color=:red, markersize=6, marker=:star5, label="Est ($(result.n_emitters))")
-end
-CairoMakie.axislegend(ax1, position=:lt)
-
-ax2 = CairoMakie.Axis(fig[1, 2], title="P(K)", xlabel="K", ylabel="Probability")
-k_vals = 0:(length(result.posterior_k) - 1)
-probs = result.posterior_k ./ sum(result.posterior_k)
-CairoMakie.barplot!(ax2, k_vals, probs, color=:steelblue)
-CairoMakie.vlines!(ax2, [total_emitters], color=:blue, linestyle=:dash, label="True")
-CairoMakie.vlines!(ax2, [result.n_emitters], color=:red, linestyle=:solid, label="MAP")
-CairoMakie.axislegend(ax2, position=:rt)
-
-CairoMakie.save(joinpath(OUTPUT_DIR, "nmer_result.png"), fig)
+# Visualization with full chain samples
+fig = plot_bagol(chain, result, all_locs;
+    true_positions=all_positions,
+    save_path=joinpath(OUTPUT_DIR, "nmer_result.png"))
 println("\nSaved: $(joinpath(OUTPUT_DIR, "nmer_result.png"))")
