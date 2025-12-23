@@ -22,7 +22,7 @@ export Emitter, BaGoLState, BaGoLSample
 export UniformSpatialPrior
 
 # Export visualization
-export gen_sr_image, plot_localizations, plot_mapn
+export plot_bagol, plot_mapn
 
 # Include source files
 include("types.jl")

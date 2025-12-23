@@ -66,6 +66,8 @@ println("="^60)
 println("True: $(length(true_positions)) emitters")
 println("MAP-N: $(result.n_emitters) emitters")
 
-# Visualization
-fig = plot_mapn(result, localizations; save_path=joinpath(OUTPUT_DIR, "basic_result.png"))
+# Visualization with full chain samples
+fig = plot_bagol(chain, result, localizations;
+    true_positions=true_positions,
+    save_path=joinpath(OUTPUT_DIR, "basic_result.png"))
 println("\nSaved: $(joinpath(OUTPUT_DIR, "basic_result.png"))")
