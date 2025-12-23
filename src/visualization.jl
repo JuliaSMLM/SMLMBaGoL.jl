@@ -74,7 +74,7 @@ function plot_bagol(
     if !isempty(true_positions)
         median_σ = median([mean([loc.σ_x, loc.σ_y]) for loc in locs])
         for (tx, ty) in true_positions
-            draw_x!(ax1, tx, ty, median_σ; color=:blue, linewidth=2.0)
+            draw_x!(ax1, tx, ty, median_σ / 2; color=:blue, linewidth=2.0)
         end
     end
 
@@ -136,7 +136,7 @@ function plot_mapn(
     if !isempty(true_positions)
         median_σ = median([mean([loc.σ_x, loc.σ_y]) for loc in locs])
         for (tx, ty) in true_positions
-            draw_x!(ax1, tx, ty, median_σ; color=:blue, linewidth=2.0)
+            draw_x!(ax1, tx, ty, median_σ / 2; color=:blue, linewidth=2.0)
         end
     end
 
