@@ -88,10 +88,10 @@ Compute total log posterior: K prior + count priors + likelihood.
 function compute_log_posterior(
     state::BaGoLState,
     locs::Vector{<:SMLMData.AbstractEmitter},
-    μ::Float64,
-    config::RJMCMCConfig
+    chain::RJMCMCChain
 )
     k = length(state.emitters)
+    config = chain.config
 
     # K prior
     log_post = log_prior_k(k, config.λ_K)
@@ -99,7 +99,7 @@ function compute_log_posterior(
     # Count priors and likelihood for each emitter
     for emitter in state.emitters
         n_alloc = length(emitter.allocated)
-        log_post += log_prior_count(n_alloc, μ, config.α)
+        log_post += log_prior_count(n_alloc, chain.μ, chain.α)
         log_post += log_likelihood_emitter(locs, emitter, config.τ)
     end
 
@@ -126,7 +126,7 @@ function propose_birth!(
 
     # Save old state
     old_emitters = deepcopy(state.emitters)
-    old_log_post = compute_log_posterior(state, locs, chain.μ, config)
+    old_log_post = compute_log_posterior(state, locs, chain)
 
     # Sample position from mixture
     x, y = sample_from_mixture(locs, config.τ)
@@ -154,7 +154,7 @@ function propose_birth!(
     end
 
     # Compute new posterior
-    new_log_post = compute_log_posterior(state, locs, chain.μ, config)
+    new_log_post = compute_log_posterior(state, locs, chain)
 
     # Posterior ratio
     log_post_ratio = new_log_post - old_log_post
@@ -197,7 +197,7 @@ function propose_death!(
 
     # Save old state
     old_emitters = deepcopy(state.emitters)
-    old_log_post = compute_log_posterior(state, locs, chain.μ, config)
+    old_log_post = compute_log_posterior(state, locs, chain)
 
     # Pick emitter to kill
     idx = rand(1:k)
@@ -215,7 +215,7 @@ function propose_death!(
     k_new = length(state.emitters)
 
     # Compute new posterior
-    new_log_post = compute_log_posterior(state, locs, chain.μ, config)
+    new_log_post = compute_log_posterior(state, locs, chain)
 
     # Posterior ratio
     log_post_ratio = new_log_post - old_log_post
@@ -279,8 +279,8 @@ function propose_allocate!(
             log_count = 0.0
         else
             # Would gain this loc
-            log_count = log_prior_count(n_j + 1, chain.μ, config.α) -
-                       log_prior_count(n_j, chain.μ, config.α)
+            log_count = log_prior_count(n_j + 1, chain.μ, chain.α) -
+                       log_prior_count(n_j, chain.μ, chain.α)
         end
 
         log_probs[j] = log_ll + log_count
