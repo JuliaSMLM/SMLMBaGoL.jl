@@ -1,0 +1,68 @@
+# Core types for BaGoL RJMCMC
+
+"""
+Emitter position with associated localizations.
+"""
+mutable struct Emitter
+    x::Float64
+    y::Float64
+    allocated::Vector{Int}  # Indices of localizations assigned to this emitter
+end
+
+Emitter(x::Float64, y::Float64) = Emitter(x, y, Int[])
+
+"""
+Current state of the RJMCMC chain.
+"""
+mutable struct BaGoLState
+    emitters::Vector{Emitter}
+    log_posterior::Float64
+end
+
+"""
+Recorded sample from the RJMCMC chain.
+"""
+struct BaGoLSample
+    emitters::Vector{Emitter}
+    log_posterior::Float64
+    μ::Float64  # Current hierarchical mean
+end
+
+"""
+Configuration for RJMCMC chain.
+"""
+Base.@kwdef struct RJMCMCConfig
+    τ::Float64 = 0.005  # Systematic uncertainty (required to set explicitly)
+    α::Float64 = 2.0    # Shape parameter for count distribution (fixed)
+    λ_K::Float64 = 10.0 # Poisson prior mean for K (independent)
+    μ_prior_a::Float64 = 2.0   # Gamma hyperprior shape for μ
+    μ_prior_b::Float64 = 0.2   # Gamma hyperprior rate for μ (mean = a/b = 10)
+    n_iterations::Int = 10000
+    burn_in::Int = 2000
+    hierarchical_interval::Int = 100
+    move_σ::Float64 = 0.010  # Proposal std for move step
+end
+
+"""
+Complete RJMCMC chain with samples and diagnostics.
+"""
+mutable struct RJMCMCChain
+    config::RJMCMCConfig
+    samples::Vector{BaGoLSample}
+    μ::Float64  # Current hierarchical mean
+    current_state::BaGoLState
+    iteration::Int
+    acceptance::Dict{Symbol, Tuple{Int, Int}}  # (accepted, total) per move type
+end
+
+function RJMCMCChain(config::RJMCMCConfig, initial_state::BaGoLState)
+    μ_init = config.μ_prior_a / config.μ_prior_b
+    RJMCMCChain(
+        config,
+        BaGoLSample[],
+        μ_init,
+        initial_state,
+        0,
+        Dict(:birth => (0, 0), :death => (0, 0), :move => (0, 0), :allocate => (0, 0))
+    )
+end

@@ -1,108 +1,37 @@
 module SMLMBaGoL
 
-using Random
-using LinearAlgebra
-using Statistics
-using Distributions
-using Distributions: MixtureModel, MultivariateNormal, pdf, rand, logpdf, NegativeBinomial, InverseGamma, Gamma, Chisq, quantile, cdf
-using SpecialFunctions
-using StatsBase
-using Optim
-using Hungarian
-using Clustering
-using HypothesisTests
-using SMLMSim
-using SMLMData
-using SMLMData: AbstractEmitter, Emitter2D, Emitter2DFit
 using CairoMakie
-using Images
-using Images: Gray, RGB, N0f8
-using Colors
-using ColorSchemes
+using Distributions
+using Hungarian
+using LinearAlgebra
+using Random
+using SMLMData
+using SpecialFunctions: logfactorial, logabsbinomial
+using Statistics
 
-# Core types (must be first - defines abstract types used everywhere)
-include("core/types.jl")
-
-# Core priors (must be before state.jl which uses prior types)
-include("core/priors.jl")
-
-# Likelihood types (must be before state.jl which uses AbstractLikelihoodConfig)
-include("core/likelihood_types.jl")
-
-# Concrete types
-# Emitter types come from SMLMData
-include("localizations/localization2d.jl")
-
-# Core functionality
-include("core/state.jl")
-include("core/likelihood.jl")
-include("likelihood/consistency_likelihood.jl")
-include("core/likelihood_config.jl")
-
-# Utilities
-include("utils/emitter_utils.jl")
-include("utils/dirichlet_multinomial.jl")
-include("utils/display.jl")
-
-# Moves
-include("moves/move_types.jl")
-include("moves/birth_death.jl")
-include("moves/move.jl")
-include("moves/allocate.jl")
-include("moves/acceptance.jl")
-include("moves/acceptance_with_config.jl")
-
-# Algorithms
-include("algorithms/partitioning.jl")
-include("algorithms/rjmcmc.jl")
-include("algorithms/mapn.jl")
-
-# Hierarchical
-include("hierarchical/initialization.jl")
-include("hierarchical/diagnostics.jl")
-include("hierarchical/updates.jl")
-
-# Simulation
-include("sim/n_mer.jl")
-include("sim/smlmsim_integration.jl")
-
-# Visualization
-include("visualization/sr_image.jl")
-include("visualization/plotting.jl")
-include("visualization/hierarchical_viz.jl")
-include("visualization/movie_generator.jl")
-
-# Diagnostics
-include("diagnostics/chain_diagnostics.jl")
-include("diagnostics/state_validation.jl")
-
-# Exports
-export AbstractLocalization, AbstractPrior, AbstractRJMCMCMove, AbstractChainState
-# Note: AbstractEmitter, Emitter2D, Emitter2DFit come from SMLMData
-export Localization2D, BaGoLState, RJMCMCChain
-export AbstractSpatialPrior, AbstractCountPrior, UniformSpatialPrior, HierarchicalNegBinomialPrior, HierarchicalUpdate
-export Birth, Death, Move, Allocate, inverse_move
-export log_likelihood, log_prior, log_prior_spatial, log_posterior, log_prior_k_given_N
-export standard_log_likelihood, consistency_log_likelihood, adaptive_consistency_likelihood
-export AbstractLikelihoodConfig, StandardLikelihood, ConsistencyLikelihood, AdaptiveConsistencyLikelihood
-export compute_log_likelihood
-export sample_spatial_prior, create_spatial_prior_from_localizations, create_default_prior
-export propose_move, accept_probability, log_acceptance_ratio
-export run_bagol, initialize_chain, run_rjmcmc!, rjmcmc_step!
-export initialize_chains_from_data, handle_chain_continuation
-export partition_localizations, estimate_partitioning_radius, update_hierarchical!
+# Export main API
+export run_bagol
 export estimate_mapn
-export simulate_n_mer, simulate_n_mer_with_prior
-export smld_to_localizations, simulate_static_smlm, simulate_nmer_smlmsim
-export gen_sr_image
-export circle!, sr_circles, sr_circles!, sr_circles_combined, sr_circles_combined!, plot_tau_prior
-export generate_chain_movie
-export diagnose_chains, quick_diagnose, assess_burn_in, assess_chain_length
-export validate_state_consistency
-export plot_hierarchical_evolution, plot_gamma_distributions, plot_negbinomial_distributions, plot_emitter_count_histogram
-export analyze_hierarchical_convergence, get_hierarchical_summary, plot_negbinomial_diagnostic
-export fit_negbinomial_prior, fit_negbinomial_mle, fit_negbinomial_mom, initialize_hierarchical_prior
-export assess_negbinomial_fit, FitStatistics, print_fit_summary
-export update_kappa_slice_adaptive, update_kappa_multistart
+export RJMCMCConfig, RJMCMCChain
+export MAPNResult
 
-end # module SMLMBaGoL
+# Export types
+export Emitter, BaGoLState, BaGoLSample
+
+# Export priors
+export UniformSpatialPrior
+
+# Export visualization
+export gen_sr_image, plot_localizations, plot_mapn
+
+# Include source files
+include("types.jl")
+include("priors.jl")
+include("likelihood.jl")
+include("moves.jl")
+include("hierarchical.jl")
+include("rjmcmc.jl")
+include("mapn.jl")
+include("visualization.jl")
+
+end # module
