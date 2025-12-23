@@ -162,3 +162,106 @@ function plot_mapn(
 
     return fig
 end
+
+"""
+Plot hierarchical Bayes diagnostics:
+- μ trace over iterations
+- μ posterior histogram
+- Locs/emitter distribution: true vs estimated vs NegBin model
+
+# Arguments
+- `chain`: RJMCMCChain with samples
+- `true_locs_per_emitter`: Vector of true counts (from simulation), or nothing
+- `save_path`: Optional path to save figure
+"""
+function plot_hierarchical_diagnostics(
+    chain::RJMCMCChain;
+    true_locs_per_emitter::Union{Vector{Int}, Nothing} = nothing,
+    save_path::Union{String, Nothing} = nothing
+)
+    fig = CairoMakie.Figure(size=(1400, 400))
+
+    # Extract μ values from samples
+    μ_samples = [s.μ for s in chain.samples]
+
+    if isempty(μ_samples)
+        @warn "No samples in chain"
+        return fig
+    end
+
+    # 1. μ trace plot
+    ax1 = CairoMakie.Axis(fig[1, 1], title="μ Trace",
+                          xlabel="Sample", ylabel="μ (locs/emitter)")
+    CairoMakie.lines!(ax1, 1:length(μ_samples), μ_samples, color=:steelblue)
+
+    # Add true μ if we have true counts
+    if true_locs_per_emitter !== nothing && !isempty(true_locs_per_emitter)
+        true_μ = mean(true_locs_per_emitter)
+        CairoMakie.hlines!(ax1, [true_μ], color=:red, linestyle=:dash,
+            linewidth=2, label="True μ = $(round(true_μ, digits=1))")
+        CairoMakie.axislegend(ax1, position=:rt)
+    end
+
+    # 2. μ posterior histogram
+    ax2 = CairoMakie.Axis(fig[1, 2], title="μ Posterior",
+                          xlabel="μ (locs/emitter)", ylabel="Density")
+    CairoMakie.hist!(ax2, μ_samples, bins=30, normalization=:pdf, color=:steelblue)
+
+    μ_mean = mean(μ_samples)
+    CairoMakie.vlines!(ax2, [μ_mean], color=:black, linewidth=2,
+        label="Mean = $(round(μ_mean, digits=1))")
+
+    if true_locs_per_emitter !== nothing && !isempty(true_locs_per_emitter)
+        true_μ = mean(true_locs_per_emitter)
+        CairoMakie.vlines!(ax2, [true_μ], color=:red, linestyle=:dash,
+            linewidth=2, label="True = $(round(true_μ, digits=1))")
+    end
+    CairoMakie.axislegend(ax2, position=:rt)
+
+    # 3. Locs/emitter count distribution
+    ax3 = CairoMakie.Axis(fig[1, 3], title="Locs/Emitter Distribution",
+                          xlabel="Count", ylabel="Probability")
+
+    # Get allocation counts from chain samples (use MAP-K samples)
+    all_counts = Int[]
+    for sample in chain.samples
+        for emitter in sample.emitters
+            push!(all_counts, length(emitter.allocated))
+        end
+    end
+
+    if !isempty(all_counts)
+        max_count = max(maximum(all_counts),
+                        true_locs_per_emitter !== nothing ? maximum(true_locs_per_emitter) : 0)
+        bins = 0:(max_count + 1)
+
+        # Estimated histogram (from chain)
+        CairoMakie.hist!(ax3, all_counts, bins=bins, normalization=:probability,
+            color=(:steelblue, 0.6), label="Estimated")
+
+        # True histogram (if provided)
+        if true_locs_per_emitter !== nothing && !isempty(true_locs_per_emitter)
+            CairoMakie.hist!(ax3, true_locs_per_emitter, bins=bins, normalization=:probability,
+                color=(:red, 0.4), label="True")
+        end
+
+        # NegBin model curve with posterior mean μ
+        α = chain.config.α
+        μ_post = mean(μ_samples)
+        p = α / (α + μ_post)
+        negbin = NegativeBinomial(α, p)
+
+        x_model = 0:max_count
+        y_model = [pdf(negbin, k) for k in x_model]
+        CairoMakie.lines!(ax3, x_model, y_model, color=:black, linewidth=2,
+            label="NegBin(α=$(α), μ=$(round(μ_post, digits=1)))")
+
+        CairoMakie.axislegend(ax3, position=:rt)
+    end
+
+    if save_path !== nothing
+        CairoMakie.save(save_path, fig)
+    end
+
+    return fig
+end
