@@ -26,6 +26,7 @@ struct BaGoLSample
     emitters::Vector{Emitter}
     log_posterior::Float64
     μ::Float64  # Current hierarchical mean
+    α::Float64  # Current shape parameter
 end
 
 """
@@ -50,17 +51,21 @@ mutable struct RJMCMCChain
     config::RJMCMCConfig
     samples::Vector{BaGoLSample}
     μ::Float64  # Current hierarchical mean
+    α::Float64  # Current shape parameter (mutable for learning)
+    learn_α::Bool  # Whether to update α during MCMC
     current_state::BaGoLState
     iteration::Int
     acceptance::Dict{Symbol, Tuple{Int, Int}}  # (accepted, total) per move type
 end
 
-function RJMCMCChain(config::RJMCMCConfig, initial_state::BaGoLState)
+function RJMCMCChain(config::RJMCMCConfig, initial_state::BaGoLState; α_init::Float64=config.α, learn_α::Bool=false)
     μ_init = config.μ_prior_a / config.μ_prior_b
     RJMCMCChain(
         config,
         BaGoLSample[],
         μ_init,
+        α_init,
+        learn_α,
         initial_state,
         0,
         Dict(:birth => (0, 0), :death => (0, 0), :move => (0, 0), :allocate => (0, 0))
