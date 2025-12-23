@@ -34,6 +34,7 @@ locs_per_emitter = 8
 function generate_nmer(cx, cy, n, spacing, σ_loc, n_locs, start_id)
     locs = SMLMData.Emitter2DFit[]
     positions = Tuple{Float64, Float64}[]
+    counts = Int[]  # Track locs per emitter
 
     # Arrange emitters in line for dimer, triangle for trimer
     for i in 1:n
@@ -47,6 +48,7 @@ function generate_nmer(cx, cy, n, spacing, σ_loc, n_locs, start_id)
             ey = cy + r * sin(θ)
         end
         push!(positions, (ex, ey))
+        push!(counts, n_locs)
 
         for j in 1:n_locs
             x = ex + randn() * σ_loc
@@ -56,11 +58,12 @@ function generate_nmer(cx, cy, n, spacing, σ_loc, n_locs, start_id)
             start_id += 1
         end
     end
-    return locs, positions, start_id
+    return locs, positions, counts, start_id
 end
 
 all_locs = SMLMData.Emitter2DFit[]
 all_positions = Tuple{Float64, Float64}[]
+all_counts = Int[]
 loc_id = 1
 
 for i in 1:(n_dimers + n_trimers)
@@ -70,10 +73,11 @@ for i in 1:(n_dimers + n_trimers)
     cx = 0.1 + col * cluster_spacing
     cy = 0.1 + row * cluster_spacing
 
-    locs, pos, new_id = generate_nmer(cx, cy, n, emitter_spacing, σ_loc, locs_per_emitter, loc_id)
+    locs, pos, counts, new_id = generate_nmer(cx, cy, n, emitter_spacing, σ_loc, locs_per_emitter, loc_id)
     global loc_id = new_id
     append!(all_locs, locs)
     append!(all_positions, pos)
+    append!(all_counts, counts)
 end
 
 total_emitters = n_dimers * 2 + n_trimers * 3
@@ -107,3 +111,9 @@ fig = plot_bagol(chain, result, all_locs;
     true_positions=all_positions,
     save_path=joinpath(OUTPUT_DIR, "nmer_result.png"))
 println("\nSaved: $(joinpath(OUTPUT_DIR, "nmer_result.png"))")
+
+# Hierarchical Bayes diagnostics
+fig2 = plot_hierarchical_diagnostics(chain;
+    true_locs_per_emitter=all_counts,
+    save_path=joinpath(OUTPUT_DIR, "nmer_hierarchical.png"))
+println("Saved: $(joinpath(OUTPUT_DIR, "nmer_hierarchical.png"))")
