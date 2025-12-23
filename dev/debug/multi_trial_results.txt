@@ -1,7 +1,0 @@
-# Multi-trial results
-# Trial, Seed, True_K, MAPN_K, Error_Pct, Posterior_Mean, Final_mu, N_locs
-1, 3001, 6, NA, NA, NA, NA, NA
-2, 3002, 6, NA, NA, NA, NA, NA
-3, 3003, 6, NA, NA, NA, NA, NA
-4, 3004, 6, NA, NA, NA, NA, NA
-5, 3005, 6, NA, NA, NA, NA, NA
