@@ -1,99 +1,73 @@
-- using statements must only go in the main SMLMBaGoL.jl file. 
-- all `using` or `import` commands should be in main module file only, not in other files. 
+# CLAUDE.md
 
-- You can ask me to find the parent branch using any of these approaches:
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-  Direct commands:
-  - "What branch was this created from?"
-  - "Find the parent branch"
-  - "What's the source branch for this feature branch?"
+## Build & Test Commands
 
-  More specific Git requests:
-  - "Run git show-branch to find the parent"
-  - "Use git merge-base to find where this branched from"
-  - "Check git log --graph to see the branch point"
+```bash
+# Run tests
+julia --project=. -e "using Pkg; Pkg.test()"
 
-  The most reliable approach:
-  git show-branch | head -10
-  This shows the branching relationship clearly.
+# Run examples (use threads for parallel partition processing)
+julia --threads=auto --project=examples examples/02_nmer_demo.jl
 
-  Or ask me to:
-  - "Run the right git commands to find which branch this was created from"
-  - "Check the git history to find the actual parent branch"
-
-  The key is I should look at the first commit on the feature branch (9be0e2e) and see what it was based on, rather than just looking at merge-base with main. The git branch --contains <commit> command I used was the
-  right approach to see that commit 8d6563f exists on negative-binomial-overdispersion.
-
-- use multiple threads when running examples
-
-# Code Architecture Overview
-
-## Key Type Hierarchy
-- `AbstractLocalization` - Base type for localization data
-- `AbstractEmitter` (from SMLMData) - Base type for emitters
-- `AbstractPrior` - Base type for priors
-  - `AbstractSpatialPrior` → `UniformSpatialPrior`
-  - `AbstractCountPrior` → `HierarchicalNegBinomialPrior`
-- `AbstractRJMCMCMove` - Base type for MCMC moves (Birth, Death, Move, Allocate)
-- `AbstractChainState` → `BaGoLState`
-
-## Main Entry Points
-- `run_bagol()` - Primary analysis function
-- `simulate_static_smlm()` - SMLMSim integration for realistic simulations
-- `estimate_mapn()` - Extract MAP-N (Maximum A Posteriori Number) emitter positions
-- `diagnose_chains()` - Assess MCMC chain quality
-
-## Common Workflows
-1. **Basic Analysis**: localizations → `run_bagol()` → `estimate_mapn()` → results
-2. **With Visualization**: Add `gen_sr_image()` and `sr_circles()` for uncertainty plots
-3. **Hierarchical Bayes**: Enable with `hierarchical_interval` parameter in `run_bagol()`
-4. **Parallel Processing**: Use `partition_radius` for spatial partitioning with threading
-
-## Performance Tips
-- Enable threading with `julia --threads=auto` for parallel partition processing
-- Use spatial partitioning for large datasets (>10k localizations)
-- Pre-compile with small test run before large analyses
-- Hierarchical updates improve convergence but add computational cost
-
-## Current Development Focus
-- Improving Negative Binomial prior fitting for better handling of under-dispersed data
-- Enhanced filtering of spurious low-count emitters
-- Better κ (overdispersion) parameter initialization strategies
-
-## Consistency Likelihood - New Development
-
-### Problem Identified
-The standard Gaussian likelihood systematically over-segments because it penalizes ALL deviation, including statistically expected variation. This is a fundamental issue, not a prior or parameter problem.
-
-### Solution Implemented
-Created `consistency_log_likelihood()` that penalizes variance mismatch using KL divergence:
-```julia
-# In addition to standard likelihood, adds penalty:
-Penalty = α * n/2 * (var - log(var) - 1)
+# Interactive development
+julia --project=.
+using SMLMBaGoL
 ```
 
-Key features:
-- Penalizes both overfitting (var < 1) and underfitting (var > 1)
-- Parameter α controls penalty strength (α ≈ 20 works well)
-- `adaptive_consistency_likelihood()` auto-adjusts α based on K/N ratio
+## Code Conventions
 
-### Status
-- ✅ Implemented in `/src/likelihood/consistency_likelihood.jl`
-- ✅ Fully integrated into RJMCMC algorithm via `likelihood_config` parameter
-- ✅ Tested on nmer_demo: **33% over-segmentation → 0% error**
-- ✅ Performance: Actually faster than standard likelihood
-- ✅ API: New `likelihood_config` parameter in `run_bagol()`
+- **All `using`/`import` statements must be in `src/SMLMBaGoL.jl` only** - included files have no imports
+- Units: positions and uncertainties in micrometers (μm)
+- `τ` (systematic uncertainty) is required with no default - must be set explicitly
 
-### Usage
+## Architecture
+
+### Source File Organization
+```
+src/
+├── SMLMBaGoL.jl   # Module entry: all imports + exports
+├── types.jl       # Emitter, BaGoLState, BaGoLSample, RJMCMCConfig, RJMCMCChain
+├── priors.jl      # UniformSpatialPrior, log_prior_k, log_prior_count
+├── likelihood.jl  # Gaussian likelihood with systematic uncertainty
+├── moves.jl       # RJMCMC moves: Birth, Death, Move, Allocate
+├── hierarchical.jl # Hierarchical Bayes updates for μ and α
+├── rjmcmc.jl      # run_bagol() - main entry point
+├── mapn.jl        # estimate_mapn() - Hungarian matching for MAP-N
+├── visualization.jl # plot_bagol, plot_mapn, plot_hierarchical_diagnostics
+└── simulation.jl  # simulate_smlm, simulate_grid, simulate_nmers
+```
+
+### Core Types
+- `Emitter` - Position (x, y) with allocated localization indices
+- `BaGoLState` - Current MCMC state (emitters + log_posterior)
+- `BaGoLSample` - Recorded sample with μ and α values
+- `RJMCMCChain` - Full chain with samples, config, acceptance stats
+
+### Main API
 ```julia
-# Standard likelihood (default)
-chains = run_bagol(localizations)
+# Primary workflow
+chain = run_bagol(locs; τ=0.005, n_iterations=10000, burn_in=2000)
+result = estimate_mapn(chain)
 
-# Consistency likelihood with custom penalty
-chains = run_bagol(localizations; 
-                   likelihood_config=ConsistencyLikelihood(10.0))
+# Key parameters
+run_bagol(locs;
+    τ::Float64,                    # Required: systematic uncertainty
+    α::Union{Float64,Symbol}=2.0,  # Shape param or :auto
+    learn_α::Bool=false,           # Update α during MCMC
+    λ_K=length(locs)/5.0,          # Prior on emitter count
+    hierarchical_interval=100)     # Iterations between μ/α updates
+```
 
-# Adaptive consistency likelihood
-chains = run_bagol(localizations; 
-                   likelihood_config=AdaptiveConsistencyLikelihood())
+### RJMCMC Algorithm
+- 4 move types: Birth (10%), Death (10%), Move (20%), Allocate (60%)
+- Posterior: Poisson prior on K, NegBinomial prior on counts, Gaussian likelihood
+- Hierarchical: Gibbs updates for μ, optional MH updates for α
+
+## Git Workflow
+
+Finding parent branch:
+```bash
+git show-branch | head -10
 ```
