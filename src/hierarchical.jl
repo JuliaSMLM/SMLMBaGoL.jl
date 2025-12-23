@@ -1,6 +1,95 @@
 # Hierarchical Bayesian updates for BaGoL
 
 """
+Estimate α from frame statistics using Fano factor.
+For Poisson: Fano = 1. For NegBin: Fano = 1 + μ/α.
+"""
+function estimate_alpha_from_frames(locs::Vector{<:SMLMData.AbstractEmitter})
+    # Count localizations per frame
+    frames = [loc.frame for loc in locs]
+    if isempty(frames)
+        return 2.0  # Default
+    end
+
+    frame_min, frame_max = extrema(frames)
+    if frame_min == frame_max
+        return 2.0  # Single frame, can't estimate
+    end
+
+    # Count per frame
+    frame_counts = zeros(Int, frame_max - frame_min + 1)
+    for f in frames
+        frame_counts[f - frame_min + 1] += 1
+    end
+
+    # Remove zero frames (may be gaps in data)
+    nonzero_counts = filter(x -> x > 0, frame_counts)
+    if length(nonzero_counts) < 10
+        return 2.0  # Not enough data
+    end
+
+    μ = mean(nonzero_counts)
+    σ² = var(nonzero_counts)
+
+    # Fano factor
+    F = σ² / μ
+
+    if F ≤ 1.2
+        # Near Poisson - high α (use μ as rough guide)
+        return clamp(μ, 5.0, 50.0)
+    else
+        # Overdispersed - estimate α from Fano factor
+        # F = 1 + μ/α → α = μ/(F-1)
+        α_est = μ / (F - 1)
+        return clamp(α_est, 0.5, 20.0)
+    end
+end
+
+"""
+Update α (shape parameter) via Metropolis-Hastings step.
+Uses log-normal proposal for positive support.
+"""
+function update_alpha!(chain::RJMCMCChain, locs::Vector{<:SMLMData.AbstractEmitter})
+    state = chain.current_state
+
+    # Get current counts
+    counts = [length(emitter.allocated) for emitter in state.emitters]
+    if isempty(counts)
+        return
+    end
+
+    α_current = chain.α
+    μ = chain.μ
+
+    # Log-normal proposal (multiplicative random walk)
+    α_proposed = α_current * exp(randn() * 0.2)
+
+    # Clamp to reasonable range
+    if α_proposed < 0.1 || α_proposed > 100.0
+        return
+    end
+
+    # Log-likelihood ratio for counts
+    log_lik_current = sum(log_prior_count(n, μ, α_current) for n in counts)
+    log_lik_proposed = sum(log_prior_count(n, μ, α_proposed) for n in counts)
+
+    # Prior on α: Gamma(2, 1) - mode at 1, mean at 2
+    log_prior_current = logpdf(Gamma(2.0, 1.0), α_current)
+    log_prior_proposed = logpdf(Gamma(2.0, 1.0), α_proposed)
+
+    # Proposal ratio for log-normal (asymmetric proposal)
+    log_proposal_ratio = log(α_proposed) - log(α_current)
+
+    log_accept = (log_lik_proposed - log_lik_current) +
+                 (log_prior_proposed - log_prior_current) +
+                 log_proposal_ratio
+
+    if log(rand()) < log_accept
+        chain.α = α_proposed
+    end
+end
+
+"""
 Update μ (mean localizations per emitter) via Gibbs sampling.
 
 Model:

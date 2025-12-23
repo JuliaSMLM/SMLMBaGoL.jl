@@ -165,8 +165,8 @@ end
 
 """
 Plot hierarchical Bayes diagnostics:
-- μ trace over iterations
-- μ posterior histogram
+- μ trace over iterations (and α if learned)
+- μ posterior histogram (and α if learned)
 - Locs/emitter distribution: true vs estimated vs NegBin model
 
 # Arguments
@@ -179,16 +179,26 @@ function plot_hierarchical_diagnostics(
     true_locs_per_emitter::Union{Vector{Int}, Nothing} = nothing,
     save_path::Union{String, Nothing} = nothing
 )
-    fig = CairoMakie.Figure(size=(1400, 400))
-
-    # Extract μ values from samples
+    # Extract μ and α values from samples
     μ_samples = [s.μ for s in chain.samples]
+    α_samples = [s.α for s in chain.samples]
 
     if isempty(μ_samples)
         @warn "No samples in chain"
-        return fig
+        return CairoMakie.Figure()
     end
 
+    # Check if α was learned (varies across samples)
+    α_learned = length(unique(α_samples)) > 1
+
+    # Determine layout based on whether α was learned
+    if α_learned
+        fig = CairoMakie.Figure(size=(1400, 700))
+    else
+        fig = CairoMakie.Figure(size=(1400, 400))
+    end
+
+    # Row 1: μ diagnostics
     # 1. μ trace plot
     ax1 = CairoMakie.Axis(fig[1, 1], title="μ Trace",
                           xlabel="Sample", ylabel="μ (locs/emitter)")
@@ -222,7 +232,7 @@ function plot_hierarchical_diagnostics(
     ax3 = CairoMakie.Axis(fig[1, 3], title="Locs/Emitter Distribution",
                           xlabel="Count", ylabel="Probability")
 
-    # Get allocation counts from chain samples (use MAP-K samples)
+    # Get allocation counts from chain samples
     all_counts = Int[]
     for sample in chain.samples
         for emitter in sample.emitters
@@ -245,18 +255,60 @@ function plot_hierarchical_diagnostics(
                 color=(:red, 0.4), label="True")
         end
 
-        # NegBin model curve with posterior mean μ
-        α = chain.config.α
+        # NegBin model curve with posterior mean μ and α
+        α_post = mean(α_samples)
         μ_post = mean(μ_samples)
-        p = α / (α + μ_post)
-        negbin = NegativeBinomial(α, p)
+        p = α_post / (α_post + μ_post)
+        negbin = NegativeBinomial(α_post, p)
 
         x_model = 0:max_count
         y_model = [pdf(negbin, k) for k in x_model]
         CairoMakie.lines!(ax3, x_model, y_model, color=:black, linewidth=2,
-            label="NegBin(α=$(α), μ=$(round(μ_post, digits=1)))")
+            label="NegBin(α=$(round(α_post, digits=1)), μ=$(round(μ_post, digits=1)))")
 
         CairoMakie.axislegend(ax3, position=:rt)
+    end
+
+    # Row 2: α diagnostics (only if α was learned)
+    if α_learned
+        # 4. α trace plot
+        ax4 = CairoMakie.Axis(fig[2, 1], title="α Trace",
+                              xlabel="Sample", ylabel="α (shape)")
+        CairoMakie.lines!(ax4, 1:length(α_samples), α_samples, color=:darkorange)
+
+        # 5. α posterior histogram
+        ax5 = CairoMakie.Axis(fig[2, 2], title="α Posterior",
+                              xlabel="α (shape)", ylabel="Density")
+        CairoMakie.hist!(ax5, α_samples, bins=30, normalization=:pdf, color=:darkorange)
+
+        α_mean = mean(α_samples)
+        CairoMakie.vlines!(ax5, [α_mean], color=:black, linewidth=2,
+            label="Mean = $(round(α_mean, digits=2))")
+        CairoMakie.axislegend(ax5, position=:rt)
+
+        # 6. Interpretation panel
+        ax6 = CairoMakie.Axis(fig[2, 3], title="α Interpretation",
+                              xlabel="α value", ylabel="")
+        CairoMakie.hidedecorations!(ax6, label=false, ticklabels=false, ticks=false)
+
+        # Show where α falls on the scale
+        α_mean = mean(α_samples)
+        CairoMakie.text!(ax6, 0.5, 0.8, text="Posterior mean: α = $(round(α_mean, digits=2))",
+            align=(:center, :center), fontsize=14)
+
+        if α_mean < 1.5
+            interp = "Exponential-like (dSTORM/photobleaching)"
+        elseif α_mean > 5.0
+            interp = "Poisson-like (DNA-PAINT/constant rate)"
+        else
+            interp = "Intermediate heterogeneity"
+        end
+        CairoMakie.text!(ax6, 0.5, 0.5, text=interp,
+            align=(:center, :center), fontsize=12)
+
+        # Add reference lines
+        CairoMakie.text!(ax6, 0.5, 0.2, text="α ≈ 1: Exponential | α → ∞: Poisson",
+            align=(:center, :center), fontsize=10, color=:gray)
     end
 
     if save_path !== nothing
