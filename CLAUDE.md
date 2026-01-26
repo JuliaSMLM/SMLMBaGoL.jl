@@ -45,7 +45,6 @@ src/
 ├── spatial.jl      # Coordinate utilities for partitioning
 ├── partition.jl    # Precision-weighted DBSCAN clustering
 ├── partitioned.jl  # Parallel BaGoL execution + boundary merging
-├── visualization.jl # plot_bagol, plot_mapn, plot_hierarchical_diagnostics
 └── simulation.jl   # simulate_smlm, simulate_grid, simulate_nmers
 ```
 
@@ -73,11 +72,12 @@ result_smld, diagnostics = run_bagol(smld; n_iterations=10000, burn_in=2000)
 #   λ_K=length(locs)/5.0     # Prior on emitter count
 #   sync_interval=500        # Iterations between global μ/α updates (partitioned)
 
-# 2. Advanced: direct chain access for visualization/diagnostics
+# 2. Advanced: direct chain access for diagnostics
 chain = run_bagol_chain(locs; n_iterations=10000, burn_in=2000)
 emitters, posterior_k = estimate_mapn(chain)
-plot_bagol(chain, emitters, posterior_k, locs)
-plot_hierarchical_diagnostics(chain)
+
+# Visualization: include examples/viz_chain_diagnostics.jl
+# Then use: plot_bagol(chain, emitters, posterior_k, locs)
 ```
 
 ### RJMCMC Algorithm
@@ -117,7 +117,8 @@ Key external packages:
 - `SMLMData` - Core SMLM types (`Emitter2DFit`, `BasicSMLD`, `IdealCamera`)
 - `Hungarian` - Optimal assignment for MAP-N estimation
 - `NearestNeighbors` - KDTree for spatial clustering
-- `CairoMakie` - Visualization (plot functions)
+
+Examples use `CairoMakie` and `SMLMRender` for visualization (see `examples/viz_chain_diagnostics.jl`).
 
 ## Git Workflow
 

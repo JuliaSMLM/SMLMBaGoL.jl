@@ -1,4 +1,20 @@
-# Visualization for BaGoL
+# BaGoL Chain Diagnostics Visualization
+# ======================================
+# Reference visualization functions for BaGoL chain diagnostics.
+# These are example implementations - copy/adapt for your needs.
+#
+# Usage: include("viz_chain_diagnostics.jl") in your script
+#
+# Functions:
+#   plot_bagol(chain, emitters, posterior_k, locs; true_positions, save_path)
+#   plot_mapn(emitters, posterior_k, locs; true_positions, save_path)
+#   plot_hierarchical_diagnostics(chain; true_locs_per_emitter, save_path)
+
+using CairoMakie
+using Statistics
+using Distributions: NegativeBinomial, pdf
+using SMLMData
+using SMLMBaGoL: RJMCMCChain
 
 """
 Draw a circle at (x, y) with radius r.
@@ -7,17 +23,15 @@ function draw_circle!(ax, x, y, r; color=:black, linewidth=1.0, alpha=1.0)
     θ = range(0, 2π, length=50)
     cx = x .+ r .* cos.(θ)
     cy = y .+ r .* sin.(θ)
-    CairoMakie.lines!(ax, cx, cy, color=(color, alpha), linewidth=linewidth)
+    lines!(ax, cx, cy, color=(color, alpha), linewidth=linewidth)
 end
 
 """
 Draw an X marker at (x, y) with half-size r.
 """
 function draw_x!(ax, x, y, r; color=:blue, linewidth=2.0, alpha=1.0)
-    # Diagonal from top-left to bottom-right
-    CairoMakie.lines!(ax, [x - r, x + r], [y + r, y - r], color=(color, alpha), linewidth=linewidth)
-    # Diagonal from bottom-left to top-right
-    CairoMakie.lines!(ax, [x - r, x + r], [y - r, y + r], color=(color, alpha), linewidth=linewidth)
+    lines!(ax, [x - r, x + r], [y + r, y - r], color=(color, alpha), linewidth=linewidth)
+    lines!(ax, [x - r, x + r], [y - r, y + r], color=(color, alpha), linewidth=linewidth)
 end
 
 """
@@ -43,12 +57,12 @@ function plot_bagol(
     true_positions::Vector{Tuple{Float64, Float64}} = Tuple{Float64, Float64}[],
     save_path::Union{String, Nothing} = nothing
 )
-    fig = CairoMakie.Figure(size=(1200, 500))
+    fig = Figure(size=(1200, 500))
 
     # Left: Main visualization
-    ax1 = CairoMakie.Axis(fig[1, 1], title="BaGoL Results",
-                          xlabel="x (μm)", ylabel="y (μm)",
-                          aspect=CairoMakie.DataAspect())
+    ax1 = Axis(fig[1, 1], title="BaGoL Results",
+               xlabel="x (μm)", ylabel="y (μm)",
+               aspect=DataAspect())
 
     # 1. Localizations as 1σ circles (gray)
     for loc in locs
@@ -66,7 +80,7 @@ function plot_bagol(
         end
     end
     if !isempty(chain_xs)
-        CairoMakie.scatter!(ax1, chain_xs, chain_ys,
+        scatter!(ax1, chain_xs, chain_ys,
             color=(:red, 0.05), markersize=3, label="Chain samples")
     end
 
@@ -76,7 +90,7 @@ function plot_bagol(
         if σ > 0
             draw_circle!(ax1, e.x, e.y, σ; color=:red, linewidth=2.0)
         end
-        CairoMakie.scatter!(ax1, [e.x], [e.y], color=:red, markersize=8)
+        scatter!(ax1, [e.x], [e.y], color=:red, markersize=8)
     end
 
     # 4. True positions as X (blue) - size based on median loc sigma
@@ -88,25 +102,25 @@ function plot_bagol(
     end
 
     # Right: Posterior on K
-    ax2 = CairoMakie.Axis(fig[1, 2], title="Posterior P(K)",
-                          xlabel="Number of emitters", ylabel="Probability")
+    ax2 = Axis(fig[1, 2], title="Posterior P(K)",
+               xlabel="Number of emitters", ylabel="Probability")
 
     k_vals = 0:(length(posterior_k) - 1)
     probs = posterior_k ./ sum(posterior_k)
-    CairoMakie.barplot!(ax2, k_vals, probs, color=:steelblue)
+    barplot!(ax2, k_vals, probs, color=:steelblue)
 
     # Mark true K and MAP-N
     n_emitters = length(emitters)
     if !isempty(true_positions)
-        CairoMakie.vlines!(ax2, [length(true_positions)], color=:blue,
+        vlines!(ax2, [length(true_positions)], color=:blue,
             linestyle=:dash, linewidth=2, label="True K")
     end
-    CairoMakie.vlines!(ax2, [n_emitters], color=:red,
+    vlines!(ax2, [n_emitters], color=:red,
         linestyle=:solid, linewidth=2, label="MAP-N = $n_emitters")
-    CairoMakie.axislegend(ax2, position=:rt)
+    axislegend(ax2, position=:rt)
 
     if save_path !== nothing
-        CairoMakie.save(save_path, fig)
+        save(save_path, fig)
     end
 
     return fig
@@ -129,11 +143,11 @@ function plot_mapn(
     true_positions::Vector{Tuple{Float64, Float64}} = Tuple{Float64, Float64}[],
     save_path::Union{String, Nothing} = nothing
 )
-    fig = CairoMakie.Figure(size=(1200, 500))
+    fig = Figure(size=(1200, 500))
 
-    ax1 = CairoMakie.Axis(fig[1, 1], title="Localizations + MAP-N Emitters",
-                          xlabel="x (μm)", ylabel="y (μm)",
-                          aspect=CairoMakie.DataAspect())
+    ax1 = Axis(fig[1, 1], title="Localizations + MAP-N Emitters",
+               xlabel="x (μm)", ylabel="y (μm)",
+               aspect=DataAspect())
 
     # Localizations as 1σ circles
     for loc in locs
@@ -147,7 +161,7 @@ function plot_mapn(
         if σ > 0
             draw_circle!(ax1, e.x, e.y, σ; color=:red, linewidth=2.0)
         end
-        CairoMakie.scatter!(ax1, [e.x], [e.y], color=:red, markersize=8)
+        scatter!(ax1, [e.x], [e.y], color=:red, markersize=8)
     end
 
     # True positions as X - size based on median loc sigma
@@ -159,24 +173,24 @@ function plot_mapn(
     end
 
     # Posterior on K
-    ax2 = CairoMakie.Axis(fig[1, 2], title="Posterior P(K)",
-                          xlabel="Number of emitters", ylabel="Probability")
+    ax2 = Axis(fig[1, 2], title="Posterior P(K)",
+               xlabel="Number of emitters", ylabel="Probability")
 
     k_vals = 0:(length(posterior_k) - 1)
     probs = posterior_k ./ sum(posterior_k)
-    CairoMakie.barplot!(ax2, k_vals, probs, color=:steelblue)
+    barplot!(ax2, k_vals, probs, color=:steelblue)
 
     n_emitters = length(emitters)
     if !isempty(true_positions)
-        CairoMakie.vlines!(ax2, [length(true_positions)], color=:blue,
+        vlines!(ax2, [length(true_positions)], color=:blue,
             linestyle=:dash, linewidth=2, label="True K")
     end
-    CairoMakie.vlines!(ax2, [n_emitters], color=:red,
+    vlines!(ax2, [n_emitters], color=:red,
         linestyle=:solid, linewidth=2, label="MAP-N")
-    CairoMakie.axislegend(ax2, position=:rt)
+    axislegend(ax2, position=:rt)
 
     if save_path !== nothing
-        CairoMakie.save(save_path, fig)
+        save(save_path, fig)
     end
 
     return fig
@@ -204,7 +218,7 @@ function plot_hierarchical_diagnostics(
 
     if isempty(μ_samples)
         @warn "No samples in chain"
-        return CairoMakie.Figure()
+        return Figure()
     end
 
     # Check if α was learned (varies across samples)
@@ -212,44 +226,44 @@ function plot_hierarchical_diagnostics(
 
     # Determine layout based on whether α was learned
     if α_learned
-        fig = CairoMakie.Figure(size=(1400, 700))
+        fig = Figure(size=(1400, 700))
     else
-        fig = CairoMakie.Figure(size=(1400, 400))
+        fig = Figure(size=(1400, 400))
     end
 
     # Row 1: μ diagnostics
     # 1. μ trace plot
-    ax1 = CairoMakie.Axis(fig[1, 1], title="μ Trace",
-                          xlabel="Sample", ylabel="μ (locs/emitter)")
-    CairoMakie.lines!(ax1, 1:length(μ_samples), μ_samples, color=:steelblue)
+    ax1 = Axis(fig[1, 1], title="μ Trace",
+               xlabel="Sample", ylabel="μ (locs/emitter)")
+    lines!(ax1, 1:length(μ_samples), μ_samples, color=:steelblue)
 
     # Add true μ if we have true counts
     if true_locs_per_emitter !== nothing && !isempty(true_locs_per_emitter)
         true_μ = mean(true_locs_per_emitter)
-        CairoMakie.hlines!(ax1, [true_μ], color=:red, linestyle=:dash,
+        hlines!(ax1, [true_μ], color=:red, linestyle=:dash,
             linewidth=2, label="True μ = $(round(true_μ, digits=1))")
-        CairoMakie.axislegend(ax1, position=:rt)
+        axislegend(ax1, position=:rt)
     end
 
     # 2. μ posterior histogram
-    ax2 = CairoMakie.Axis(fig[1, 2], title="μ Posterior",
-                          xlabel="μ (locs/emitter)", ylabel="Density")
-    CairoMakie.hist!(ax2, μ_samples, bins=30, normalization=:pdf, color=:steelblue)
+    ax2 = Axis(fig[1, 2], title="μ Posterior",
+               xlabel="μ (locs/emitter)", ylabel="Density")
+    hist!(ax2, μ_samples, bins=30, normalization=:pdf, color=:steelblue)
 
     μ_mean = mean(μ_samples)
-    CairoMakie.vlines!(ax2, [μ_mean], color=:black, linewidth=2,
+    vlines!(ax2, [μ_mean], color=:black, linewidth=2,
         label="Mean = $(round(μ_mean, digits=1))")
 
     if true_locs_per_emitter !== nothing && !isempty(true_locs_per_emitter)
         true_μ = mean(true_locs_per_emitter)
-        CairoMakie.vlines!(ax2, [true_μ], color=:red, linestyle=:dash,
+        vlines!(ax2, [true_μ], color=:red, linestyle=:dash,
             linewidth=2, label="True = $(round(true_μ, digits=1))")
     end
-    CairoMakie.axislegend(ax2, position=:rt)
+    axislegend(ax2, position=:rt)
 
     # 3. Locs/emitter count distribution
-    ax3 = CairoMakie.Axis(fig[1, 3], title="Locs/Emitter Distribution",
-                          xlabel="Count", ylabel="Probability")
+    ax3 = Axis(fig[1, 3], title="Locs/Emitter Distribution",
+               xlabel="Count", ylabel="Probability")
 
     # Get allocation counts from chain samples
     all_counts = Int[]
@@ -265,12 +279,12 @@ function plot_hierarchical_diagnostics(
         bins = 0:(max_count + 1)
 
         # Estimated histogram (from chain)
-        CairoMakie.hist!(ax3, all_counts, bins=bins, normalization=:probability,
+        hist!(ax3, all_counts, bins=bins, normalization=:probability,
             color=(:steelblue, 0.6), label="Estimated")
 
         # True histogram (if provided)
         if true_locs_per_emitter !== nothing && !isempty(true_locs_per_emitter)
-            CairoMakie.hist!(ax3, true_locs_per_emitter, bins=bins, normalization=:probability,
+            hist!(ax3, true_locs_per_emitter, bins=bins, normalization=:probability,
                 color=(:red, 0.4), label="True")
         end
 
@@ -282,37 +296,37 @@ function plot_hierarchical_diagnostics(
 
         x_model = 0:max_count
         y_model = [pdf(negbin, k) for k in x_model]
-        CairoMakie.lines!(ax3, x_model, y_model, color=:black, linewidth=2,
+        lines!(ax3, x_model, y_model, color=:black, linewidth=2,
             label="NegBin(α=$(round(α_post, digits=1)), μ=$(round(μ_post, digits=1)))")
 
-        CairoMakie.axislegend(ax3, position=:rt)
+        axislegend(ax3, position=:rt)
     end
 
     # Row 2: α diagnostics (only if α was learned)
     if α_learned
         # 4. α trace plot
-        ax4 = CairoMakie.Axis(fig[2, 1], title="α Trace",
-                              xlabel="Sample", ylabel="α (shape)")
-        CairoMakie.lines!(ax4, 1:length(α_samples), α_samples, color=:darkorange)
+        ax4 = Axis(fig[2, 1], title="α Trace",
+                   xlabel="Sample", ylabel="α (shape)")
+        lines!(ax4, 1:length(α_samples), α_samples, color=:darkorange)
 
         # 5. α posterior histogram
-        ax5 = CairoMakie.Axis(fig[2, 2], title="α Posterior",
-                              xlabel="α (shape)", ylabel="Density")
-        CairoMakie.hist!(ax5, α_samples, bins=30, normalization=:pdf, color=:darkorange)
+        ax5 = Axis(fig[2, 2], title="α Posterior",
+                   xlabel="α (shape)", ylabel="Density")
+        hist!(ax5, α_samples, bins=30, normalization=:pdf, color=:darkorange)
 
         α_mean = mean(α_samples)
-        CairoMakie.vlines!(ax5, [α_mean], color=:black, linewidth=2,
+        vlines!(ax5, [α_mean], color=:black, linewidth=2,
             label="Mean = $(round(α_mean, digits=2))")
-        CairoMakie.axislegend(ax5, position=:rt)
+        axislegend(ax5, position=:rt)
 
         # 6. Interpretation panel
-        ax6 = CairoMakie.Axis(fig[2, 3], title="α Interpretation",
-                              xlabel="α value", ylabel="")
-        CairoMakie.hidedecorations!(ax6, label=false, ticklabels=false, ticks=false)
+        ax6 = Axis(fig[2, 3], title="α Interpretation",
+                   xlabel="α value", ylabel="")
+        hidedecorations!(ax6, label=false, ticklabels=false, ticks=false)
 
         # Show where α falls on the scale
         α_mean = mean(α_samples)
-        CairoMakie.text!(ax6, 0.5, 0.8, text="Posterior mean: α = $(round(α_mean, digits=2))",
+        text!(ax6, 0.5, 0.8, text="Posterior mean: α = $(round(α_mean, digits=2))",
             align=(:center, :center), fontsize=14)
 
         if α_mean < 1.5
@@ -322,16 +336,16 @@ function plot_hierarchical_diagnostics(
         else
             interp = "Intermediate heterogeneity"
         end
-        CairoMakie.text!(ax6, 0.5, 0.5, text=interp,
+        text!(ax6, 0.5, 0.5, text=interp,
             align=(:center, :center), fontsize=12)
 
         # Add reference lines
-        CairoMakie.text!(ax6, 0.5, 0.2, text="α ≈ 1: Exponential | α → ∞: Poisson",
+        text!(ax6, 0.5, 0.2, text="α ≈ 1: Exponential | α → ∞: Poisson",
             align=(:center, :center), fontsize=10, color=:gray)
     end
 
     if save_path !== nothing
-        CairoMakie.save(save_path, fig)
+        save(save_path, fig)
     end
 
     return fig
