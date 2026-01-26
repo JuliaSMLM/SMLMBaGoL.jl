@@ -17,3 +17,6 @@ examples/output/
 .claude/code_review/
 .claude/local_memory/
 .claude/local_memory/
+
+# Reference materials (PDFs, papers)
+references/
