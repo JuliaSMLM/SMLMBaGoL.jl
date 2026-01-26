@@ -1,20 +1,16 @@
 # MAP-N estimation for BaGoL
 
 """
-Result of MAP-N estimation.
-"""
-struct MAPNResult
-    n_emitters::Int
-    emitters::Vector{Tuple{Float64, Float64}}  # (x, y) positions
-    uncertainties::Vector{Tuple{Float64, Float64}}  # (σ_x, σ_y) uncertainties
-    posterior_k::Vector{Int}  # Histogram of K across samples
-end
+    estimate_mapn(chain::RJMCMCChain) -> (Vector{Emitter2DFit}, Vector{Int})
 
-"""
 Estimate the MAP (Maximum A Posteriori) number of emitters and their positions.
 
 Uses Hungarian algorithm to match emitters across samples, then computes
 mean position and uncertainty for each matched emitter.
+
+Returns (emitters, posterior_k) where:
+- emitters: Vector of Emitter2DFit with position and covariance uncertainties
+- posterior_k: Histogram of K across samples
 """
 function estimate_mapn(chain::RJMCMCChain)
     samples = chain.samples
@@ -35,14 +31,14 @@ function estimate_mapn(chain::RJMCMCChain)
     map_n = argmax(posterior_k) - 1
 
     if map_n == 0
-        return MAPNResult(0, Tuple{Float64, Float64}[], Tuple{Float64, Float64}[], posterior_k)
+        return SMLMData.Emitter2DFit[], posterior_k
     end
 
     # Get samples with MAP-N emitters
     map_samples = filter(s -> length(s.emitters) == map_n, samples)
 
     if isempty(map_samples)
-        return MAPNResult(map_n, Tuple{Float64, Float64}[], Tuple{Float64, Float64}[], posterior_k)
+        return SMLMData.Emitter2DFit[], posterior_k
     end
 
     # Use first sample as reference for matching
@@ -69,16 +65,15 @@ function estimate_mapn(chain::RJMCMCChain)
         for (i, j) in enumerate(assignment)
             if j <= length(sample.emitters)
                 e = sample.emitters[j]
-                push!(matched_positions[i], (e.x, e.y))
+                push!(matched_positions[i], (Float64(e.x), Float64(e.y)))
             end
         end
     end
 
-    # Compute mean and uncertainty for each emitter
-    emitters = Tuple{Float64, Float64}[]
-    uncertainties = Tuple{Float64, Float64}[]
+    # Compute mean and uncertainty for each emitter, create Emitter2DFit
+    result_emitters = SMLMData.Emitter2DFit[]
 
-    for positions in matched_positions
+    for (id, positions) in enumerate(matched_positions)
         if isempty(positions)
             continue
         end
@@ -87,12 +82,26 @@ function estimate_mapn(chain::RJMCMCChain)
 
         mean_x = mean(xs)
         mean_y = mean(ys)
-        σ_x = length(xs) > 1 ? std(xs) : 0.0
-        σ_y = length(ys) > 1 ? std(ys) : 0.0
+        n = length(xs)
+        if n > 1
+            σ_x = std(xs)
+            σ_y = std(ys)
+            # Compute covariance: cov(x,y) = E[(x-μx)(y-μy)]
+            σ_xy = sum((xs[i] - mean_x) * (ys[i] - mean_y) for i in 1:n) / (n - 1)
+        else
+            σ_x = 0.0
+            σ_y = 0.0
+            σ_xy = 0.0
+        end
 
-        push!(emitters, (mean_x, mean_y))
-        push!(uncertainties, (σ_x, σ_y))
+        push!(result_emitters, SMLMData.Emitter2DFit(
+            mean_x, mean_y,  # position
+            0.0, 0.0,        # photons, bg (not applicable for grouped result)
+            σ_x, σ_y, σ_xy,  # position uncertainties with covariance
+            0.0, 0.0,        # σ_photons, σ_bg
+            1, 1, 0, id      # frame, dataset, track_id, id
+        ))
     end
 
-    return MAPNResult(map_n, emitters, uncertainties, posterior_k)
+    return result_emitters, posterior_k
 end

@@ -26,10 +26,19 @@ Plot BaGoL results with proper visualization:
 - Chain emitter positions as scatter (light red)
 - MAP-N emitters as 1σ circles (red)
 - True positions as X markers (blue) if provided
+
+# Arguments
+- `chain`: RJMCMCChain for showing sample positions
+- `emitters`: Vector of Emitter2DFit from estimate_mapn
+- `posterior_k`: Histogram of K from estimate_mapn
+- `locs`: Input localizations
+- `true_positions`: Optional ground truth positions
+- `save_path`: Optional path to save figure
 """
 function plot_bagol(
     chain::RJMCMCChain,
-    result::MAPNResult,
+    emitters::Vector{SMLMData.Emitter2DFit},
+    posterior_k::Vector{Int},
     locs::Vector{<:SMLMData.AbstractEmitter};
     true_positions::Vector{Tuple{Float64, Float64}} = Tuple{Float64, Float64}[],
     save_path::Union{String, Nothing} = nothing
@@ -62,12 +71,12 @@ function plot_bagol(
     end
 
     # 3. MAP-N emitters as 1σ circles (red)
-    for ((ex, ey), (σx, σy)) in zip(result.emitters, result.uncertainties)
-        σ = mean([σx, σy])
+    for e in emitters
+        σ = mean([e.σ_x, e.σ_y])
         if σ > 0
-            draw_circle!(ax1, ex, ey, σ; color=:red, linewidth=2.0)
+            draw_circle!(ax1, e.x, e.y, σ; color=:red, linewidth=2.0)
         end
-        CairoMakie.scatter!(ax1, [ex], [ey], color=:red, markersize=8)
+        CairoMakie.scatter!(ax1, [e.x], [e.y], color=:red, markersize=8)
     end
 
     # 4. True positions as X (blue) - size based on median loc sigma
@@ -82,17 +91,18 @@ function plot_bagol(
     ax2 = CairoMakie.Axis(fig[1, 2], title="Posterior P(K)",
                           xlabel="Number of emitters", ylabel="Probability")
 
-    k_vals = 0:(length(result.posterior_k) - 1)
-    probs = result.posterior_k ./ sum(result.posterior_k)
+    k_vals = 0:(length(posterior_k) - 1)
+    probs = posterior_k ./ sum(posterior_k)
     CairoMakie.barplot!(ax2, k_vals, probs, color=:steelblue)
 
     # Mark true K and MAP-N
+    n_emitters = length(emitters)
     if !isempty(true_positions)
         CairoMakie.vlines!(ax2, [length(true_positions)], color=:blue,
             linestyle=:dash, linewidth=2, label="True K")
     end
-    CairoMakie.vlines!(ax2, [result.n_emitters], color=:red,
-        linestyle=:solid, linewidth=2, label="MAP-N = $(result.n_emitters)")
+    CairoMakie.vlines!(ax2, [n_emitters], color=:red,
+        linestyle=:solid, linewidth=2, label="MAP-N = $n_emitters")
     CairoMakie.axislegend(ax2, position=:rt)
 
     if save_path !== nothing
@@ -104,9 +114,17 @@ end
 
 """
 Simple plot without chain samples (for quick visualization).
+
+# Arguments
+- `emitters`: Vector of Emitter2DFit from estimate_mapn
+- `posterior_k`: Histogram of K from estimate_mapn
+- `locs`: Input localizations
+- `true_positions`: Optional ground truth positions
+- `save_path`: Optional path to save figure
 """
 function plot_mapn(
-    result::MAPNResult,
+    emitters::Vector{SMLMData.Emitter2DFit},
+    posterior_k::Vector{Int},
     locs::Vector{<:SMLMData.AbstractEmitter};
     true_positions::Vector{Tuple{Float64, Float64}} = Tuple{Float64, Float64}[],
     save_path::Union{String, Nothing} = nothing
@@ -124,12 +142,12 @@ function plot_mapn(
     end
 
     # MAP-N emitters as 1σ circles
-    for ((ex, ey), (σx, σy)) in zip(result.emitters, result.uncertainties)
-        σ = mean([σx, σy])
+    for e in emitters
+        σ = mean([e.σ_x, e.σ_y])
         if σ > 0
-            draw_circle!(ax1, ex, ey, σ; color=:red, linewidth=2.0)
+            draw_circle!(ax1, e.x, e.y, σ; color=:red, linewidth=2.0)
         end
-        CairoMakie.scatter!(ax1, [ex], [ey], color=:red, markersize=8)
+        CairoMakie.scatter!(ax1, [e.x], [e.y], color=:red, markersize=8)
     end
 
     # True positions as X - size based on median loc sigma
@@ -144,15 +162,16 @@ function plot_mapn(
     ax2 = CairoMakie.Axis(fig[1, 2], title="Posterior P(K)",
                           xlabel="Number of emitters", ylabel="Probability")
 
-    k_vals = 0:(length(result.posterior_k) - 1)
-    probs = result.posterior_k ./ sum(result.posterior_k)
+    k_vals = 0:(length(posterior_k) - 1)
+    probs = posterior_k ./ sum(posterior_k)
     CairoMakie.barplot!(ax2, k_vals, probs, color=:steelblue)
 
+    n_emitters = length(emitters)
     if !isempty(true_positions)
         CairoMakie.vlines!(ax2, [length(true_positions)], color=:blue,
             linestyle=:dash, linewidth=2, label="True K")
     end
-    CairoMakie.vlines!(ax2, [result.n_emitters], color=:red,
+    CairoMakie.vlines!(ax2, [n_emitters], color=:red,
         linestyle=:solid, linewidth=2, label="MAP-N")
     CairoMakie.axislegend(ax2, position=:rt)
 
