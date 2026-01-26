@@ -20,9 +20,9 @@ export MAPNResult
 # Export types
 export Emitter, BaGoLState, BaGoLSample
 
-# Export partitioning
-export Partition, PartitionedBaGoLResult
-export partition_locs, run_bagol_partitioned
+# Export partitioning (internal use, partition_locs exposed for advanced users)
+export Partition
+export partition_locs
 
 # Export priors
 export UniformSpatialPrior
@@ -42,10 +42,10 @@ include("priors.jl")
 include("likelihood.jl")
 include("moves.jl")
 include("hierarchical.jl")
-include("rjmcmc.jl")
 include("mapn.jl")
-include("partition.jl")
-include("partitioned.jl")
+include("partition.jl")    # Must come before rjmcmc (provides Partition)
+include("partitioned.jl")  # Must come before rjmcmc (provides merge_partition_results)
+include("rjmcmc.jl")
 include("visualization.jl")
 include("simulation.jl")
 
