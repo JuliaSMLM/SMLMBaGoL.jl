@@ -12,10 +12,10 @@ using StaticArrays
 using Statistics
 
 # Export main API
-export run_bagol
+export run_bagol, run_bagol_chain
 export estimate_mapn
 export RJMCMCConfig, RJMCMCChain
-export MAPNResult
+export BaGoLDiagnostics
 
 # Export types
 export Emitter, BaGoLState, BaGoLSample

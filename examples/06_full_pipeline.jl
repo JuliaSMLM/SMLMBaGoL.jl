@@ -1,0 +1,255 @@
+# Full Pipeline: Simulation → Frame Connection → Partitioned BaGoL
+# =================================================================
+# Demonstrates the complete workflow:
+# 1. Simulate 6-mers with Poisson labeling using SMLMSim
+# 2. Apply SMLMFrameConnection to combine repeated localizations
+# 3. Run partitioned BaGoL for parallel processing
+#
+# Run with: julia --threads=auto --project=examples examples/06_full_pipeline.jl
+
+using Pkg
+Pkg.activate(@__DIR__)
+
+using SMLMSim
+using SMLMFrameConnection
+using SMLMBaGoL
+using SMLMData
+using SMLMRender
+using CairoMakie
+using Statistics
+using Random
+
+const OUTPUT_DIR = joinpath(@__DIR__, "output", "poisson")
+mkpath(OUTPUT_DIR)
+
+println("="^70)
+println("Full Pipeline: Simulation → Frame Connection → Partitioned BaGoL")
+println("="^70)
+println("Threads available: $(Threads.nthreads())")
+
+Random.seed!(42)
+
+# =============================================================================
+# 1. SETUP SIMULATION PARAMETERS
+# =============================================================================
+println("\n--- Setting up simulation ---")
+
+# Camera: 64×64 pixels @ 0.1 μm/pixel = 6.4×6.4 μm FOV
+pixelsize = 0.1  # μm
+camera = IdealCamera(1:64, 1:64, pixelsize)
+fov_size = 64 * pixelsize  # 6.4 μm
+fov_area = fov_size^2      # 40.96 μm²
+
+# Simulation parameters
+params = StaticSMLMParams(
+    density = 10.0,       # 10 nmers per μm² → ~410 nmers in FOV
+    σ_psf = 0.13,         # 130 nm PSF
+    minphotons = 50,
+    ndatasets = 20,       # 20 datasets
+    nframes = 5000,       # 5000 frames each
+    framerate = 50.0,     # 50 Hz
+    ndims = 2
+)
+
+# Pattern: 6-mer with 25 nm diameter
+pattern = Nmer2D(n=6, d=0.025)
+
+# Labeling: Poisson with mean 1 fluorophore per binding site
+labeling = PoissonLabeling(1.0)
+
+# Fluorophore kinetics for ~5 blinks per molecule
+total_time = params.ndatasets * params.nframes / params.framerate  # 2000 s
+k_on = 5.0 / total_time  # 0.0025 Hz → average 5 blinks over acquisition
+
+fluor = GenericFluor(
+    photons = 1000.0 * params.framerate,  # 1000 photons/frame at 50 fps
+    k_off = params.framerate,             # ~1 frame on-time (20 ms)
+    k_on = k_on
+)
+
+println("FOV: $(fov_size)×$(fov_size) μm ($(64)×$(64) pixels)")
+println("Expected nmers: ~$(round(Int, params.density * fov_area))")
+println("Expected fluorophores: ~$(round(Int, 6 * params.density * fov_area * 1.0)) (6 sites × density × mean labeling)")
+println("Total acquisition time: $(total_time) s")
+println("Expected blinks per molecule: ~$(k_on * total_time)")
+
+# =============================================================================
+# 2. SIMULATE SMLM DATA
+# =============================================================================
+println("\n--- Running simulation ---")
+
+smld_true, smld_model, smld_noisy = simulate(
+    params;
+    pattern = pattern,
+    labeling = labeling,
+    molecule = fluor,
+    camera = camera
+)
+
+println("True emitters (fluorophore positions): $(length(smld_true.emitters))")
+println("Kinetic model localizations: $(length(smld_model.emitters))")
+println("Noisy localizations: $(length(smld_noisy.emitters))")
+
+# Extract ground truth emitter positions for later comparison
+true_positions = [(e.x, e.y) for e in smld_true.emitters]
+
+# =============================================================================
+# 3. FRAME CONNECTION
+# =============================================================================
+println("\n--- Running frame connection ---")
+
+# Frame connect combines repeated localizations of the same fluorophore
+fc_result = frameconnect(
+    smld_noisy;
+    maxframegap = 10,    # Allow gaps for blinking
+    nsigmadev = 5.0      # Connection radius threshold
+)
+smld_combined = fc_result.combined
+smld_connected = fc_result.connected
+fc_params = fc_result.params
+
+println("After frame connection: $(length(smld_combined.emitters)) combined localizations")
+println("Compression ratio: $(round(length(smld_noisy.emitters) / length(smld_combined.emitters), digits=1))×")
+
+# Report photophysics estimates from frame connection
+println("\nEstimated photophysics:")
+println("  k_on:     $(round(fc_params.k_on, digits=4)) per frame")
+println("  k_off:    $(round(fc_params.k_off, digits=4)) per frame")
+println("  k_bleach: $(round(fc_params.k_bleach, digits=4)) per frame")
+println("  p_miss:   $(round(fc_params.p_miss, digits=4))")
+
+# =============================================================================
+# 4. RUN PARTITIONED BAGOL
+# =============================================================================
+println("\n--- Running Partitioned BaGoL ---")
+
+# Extract connected localizations
+locs = smld_combined.emitters
+
+# Estimate expected number of emitters (fluorophores, not nmers)
+expected_fluors = length(true_positions)
+
+result = run_bagol_partitioned(
+    locs;
+    # Partitioning parameters
+    nsigma = 4.0,
+    min_partition_size = 10,
+    max_partition_size = 200,
+    oversized = :split,
+    # BaGoL parameters
+    α = :auto,
+    learn_α = true,
+    λ_K = Float64(expected_fluors) / 100,  # Per-partition prior
+    n_iterations = 10000,
+    burn_in = 2000,
+    verbose = true
+)
+
+n_bagol = length(result.emitters)
+
+println("\n" * "="^70)
+println("RESULTS")
+println("="^70)
+println("True fluorophores: $(length(true_positions))")
+println("Frame-connected localizations: $(length(locs))")
+println("Partitions: $(length(result.partitions))")
+println("BaGoL MAP-N estimate: $n_bagol")
+
+# =============================================================================
+# 5. PARTITION VISUALIZATION
+# =============================================================================
+println("\n--- Generating partition visualization ---")
+
+fig_partitions = Figure(size=(1200, 600))
+
+# Left: Localizations colored by partition
+ax1 = Axis(fig_partitions[1, 1], title="Localizations by Partition",
+           xlabel="x (μm)", ylabel="y (μm)", aspect=DataAspect())
+
+# Color each partition differently
+n_partitions = length(result.partitions)
+colors = cgrad(:turbo, n_partitions, categorical=true)
+
+for (i, partition) in enumerate(result.partitions)
+    xs = [loc.x for loc in partition.locs]
+    ys = [loc.y for loc in partition.locs]
+    scatter!(ax1, xs, ys, color=colors[i], markersize=3, alpha=0.6)
+end
+
+# Right: MAP-N emitters with partition boundaries
+ax2 = Axis(fig_partitions[1, 2], title="MAP-N Emitters ($n_bagol total)",
+           xlabel="x (μm)", ylabel="y (μm)", aspect=DataAspect())
+
+# Plot true positions
+scatter!(ax2, [p[1] for p in true_positions], [p[2] for p in true_positions],
+         marker='x', color=:black, markersize=6, alpha=0.3, label="True ($(length(true_positions)))")
+
+# Plot MAP-N emitters
+scatter!(ax2, [e.x for e in result.emitters], [e.y for e in result.emitters],
+         color=:red, markersize=8, label="MAP-N ($n_bagol)")
+
+axislegend(ax2, position=:rt, framevisible=false)
+
+save(joinpath(OUTPUT_DIR, "pipeline_partitions.png"), fig_partitions)
+println("Saved: $(joinpath(OUTPUT_DIR, "pipeline_partitions.png"))")
+
+# =============================================================================
+# 6. SUPER-RESOLUTION RENDERING
+# =============================================================================
+println("\n--- Generating SR renders ---")
+
+sr_pixel_size = 5.0  # 5 nm pixels for SR reconstruction
+
+# Create ground truth SMLD from true positions (for rendering)
+true_emitters = [SMLMData.Emitter2DFit{Float64}(
+    pos[1], pos[2],           # x, y
+    1000.0,                   # photons
+    0.0,                      # bg
+    0.005, 0.005,             # σ_x, σ_y (5 nm - tight for ground truth)
+    10.0, 0.0;                # σ_photons, σ_bg
+    frame=1, dataset=1, track_id=0, id=i
+) for (i, pos) in enumerate(true_positions)]
+smld_truth = BasicSMLD(true_emitters, camera, 1, 1)
+
+# Create BaGoL MAP-N result SMLD (emitters already have uncertainties)
+smld_bagol = BasicSMLD(result.emitters, camera, 1, 1)
+
+# Gaussian blob renders
+println("  Rendering Gaussian blobs...")
+render(smld_truth; pixel_size=sr_pixel_size, colormap=:inferno,
+    strategy=GaussianRender(), filename=joinpath(OUTPUT_DIR, "pipeline_sr_truth_gauss.png"))
+
+render(smld_combined; pixel_size=sr_pixel_size, colormap=:inferno,
+    strategy=GaussianRender(), filename=joinpath(OUTPUT_DIR, "pipeline_sr_frameconnect_gauss.png"))
+
+render(smld_bagol; pixel_size=sr_pixel_size, colormap=:inferno,
+    strategy=GaussianRender(), filename=joinpath(OUTPUT_DIR, "pipeline_sr_bagol_gauss.png"))
+
+# Comparison ellipse plot: Frame-connected (cyan) vs BaGoL MAP-N (red)
+println("  Rendering comparison ellipses...")
+ellipse_strategy = EllipseRender(2.0, 1.5, true, nothing, nothing)
+
+render([smld_combined, smld_bagol]; colors=[:cyan, :red], pixel_size=1.0,  # 1 nm pixels
+    strategy=ellipse_strategy, filename=joinpath(OUTPUT_DIR, "pipeline_sr_comparison.png"))
+
+println("Saved SR renders:")
+println("  - pipeline_sr_truth_gauss.png (ground truth, Gaussian)")
+println("  - pipeline_sr_frameconnect_gauss.png (frame-connected, Gaussian)")
+println("  - pipeline_sr_bagol_gauss.png (BaGoL MAP-N, Gaussian)")
+println("  - pipeline_sr_comparison.png (frame-connected cyan vs BaGoL red ellipses)")
+
+# =============================================================================
+# 7. SUMMARY STATISTICS
+# =============================================================================
+println("\n--- Summary Statistics ---")
+println("Partitions processed: $(length(result.partitions))")
+partition_sizes = [length(p.locs) for p in result.partitions]
+println("Partition sizes: min=$(minimum(partition_sizes)), median=$(Int(round(median(partition_sizes)))), max=$(maximum(partition_sizes))")
+
+if !isempty(result.skipped)
+    println("Skipped partitions: $(length(result.skipped))")
+end
+
+println("\n" * "="^70)
+println("Pipeline complete!")
+println("="^70)

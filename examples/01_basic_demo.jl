@@ -48,10 +48,9 @@ println("\nGenerated $(length(localizations)) localizations from $(length(true_p
 # -----------------------------------------------------------------------------
 println("\nRunning BaGoL analysis...")
 
-# τ: systematic uncertainty
-chain = run_bagol(
+# Use run_bagol_chain for chain access (advanced API for visualization)
+chain = run_bagol_chain(
     localizations;
-    τ = 0.010,  # 10 nm
     λ_K = 2.0,  # Prior: expect ~2 emitters
     n_iterations = 10000,
     burn_in = 2000,
@@ -61,16 +60,16 @@ chain = run_bagol(
 # -----------------------------------------------------------------------------
 # Results
 # -----------------------------------------------------------------------------
-result = estimate_mapn(chain)
+emitters, posterior_k = estimate_mapn(chain)
 
 println("\n" * "="^60)
 println("Results")
 println("="^60)
 println("True: $(length(true_positions)) emitters")
-println("MAP-N: $(result.n_emitters) emitters")
+println("MAP-N: $(length(emitters)) emitters")
 
 # Visualization with full chain samples
-fig = plot_bagol(chain, result, localizations;
+fig = plot_bagol(chain, emitters, posterior_k, localizations;
     true_positions=true_positions,
     save_path=joinpath(OUTPUT_DIR, "basic_result.png"))
 println("\nSaved: $(joinpath(OUTPUT_DIR, "basic_result.png"))")

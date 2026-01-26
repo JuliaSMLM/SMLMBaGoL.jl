@@ -89,7 +89,8 @@ println("  $(n_dimers) dimers, $(n_trimers) trimers")
 # -----------------------------------------------------------------------------
 println("\nRunning BaGoL...")
 
-chain = run_bagol(
+# Use run_bagol_chain for chain access (advanced API for visualization)
+chain = run_bagol_chain(
     all_locs;
     λ_K = Float64(total_emitters),
     n_iterations = 10000,
@@ -97,16 +98,16 @@ chain = run_bagol(
     verbose = true
 )
 
-result = estimate_mapn(chain)
+emitters, posterior_k = estimate_mapn(chain)
 
 println("\n" * "="^60)
 println("Results")
 println("="^60)
 println("True emitters: $total_emitters")
-println("MAP-N: $(result.n_emitters)")
+println("MAP-N: $(length(emitters))")
 
 # Visualization with full chain samples
-fig = plot_bagol(chain, result, all_locs;
+fig = plot_bagol(chain, emitters, posterior_k, all_locs;
     true_positions=all_positions,
     save_path=joinpath(OUTPUT_DIR, "nmer_result.png"))
 println("\nSaved: $(joinpath(OUTPUT_DIR, "nmer_result.png"))")

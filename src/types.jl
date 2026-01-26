@@ -71,3 +71,15 @@ function RJMCMCChain(config::RJMCMCConfig, initial_state::BaGoLState{T}; α_init
         Dict(:birth => (0, 0), :death => (0, 0), :move => (0, 0), :allocate => (0, 0))
     )
 end
+
+"""
+Diagnostics from BaGoL analysis for QC and visualization.
+"""
+struct BaGoLDiagnostics
+    n_emitters::Int
+    posterior_k::Vector{Int}
+    acceptance_rates::Dict{Symbol, Float64}
+    final_μ::Float64
+    final_α::Float64
+    n_partitions::Int  # 1 for non-partitioned runs
+end

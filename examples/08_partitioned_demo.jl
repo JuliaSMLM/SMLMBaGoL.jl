@@ -80,29 +80,28 @@ println("  $n_clusters clusters × $emitters_per_cluster emitters/cluster × $lo
 # =============================================================================
 println("\n--- Running standard BaGoL (single chain) ---")
 
-chain_standard = run_bagol(
-    all_locs;
+camera = SMLMData.IdealCamera(64, 64, 0.1)
+smld_input = SMLMData.BasicSMLD(all_locs, camera, 100, 1)
+
+result_standard, diag_standard = run_bagol(
+    smld_input;
+    partition_threshold = 0,  # Disable partitioning
     λ_K = Float64(total_emitters),
     n_iterations = 10000,
     burn_in = 2000,
     verbose = true
 )
 
-result_standard = estimate_mapn(chain_standard)
-println("\nStandard BaGoL MAP-N: $(result_standard.n_emitters) (true: $total_emitters)")
+println("\nStandard BaGoL MAP-N: $(diag_standard.n_emitters) (true: $total_emitters)")
 
 # =============================================================================
 # 3. RUN PARTITIONED BAGOL VIA UNIFIED API
 # =============================================================================
 println("\n--- Running partitioned BaGoL (parallel via SMLD interface) ---")
 
-# Wrap in SMLD for unified dispatch
-camera = SMLMData.IdealCamera(64, 64, 0.1)
-smld = SMLMData.BasicSMLD(all_locs, camera, 100, 1)
-
 # Unified interface auto-partitions when n_locs > partition_threshold
-result_partitioned = run_bagol(
-    smld;
+result_partitioned, diag_partitioned = run_bagol(
+    smld_input;
     partition_threshold = 50,  # Force partitioning (our data has ~144 locs)
     nsigma = 4.0,              # DBSCAN threshold in sigma units
     min_partition_size = 5,    # Minimum locs per partition
@@ -114,7 +113,7 @@ result_partitioned = run_bagol(
 )
 
 println("\n--- Partitioned Results ---")
-println("Partitioned MAP-N: $(result_partitioned.n_emitters) (true: $total_emitters)")
+println("Partitioned MAP-N: $(diag_partitioned.n_emitters) (true: $total_emitters)")
 
 # =============================================================================
 # 4. COMPARE RESULTS
@@ -123,8 +122,8 @@ println("\n" * "="^60)
 println("COMPARISON")
 println("="^60)
 println("True emitters:          $total_emitters")
-println("Standard BaGoL MAP-N:   $(result_standard.n_emitters)")
-println("Partitioned BaGoL MAP-N: $(result_partitioned.n_emitters)")
+println("Standard BaGoL MAP-N:   $(diag_standard.n_emitters)")
+println("Partitioned BaGoL MAP-N: $(diag_partitioned.n_emitters)")
 
 # =============================================================================
 # 5. VISUALIZATION
@@ -149,19 +148,19 @@ ax2 = Axis(fig[1, 2], title="Standard vs Partitioned BaGoL",
 
 scatter!(ax2, [p[1] for p in all_true_positions], [p[2] for p in all_true_positions],
          marker='x', color=:black, markersize=15, label="True ($total_emitters)")
-scatter!(ax2, [e[1] for e in result_standard.emitters], [e[2] for e in result_standard.emitters],
-         color=(:blue, 0.7), markersize=10, label="Standard ($(result_standard.n_emitters))")
-scatter!(ax2, [e[1] for e in result_partitioned.emitters],
-         [e[2] for e in result_partitioned.emitters],
+scatter!(ax2, [e.x for e in result_standard.emitters], [e.y for e in result_standard.emitters],
+         color=(:blue, 0.7), markersize=10, label="Standard ($(diag_standard.n_emitters))")
+scatter!(ax2, [e.x for e in result_partitioned.emitters],
+         [e.y for e in result_partitioned.emitters],
          color=(:red, 0.7), markersize=8, marker=:diamond,
-         label="Partitioned ($(result_partitioned.n_emitters))")
+         label="Partitioned ($(diag_partitioned.n_emitters))")
 axislegend(ax2, position=:rt, framevisible=false)
 
 # Plot 3: K posterior comparison
 ax3 = Axis(fig[1, 3], title="K Posterior (Standard)",
            xlabel="K (emitter count)", ylabel="Frequency")
 
-barplot!(ax3, 0:(length(result_standard.posterior_k)-1), result_standard.posterior_k,
+barplot!(ax3, 0:(length(diag_standard.posterior_k)-1), diag_standard.posterior_k,
          color=(:blue, 0.5), label="Standard")
 vlines!(ax3, [total_emitters], color=:black, linestyle=:dash, linewidth=2, label="True K")
 axislegend(ax3, position=:rt, framevisible=false)

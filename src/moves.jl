@@ -6,23 +6,21 @@
 
 """
 Sample position from mixture of Gaussians centered at localizations.
-q(x,y) = (1/N) Σᵢ N((x,y) | (xᵢ,yᵢ), σᵢ² + τ²)
+q(x,y) = (1/N) Σᵢ N((x,y) | (xᵢ,yᵢ), σᵢ²)
 """
-function sample_from_mixture(locs::Vector{<:SMLMData.AbstractEmitter}, τ::Float64)
+function sample_from_mixture(locs::Vector{<:SMLMData.AbstractEmitter})
     i = rand(1:length(locs))
     loc = locs[i]
-    σ_x = sqrt(loc.σ_x^2 + τ^2)
-    σ_y = sqrt(loc.σ_y^2 + τ^2)
-    x = loc.x + randn() * σ_x
-    y = loc.y + randn() * σ_y
+    x = loc.x + randn() * loc.σ_x
+    y = loc.y + randn() * loc.σ_y
     return x, y
 end
 
 """
 Log density of mixture of Gaussians at (x, y).
 """
-function log_mixture_density(x::Float64, y::Float64,
-                            locs::Vector{<:SMLMData.AbstractEmitter}, τ::Float64)
+function log_mixture_density(x::Real, y::Real,
+                            locs::Vector{<:SMLMData.AbstractEmitter})
     n = length(locs)
     if n == 0
         return -Inf
@@ -30,8 +28,8 @@ function log_mixture_density(x::Float64, y::Float64,
 
     log_components = Vector{Float64}(undef, n)
     for (i, loc) in enumerate(locs)
-        var_x = loc.σ_x^2 + τ^2
-        var_y = loc.σ_y^2 + τ^2
+        var_x = loc.σ_x^2
+        var_y = loc.σ_y^2
         log_components[i] = -0.5 * log(2π * var_x) - 0.5 * log(2π * var_y) -
                             0.5 * (x - loc.x)^2 / var_x - 0.5 * (y - loc.y)^2 / var_y
     end
@@ -100,7 +98,7 @@ function compute_log_posterior(
     for emitter in state.emitters
         n_alloc = length(emitter.allocated)
         log_post += log_prior_count(n_alloc, chain.μ, chain.α)
-        log_post += log_likelihood_emitter(locs, emitter, config.τ)
+        log_post += log_likelihood_emitter(locs, emitter)
     end
 
     return log_post
@@ -111,10 +109,10 @@ Birth: sample from mixture q(x,y), add emitter, allocate, cleanup.
 Computes full posterior ratio for acceptance.
 """
 function propose_birth!(
-    chain::RJMCMCChain,
+    chain::RJMCMCChain{T},
     locs::Vector{<:SMLMData.AbstractEmitter},
     spatial_prior::UniformSpatialPrior
-)
+) where T
     state = chain.current_state
     config = chain.config
     k = length(state.emitters)
@@ -129,7 +127,7 @@ function propose_birth!(
     old_log_post = compute_log_posterior(state, locs, chain)
 
     # Sample position from mixture
-    x, y = sample_from_mixture(locs, config.τ)
+    x, y = sample_from_mixture(locs)
 
     # Check bounds
     if x < spatial_prior.x_min || x > spatial_prior.x_max ||
@@ -137,12 +135,12 @@ function propose_birth!(
         return false
     end
 
-    log_q = log_mixture_density(x, y, locs, config.τ)
+    log_q = log_mixture_density(x, y, locs)
 
     # Add emitter, allocate, update positions, cleanup
-    push!(state.emitters, Emitter(x, y))
+    push!(state.emitters, Emitter(T(x), T(y)))
     allocate_to_nearest!(state, locs)
-    update_emitter_positions!(state, locs, config.τ)
+    update_emitter_positions!(state, locs)
     remove_empty_emitters!(state)
 
     k_new = length(state.emitters)
@@ -204,12 +202,12 @@ function propose_death!(
     emitter = state.emitters[idx]
 
     # Mixture density at emitter position for detailed balance
-    log_q = log_mixture_density(emitter.x, emitter.y, locs, config.τ)
+    log_q = log_mixture_density(emitter.x, emitter.y, locs)
 
     # Remove emitter, reallocate, update positions, cleanup
     deleteat!(state.emitters, idx)
     allocate_to_nearest!(state, locs)
-    update_emitter_positions!(state, locs, config.τ)
+    update_emitter_positions!(state, locs)
     remove_empty_emitters!(state)
 
     k_new = length(state.emitters)
@@ -270,7 +268,7 @@ function propose_allocate!(
     # Compute log probability for each emitter (likelihood + count prior change)
     log_probs = Vector{Float64}(undef, k)
     for (j, e) in enumerate(state.emitters)
-        log_ll = log_likelihood_single(loc, e, config.τ)
+        log_ll = log_likelihood_single(loc, e)
 
         # Count prior contribution
         n_j = length(e.allocated)
@@ -326,10 +324,10 @@ end
 Move: Gaussian perturbation of emitter position.
 """
 function propose_move!(
-    chain::RJMCMCChain,
+    chain::RJMCMCChain{T},
     locs::Vector{<:SMLMData.AbstractEmitter},
     spatial_prior::UniformSpatialPrior
-)
+) where T
     state = chain.current_state
     config = chain.config
 
@@ -341,8 +339,8 @@ function propose_move!(
     emitter = state.emitters[idx]
 
     # Propose new position
-    x_new = emitter.x + randn() * config.move_σ
-    y_new = emitter.y + randn() * config.move_σ
+    x_new = emitter.x + T(randn() * config.move_σ)
+    y_new = emitter.y + T(randn() * config.move_σ)
 
     # Check bounds
     if x_new < spatial_prior.x_min || x_new > spatial_prior.x_max ||
@@ -351,10 +349,10 @@ function propose_move!(
     end
 
     # Likelihood ratio
-    old_ll = log_likelihood_emitter(locs, emitter, config.τ)
+    old_ll = log_likelihood_emitter(locs, emitter)
     x_old, y_old = emitter.x, emitter.y
     emitter.x, emitter.y = x_new, y_new
-    new_ll = log_likelihood_emitter(locs, emitter, config.τ)
+    new_ll = log_likelihood_emitter(locs, emitter)
 
     if log(rand()) < new_ll - old_ll
         return true
@@ -380,12 +378,12 @@ end
 
 """
 Update emitter positions to weighted centroids of allocated localizations.
+Uses full 2x2 covariance matrix determinant for precision weighting.
 """
 function update_emitter_positions!(
-    state::BaGoLState,
-    locs::Vector{<:SMLMData.AbstractEmitter},
-    τ::Float64
-)
+    state::BaGoLState{T},
+    locs::Vector{<:SMLMData.AbstractEmitter}
+) where T
     for emitter in state.emitters
         if isempty(emitter.allocated)
             continue
@@ -394,17 +392,20 @@ function update_emitter_positions!(
         sum_wx, sum_wy, sum_w = 0.0, 0.0, 0.0
         for idx in emitter.allocated
             loc = locs[idx]
-            var_x = loc.σ_x^2 + τ^2
-            var_y = loc.σ_y^2 + τ^2
-            w = 1.0 / sqrt(var_x * var_y)
+            var_x = loc.σ_x^2
+            var_y = loc.σ_y^2
+            σ_xy = get_cov_xy(loc)
+            det_Σ = var_x * var_y - σ_xy^2
+            # Weight by inverse sqrt of determinant (precision)
+            w = det_Σ > 0 ? 1.0 / sqrt(det_Σ) : 1.0 / sqrt(var_x * var_y)
             sum_wx += w * loc.x
             sum_wy += w * loc.y
             sum_w += w
         end
 
         if sum_w > 0
-            emitter.x = sum_wx / sum_w
-            emitter.y = sum_wy / sum_w
+            emitter.x = T(sum_wx / sum_w)
+            emitter.y = T(sum_wy / sum_w)
         end
     end
 end
