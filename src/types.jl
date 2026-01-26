@@ -2,28 +2,29 @@
 
 """
 Emitter position with associated localizations.
+Parametric on coordinate type T (typically Float32 or Float64).
 """
-mutable struct Emitter
-    x::Float64
-    y::Float64
+mutable struct Emitter{T<:AbstractFloat}
+    x::T
+    y::T
     allocated::Vector{Int}  # Indices of localizations assigned to this emitter
 end
 
-Emitter(x::Float64, y::Float64) = Emitter(x, y, Int[])
+Emitter(x::T, y::T) where T<:AbstractFloat = Emitter{T}(x, y, Int[])
 
 """
 Current state of the RJMCMC chain.
 """
-mutable struct BaGoLState
-    emitters::Vector{Emitter}
+mutable struct BaGoLState{T<:AbstractFloat}
+    emitters::Vector{Emitter{T}}
     log_posterior::Float64
 end
 
 """
 Recorded sample from the RJMCMC chain.
 """
-struct BaGoLSample
-    emitters::Vector{Emitter}
+struct BaGoLSample{T<:AbstractFloat}
+    emitters::Vector{Emitter{T}}
     log_posterior::Float64
     μ::Float64  # Current hierarchical mean
     α::Float64  # Current shape parameter
@@ -33,7 +34,6 @@ end
 Configuration for RJMCMC chain.
 """
 Base.@kwdef struct RJMCMCConfig
-    τ::Float64 = 0.005  # Systematic uncertainty (required to set explicitly)
     α::Float64 = 2.0    # Shape parameter for count distribution (fixed)
     λ_K::Float64 = 10.0 # Poisson prior mean for K (independent)
     μ_prior_a::Float64 = 2.0   # Gamma hyperprior shape for μ
@@ -47,22 +47,22 @@ end
 """
 Complete RJMCMC chain with samples and diagnostics.
 """
-mutable struct RJMCMCChain
+mutable struct RJMCMCChain{T<:AbstractFloat}
     config::RJMCMCConfig
-    samples::Vector{BaGoLSample}
+    samples::Vector{BaGoLSample{T}}
     μ::Float64  # Current hierarchical mean
     α::Float64  # Current shape parameter (mutable for learning)
     learn_α::Bool  # Whether to update α during MCMC
-    current_state::BaGoLState
+    current_state::BaGoLState{T}
     iteration::Int
     acceptance::Dict{Symbol, Tuple{Int, Int}}  # (accepted, total) per move type
 end
 
-function RJMCMCChain(config::RJMCMCConfig, initial_state::BaGoLState; α_init::Float64=config.α, learn_α::Bool=false)
+function RJMCMCChain(config::RJMCMCConfig, initial_state::BaGoLState{T}; α_init::Float64=config.α, learn_α::Bool=false) where T
     μ_init = config.μ_prior_a / config.μ_prior_b
-    RJMCMCChain(
+    RJMCMCChain{T}(
         config,
-        BaGoLSample[],
+        BaGoLSample{T}[],
         μ_init,
         α_init,
         learn_α,
