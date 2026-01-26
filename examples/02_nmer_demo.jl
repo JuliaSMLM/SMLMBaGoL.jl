@@ -54,7 +54,7 @@ function generate_nmer(cx, cy, n, spacing, σ_loc, n_locs, start_id)
             x = ex + randn() * σ_loc
             y = ey + randn() * σ_loc
             σ = σ_loc * (0.9 + 0.2 * rand())
-            push!(locs, SMLMData.Emitter2DFit(x, y, 1000.0, 10.0, σ, σ, 50.0, 1.0, 1, 1, 0, start_id))
+            push!(locs, SMLMData.Emitter2DFit(x, y, 1000.0, 10.0, σ, σ, 0.0, 50.0, 1.0, 1, 1, 0, start_id))
             start_id += 1
         end
     end
@@ -91,7 +91,6 @@ println("\nRunning BaGoL...")
 
 chain = run_bagol(
     all_locs;
-    τ = 0.010,
     λ_K = Float64(total_emitters),
     n_iterations = 10000,
     burn_in = 2000,
