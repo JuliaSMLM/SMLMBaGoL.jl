@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build & Test Commands
 
 ```bash
-# Run tests
+# Run all tests
 julia --project=. -e "using Pkg; Pkg.test()"
 
 # Run examples (use threads for parallel partition processing)
@@ -14,6 +14,9 @@ julia --threads=auto --project=examples examples/02_nmer_demo.jl
 # Interactive development
 julia --project=.
 using SMLMBaGoL
+
+# Run specific testset interactively (from REPL)
+include("test/runtests.jl")  # runs all tests
 ```
 
 ## Code Conventions
@@ -21,6 +24,7 @@ using SMLMBaGoL
 - **All `using`/`import` statements must be in `src/SMLMBaGoL.jl` only** - included files have no imports
 - Units: positions and uncertainties in micrometers (μm)
 - Uncertainty correction should be applied to data before running BaGoL
+- Core types are parametric on coordinate type `T` (preserves Float32/Float64)
 
 ## Architecture
 
@@ -51,21 +55,26 @@ src/
 - `Partition` - Spatial cluster with locs, indices, and boundary flags
 
 ### Main API
+
+Two entry points depending on needs:
+
 ```julia
-# Primary workflow - returns (BasicSMLD, BaGoLDiagnostics)
+# 1. Standard workflow - returns (BasicSMLD, BaGoLDiagnostics)
+#    Auto-partitions large datasets, handles everything
 result_smld, diagnostics = run_bagol(smld; n_iterations=10000, burn_in=2000)
 
-# Key parameters
-run_bagol(smld::SMLD;
-    partition_threshold=500,       # Auto-partition if n_locs > threshold (0 = never)
-    α::Union{Float64,Symbol}=2.0,  # Shape param or :auto
-    learn_α::Bool=false,           # Update α during MCMC
-    λ_K=length(locs)/5.0,          # Prior on emitter count
-    sync_interval=500)             # Iterations between global μ/α updates (partitioned)
+# Key parameters for run_bagol:
+#   partition_threshold=500  # Auto-partition if n_locs > threshold (0 = never)
+#   α=2.0                    # Shape param (or :auto to estimate from frames)
+#   learn_α=false            # Update α during MCMC
+#   λ_K=length(locs)/5.0     # Prior on emitter count
+#   sync_interval=500        # Iterations between global μ/α updates (partitioned)
 
-# Advanced: direct chain access
+# 2. Advanced: direct chain access for visualization/diagnostics
 chain = run_bagol_chain(locs; n_iterations=10000, burn_in=2000)
 emitters, posterior_k = estimate_mapn(chain)
+plot_bagol(chain, emitters, posterior_k, locs)
+plot_hierarchical_diagnostics(chain)
 ```
 
 ### RJMCMC Algorithm
