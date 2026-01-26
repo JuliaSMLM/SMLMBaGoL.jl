@@ -16,8 +16,10 @@ Pkg.activate(@__DIR__)
 using SMLMBaGoL
 using SMLMData
 using Random
-using CairoMakie
 using Statistics
+
+# Include visualization functions from examples/
+include(joinpath(@__DIR__, "viz_chain_diagnostics.jl"))
 
 const OUTPUT_DIR = joinpath(@__DIR__, "output")
 mkpath(OUTPUT_DIR)
