@@ -17,6 +17,9 @@ using SMLMBaGoL
 
 # Run specific testset interactively (from REPL)
 include("test/runtests.jl")  # runs all tests
+
+# Run tests with specific seed for reproducibility
+julia --project=. -e "using Random; Random.seed!(123); using Pkg; Pkg.test()"
 ```
 
 ## Code Conventions
@@ -107,6 +110,14 @@ result.skipped              # Oversized clusters that were skipped
 Algorithm: Precision-weighted DBSCAN clustering where distance = `||p_i - p_j|| / (σ_i + σ_j)`.
 Oversized clusters are recursively bisected along principal axis.
 Boundary emitters are deduplicated via Hungarian matching.
+
+## Dependencies
+
+Key external packages:
+- `SMLMData` - Core SMLM types (`Emitter2DFit`, `BasicSMLD`, `IdealCamera`)
+- `Hungarian` - Optimal assignment for MAP-N estimation
+- `NearestNeighbors` - KDTree for spatial clustering
+- `CairoMakie` - Visualization (plot functions)
 
 ## Git Workflow
 
