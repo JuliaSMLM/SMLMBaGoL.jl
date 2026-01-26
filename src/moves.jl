@@ -18,25 +18,36 @@ end
 
 """
 Log density of mixture of Gaussians at (x, y).
+Optimized single-pass with reduced operations.
 """
 function log_mixture_density(x::Real, y::Real,
-                            locs::Vector{<:SMLMData.AbstractEmitter})
+                            locs::Vector{E}) where E<:SMLMData.AbstractEmitter
     n = length(locs)
-    if n == 0
-        return -Inf
+    n == 0 && return -Inf
+
+    # First element
+    @inbounds loc = locs[1]
+    σx, σy = loc.σ_x, loc.σ_y
+    dx, dy = x - loc.x, y - loc.y
+    # log(2π) ≈ 1.8378770664093453
+    max_lc = -(log(σx) + log(σy) + 0.5*dx*dx/(σx*σx) + 0.5*dy*dy/(σy*σy) + 1.8378770664093453)
+    sum_exp = 1.0
+
+    @inbounds for i in 2:n
+        loc = locs[i]
+        σx, σy = loc.σ_x, loc.σ_y
+        dx, dy = x - loc.x, y - loc.y
+        lc = -(log(σx) + log(σy) + 0.5*dx*dx/(σx*σx) + 0.5*dy*dy/(σy*σy) + 1.8378770664093453)
+
+        if lc > max_lc
+            sum_exp = sum_exp * exp(max_lc - lc) + 1.0
+            max_lc = lc
+        else
+            sum_exp += exp(lc - max_lc)
+        end
     end
 
-    log_components = Vector{Float64}(undef, n)
-    for (i, loc) in enumerate(locs)
-        var_x = loc.σ_x^2
-        var_y = loc.σ_y^2
-        log_components[i] = -0.5 * log(2π * var_x) - 0.5 * log(2π * var_y) -
-                            0.5 * (x - loc.x)^2 / var_x - 0.5 * (y - loc.y)^2 / var_y
-    end
-
-    # logsumexp for numerical stability
-    max_lc = maximum(log_components)
-    return max_lc + log(sum(exp.(log_components .- max_lc))) - log(n)
+    return max_lc + log(sum_exp) - log(n)
 end
 
 # ============================================================================
