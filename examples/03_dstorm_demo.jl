@@ -65,9 +65,8 @@ println("Running BaGoL with learn_α=true")
 println("-"^60)
 println("Starting from α=2.0, will learn true value from data...")
 
-chain = run_bagol(
+chain = run_bagol_chain(
     sim.localizations;
-    τ = 0.010,
     α = 2.0,        # Initial guess (will be updated)
     learn_α = true, # Learn α from data
     λ_K = Float64(n_emitters),
@@ -76,7 +75,7 @@ chain = run_bagol(
     verbose = true
 )
 
-result = estimate_mapn(chain)
+emitters, posterior_k = estimate_mapn(chain)
 
 # -----------------------------------------------------------------------------
 # Results
@@ -85,7 +84,7 @@ println("\n" * "="^60)
 println("Results")
 println("="^60)
 println("True emitters: $n_emitters")
-println("MAP-N: $(result.n_emitters)")
+println("MAP-N: $(length(emitters))")
 println("True α: 1.2")
 println("Learned α: $(round(chain.α, digits=2))")
 
@@ -95,7 +94,7 @@ println("α posterior: $(round(mean(α_samples), digits=2)) ± $(round(std(α_sa
 # -----------------------------------------------------------------------------
 # Visualizations
 # -----------------------------------------------------------------------------
-fig = plot_bagol(chain, result, sim.localizations;
+fig = plot_bagol(chain, emitters, posterior_k, sim.localizations;
     true_positions=sim.true_positions,
     save_path=joinpath(OUTPUT_DIR, "dstorm_result.png"))
 println("\nSaved: $(joinpath(OUTPUT_DIR, "dstorm_result.png"))")

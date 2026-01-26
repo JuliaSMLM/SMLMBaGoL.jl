@@ -76,26 +76,52 @@ function run_iterations!(
 end
 
 """
-Run BaGoL RJMCMC analysis on localizations.
-
-# Arguments
-- `locs`: Vector of localizations (must have x, y, σ_x, σ_y fields)
-- `α`: Shape parameter for count distribution. Can be:
-  - `Float64`: Fixed value (default: 2.0)
-  - `:auto`: Estimate from frame statistics using Fano factor
-- `learn_α`: Whether to update α during MCMC (default: false)
-- `n_iterations`: Number of MCMC iterations (default: 10000)
-- `burn_in`: Burn-in iterations before recording samples (default: 2000)
-- `hierarchical_interval`: Iterations between μ/α updates (default: 100)
-
-# Returns
-- `RJMCMCChain` containing samples and diagnostics
+Build BaGoLDiagnostics from chain.
 """
-function run_bagol(
+function build_diagnostics(chain::RJMCMCChain, posterior_k::Vector{Int}, n_emitters::Int; n_partitions::Int=1)
+    acceptance_rates = Dict{Symbol, Float64}()
+    for (move, (acc, tot)) in chain.acceptance
+        acceptance_rates[move] = tot > 0 ? acc / tot : 0.0
+    end
+    return BaGoLDiagnostics(n_emitters, posterior_k, acceptance_rates, chain.μ, chain.α, n_partitions)
+end
+
+"""
+Build BaGoLDiagnostics from multiple chains (partitioned run).
+"""
+function build_diagnostics(chains::Vector{<:RJMCMCChain}, posterior_k::Vector{Int}, n_emitters::Int)
+    # Aggregate acceptance rates across chains
+    acceptance_totals = Dict{Symbol, Tuple{Int, Int}}()
+    for chain in chains
+        for (move, (acc, tot)) in chain.acceptance
+            prev = get(acceptance_totals, move, (0, 0))
+            acceptance_totals[move] = (prev[1] + acc, prev[2] + tot)
+        end
+    end
+    acceptance_rates = Dict{Symbol, Float64}()
+    for (move, (acc, tot)) in acceptance_totals
+        acceptance_rates[move] = tot > 0 ? acc / tot : 0.0
+    end
+    # Use first chain for final μ, α (all chains have same value after global updates)
+    return BaGoLDiagnostics(n_emitters, posterior_k, acceptance_rates,
+                            chains[1].μ, chains[1].α, length(chains))
+end
+
+# ============================================================================
+# Core chain-building function (internal)
+# ============================================================================
+
+"""
+    run_bagol_chain(locs; kwargs...) -> RJMCMCChain
+
+Internal function that runs MCMC and returns the chain.
+For advanced users who need direct chain access.
+"""
+function run_bagol_chain(
     locs::Vector{<:SMLMData.AbstractEmitter};
     α::Union{Float64, Symbol} = 2.0,
     learn_α::Bool = false,
-    λ_K::Float64 = Float64(length(locs)) / 5.0,  # Rough estimate: ~5 locs per emitter
+    λ_K::Float64 = Float64(length(locs)) / 5.0,
     n_iterations::Int = 10000,
     burn_in::Int = 2000,
     hierarchical_interval::Int = 100,
@@ -115,7 +141,7 @@ function run_bagol(
     end
 
     config = RJMCMCConfig(;
-        α = α_init,  # Store initial value in config
+        α = α_init,
         λ_K = λ_K,
         n_iterations = n_iterations,
         burn_in = burn_in,
@@ -128,10 +154,11 @@ function run_bagol(
     # Create spatial prior from data
     spatial_prior = UniformSpatialPrior(locs)
 
-    # Initialize with one emitter at centroid
+    # Initialize with one emitter at centroid (preserve coordinate type)
+    T = typeof(locs[1].x)
     xs = [loc.x for loc in locs]
     ys = [loc.y for loc in locs]
-    initial_emitter = Emitter(mean(xs), mean(ys))
+    initial_emitter = Emitter(T(mean(xs)), T(mean(ys)))
     initial_state = BaGoLState([initial_emitter], 0.0)
 
     # Initialize allocations
@@ -181,30 +208,30 @@ function run_bagol(
 end
 
 # ============================================================================
-# Dispatch methods for SMLD and Partition types
+# Main API: run_bagol returns (BasicSMLD, BaGoLDiagnostics)
 # ============================================================================
 
 """
-    run_bagol(p::Partition; kwargs...)
+    run_bagol(smld::SMLD; kwargs...) -> (BasicSMLD, BaGoLDiagnostics)
 
-Run BaGoL on a partition. Dispatches to core Vector method.
-"""
-run_bagol(p::Partition; kwargs...) = run_bagol(p.locs; kwargs...)
+Run BaGoL analysis on an SMLD. Returns grouped emitters as BasicSMLD and diagnostics.
 
-"""
-    run_bagol(smld::SMLMData.SMLD; partition_threshold=500, kwargs...)
-
-Run BaGoL on an SMLD. Auto-partitions large datasets and uses global hierarchical updates.
+Auto-partitions large datasets for parallel processing with global hierarchical updates.
 
 # Arguments
-- `partition_threshold`: Use partitioning if n_locs > threshold (0 = never partition)
-- `nsigma`: DBSCAN threshold in sigma units (default 4.0)
-- `max_partition_size`: Target max locs per partition (default 1000)
-- `sync_interval`: Iterations between global μ/α updates (default 500)
-- Other kwargs passed to core `run_bagol`
+- `partition_threshold=500`: Use partitioning if n_locs > threshold (0 = never partition)
+- `nsigma=4.0`: DBSCAN threshold in sigma units
+- `max_partition_size=1000`: Target max locs per partition
+- `sync_interval=500`: Iterations between global μ/α updates (partitioned only)
+- `n_iterations=10000`: Total MCMC iterations
+- `burn_in=2000`: Burn-in iterations before recording
+- `α=2.0`: Shape parameter (or `:auto` to estimate from data)
+- `learn_α=false`: Whether to update α during MCMC
+- `verbose=true`: Print progress
 
 # Returns
-- `MAPNResult` with grouped emitter positions
+- `BasicSMLD`: Grouped emitter positions with uncertainties
+- `BaGoLDiagnostics`: n_emitters, posterior_k, acceptance_rates, final parameters
 """
 function run_bagol(
     smld::SMLMData.SMLD;
@@ -221,11 +248,19 @@ function run_bagol(
     kwargs...
 )
     locs = smld.emitters
+    camera = smld.camera
 
     # Small dataset: run directly
     if length(locs) <= partition_threshold || partition_threshold == 0
-        chain = run_bagol(locs; n_iterations, burn_in, α, learn_α, verbose, kwargs...)
-        return estimate_mapn(chain)
+        chain = run_bagol_chain(locs; n_iterations, burn_in, α, learn_α, verbose, kwargs...)
+        emitters, posterior_k = estimate_mapn(chain)
+        diagnostics = build_diagnostics(chain, posterior_k, length(emitters))
+        result_smld = SMLMData.BasicSMLD(emitters, camera, 1, 1)
+
+        if verbose
+            println("\nResult: $(length(emitters)) emitters")
+        end
+        return result_smld, diagnostics
     end
 
     # Large dataset: partition with synchronized global updates
@@ -257,7 +292,9 @@ function run_bagol(
 
     if isempty(partitions)
         @warn "No valid partitions"
-        return MAPNResult(0, Tuple{Float64,Float64}[], Tuple{Float64,Float64}[], Int[])
+        empty_smld = SMLMData.BasicSMLD(SMLMData.Emitter2DFit[], camera, 1, 1)
+        empty_diag = BaGoLDiagnostics(0, Int[], Dict{Symbol,Float64}(), 0.0, α_init, 0)
+        return empty_smld, empty_diag
     end
 
     # Initialize chains for each partition
@@ -267,7 +304,6 @@ function run_bagol(
 
     μ_prior_a = get(kwargs, :μ_prior_a, 2.0)
     μ_prior_b = get(kwargs, :μ_prior_b, 0.2)
-    λ_K_default = Float64(length(locs)) / 5.0 / n_partitions
 
     Threads.@threads for i in 1:n_partitions
         p_locs = partitions[i].locs
@@ -276,7 +312,7 @@ function run_bagol(
             λ_K = get(kwargs, :λ_K, Float64(length(p_locs)) / 5.0),
             n_iterations = n_iterations,
             burn_in = burn_in,
-            hierarchical_interval = sync_interval,  # Not used internally, but stored
+            hierarchical_interval = sync_interval,
             move_σ = get(kwargs, :move_σ, 0.010),
             μ_prior_a = μ_prior_a,
             μ_prior_b = μ_prior_b
@@ -284,9 +320,10 @@ function run_bagol(
 
         spatial_priors[i] = UniformSpatialPrior(p_locs)
 
+        T = typeof(p_locs[1].x)
         xs = [loc.x for loc in p_locs]
         ys = [loc.y for loc in p_locs]
-        initial_emitter = Emitter(mean(xs), mean(ys))
+        initial_emitter = Emitter(T(mean(xs)), T(mean(ys)))
         initial_state = BaGoLState([initial_emitter], 0.0)
         initialize_allocations!(initial_state, p_locs)
         update_emitter_positions!(initial_state, p_locs)
@@ -297,14 +334,12 @@ function run_bagol(
     # Synchronized outer loop
     n_outer = div(n_iterations, sync_interval)
     for outer in 1:n_outer
-        # Run sync_interval iterations on each partition (parallel)
         Threads.@threads for i in 1:n_partitions
             record = (outer * sync_interval) > burn_in
             run_iterations!(chains[i], partitions[i].locs, spatial_priors[i],
                            sync_interval; record_after_burn_in=record)
         end
 
-        # Global hierarchical updates
         μ_new = update_mu_global!(chains, μ_prior_a, μ_prior_b)
         if learn_α
             update_alpha_global!(chains)
@@ -334,12 +369,35 @@ function run_bagol(
     sigmas = [mean_sigma(loc) for loc in locs]
     boundary_margin = 5.0 * median(sigmas)
 
-    # Merge results
-    result = merge_partition_results(chains, partitions, boundary_margin)
+    # Merge results from all partitions
+    merged_emitters, posterior_k = merge_partition_results(chains, partitions, boundary_margin)
+    diagnostics = build_diagnostics(chains, posterior_k, length(merged_emitters))
+    result_smld = SMLMData.BasicSMLD(merged_emitters, camera, 1, 1)
 
     if verbose
-        println("Final result: $(result.n_emitters) emitters")
+        println("Result: $(length(merged_emitters)) emitters")
     end
 
-    return result
+    return result_smld, diagnostics
 end
+
+"""
+    run_bagol(locs::Vector{<:AbstractEmitter}; camera, kwargs...) -> (BasicSMLD, BaGoLDiagnostics)
+
+Run BaGoL on a vector of localizations. Requires camera argument.
+
+See `run_bagol(smld::SMLD; ...)` for full documentation.
+"""
+function run_bagol(
+    locs::Vector{<:SMLMData.AbstractEmitter};
+    camera::SMLMData.AbstractCamera,
+    kwargs...
+)
+    # Wrap in SMLD and dispatch
+    smld = SMLMData.BasicSMLD(locs, camera, 1, 1)
+    return run_bagol(smld; kwargs...)
+end
+
+# Keep partition dispatch for internal use
+run_bagol(p::Partition; camera::SMLMData.AbstractCamera, kwargs...) =
+    run_bagol(p.locs; camera=camera, kwargs...)

@@ -65,9 +65,8 @@ println("Running BaGoL with α=:auto")
 println("-"^60)
 println("Will estimate α from frame statistics (Fano factor)...")
 
-chain = run_bagol(
+chain = run_bagol_chain(
     sim.localizations;
-    τ = 0.010,
     α = :auto,  # Estimate from frame statistics
     λ_K = Float64(n_emitters),
     n_iterations = 15000,
@@ -75,7 +74,7 @@ chain = run_bagol(
     verbose = true
 )
 
-result = estimate_mapn(chain)
+emitters, posterior_k = estimate_mapn(chain)
 
 # -----------------------------------------------------------------------------
 # Results
@@ -84,7 +83,7 @@ println("\n" * "="^60)
 println("Results")
 println("="^60)
 println("True emitters: $n_emitters")
-println("MAP-N: $(result.n_emitters)")
+println("MAP-N: $(length(emitters))")
 println("True α: 20.0 (Poisson-like)")
 println("Estimated α: $(round(chain.α, digits=1))")
 
@@ -102,7 +101,7 @@ println("  Fano factor: $(round(fano, digits=2)) (1.0 = Poisson)")
 # -----------------------------------------------------------------------------
 # Visualizations
 # -----------------------------------------------------------------------------
-fig = plot_bagol(chain, result, sim.localizations;
+fig = plot_bagol(chain, emitters, posterior_k, sim.localizations;
     true_positions=sim.true_positions,
     save_path=joinpath(OUTPUT_DIR, "dnapaint_result.png"))
 println("\nSaved: $(joinpath(OUTPUT_DIR, "dnapaint_result.png"))")

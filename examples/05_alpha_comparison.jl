@@ -56,7 +56,6 @@ n_emitters = length(sim.true_positions)
 
 # Common MCMC settings
 mcmc_kwargs = (
-    τ = 0.010,
     λ_K = Float64(n_emitters),
     n_iterations = 12000,
     burn_in = 2000,
@@ -70,9 +69,9 @@ println("\n" * "-"^60)
 println("Approach 1: Fixed α = 2.0 (default, potentially wrong)")
 println("-"^60)
 
-chain1 = run_bagol(sim.localizations; α=2.0, mcmc_kwargs...)
-result1 = estimate_mapn(chain1)
-println("MAP-N: $(result1.n_emitters) (true: $n_emitters)")
+chain1 = run_bagol_chain(sim.localizations; α=2.0, mcmc_kwargs...)
+emitters1, posterior_k1 = estimate_mapn(chain1)
+println("MAP-N: $(length(emitters1)) (true: $n_emitters)")
 
 # -----------------------------------------------------------------------------
 # Approach 2: Auto-estimated α
@@ -81,10 +80,10 @@ println("\n" * "-"^60)
 println("Approach 2: Auto-estimated α from frame statistics")
 println("-"^60)
 
-chain2 = run_bagol(sim.localizations; α=:auto, mcmc_kwargs...)
-result2 = estimate_mapn(chain2)
+chain2 = run_bagol_chain(sim.localizations; α=:auto, mcmc_kwargs...)
+emitters2, posterior_k2 = estimate_mapn(chain2)
 println("Estimated α: $(round(chain2.α, digits=2))")
-println("MAP-N: $(result2.n_emitters) (true: $n_emitters)")
+println("MAP-N: $(length(emitters2)) (true: $n_emitters)")
 
 # -----------------------------------------------------------------------------
 # Approach 3: Learned α via MCMC
@@ -93,18 +92,19 @@ println("\n" * "-"^60)
 println("Approach 3: Learned α via MCMC (starting from α=2.0)")
 println("-"^60)
 
-chain3 = run_bagol(sim.localizations; α=2.0, learn_α=true, mcmc_kwargs...)
-result3 = estimate_mapn(chain3)
+chain3 = run_bagol_chain(sim.localizations; α=2.0, learn_α=true, mcmc_kwargs...)
+emitters3, posterior_k3 = estimate_mapn(chain3)
 
 α_samples = [s.α for s in chain3.samples]
 α_mean = mean(α_samples)
 α_std = std(α_samples)
 println("Learned α: $(round(α_mean, digits=2)) ± $(round(α_std, digits=2))")
-println("MAP-N: $(result3.n_emitters) (true: $n_emitters)")
+println("MAP-N: $(length(emitters3)) (true: $n_emitters)")
 
 # -----------------------------------------------------------------------------
 # Summary comparison
 # -----------------------------------------------------------------------------
+n1, n2, n3 = length(emitters1), length(emitters2), length(emitters3)
 println("\n" * "="^60)
 println("Summary")
 println("="^60)
@@ -113,9 +113,9 @@ println()
 println("┌─────────────────┬────────┬─────────┬──────────┐")
 println("│ Approach        │ α used │ MAP-N   │ Error    │")
 println("├─────────────────┼────────┼─────────┼──────────┤")
-@printf("│ Fixed (α=2)     │ %5.2f  │ %7d │ %+8d │\n", 2.0, result1.n_emitters, result1.n_emitters - n_emitters)
-@printf("│ Auto-estimated  │ %5.2f  │ %7d │ %+8d │\n", chain2.α, result2.n_emitters, result2.n_emitters - n_emitters)
-@printf("│ MCMC learned    │ %5.2f  │ %7d │ %+8d │\n", α_mean, result3.n_emitters, result3.n_emitters - n_emitters)
+@printf("│ Fixed (α=2)     │ %5.2f  │ %7d │ %+8d │\n", 2.0, n1, n1 - n_emitters)
+@printf("│ Auto-estimated  │ %5.2f  │ %7d │ %+8d │\n", chain2.α, n2, n2 - n_emitters)
+@printf("│ MCMC learned    │ %5.2f  │ %7d │ %+8d │\n", α_mean, n3, n3 - n_emitters)
 println("└─────────────────┴────────┴─────────┴──────────┘")
 println("\nTrue α = $TRUE_ALPHA")
 
@@ -127,25 +127,25 @@ fig = CairoMakie.Figure(size=(1400, 900))
 # Row 1: Posterior on K for each approach
 ax1 = CairoMakie.Axis(fig[1, 1], title="Fixed α=2.0",
                        xlabel="K", ylabel="P(K)")
-k_vals = 0:(length(result1.posterior_k) - 1)
-probs1 = result1.posterior_k ./ sum(result1.posterior_k)
+k_vals = 0:(length(posterior_k1) - 1)
+probs1 = posterior_k1 ./ sum(posterior_k1)
 CairoMakie.barplot!(ax1, k_vals, probs1, color=:steelblue)
 CairoMakie.vlines!(ax1, [n_emitters], color=:red, linestyle=:dash, linewidth=2)
-CairoMakie.vlines!(ax1, [result1.n_emitters], color=:black, linewidth=2)
+CairoMakie.vlines!(ax1, [n1], color=:black, linewidth=2)
 
 ax2 = CairoMakie.Axis(fig[1, 2], title="Auto α=$(round(chain2.α, digits=1))",
                        xlabel="K", ylabel="P(K)")
-probs2 = result2.posterior_k ./ sum(result2.posterior_k)
+probs2 = posterior_k2 ./ sum(posterior_k2)
 CairoMakie.barplot!(ax2, 0:(length(probs2)-1), probs2, color=:steelblue)
 CairoMakie.vlines!(ax2, [n_emitters], color=:red, linestyle=:dash, linewidth=2)
-CairoMakie.vlines!(ax2, [result2.n_emitters], color=:black, linewidth=2)
+CairoMakie.vlines!(ax2, [n2], color=:black, linewidth=2)
 
 ax3 = CairoMakie.Axis(fig[1, 3], title="Learned α=$(round(α_mean, digits=1))",
                        xlabel="K", ylabel="P(K)")
-probs3 = result3.posterior_k ./ sum(result3.posterior_k)
+probs3 = posterior_k3 ./ sum(posterior_k3)
 CairoMakie.barplot!(ax3, 0:(length(probs3)-1), probs3, color=:steelblue)
 CairoMakie.vlines!(ax3, [n_emitters], color=:red, linestyle=:dash, linewidth=2)
-CairoMakie.vlines!(ax3, [result3.n_emitters], color=:black, linewidth=2)
+CairoMakie.vlines!(ax3, [n3], color=:black, linewidth=2)
 
 # Row 2: α trace (only for learned), count distributions
 ax4 = CairoMakie.Axis(fig[2, 1], title="Count Distribution (True)",

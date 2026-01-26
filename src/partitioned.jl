@@ -8,13 +8,15 @@ Result container for partitioned BaGoL analysis.
 # Fields
 - `chains`: One RJMCMCChain per partition
 - `partitions`: Partition definitions with boundary info
-- `merged_mapn`: Combined MAP-N result after boundary deduplication
+- `emitters`: Combined emitters after boundary deduplication
+- `posterior_k`: Combined K posterior histogram
 - `skipped`: Oversized clusters that were skipped (if any)
 """
 struct PartitionedBaGoLResult{E<:SMLMData.AbstractEmitter}
     chains::Vector{RJMCMCChain}
     partitions::Vector{Partition{E}}
-    merged_mapn::MAPNResult
+    emitters::Vector{SMLMData.Emitter2DFit}
+    posterior_k::Vector{Int}
     skipped::Vector{Partition{E}}
 end
 
@@ -84,21 +86,20 @@ function run_bagol_partitioned(
 
     if isempty(partitions)
         @warn "No valid partitions after clustering"
-        empty_result = MAPNResult(0, Tuple{Float64,Float64}[], Tuple{Float64,Float64}[], Int[])
-        return PartitionedBaGoLResult{E}(RJMCMCChain[], partitions, empty_result, skipped)
+        return PartitionedBaGoLResult{E}(RJMCMCChain[], partitions, SMLMData.Emitter2DFit[], Int[], skipped)
     end
 
     # Run RJMCMC in parallel
     chains = run_partitions_parallel(partitions; verbose=verbose, kwargs...)
 
     # Merge results with boundary deduplication
-    merged = merge_partition_results(chains, partitions, actual_margin)
+    merged_emitters, posterior_k = merge_partition_results(chains, partitions, actual_margin)
 
     if verbose
-        println("\nMerged result: $(merged.n_emitters) emitters")
+        println("\nMerged result: $(length(merged_emitters)) emitters")
     end
 
-    return PartitionedBaGoLResult{E}(chains, partitions, merged, skipped)
+    return PartitionedBaGoLResult{E}(chains, partitions, merged_emitters, posterior_k, skipped)
 end
 
 """
@@ -137,7 +138,7 @@ function run_partitions_parallel(
 end
 
 """
-    merge_partition_results(chains, partitions, boundary_margin)
+    merge_partition_results(chains, partitions, boundary_margin) -> (Vector{Emitter2DFit}, Vector{Int})
 
 Merge MAP-N results from partitions with boundary deduplication.
 
@@ -145,73 +146,73 @@ Merge MAP-N results from partitions with boundary deduplication.
 2. Identify emitters near partition boundaries
 3. Use Hungarian matching to find duplicates across boundaries
 4. Merge matched pairs with precision-weighted averaging
+
+Returns (merged_emitters, posterior_k).
 """
 function merge_partition_results(
-    chains::Vector{RJMCMCChain},
+    chains::Vector{<:RJMCMCChain},
     partitions::Vector{Partition{E}},
     boundary_margin::Float64
 ) where E
 
-    # Get MAP-N from each partition
+    # Get MAP-N from each partition (now returns tuple)
     mapn_results = [estimate_mapn(chain) for chain in chains]
 
     # Collect all emitters with partition info
-    all_emitters = Tuple{Float64, Float64}[]  # (x, y)
-    all_uncertainties = Tuple{Float64, Float64}[]  # (σ_x, σ_y)
-    partition_ids = Int[]  # Which partition each emitter came from
-    is_near_boundary = Bool[]  # Whether emitter is near partition boundary
+    all_emitters = SMLMData.Emitter2DFit[]
+    all_posterior_ks = Vector{Int}[]
+    partition_ids = Int[]
+    is_near_boundary = Bool[]
 
-    for (pid, (partition, mapn)) in enumerate(zip(partitions, mapn_results))
-        for (pos, unc) in zip(mapn.emitters, mapn.uncertainties)
-            push!(all_emitters, pos)
-            push!(all_uncertainties, unc)
+    for (pid, (partition, (emitters, posterior_k))) in enumerate(zip(partitions, mapn_results))
+        push!(all_posterior_ks, posterior_k)
+        for emitter in emitters
+            push!(all_emitters, emitter)
             push!(partition_ids, pid)
-
-            # Check if emitter is near any boundary localization
-            near_boundary = emitter_near_boundary(pos, partition, boundary_margin)
+            near_boundary = emitter_near_boundary(emitter, partition, boundary_margin)
             push!(is_near_boundary, near_boundary)
         end
     end
 
     n_total = length(all_emitters)
     if n_total == 0
-        return MAPNResult(0, Tuple{Float64,Float64}[], Tuple{Float64,Float64}[], Int[])
+        return SMLMData.Emitter2DFit[], Int[]
     end
 
     # Find and merge boundary duplicates
-    merged_emitters, merged_uncertainties = deduplicate_boundary_emitters(
-        all_emitters, all_uncertainties, partition_ids, is_near_boundary, boundary_margin
+    merged_emitters = deduplicate_boundary_emitters(
+        all_emitters, partition_ids, is_near_boundary, boundary_margin
     )
 
     # Build posterior_k histogram (sum across partitions)
-    max_k = maximum(length(mapn.posterior_k) for mapn in mapn_results)
+    max_k = maximum(length(pk) for pk in all_posterior_ks)
     posterior_k = zeros(Int, max_k)
-    for mapn in mapn_results
-        for (k, count) in enumerate(mapn.posterior_k)
+    for pk in all_posterior_ks
+        for (k, count) in enumerate(pk)
             if k <= max_k
                 posterior_k[k] += count
             end
         end
     end
 
-    return MAPNResult(length(merged_emitters), merged_emitters, merged_uncertainties, posterior_k)
+    return merged_emitters, posterior_k
 end
 
 """
-    emitter_near_boundary(pos, partition, margin)
+    emitter_near_boundary(emitter, partition, margin)
 
-Check if an emitter position is near any boundary localization in the partition.
+Check if an emitter is near any boundary localization in the partition.
 """
 function emitter_near_boundary(
-    pos::Tuple{Float64, Float64},
+    emitter::SMLMData.Emitter2DFit,
     partition::Partition,
     margin::Float64
 )
     for (i, is_bound) in enumerate(partition.is_boundary)
         if is_bound
             loc = partition.locs[i]
-            dx = pos[1] - loc.x
-            dy = pos[2] - loc.y
+            dx = emitter.x - loc.x
+            dy = emitter.y - loc.y
             if sqrt(dx^2 + dy^2) < 2 * margin
                 return true
             end
@@ -221,82 +222,75 @@ function emitter_near_boundary(
 end
 
 """
-    deduplicate_boundary_emitters(emitters, uncertainties, partition_ids, is_near_boundary, margin)
+    deduplicate_boundary_emitters(emitters, partition_ids, is_near_boundary, margin)
 
 Use Hungarian matching to identify and merge duplicate emitters near partition boundaries.
+Returns a new vector of Emitter2DFit with duplicates merged.
 """
 function deduplicate_boundary_emitters(
-    emitters::Vector{Tuple{Float64, Float64}},
-    uncertainties::Vector{Tuple{Float64, Float64}},
+    emitters::Vector{SMLMData.Emitter2DFit},
     partition_ids::Vector{Int},
     is_near_boundary::Vector{Bool},
     margin::Float64
 )
     n = length(emitters)
-    merged = trues(n)  # Track which emitters to keep
+    keep = trues(n)
+    # Make mutable copies for merging
+    result = copy(emitters)
 
-    # For each pair of different partitions
     unique_pids = unique(partition_ids)
 
     for i in 1:length(unique_pids)
         for j in (i+1):length(unique_pids)
             pid_i, pid_j = unique_pids[i], unique_pids[j]
 
-            # Get boundary emitters from each partition
-            idx_i = findall(k -> partition_ids[k] == pid_i && is_near_boundary[k], 1:n)
-            idx_j = findall(k -> partition_ids[k] == pid_j && is_near_boundary[k], 1:n)
+            idx_i = findall(k -> partition_ids[k] == pid_i && is_near_boundary[k] && keep[k], 1:n)
+            idx_j = findall(k -> partition_ids[k] == pid_j && is_near_boundary[k] && keep[k], 1:n)
 
-            isempty(idx_i) || isempty(idx_j) && continue
+            (isempty(idx_i) || isempty(idx_j)) && continue
 
             # Build cost matrix
             cost = zeros(length(idx_i), length(idx_j))
             for (ii, ki) in enumerate(idx_i)
                 for (jj, kj) in enumerate(idx_j)
-                    pos_i = emitters[ki]
-                    pos_j = emitters[kj]
-                    cost[ii, jj] = sqrt((pos_i[1] - pos_j[1])^2 + (pos_i[2] - pos_j[2])^2)
+                    e_i, e_j = result[ki], result[kj]
+                    cost[ii, jj] = sqrt((e_i.x - e_j.x)^2 + (e_i.y - e_j.y)^2)
                 end
             end
 
-            # Hungarian matching
             assignment, _ = Hungarian.hungarian(cost)
 
-            # Merge matched pairs within threshold
             threshold = 2 * margin
             for (ii, jj) in enumerate(assignment)
                 jj == 0 && continue
                 if cost[ii, jj] < threshold
                     ki, kj = idx_i[ii], idx_j[jj]
+                    e_i, e_j = result[ki], result[kj]
 
-                    # Precision-weighted merge
-                    σ_i = uncertainties[ki]
-                    σ_j = uncertainties[kj]
-
-                    # Weights inversely proportional to variance
-                    w_i = 1.0 / (σ_i[1]^2 + σ_i[2]^2 + 1e-10)
-                    w_j = 1.0 / (σ_j[1]^2 + σ_j[2]^2 + 1e-10)
+                    # Precision-weighted merge using covariance determinant
+                    det_i = e_i.σ_x^2 * e_i.σ_y^2 - e_i.σ_xy^2
+                    det_j = e_j.σ_x^2 * e_j.σ_y^2 - e_j.σ_xy^2
+                    w_i = 1.0 / (det_i + 1e-10)
+                    w_j = 1.0 / (det_j + 1e-10)
                     w_total = w_i + w_j
 
-                    # Weighted average position
-                    pos_i = emitters[ki]
-                    pos_j = emitters[kj]
-                    new_x = (w_i * pos_i[1] + w_j * pos_j[1]) / w_total
-                    new_y = (w_i * pos_i[2] + w_j * pos_j[2]) / w_total
+                    new_x = (w_i * e_i.x + w_j * e_j.x) / w_total
+                    new_y = (w_i * e_i.y + w_j * e_j.y) / w_total
+                    new_σ_x = sqrt(1.0 / (1.0/e_i.σ_x^2 + 1.0/e_j.σ_x^2 + 1e-10))
+                    new_σ_y = sqrt(1.0 / (1.0/e_i.σ_y^2 + 1.0/e_j.σ_y^2 + 1e-10))
+                    new_σ_xy = (w_i * e_i.σ_xy + w_j * e_j.σ_xy) / w_total
 
-                    # Combined uncertainty (approximation)
-                    new_σ_x = sqrt(1.0 / (1.0/σ_i[1]^2 + 1.0/σ_j[1]^2 + 1e-10))
-                    new_σ_y = sqrt(1.0 / (1.0/σ_i[2]^2 + 1.0/σ_j[2]^2 + 1e-10))
-
-                    # Update first emitter with merged values, mark second for removal
-                    emitters[ki] = (new_x, new_y)
-                    uncertainties[ki] = (new_σ_x, new_σ_y)
-                    merged[kj] = false
+                    # Create merged emitter
+                    result[ki] = SMLMData.Emitter2DFit(
+                        new_x, new_y, 0.0, 0.0,
+                        new_σ_x, new_σ_y, new_σ_xy,
+                        0.0, 0.0, 1, 1, 0, e_i.id
+                    )
+                    keep[kj] = false
                 end
             end
         end
     end
 
-    # Return only non-merged emitters
-    keep_idx = findall(merged)
-    return emitters[keep_idx], uncertainties[keep_idx]
+    return result[keep]
 end
