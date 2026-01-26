@@ -1,6 +1,5 @@
 module SMLMBaGoL
 
-using CairoMakie
 using Distributions
 using Hungarian
 using LinearAlgebra
@@ -27,9 +26,6 @@ export partition_locs
 # Export priors
 export UniformSpatialPrior
 
-# Export visualization
-export plot_bagol, plot_mapn, plot_hierarchical_diagnostics
-
 # Export simulation
 export SimulationResult
 export simulate_smlm, simulate_grid, simulate_nmers
@@ -46,7 +42,6 @@ include("mapn.jl")
 include("partition.jl")    # Must come before rjmcmc (provides Partition)
 include("partitioned.jl")  # Must come before rjmcmc (provides merge_partition_results)
 include("rjmcmc.jl")
-include("visualization.jl")
 include("simulation.jl")
 
 end # module
