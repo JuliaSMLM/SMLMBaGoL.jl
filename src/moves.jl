@@ -51,6 +51,86 @@ function log_mixture_density(x::Real, y::Real,
 end
 
 # ============================================================================
+# Gibbs position sampling
+# ============================================================================
+
+"""
+Sample emitter position from posterior given allocated localizations.
+
+Given allocations, the posterior for emitter position is Gaussian:
+- Posterior precision: Λ_post = Σ_i Λ_i
+- Posterior mean: μ_post = Λ_post⁻¹ · (Σ_i Λ_i · μ_i)
+
+Returns (x_new, y_new) sampled from N(μ_post, Σ_post).
+"""
+function sample_position_gibbs(
+    emitter::Emitter{T},
+    locs::Vector{<:SMLMData.AbstractEmitter}
+) where T
+    if isempty(emitter.allocated)
+        return emitter.x, emitter.y
+    end
+
+    # Sum precision matrices and precision-weighted positions
+    Λ_xx, Λ_xy, Λ_yy = 0.0, 0.0, 0.0
+    η_x, η_y = 0.0, 0.0
+
+    for idx in emitter.allocated
+        loc = locs[idx]
+        var_x = loc.σ_x^2
+        var_y = loc.σ_y^2
+        cov_xy = get_cov_xy(loc)
+        det = var_x * var_y - cov_xy^2
+
+        if det <= 0
+            # Fallback for degenerate covariance
+            det = var_x * var_y
+            cov_xy = 0.0
+        end
+
+        # Precision matrix elements: Λ = Σ⁻¹
+        λ_xx = var_y / det
+        λ_yy = var_x / det
+        λ_xy = -cov_xy / det
+
+        Λ_xx += λ_xx
+        Λ_xy += λ_xy
+        Λ_yy += λ_yy
+
+        η_x += λ_xx * loc.x + λ_xy * loc.y
+        η_y += λ_xy * loc.x + λ_yy * loc.y
+    end
+
+    # Invert posterior precision to get covariance
+    det_post = Λ_xx * Λ_yy - Λ_xy^2
+    if det_post <= 0
+        # Fallback: return current position
+        return emitter.x, emitter.y
+    end
+
+    Σ_xx = Λ_yy / det_post
+    Σ_yy = Λ_xx / det_post
+    Σ_xy = -Λ_xy / det_post
+
+    # Posterior mean: μ = Σ · η
+    μ_x = Σ_xx * η_x + Σ_xy * η_y
+    μ_y = Σ_xy * η_x + Σ_yy * η_y
+
+    # Sample from N(μ, Σ) using Cholesky decomposition
+    # Σ = L · Lᵀ where L is lower triangular
+    L_xx = sqrt(Σ_xx)
+    L_yx = Σ_xy / L_xx
+    L_yy_sq = Σ_yy - L_yx^2
+    L_yy = L_yy_sq > 0 ? sqrt(L_yy_sq) : 0.0
+
+    z1, z2 = randn(), randn()
+    x_new = μ_x + L_xx * z1
+    y_new = μ_y + L_yx * z1 + L_yy * z2
+
+    return T(x_new), T(y_new)
+end
+
+# ============================================================================
 # Allocation helpers
 # ============================================================================
 
@@ -321,6 +401,17 @@ function propose_allocate!(
     end
     push!(state.emitters[new_j].allocated, loc_idx)
 
+    # Gibbs sample positions for affected emitters
+    # Update the emitter that gained a localization
+    state.emitters[new_j].x, state.emitters[new_j].y =
+        sample_position_gibbs(state.emitters[new_j], locs)
+
+    # Update the emitter that lost a localization (if it still has some)
+    if current_j > 0 && !isempty(state.emitters[current_j].allocated)
+        state.emitters[current_j].x, state.emitters[current_j].y =
+            sample_position_gibbs(state.emitters[current_j], locs)
+    end
+
     # Cleanup empty emitters
     remove_empty_emitters!(state)
 
@@ -328,11 +419,11 @@ function propose_allocate!(
 end
 
 # ============================================================================
-# Move (position perturbation)
+# Move (Gibbs position update)
 # ============================================================================
 
 """
-Move: Gaussian perturbation of emitter position.
+Move: Gibbs sample emitter position from posterior given allocations.
 """
 function propose_move!(
     chain::RJMCMCChain{T},
@@ -340,7 +431,6 @@ function propose_move!(
     spatial_prior::UniformSpatialPrior
 ) where T
     state = chain.current_state
-    config = chain.config
 
     if isempty(state.emitters)
         return false
@@ -349,28 +439,21 @@ function propose_move!(
     idx = rand(1:length(state.emitters))
     emitter = state.emitters[idx]
 
-    # Propose new position
-    x_new = emitter.x + T(randn() * config.move_σ)
-    y_new = emitter.y + T(randn() * config.move_σ)
+    if isempty(emitter.allocated)
+        return false
+    end
 
-    # Check bounds
+    # Gibbs sample new position
+    x_new, y_new = sample_position_gibbs(emitter, locs)
+
+    # Check bounds - reject if outside (truncated posterior)
     if x_new < spatial_prior.x_min || x_new > spatial_prior.x_max ||
        y_new < spatial_prior.y_min || y_new > spatial_prior.y_max
         return false
     end
 
-    # Likelihood ratio
-    old_ll = log_likelihood_emitter(locs, emitter)
-    x_old, y_old = emitter.x, emitter.y
     emitter.x, emitter.y = x_new, y_new
-    new_ll = log_likelihood_emitter(locs, emitter)
-
-    if log(rand()) < new_ll - old_ll
-        return true
-    else
-        emitter.x, emitter.y = x_old, y_old
-        return false
-    end
+    return true
 end
 
 # ============================================================================
@@ -388,35 +471,15 @@ function initialize_allocations!(
 end
 
 """
-Update emitter positions to weighted centroids of allocated localizations.
-Uses full 2x2 covariance matrix determinant for precision weighting.
+Update emitter positions by Gibbs sampling from posterior given allocations.
 """
 function update_emitter_positions!(
     state::BaGoLState{T},
     locs::Vector{<:SMLMData.AbstractEmitter}
 ) where T
     for emitter in state.emitters
-        if isempty(emitter.allocated)
-            continue
-        end
-
-        sum_wx, sum_wy, sum_w = 0.0, 0.0, 0.0
-        for idx in emitter.allocated
-            loc = locs[idx]
-            var_x = loc.σ_x^2
-            var_y = loc.σ_y^2
-            σ_xy = get_cov_xy(loc)
-            det_Σ = var_x * var_y - σ_xy^2
-            # Weight by inverse sqrt of determinant (precision)
-            w = det_Σ > 0 ? 1.0 / sqrt(det_Σ) : 1.0 / sqrt(var_x * var_y)
-            sum_wx += w * loc.x
-            sum_wy += w * loc.y
-            sum_w += w
-        end
-
-        if sum_w > 0
-            emitter.x = T(sum_wx / sum_w)
-            emitter.y = T(sum_wy / sum_w)
+        if !isempty(emitter.allocated)
+            emitter.x, emitter.y = sample_position_gibbs(emitter, locs)
         end
     end
 end
