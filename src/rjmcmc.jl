@@ -49,7 +49,7 @@ function record_sample!(chain::RJMCMCChain)
     state = chain.current_state
     # Deep copy emitters
     emitters_copy = [Emitter(e.x, e.y, copy(e.allocated)) for e in state.emitters]
-    sample = BaGoLSample(emitters_copy, state.log_posterior, chain.μ, chain.α)
+    sample = BaGoLSample(emitters_copy, state.log_posterior, chain.μ, chain.shape)
     push!(chain.samples, sample)
 end
 
@@ -85,7 +85,7 @@ function build_diagnostics(chain::RJMCMCChain, posterior_k::Vector{Int}, n_emitt
     for (move, (acc, tot)) in chain.acceptance
         acceptance_rates[move] = tot > 0 ? acc / tot : 0.0
     end
-    return BaGoLDiagnostics(n_emitters, posterior_k, acceptance_rates, chain.μ, chain.α, n_partitions)
+    return BaGoLDiagnostics(n_emitters, posterior_k, acceptance_rates, chain.μ, chain.shape, n_partitions)
 end
 
 """
@@ -104,9 +104,9 @@ function build_diagnostics(chains::Vector{<:RJMCMCChain}, posterior_k::Vector{In
     for (move, (acc, tot)) in acceptance_totals
         acceptance_rates[move] = tot > 0 ? acc / tot : 0.0
     end
-    # Use first chain for final μ, α (all chains have same value after global updates)
+    # Use first chain for final μ, shape (all chains have same value after global updates)
     return BaGoLDiagnostics(n_emitters, posterior_k, acceptance_rates,
-                            chains[1].μ, chains[1].α, length(chains))
+                            chains[1].μ, chains[1].shape, length(chains))
 end
 
 # ============================================================================
@@ -122,52 +122,44 @@ For advanced users who need direct chain access.
 # Callback Support
 For animation or per-iteration diagnostics, use:
 - `callback`: Function called each iteration with signature
-  `callback(iter, move_type, accepted, state, μ, α)` where state is the current BaGoLState
+  `callback(iter, move_type, accepted, state, μ, shape)` where state is the current BaGoLState
 - `callback_interval`: How often to call callback (default 1 = every iteration)
 
 Example:
 ```julia
 records = []
 chain = run_bagol_chain(locs;
-    callback = (i, mt, acc, st, μ, α) -> push!(records, (i, length(st.emitters), acc)),
+    callback = (i, mt, acc, st, μ, shape) -> push!(records, (i, length(st.emitters), acc)),
     callback_interval = 10
 )
 ```
 """
 function run_bagol_chain(
     locs::Vector{<:SMLMData.AbstractEmitter};
-    α::Union{Float64, Symbol} = 2.0,
-    learn_α::Bool = false,
+    shape::Float64 = 2.0,
+    learn_shape::Bool = true,
     λ_K::Float64 = Float64(length(locs)) / 5.0,
     n_iterations::Int = 10000,
     burn_in::Int = 2000,
     hierarchical_interval::Int = 100,
-    move_σ::Float64 = 0.010,
-    μ_prior_a::Float64 = 2.0,
-    μ_prior_b::Float64 = 0.2,
+    μ_prior_shape::Float64 = 2.0,
+    μ_prior_scale::Float64 = 5.0,
+    shape_prior_shape::Float64 = 2.0,
+    shape_prior_scale::Float64 = 1.0,
     verbose::Bool = true,
     callback::Union{Function, Nothing} = nothing,
     callback_interval::Int = 1
 )
-    # Determine initial α value
-    if α === :auto
-        α_init = estimate_alpha_from_frames(locs)
-        if verbose
-            println("Auto-estimated α = $(round(α_init, digits=2)) from frame statistics")
-        end
-    else
-        α_init = α::Float64
-    end
-
     config = RJMCMCConfig(;
-        α = α_init,
+        shape = shape,
         λ_K = λ_K,
         n_iterations = n_iterations,
         burn_in = burn_in,
         hierarchical_interval = hierarchical_interval,
-        move_σ = move_σ,
-        μ_prior_a = μ_prior_a,
-        μ_prior_b = μ_prior_b
+        μ_prior_shape = μ_prior_shape,
+        μ_prior_scale = μ_prior_scale,
+        shape_prior_shape = shape_prior_shape,
+        shape_prior_scale = shape_prior_scale
     )
 
     # Create spatial prior from data
@@ -184,8 +176,8 @@ function run_bagol_chain(
     initialize_allocations!(initial_state, locs)
     update_emitter_positions!(initial_state, locs)
 
-    # Create chain with α learning settings
-    chain = RJMCMCChain(config, initial_state; α_init=α_init, learn_α=learn_α)
+    # Create chain
+    chain = RJMCMCChain(config, initial_state; shape_init=shape, learn_shape=learn_shape)
 
     # Run MCMC
     for i in 1:n_iterations
@@ -193,9 +185,9 @@ function run_bagol_chain(
 
         # Hierarchical update
         if i % hierarchical_interval == 0
-            update_mu_gibbs!(chain)
-            if chain.learn_α
-                update_alpha!(chain, locs)
+            update_mu!(chain)
+            if chain.learn_shape
+                update_shape!(chain)
             end
         end
 
@@ -206,14 +198,14 @@ function run_bagol_chain(
 
         # Call user callback if provided
         if callback !== nothing && i % callback_interval == 0
-            callback(i, move_type, accepted, chain.current_state, chain.μ, chain.α)
+            callback(i, move_type, accepted, chain.current_state, chain.μ, chain.shape)
         end
 
         # Progress
         if verbose && i % 1000 == 0
             k = length(chain.current_state.emitters)
-            α_str = chain.learn_α ? ", α=$(round(chain.α, digits=2))" : ""
-            println("Iteration $i: K=$k, μ=$(round(chain.μ, digits=2))$α_str")
+            shape_str = chain.learn_shape ? ", shape=$(round(chain.shape, digits=2))" : ""
+            println("Iteration $i: K=$k, μ=$(round(chain.μ, digits=2))$shape_str")
         end
     end
 
@@ -223,8 +215,8 @@ function run_bagol_chain(
             rate = tot > 0 ? round(100 * acc / tot, digits=1) : 0.0
             println("  $move: $rate% ($acc/$tot)")
         end
-        if chain.learn_α
-            println("\nFinal α = $(round(chain.α, digits=2))")
+        if chain.learn_shape
+            println("\nFinal shape = $(round(chain.shape, digits=2))")
         end
     end
 
@@ -243,6 +235,11 @@ Run BaGoL analysis on an SMLD. Returns grouped emitters as BasicSMLD and diagnos
 Uses precision-weighted DBSCAN to partition localizations, then runs parallel MCMC
 on each partition with global hierarchical updates.
 
+# Count Model
+n_j ~ Gamma(shape, μ/shape) where:
+- μ = mean locs per emitter
+- shape = 1: exponential (dSTORM), shape > 1: peaked (DNA-PAINT)
+
 # Partitioning Arguments
 - `nsigma=3.0`: DBSCAN threshold in sigma units (Inf = no partitioning)
 - `min_partition_size=0`: Minimum locs per partition (smaller clusters dropped as noise)
@@ -250,11 +247,11 @@ on each partition with global hierarchical updates.
 - `skip_partition_size=typemax(Int)`: Skip partitions larger than this
 
 # MCMC Arguments
-- `sync_interval=500`: Iterations between global μ/α updates
+- `sync_interval=500`: Iterations between global μ/shape updates
 - `n_iterations=10000`: Total MCMC iterations
 - `burn_in=2000`: Burn-in iterations before recording
-- `α=2.0`: Shape parameter (or `:auto` to estimate from data)
-- `learn_α=false`: Whether to update α during MCMC
+- `shape=2.0`: Initial Gamma shape (1=exponential, higher=more peaked)
+- `learn_shape=true`: Whether to update shape during MCMC
 - `verbose=true`: Print progress
 
 # Returns
@@ -270,8 +267,8 @@ function run_bagol(
     sync_interval::Int = 500,
     n_iterations::Int = 10000,
     burn_in::Int = 2000,
-    α::Union{Float64, Symbol} = 2.0,
-    learn_α::Bool = false,
+    shape::Float64 = 2.0,
+    learn_shape::Bool = true,
     verbose::Bool = true,
     kwargs...
 )
@@ -280,16 +277,6 @@ function run_bagol(
 
     if verbose
         println("Partitioning $(length(locs)) localizations (nsigma=$nsigma)...")
-    end
-
-    # Estimate α globally if :auto
-    if α === :auto
-        α_init = estimate_alpha_from_frames(locs)
-        if verbose
-            println("Auto-estimated α = $(round(α_init, digits=2)) from frame statistics")
-        end
-    else
-        α_init = α::Float64
     end
 
     # Partition the data using precision-weighted DBSCAN
@@ -308,7 +295,7 @@ function run_bagol(
     if isempty(partitions)
         @warn "No valid partitions"
         empty_smld = SMLMData.BasicSMLD(SMLMData.Emitter2DFit[], camera, 1, 1)
-        empty_diag = BaGoLDiagnostics(0, Int[], Dict{Symbol,Float64}(), 0.0, α_init, 0)
+        empty_diag = BaGoLDiagnostics(0, Int[], Dict{Symbol,Float64}(), 0.0, shape, 0)
         return empty_smld, empty_diag
     end
 
@@ -317,20 +304,23 @@ function run_bagol(
     chains = Vector{RJMCMCChain}(undef, n_partitions)
     spatial_priors = Vector{UniformSpatialPrior}(undef, n_partitions)
 
-    μ_prior_a = get(kwargs, :μ_prior_a, 2.0)
-    μ_prior_b = get(kwargs, :μ_prior_b, 0.2)
+    μ_prior_shape = get(kwargs, :μ_prior_shape, 2.0)
+    μ_prior_scale = get(kwargs, :μ_prior_scale, 5.0)
+    shape_prior_shape = get(kwargs, :shape_prior_shape, 2.0)
+    shape_prior_scale = get(kwargs, :shape_prior_scale, 1.0)
 
     Threads.@threads for i in 1:n_partitions
         p_locs = partitions[i].locs
         config = RJMCMCConfig(;
-            α = α_init,
+            shape = shape,
             λ_K = get(kwargs, :λ_K, Float64(length(p_locs)) / 5.0),
             n_iterations = n_iterations,
             burn_in = burn_in,
             hierarchical_interval = sync_interval,
-            move_σ = get(kwargs, :move_σ, 0.010),
-            μ_prior_a = μ_prior_a,
-            μ_prior_b = μ_prior_b
+            μ_prior_shape = μ_prior_shape,
+            μ_prior_scale = μ_prior_scale,
+            shape_prior_shape = shape_prior_shape,
+            shape_prior_scale = shape_prior_scale
         )
 
         spatial_priors[i] = UniformSpatialPrior(p_locs)
@@ -343,7 +333,7 @@ function run_bagol(
         initialize_allocations!(initial_state, p_locs)
         update_emitter_positions!(initial_state, p_locs)
 
-        chains[i] = RJMCMCChain(config, initial_state; α_init=α_init, learn_α=learn_α)
+        chains[i] = RJMCMCChain(config, initial_state; shape_init=shape, learn_shape=learn_shape)
     end
 
     # Synchronized outer loop
@@ -355,15 +345,15 @@ function run_bagol(
                            sync_interval; record_after_burn_in=record)
         end
 
-        μ_new = update_mu_global!(chains, μ_prior_a, μ_prior_b)
-        if learn_α
-            update_alpha_global!(chains)
+        update_mu_global!(chains)
+        if learn_shape
+            update_shape_global!(chains)
         end
 
         if verbose && outer % max(1, n_outer ÷ 5) == 0
             total_K = sum(length(c.current_state.emitters) for c in chains)
-            α_str = learn_α ? ", α=$(round(chains[1].α, digits=2))" : ""
-            println("Sync $outer/$n_outer: total K=$total_K, μ=$(round(μ_new, digits=2))$α_str")
+            shape_str = learn_shape ? ", shape=$(round(chains[1].shape, digits=2))" : ""
+            println("Sync $outer/$n_outer: total K=$total_K, μ=$(round(chains[1].μ, digits=2))$shape_str")
         end
     end
 
