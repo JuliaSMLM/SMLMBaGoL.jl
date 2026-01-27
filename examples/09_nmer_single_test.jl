@@ -25,7 +25,8 @@ include(joinpath(@__DIR__, "viz_smlmrender.jl"))
 # =============================================================================
 
 # Random seed for reproducibility (set to nothing for random results)
-const SEED = 42
+const SEED = nothing
+# const SEED = 42
 
 # N-mer geometry
 const N_EMITTERS = 8              # Number of emitters in cluster

@@ -5,116 +5,70 @@
 #
 # Usage:
 #   include("viz_smlmrender.jl")
-#   render_bagol_gaussian(bagol_smld; filename="result.png")
+#   render_bagol_suite(locs_smld, bagol_smld; true_positions=gt, output_dir="output")
 
 using SMLMRender
 using SMLMData
 
 """
-Render BaGoL result as Gaussian blobs.
+Calculate render bounds from localizations, expanded by factor.
 
-Creates a publication-quality image with Gaussian-rendered emitter positions.
-
-# Arguments
-- `bagol_smld`: BasicSMLD from run_bagol with estimated emitter positions
-- `pixel_size`: Pixel size in nm (default: 2.0 for ~2nm resolution)
-- `colormap`: Color scheme (default: :inferno)
-- `filename`: Output filename (optional)
-- `clip_percentile`: Intensity clip percentile (default: 0.995)
-
-# Returns
-- RenderResult2D with the rendered image
+Returns (x_min, x_max, y_min, y_max) in μm, covering all localizations
+plus their 1σ uncertainty, expanded by the given factor.
 """
-function render_bagol_gaussian(
-    bagol_smld::SMLMData.SMLD;
-    pixel_size::Real = 2.0,
-    colormap::Symbol = :inferno,
-    filename::Union{String, Nothing} = nothing,
-    clip_percentile::Real = 0.995
-)
-    return render(bagol_smld;
-        strategy = GaussianRender(),
-        pixel_size = pixel_size,
-        colormap = colormap,
-        clip_percentile = clip_percentile,
-        filename = filename
+function calculate_render_bounds(locs_smld::SMLMData.SMLD; expand_factor::Real=2.0)
+    emitters = locs_smld.emitters
+
+    # Get bounds including 1σ circles
+    x_min = minimum(e.x - e.σ_x for e in emitters)
+    x_max = maximum(e.x + e.σ_x for e in emitters)
+    y_min = minimum(e.y - e.σ_y for e in emitters)
+    y_max = maximum(e.y + e.σ_y for e in emitters)
+
+    # Calculate center and span
+    x_center = (x_min + x_max) / 2
+    y_center = (y_min + y_max) / 2
+    x_span = x_max - x_min
+    y_span = y_max - y_min
+
+    # Expand by factor (ensure minimum span of 20nm = 0.020 μm)
+    x_span = max(x_span * expand_factor, 0.020)
+    y_span = max(y_span * expand_factor, 0.020)
+
+    return (
+        x_center - x_span/2,
+        x_center + x_span/2,
+        y_center - y_span/2,
+        y_center + y_span/2
     )
 end
 
 """
-Render localizations and BaGoL result as circle overlay.
-
-Two-color overlay: localizations (cyan) + MAP-N emitters (red).
-
-# Arguments
-- `locs_smld`: BasicSMLD with input localizations
-- `bagol_smld`: BasicSMLD from run_bagol with estimated positions
-- `pixel_size`: Pixel size in nm (default: 1.0 for 1nm resolution)
-- `filename`: Output filename (optional)
-
-# Returns
-- Overlaid RGB image
+Create a render target from bounds at specified pixel size.
 """
-function render_bagol_circles(
-    locs_smld::SMLMData.SMLD,
-    bagol_smld::SMLMData.SMLD;
-    pixel_size::Real = 1.0,
-    filename::Union{String, Nothing} = nothing
-)
-    return render([locs_smld, bagol_smld];
-        colors = [:cyan, :red],
-        strategy = CircleRender(),
-        pixel_size = pixel_size,
-        filename = filename
-    )
-end
+function create_target(x_min, x_max, y_min, y_max; pixel_size::Real=1.0)
+    # Calculate dimensions (pixel_size is in nm, bounds are in μm)
+    width = ceil(Int, (x_max - x_min) * 1000 / pixel_size)
+    height = ceil(Int, (y_max - y_min) * 1000 / pixel_size)
 
-"""
-Render three-channel comparison: localizations, BaGoL, ground truth.
+    # Ensure minimum size
+    width = max(width, 10)
+    height = max(height, 10)
 
-Creates a 3-color overlay image:
-- Gray: Input localizations
-- Red: BaGoL MAP-N emitters
-- Blue: Ground truth positions
-
-# Arguments
-- `locs_smld`: BasicSMLD with input localizations
-- `bagol_smld`: BasicSMLD from run_bagol with estimated positions
-- `gt_smld`: BasicSMLD with ground truth positions
-- `pixel_size`: Pixel size in nm (default: 1.0 for 1nm resolution)
-- `filename`: Output filename (optional)
-
-# Returns
-- Overlaid RGB image
-"""
-function render_comparison(
-    locs_smld::SMLMData.SMLD,
-    bagol_smld::SMLMData.SMLD,
-    gt_smld::SMLMData.SMLD;
-    pixel_size::Real = 1.0,
-    filename::Union{String, Nothing} = nothing
-)
-    return render([locs_smld, bagol_smld, gt_smld];
-        colors = [:gray, :red, :blue],
-        strategy = CircleRender(),
-        pixel_size = pixel_size,
-        filename = filename
-    )
+    return SMLMRender.Image2DTarget(width, height, Float64(pixel_size),
+                                     (x_min, x_max), (y_min, y_max))
 end
 
 """
 Convert ground truth positions to a BasicSMLD for rendering.
 
-Creates fake Emitter2DFit entries from (x, y) position tuples.
+Creates Emitter2DFit entries from (x, y) position tuples.
 Uses small default uncertainty for visualization.
 
 # Arguments
 - `positions`: Vector of (x, y) tuples in micrometers
 - `camera`: Camera from original SMLD
 - `σ`: Position uncertainty for rendering circles (default: 0.005 μm = 5 nm)
-
-# Returns
-- BasicSMLD suitable for rendering
 """
 function positions_to_smld(
     positions::Vector{Tuple{Float64, Float64}},
@@ -135,46 +89,74 @@ function positions_to_smld(
 end
 
 """
-Render complete BaGoL comparison (localizations, result, optional GT).
+Render complete BaGoL visualization suite.
 
-Convenience function that wraps the full workflow.
+Calculates render bounds from localizations (2x extent of 1σ circles),
+then renders all outputs at 1nm pixel size using consistent bounds.
 
 # Arguments
 - `locs_smld`: Input localizations
 - `bagol_smld`: BaGoL result
 - `true_positions`: Optional ground truth positions (default: empty)
-- `prefix`: Filename prefix for output (default: "bagol")
+- `prefix`: Filename prefix for output (default: "render")
 - `output_dir`: Directory for output files (default: current directory)
 - `pixel_size`: Pixel size in nm (default: 1.0)
+- `expand_factor`: How much to expand beyond 1σ bounds (default: 2.0)
 
 # Creates files
-- `{prefix}_gaussian.png`: Gaussian render of result
-- `{prefix}_circles.png`: Circle overlay (locs + result)
-- `{prefix}_comparison.png`: Three-channel comparison (if GT provided)
+- `{prefix}_gaussian.png`: Gaussian render of BaGoL result
+- `{prefix}_circles.png`: Circle overlay (locs cyan + BaGoL red)
+- `{prefix}_comparison.png`: Three-channel (locs gray + BaGoL red + GT blue)
 """
 function render_bagol_suite(
     locs_smld::SMLMData.SMLD,
     bagol_smld::SMLMData.SMLD;
     true_positions::Vector{Tuple{Float64, Float64}} = Tuple{Float64, Float64}[],
-    prefix::String = "bagol",
+    prefix::String = "render",
     output_dir::String = ".",
-    pixel_size::Real = 1.0
+    pixel_size::Real = 1.0,
+    expand_factor::Real = 2.0
 )
-    # Gaussian render of result (use slightly coarser pixel for Gaussian)
+    # Calculate bounds from localizations
+    x_min, x_max, y_min, y_max = calculate_render_bounds(locs_smld; expand_factor=expand_factor)
+
+    # Create common target for all renders
+    target = create_target(x_min, x_max, y_min, y_max; pixel_size=pixel_size)
+
+    println("  Render bounds: x=[$(round(x_min*1000, digits=1)), $(round(x_max*1000, digits=1))] nm, " *
+            "y=[$(round(y_min*1000, digits=1)), $(round(y_max*1000, digits=1))] nm")
+    println("  Image size: $(target.width) x $(target.height) pixels at $(pixel_size) nm/pixel")
+
+    # 1. Gaussian render of BaGoL result
     gaussian_path = joinpath(output_dir, "$(prefix)_gaussian.png")
-    render_bagol_gaussian(bagol_smld; pixel_size=max(2.0, pixel_size), filename=gaussian_path)
+    render(bagol_smld;
+        strategy = GaussianRender(),
+        target = target,
+        colormap = :inferno,
+        filename = gaussian_path
+    )
     println("Saved: $gaussian_path")
 
-    # Circle overlay
+    # 2. Circle overlay: localizations (cyan) + BaGoL (red)
     circles_path = joinpath(output_dir, "$(prefix)_circles.png")
-    render_bagol_circles(locs_smld, bagol_smld; pixel_size=pixel_size, filename=circles_path)
+    render([locs_smld, bagol_smld];
+        colors = [:cyan, :red],
+        strategy = CircleRender(),
+        target = target,
+        filename = circles_path
+    )
     println("Saved: $circles_path")
 
-    # Three-channel comparison if GT provided
+    # 3. Three-channel comparison if GT provided
     if !isempty(true_positions)
         gt_smld = positions_to_smld(true_positions, locs_smld.camera)
         comparison_path = joinpath(output_dir, "$(prefix)_comparison.png")
-        render_comparison(locs_smld, bagol_smld, gt_smld; pixel_size=pixel_size, filename=comparison_path)
+        render([locs_smld, bagol_smld, gt_smld];
+            colors = [:gray, :red, :blue],
+            strategy = CircleRender(),
+            target = target,
+            filename = comparison_path
+        )
         println("Saved: $comparison_path")
     end
 
