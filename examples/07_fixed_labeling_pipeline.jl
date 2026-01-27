@@ -204,29 +204,13 @@ smld_truth = BasicSMLD(true_emitters, camera, 1, 1)
 # BaGoL result SMLD (already have uncertainties)
 smld_bagol = result_smld
 
-# Gaussian blob renders
-println("  Rendering Gaussian blobs...")
-render(smld_truth; pixel_size=sr_pixel_size, colormap=:inferno,
-    strategy=GaussianRender(), filename=joinpath(OUTPUT_DIR, "pipeline_sr_truth_gauss.png"))
+# Primary output: Two-color circle plot (1 nm pixels)
+# Frame-connected (cyan) vs BaGoL MAP-N (red)
+println("  Rendering comparison circles (1 nm pixels)...")
+render([smld_combined, smld_bagol]; colors=[:cyan, :red], pixel_size=1.0,
+    strategy=CircleRender(), filename=joinpath(OUTPUT_DIR, "pipeline_comparison_circles.png"))
 
-render(smld_combined; pixel_size=sr_pixel_size, colormap=:inferno,
-    strategy=GaussianRender(), filename=joinpath(OUTPUT_DIR, "pipeline_sr_frameconnect_gauss.png"))
-
-render(smld_bagol; pixel_size=sr_pixel_size, colormap=:inferno,
-    strategy=GaussianRender(), filename=joinpath(OUTPUT_DIR, "pipeline_sr_bagol_gauss.png"))
-
-# Comparison ellipse plot: Frame-connected (cyan) vs BaGoL MAP-N (red)
-println("  Rendering comparison ellipses...")
-ellipse_strategy = EllipseRender(2.0, 1.5, true, nothing, nothing)
-
-render([smld_combined, smld_bagol]; colors=[:cyan, :red], pixel_size=1.0,  # 1 nm pixels
-    strategy=ellipse_strategy, filename=joinpath(OUTPUT_DIR, "pipeline_sr_comparison.png"))
-
-println("Saved SR renders:")
-println("  - pipeline_sr_truth_gauss.png (ground truth, Gaussian)")
-println("  - pipeline_sr_frameconnect_gauss.png (frame-connected, Gaussian)")
-println("  - pipeline_sr_bagol_gauss.png (BaGoL MAP-N, Gaussian)")
-println("  - pipeline_sr_comparison.png (frame-connected cyan vs BaGoL red ellipses)")
+println("Saved: pipeline_comparison_circles.png (frame-connected cyan vs BaGoL red)")
 
 # =============================================================================
 # 7. SUMMARY STATISTICS
