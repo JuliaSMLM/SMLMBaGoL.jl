@@ -13,15 +13,44 @@ using Statistics
 using SMLMData
 using SMLMBaGoL: BaGoLState, Emitter
 
+# Color palette for emitter assignments (up to 12 distinct colors)
+const EMITTER_COLORS = [
+    colorant"#e41a1c",  # red
+    colorant"#377eb8",  # blue
+    colorant"#4daf4a",  # green
+    colorant"#984ea3",  # purple
+    colorant"#ff7f00",  # orange
+    colorant"#ffff33",  # yellow
+    colorant"#a65628",  # brown
+    colorant"#f781bf",  # pink
+    colorant"#999999",  # gray
+    colorant"#66c2a5",  # teal
+    colorant"#fc8d62",  # salmon
+    colorant"#8da0cb",  # periwinkle
+]
+
+"""
+Animation record storing state at one iteration.
+"""
+struct AnimationRecord
+    iter::Int
+    K::Int
+    move_type::Symbol
+    accepted::Bool
+    emitter_positions::Vector{Tuple{Float64, Float64}}
+    allocations::Vector{Vector{Int}}  # allocations[i] = loc indices for emitter i
+    μ::Float64
+    α::Float64
+end
+
 """
 Collects per-iteration data for animation.
 """
 mutable struct AnimationCollector
-    records::Vector{NamedTuple{(:iter, :K, :move_type, :accepted, :emitter_positions, :μ, :α),
-                               Tuple{Int, Int, Symbol, Bool, Vector{Tuple{Float64, Float64}}, Float64, Float64}}}
+    records::Vector{AnimationRecord}
 end
 
-AnimationCollector() = AnimationCollector([])
+AnimationCollector() = AnimationCollector(AnimationRecord[])
 
 """
 Create a callback function for run_bagol_chain that collects animation data.
@@ -33,16 +62,18 @@ Create a callback function for run_bagol_chain that collects animation data.
 function make_animation_callback(collector::AnimationCollector, interval::Int=10)
     return (iter, move_type, accepted, state, μ, α) -> begin
         if iter % interval == 0
-            # Deep copy emitter positions
+            # Deep copy emitter positions and allocations
             positions = [(Float64(e.x), Float64(e.y)) for e in state.emitters]
-            push!(collector.records, (
-                iter = iter,
-                K = length(state.emitters),
-                move_type = move_type,
-                accepted = accepted,
-                emitter_positions = positions,
-                μ = μ,
-                α = α
+            allocations = [copy(e.allocated) for e in state.emitters]
+            push!(collector.records, AnimationRecord(
+                iter,
+                length(state.emitters),
+                move_type,
+                accepted,
+                positions,
+                allocations,
+                μ,
+                α
             ))
         end
     end
@@ -59,12 +90,35 @@ function draw_circle_anim!(ax, x, y, r; color=:black, linewidth=1.0, alpha=1.0)
 end
 
 """
+Get color for emitter index (cycles through palette).
+"""
+function emitter_color(idx::Int)
+    return EMITTER_COLORS[mod1(idx, length(EMITTER_COLORS))]
+end
+
+"""
+Build a mapping from localization index to emitter index.
+Returns a vector where result[loc_idx] = emitter_idx (0 if unassigned).
+"""
+function build_loc_to_emitter_map(allocations::Vector{Vector{Int}}, n_locs::Int)
+    loc_to_emitter = zeros(Int, n_locs)
+    for (emitter_idx, loc_indices) in enumerate(allocations)
+        for loc_idx in loc_indices
+            if 1 <= loc_idx <= n_locs
+                loc_to_emitter[loc_idx] = emitter_idx
+            end
+        end
+    end
+    return loc_to_emitter
+end
+
+"""
 Animate the RJMCMC chain evolution.
 
 Creates an MP4 showing:
-- Left: Emitter positions evolving over time with localizations
+- Left: Emitter positions and localizations colored by assignment
 - Right top: K (emitter count) over iterations
-- Right bottom: Acceptance rate evolution
+- Right bottom: Iteration info
 
 # Arguments
 - `collector`: AnimationCollector with recorded data
@@ -87,6 +141,8 @@ function animate_chain(
         return nothing
     end
 
+    n_locs = length(locs)
+
     # Compute bounds from localizations
     xs_loc = [loc.x for loc in locs]
     ys_loc = [loc.y for loc in locs]
@@ -94,7 +150,7 @@ function animate_chain(
     x_range = (minimum(xs_loc) - margin, maximum(xs_loc) + margin)
     y_range = (minimum(ys_loc) - margin, maximum(ys_loc) + margin)
 
-    # Median sigma for circle sizes
+    # Median sigma for emitter circle sizes
     median_σ = median([mean([loc.σ_x, loc.σ_y]) for loc in locs])
 
     # Prepare K evolution data
@@ -130,26 +186,41 @@ function animate_chain(
 
         r = records[frame_idx]
 
-        # Draw localizations (static background)
-        for loc in locs
+        # Build localization -> emitter mapping for this frame
+        loc_to_emitter = build_loc_to_emitter_map(r.allocations, n_locs)
+
+        # Draw localizations colored by emitter assignment
+        for (loc_idx, loc) in enumerate(locs)
             σ = mean([loc.σ_x, loc.σ_y])
-            draw_circle_anim!(ax_spatial, loc.x, loc.y, σ;
-                color=:gray, linewidth=0.3, alpha=0.3)
+            emitter_idx = loc_to_emitter[loc_idx]
+
+            if emitter_idx > 0
+                # Assigned to an emitter - use emitter's color
+                color = emitter_color(emitter_idx)
+                draw_circle_anim!(ax_spatial, loc.x, loc.y, σ;
+                    color=color, linewidth=1.0, alpha=0.7)
+            else
+                # Unassigned - gray
+                draw_circle_anim!(ax_spatial, loc.x, loc.y, σ;
+                    color=:gray, linewidth=0.3, alpha=0.3)
+            end
         end
 
         # Draw true positions if provided
         if !isempty(true_positions)
             for (tx, ty) in true_positions
                 scatter!(ax_spatial, [tx], [ty], marker=:xcross,
-                    color=:blue, markersize=12)
+                    color=:black, markersize=12, strokewidth=2)
             end
         end
 
-        # Draw current emitters
-        for (ex, ey) in r.emitter_positions
-            scatter!(ax_spatial, [ex], [ey], color=:red, markersize=10)
+        # Draw current emitters (larger circles with matching colors)
+        for (emitter_idx, (ex, ey)) in enumerate(r.emitter_positions)
+            color = emitter_color(emitter_idx)
+            scatter!(ax_spatial, [ex], [ey], color=color, markersize=12,
+                strokecolor=:black, strokewidth=1)
             draw_circle_anim!(ax_spatial, ex, ey, median_σ;
-                color=:red, linewidth=2.0, alpha=0.8)
+                color=color, linewidth=2.5, alpha=0.9)
         end
 
         # K trace up to current frame
@@ -177,7 +248,7 @@ end
 """
 Create a static summary figure from animation data.
 
-Shows snapshots at burn-in, middle, and end of chain.
+Shows snapshots at burn-in, middle, and end of chain with colored allocations.
 """
 function plot_chain_snapshots(
     collector::AnimationCollector,
@@ -191,6 +262,8 @@ function plot_chain_snapshots(
         @warn "No records in collector"
         return Figure()
     end
+
+    n_locs = length(locs)
 
     # Find records at key points
     all_iters = [r.iter for r in records]
@@ -213,19 +286,31 @@ function plot_chain_snapshots(
                   xlabel="x (μm)", ylabel="y (μm)",
                   aspect=DataAspect())
 
-        # Draw localizations
-        for loc in locs
+        r = records[idx]
+        loc_to_emitter = build_loc_to_emitter_map(r.allocations, n_locs)
+
+        # Draw localizations colored by assignment
+        for (loc_idx, loc) in enumerate(locs)
             σ = mean([loc.σ_x, loc.σ_y])
-            draw_circle_anim!(ax, loc.x, loc.y, σ;
-                color=:gray, linewidth=0.3, alpha=0.3)
+            emitter_idx = loc_to_emitter[loc_idx]
+
+            if emitter_idx > 0
+                color = emitter_color(emitter_idx)
+                draw_circle_anim!(ax, loc.x, loc.y, σ;
+                    color=color, linewidth=1.0, alpha=0.7)
+            else
+                draw_circle_anim!(ax, loc.x, loc.y, σ;
+                    color=:gray, linewidth=0.3, alpha=0.3)
+            end
         end
 
         # Draw emitters at this snapshot
-        r = records[idx]
-        for (ex, ey) in r.emitter_positions
-            scatter!(ax, [ex], [ey], color=:red, markersize=8)
+        for (emitter_idx, (ex, ey)) in enumerate(r.emitter_positions)
+            color = emitter_color(emitter_idx)
+            scatter!(ax, [ex], [ey], color=color, markersize=10,
+                strokecolor=:black, strokewidth=1)
             draw_circle_anim!(ax, ex, ey, median_σ;
-                color=:red, linewidth=2.0, alpha=0.8)
+                color=color, linewidth=2.5, alpha=0.9)
         end
 
         # Add K label
