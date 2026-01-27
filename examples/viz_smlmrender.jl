@@ -17,7 +17,7 @@ Creates a publication-quality image with Gaussian-rendered emitter positions.
 
 # Arguments
 - `bagol_smld`: BasicSMLD from run_bagol with estimated emitter positions
-- `zoom`: Zoom factor relative to camera (default: 20)
+- `pixel_size`: Pixel size in nm (default: 2.0 for ~2nm resolution)
 - `colormap`: Color scheme (default: :inferno)
 - `filename`: Output filename (optional)
 - `clip_percentile`: Intensity clip percentile (default: 0.995)
@@ -27,14 +27,14 @@ Creates a publication-quality image with Gaussian-rendered emitter positions.
 """
 function render_bagol_gaussian(
     bagol_smld::SMLMData.SMLD;
-    zoom::Real = 20,
+    pixel_size::Real = 2.0,
     colormap::Symbol = :inferno,
     filename::Union{String, Nothing} = nothing,
     clip_percentile::Real = 0.995
 )
     return render(bagol_smld;
         strategy = GaussianRender(),
-        zoom = zoom,
+        pixel_size = pixel_size,
         colormap = colormap,
         clip_percentile = clip_percentile,
         filename = filename
@@ -49,7 +49,7 @@ Two-color overlay: localizations (cyan) + MAP-N emitters (red).
 # Arguments
 - `locs_smld`: BasicSMLD with input localizations
 - `bagol_smld`: BasicSMLD from run_bagol with estimated positions
-- `zoom`: Zoom factor relative to camera (default: 20)
+- `pixel_size`: Pixel size in nm (default: 1.0 for 1nm resolution)
 - `filename`: Output filename (optional)
 
 # Returns
@@ -58,13 +58,13 @@ Two-color overlay: localizations (cyan) + MAP-N emitters (red).
 function render_bagol_circles(
     locs_smld::SMLMData.SMLD,
     bagol_smld::SMLMData.SMLD;
-    zoom::Real = 20,
+    pixel_size::Real = 1.0,
     filename::Union{String, Nothing} = nothing
 )
     return render([locs_smld, bagol_smld];
         colors = [:cyan, :red],
         strategy = CircleRender(),
-        zoom = zoom,
+        pixel_size = pixel_size,
         filename = filename
     )
 end
@@ -81,7 +81,7 @@ Creates a 3-color overlay image:
 - `locs_smld`: BasicSMLD with input localizations
 - `bagol_smld`: BasicSMLD from run_bagol with estimated positions
 - `gt_smld`: BasicSMLD with ground truth positions
-- `zoom`: Zoom factor relative to camera (default: 20)
+- `pixel_size`: Pixel size in nm (default: 1.0 for 1nm resolution)
 - `filename`: Output filename (optional)
 
 # Returns
@@ -91,13 +91,13 @@ function render_comparison(
     locs_smld::SMLMData.SMLD,
     bagol_smld::SMLMData.SMLD,
     gt_smld::SMLMData.SMLD;
-    zoom::Real = 20,
+    pixel_size::Real = 1.0,
     filename::Union{String, Nothing} = nothing
 )
     return render([locs_smld, bagol_smld, gt_smld];
         colors = [:gray, :red, :blue],
         strategy = CircleRender(),
-        zoom = zoom,
+        pixel_size = pixel_size,
         filename = filename
     )
 end
@@ -145,7 +145,7 @@ Convenience function that wraps the full workflow.
 - `true_positions`: Optional ground truth positions (default: empty)
 - `prefix`: Filename prefix for output (default: "bagol")
 - `output_dir`: Directory for output files (default: current directory)
-- `zoom`: Zoom factor (default: 20)
+- `pixel_size`: Pixel size in nm (default: 1.0)
 
 # Creates files
 - `{prefix}_gaussian.png`: Gaussian render of result
@@ -158,23 +158,23 @@ function render_bagol_suite(
     true_positions::Vector{Tuple{Float64, Float64}} = Tuple{Float64, Float64}[],
     prefix::String = "bagol",
     output_dir::String = ".",
-    zoom::Real = 20
+    pixel_size::Real = 1.0
 )
-    # Gaussian render of result
+    # Gaussian render of result (use slightly coarser pixel for Gaussian)
     gaussian_path = joinpath(output_dir, "$(prefix)_gaussian.png")
-    render_bagol_gaussian(bagol_smld; zoom=zoom, filename=gaussian_path)
+    render_bagol_gaussian(bagol_smld; pixel_size=max(2.0, pixel_size), filename=gaussian_path)
     println("Saved: $gaussian_path")
 
     # Circle overlay
     circles_path = joinpath(output_dir, "$(prefix)_circles.png")
-    render_bagol_circles(locs_smld, bagol_smld; zoom=zoom, filename=circles_path)
+    render_bagol_circles(locs_smld, bagol_smld; pixel_size=pixel_size, filename=circles_path)
     println("Saved: $circles_path")
 
     # Three-channel comparison if GT provided
     if !isempty(true_positions)
         gt_smld = positions_to_smld(true_positions, locs_smld.camera)
         comparison_path = joinpath(output_dir, "$(prefix)_comparison.png")
-        render_comparison(locs_smld, bagol_smld, gt_smld; zoom=zoom, filename=comparison_path)
+        render_comparison(locs_smld, bagol_smld, gt_smld; pixel_size=pixel_size, filename=comparison_path)
         println("Saved: $comparison_path")
     end
 
