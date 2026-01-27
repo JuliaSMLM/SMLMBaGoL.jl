@@ -237,13 +237,20 @@ animate_chain(collector, locs;
     true_positions = true_positions)
 
 # 8. SMLMRender outputs
-println("  [8/8] SMLMRender outputs...")
+println("  [8/9] SMLMRender suite...")
 bagol_smld = SMLMData.BasicSMLD(emitters, camera, 1, 1)
-render_bagol_suite(locs_smld, bagol_smld;
+target = render_bagol_suite(locs_smld, bagol_smld;
     true_positions = true_positions,
     prefix = "render",
     output_dir = OUTPUT_DIR,
     pixel_size = 1.0)
+
+# 9. Posterior histogram from chain
+println("  [9/9] Posterior histogram...")
+render_posterior_histogram(chain, locs_smld;
+    target = target,
+    prefix = "render",
+    output_dir = OUTPUT_DIR)
 
 # =============================================================================
 # SUMMARY
@@ -261,9 +268,11 @@ println("  - posterior_density.png   (2D position density)")
 println("  - chain_snapshots.png     (burn-in, middle, final states)")
 println("  - chain_animation.mp4     (full chain evolution)")
 println("\nSMLMRender outputs:")
-println("  - render_gaussian.png     (Gaussian blob render)")
-println("  - render_circles.png      (locs cyan + MAP-N red)")
-println("  - render_comparison.png   (locs gray + MAP-N red + GT blue)")
+println("  - render_mapn_gaussian.png  (Gaussian render of MAP-N)")
+println("  - render_sr_gaussian.png    (Gaussian SR of input locs)")
+println("  - render_circles.png        (locs cyan + MAP-N red)")
+println("  - render_comparison.png     (locs gray + MAP-N red + GT blue)")
+println("  - render_posterior.png      (histogram of chain samples)")
 println("\nMetrics:")
 println("  Jaccard Index: $(round(metrics.jaccard, digits=3))")
 println("  F1 Score: $(round(metrics.f1, digits=3))")
