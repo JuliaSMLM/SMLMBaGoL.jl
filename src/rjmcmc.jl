@@ -2,6 +2,8 @@
 
 """
 Perform one RJMCMC step (propose and accept/reject one move).
+
+Returns (accepted::Bool, move_type::Symbol).
 """
 function rjmcmc_step!(
     chain::RJMCMCChain,
@@ -37,7 +39,7 @@ function rjmcmc_step!(
     chain.acceptance[move_type] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
 
     chain.iteration += 1
-    return accepted
+    return accepted, move_type
 end
 
 """
@@ -66,7 +68,7 @@ function run_iterations!(
 )
     config = chain.config
     for _ in 1:n
-        rjmcmc_step!(chain, locs, spatial_prior)
+        _, _ = rjmcmc_step!(chain, locs, spatial_prior)
 
         # Record sample after burn-in
         if record_after_burn_in && chain.iteration > config.burn_in
@@ -116,6 +118,21 @@ end
 
 Internal function that runs MCMC and returns the chain.
 For advanced users who need direct chain access.
+
+# Callback Support
+For animation or per-iteration diagnostics, use:
+- `callback`: Function called each iteration with signature
+  `callback(iter, move_type, accepted, state, μ, α)` where state is the current BaGoLState
+- `callback_interval`: How often to call callback (default 1 = every iteration)
+
+Example:
+```julia
+records = []
+chain = run_bagol_chain(locs;
+    callback = (i, mt, acc, st, μ, α) -> push!(records, (i, length(st.emitters), acc)),
+    callback_interval = 10
+)
+```
 """
 function run_bagol_chain(
     locs::Vector{<:SMLMData.AbstractEmitter};
@@ -128,7 +145,9 @@ function run_bagol_chain(
     move_σ::Float64 = 0.010,
     μ_prior_a::Float64 = 2.0,
     μ_prior_b::Float64 = 0.2,
-    verbose::Bool = true
+    verbose::Bool = true,
+    callback::Union{Function, Nothing} = nothing,
+    callback_interval::Int = 1
 )
     # Determine initial α value
     if α === :auto
@@ -170,7 +189,7 @@ function run_bagol_chain(
 
     # Run MCMC
     for i in 1:n_iterations
-        rjmcmc_step!(chain, locs, spatial_prior)
+        accepted, move_type = rjmcmc_step!(chain, locs, spatial_prior)
 
         # Hierarchical update
         if i % hierarchical_interval == 0
@@ -183,6 +202,11 @@ function run_bagol_chain(
         # Record sample after burn-in
         if i > burn_in
             record_sample!(chain)
+        end
+
+        # Call user callback if provided
+        if callback !== nothing && i % callback_interval == 0
+            callback(i, move_type, accepted, chain.current_state, chain.μ, chain.α)
         end
 
         # Progress
