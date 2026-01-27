@@ -50,18 +50,26 @@ function log_prior_k(k::Int, λ_K::Float64)
 end
 
 """
-Log prior on count for a single emitter given μ and α (NegBinomial marginal).
-The per-emitter rate λ_j ~ Gamma(α, α/μ), then n_j ~ Poisson(λ_j).
-Marginally: n_j ~ NegBinomial(α, α/(α+μ)).
+Log prior on count for a single emitter using Gamma(shape, scale=μ/shape).
+
+Model: n_j ~ Gamma(shape, μ/shape)
+  - E[n_j] = μ
+  - Var[n_j] = μ²/shape
+  - CV[n_j] = 1/√shape
+
+Physical interpretation:
+  - shape=1: Exponential (dSTORM - blink until bleach)
+  - shape>1: Peaked distribution (DNA-PAINT-like)
+  - shape→∞: Delta function at μ
+
+Note: Treating integer counts as continuous. Valid approximation for n > 5.
 """
-function log_prior_count(n::Int, μ::Float64, α::Float64)
-    if n < 0
+function log_prior_count(n::Int, μ::Float64, shape::Float64)
+    if n < 1  # Require at least 1 localization per emitter
         return -Inf
     end
-    # NegBinomial(r, p) where r=α (failures), p=success prob
-    # Using Distributions.jl parameterization: NegativeBinomial(r, p)
-    # where p = α/(α+μ) is the success probability
-    p = α / (α + μ)
-    dist = NegativeBinomial(α, p)
-    return logpdf(dist, n)
+    # Gamma(shape, scale) where scale = μ/shape
+    scale = μ / shape
+    dist = Gamma(shape, scale)
+    return logpdf(dist, Float64(n))
 end
