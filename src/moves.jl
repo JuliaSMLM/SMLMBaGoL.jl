@@ -391,8 +391,9 @@ function propose_allocate!(
         end
     end
 
+    # Gibbs always "accepts" - even if sample equals current value
     if new_j == current_j
-        return false
+        return true  # Valid Gibbs sample, just happened to pick same assignment
     end
 
     # Move allocation
