@@ -24,7 +24,7 @@ include(joinpath(@__DIR__, "viz_smlmrender.jl"))
 # ADJUSTABLE PARAMETERS
 # =============================================================================
 
-# Random seed for reproducibility
+# Random seed for reproducibility (set to nothing for random results)
 const SEED = 42
 
 # N-mer geometry
@@ -47,7 +47,7 @@ const CALLBACK_INTERVAL = 50      # Record every N iterations for animation
 
 # Camera (for SMLD creation)
 const CAMERA_PIXELS = 256
-const PIXEL_SIZE = 0.100          # μm per pixel
+const PIXEL_SIZE = 0.100          # μm per pixel (FOV = 25.6 μm)
 
 # Output
 const OUTPUT_DIR = joinpath(@__DIR__, "output", "nmer_single")
@@ -57,7 +57,9 @@ const OUTPUT_DIR = joinpath(@__DIR__, "output", "nmer_single")
 # =============================================================================
 
 mkpath(OUTPUT_DIR)
-Random.seed!(SEED)
+if SEED !== nothing
+    Random.seed!(SEED)
+end
 
 println("="^60)
 println("Single $(N_EMITTERS)-mer Visualization Test")
@@ -76,9 +78,10 @@ println("  Expected blinks/emitter: $(BLINK_SHAPE * BLINK_SCALE)")
 println("\n" * "-"^60)
 println("Generating $(N_EMITTERS)-mer...")
 
-# Place emitters in circle
+# Place emitters in circle at center of camera FOV
 cluster_radius = CLUSTER_DIAMETER / 2
-center_x, center_y = 0.5, 0.5  # Center of FOV
+fov_size = CAMERA_PIXELS * PIXEL_SIZE  # 25.6 μm
+center_x, center_y = fov_size / 2, fov_size / 2  # Center of camera FOV
 
 true_positions = Tuple{Float64, Float64}[]
 for i in 1:N_EMITTERS
@@ -239,7 +242,7 @@ render_bagol_suite(locs_smld, bagol_smld;
     true_positions = true_positions,
     prefix = "render",
     output_dir = OUTPUT_DIR,
-    zoom = 20)
+    pixel_size = 1.0)
 
 # =============================================================================
 # SUMMARY
