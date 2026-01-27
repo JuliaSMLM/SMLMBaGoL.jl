@@ -66,11 +66,14 @@ Two entry points depending on needs:
 result_smld, diagnostics = run_bagol(smld; n_iterations=10000, burn_in=2000)
 
 # Key parameters for run_bagol:
-#   partition_threshold=500  # Auto-partition if n_locs > threshold (0 = never)
+#   nsigma=3.0               # DBSCAN threshold (Inf = no partitioning)
+#   min_partition_size=0     # Keep all clusters (no noise filtering)
+#   max_partition_size=1000  # Split partitions larger than this
+#   skip_partition_size=Inf  # Skip partitions larger than this
 #   α=2.0                    # Shape param (or :auto to estimate from frames)
 #   learn_α=false            # Update α during MCMC
 #   λ_K=length(locs)/5.0     # Prior on emitter count
-#   sync_interval=500        # Iterations between global μ/α updates (partitioned)
+#   sync_interval=500        # Iterations between global μ/α updates
 
 # 2. Advanced: direct chain access for diagnostics
 chain = run_bagol_chain(locs; n_iterations=10000, burn_in=2000)

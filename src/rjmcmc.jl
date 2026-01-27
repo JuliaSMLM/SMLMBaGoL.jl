@@ -216,13 +216,17 @@ end
 
 Run BaGoL analysis on an SMLD. Returns grouped emitters as BasicSMLD and diagnostics.
 
-Auto-partitions large datasets for parallel processing with global hierarchical updates.
+Uses precision-weighted DBSCAN to partition localizations, then runs parallel MCMC
+on each partition with global hierarchical updates.
 
-# Arguments
-- `partition_threshold=500`: Use partitioning if n_locs > threshold (0 = never partition)
-- `nsigma=4.0`: DBSCAN threshold in sigma units
-- `max_partition_size=1000`: Target max locs per partition
-- `sync_interval=500`: Iterations between global μ/α updates (partitioned only)
+# Partitioning Arguments
+- `nsigma=3.0`: DBSCAN threshold in sigma units (Inf = no partitioning)
+- `min_partition_size=0`: Minimum locs per partition (smaller clusters dropped as noise)
+- `max_partition_size=1000`: Split partitions larger than this
+- `skip_partition_size=typemax(Int)`: Skip partitions larger than this
+
+# MCMC Arguments
+- `sync_interval=500`: Iterations between global μ/α updates
 - `n_iterations=10000`: Total MCMC iterations
 - `burn_in=2000`: Burn-in iterations before recording
 - `α=2.0`: Shape parameter (or `:auto` to estimate from data)
@@ -235,10 +239,10 @@ Auto-partitions large datasets for parallel processing with global hierarchical 
 """
 function run_bagol(
     smld::SMLMData.SMLD;
-    partition_threshold::Int = 500,
-    nsigma::Float64 = 4.0,
-    min_partition_size::Int = 10,
+    nsigma::Float64 = 3.0,
+    min_partition_size::Int = 0,
     max_partition_size::Int = 1000,
+    skip_partition_size::Int = typemax(Int),
     sync_interval::Int = 500,
     n_iterations::Int = 10000,
     burn_in::Int = 2000,
@@ -250,22 +254,8 @@ function run_bagol(
     locs = smld.emitters
     camera = smld.camera
 
-    # Small dataset: run directly
-    if length(locs) <= partition_threshold || partition_threshold == 0
-        chain = run_bagol_chain(locs; n_iterations, burn_in, α, learn_α, verbose, kwargs...)
-        emitters, posterior_k = estimate_mapn(chain)
-        diagnostics = build_diagnostics(chain, posterior_k, length(emitters))
-        result_smld = SMLMData.BasicSMLD(emitters, camera, 1, 1)
-
-        if verbose
-            println("\nResult: $(length(emitters)) emitters")
-        end
-        return result_smld, diagnostics
-    end
-
-    # Large dataset: partition with synchronized global updates
     if verbose
-        println("Partitioning $(length(locs)) localizations...")
+        println("Partitioning $(length(locs)) localizations (nsigma=$nsigma)...")
     end
 
     # Estimate α globally if :auto
@@ -278,9 +268,10 @@ function run_bagol(
         α_init = α::Float64
     end
 
-    # Partition the data
+    # Partition the data using precision-weighted DBSCAN
     partitions, skipped = partition_locs(locs; nsigma, min_size=min_partition_size,
-                                          max_size=max_partition_size)
+                                          max_size=max_partition_size,
+                                          skip_size=skip_partition_size)
 
     if verbose
         println("  Created $(length(partitions)) partitions")
