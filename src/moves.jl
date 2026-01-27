@@ -188,7 +188,7 @@ function compute_log_posterior(
     # Count priors and likelihood for each emitter
     for emitter in state.emitters
         n_alloc = length(emitter.allocated)
-        log_post += log_prior_count(n_alloc, chain.μ, chain.α)
+        log_post += log_prior_count(n_alloc, chain.μ, chain.shape)
         log_post += log_likelihood_emitter(locs, emitter)
     end
 
@@ -368,8 +368,8 @@ function propose_allocate!(
             log_count = 0.0
         else
             # Would gain this loc
-            log_count = log_prior_count(n_j + 1, chain.μ, chain.α) -
-                       log_prior_count(n_j, chain.μ, chain.α)
+            log_count = log_prior_count(n_j + 1, chain.μ, chain.shape) -
+                       log_prior_count(n_j, chain.μ, chain.shape)
         end
 
         log_probs[j] = log_ll + log_count

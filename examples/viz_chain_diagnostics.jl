@@ -198,9 +198,9 @@ end
 
 """
 Plot hierarchical Bayes diagnostics:
-- μ trace over iterations (and α if learned)
-- μ posterior histogram (and α if learned)
-- Locs/emitter distribution: true vs estimated vs NegBin model
+- μ trace over iterations (and shape if learned)
+- μ posterior histogram (and shape if learned)
+- Locs/emitter distribution: true vs estimated vs Gamma model
 
 # Arguments
 - `chain`: RJMCMCChain with samples
@@ -212,20 +212,20 @@ function plot_hierarchical_diagnostics(
     true_locs_per_emitter::Union{Vector{Int}, Nothing} = nothing,
     save_path::Union{String, Nothing} = nothing
 )
-    # Extract μ and α values from samples
+    # Extract μ and shape values from samples
     μ_samples = [s.μ for s in chain.samples]
-    α_samples = [s.α for s in chain.samples]
+    shape_samples = [s.shape for s in chain.samples]
 
     if isempty(μ_samples)
         @warn "No samples in chain"
         return Figure()
     end
 
-    # Check if α was learned (varies across samples)
-    α_learned = length(unique(α_samples)) > 1
+    # Check if shape was learned (varies across samples)
+    shape_learned = length(unique(shape_samples)) > 1
 
-    # Determine layout based on whether α was learned
-    if α_learned
+    # Determine layout based on whether shape was learned
+    if shape_learned
         fig = Figure(size=(1400, 700))
     else
         fig = Figure(size=(1400, 400))
@@ -288,59 +288,59 @@ function plot_hierarchical_diagnostics(
                 color=(:red, 0.4), label="True")
         end
 
-        # NegBin model curve with posterior mean μ and α
-        α_post = mean(α_samples)
+        # Gamma model curve with posterior mean μ and shape
+        shape_post = mean(shape_samples)
         μ_post = mean(μ_samples)
-        p = α_post / (α_post + μ_post)
-        negbin = NegativeBinomial(α_post, p)
+        gamma_dist = Gamma(shape_post, μ_post / shape_post)
 
-        x_model = 0:max_count
-        y_model = [pdf(negbin, k) for k in x_model]
+        x_model = 1:max_count
+        y_model = [pdf(gamma_dist, Float64(k)) for k in x_model]
         lines!(ax3, x_model, y_model, color=:black, linewidth=2,
-            label="NegBin(α=$(round(α_post, digits=1)), μ=$(round(μ_post, digits=1)))")
+            label="Gamma(shape=$(round(shape_post, digits=1)), μ=$(round(μ_post, digits=1)))")
 
         axislegend(ax3, position=:rt)
     end
 
-    # Row 2: α diagnostics (only if α was learned)
-    if α_learned
-        # 4. α trace plot
-        ax4 = Axis(fig[2, 1], title="α Trace",
-                   xlabel="Sample", ylabel="α (shape)")
-        lines!(ax4, 1:length(α_samples), α_samples, color=:darkorange)
+    # Row 2: shape diagnostics (only if shape was learned)
+    if shape_learned
+        # 4. shape trace plot
+        ax4 = Axis(fig[2, 1], title="Shape Trace",
+                   xlabel="Sample", ylabel="shape")
+        lines!(ax4, 1:length(shape_samples), shape_samples, color=:darkorange)
 
-        # 5. α posterior histogram
-        ax5 = Axis(fig[2, 2], title="α Posterior",
-                   xlabel="α (shape)", ylabel="Density")
-        hist!(ax5, α_samples, bins=30, normalization=:pdf, color=:darkorange)
+        # 5. shape posterior histogram
+        ax5 = Axis(fig[2, 2], title="Shape Posterior",
+                   xlabel="shape", ylabel="Density")
+        hist!(ax5, shape_samples, bins=30, normalization=:pdf, color=:darkorange)
 
-        α_mean = mean(α_samples)
-        vlines!(ax5, [α_mean], color=:black, linewidth=2,
-            label="Mean = $(round(α_mean, digits=2))")
+        shape_mean = mean(shape_samples)
+        vlines!(ax5, [shape_mean], color=:black, linewidth=2,
+            label="Mean = $(round(shape_mean, digits=2))")
         axislegend(ax5, position=:rt)
 
         # 6. Interpretation panel
-        ax6 = Axis(fig[2, 3], title="α Interpretation",
-                   xlabel="α value", ylabel="")
+        ax6 = Axis(fig[2, 3], title="Shape Interpretation",
+                   xlabel="shape value", ylabel="")
         hidedecorations!(ax6, label=false, ticklabels=false, ticks=false)
 
-        # Show where α falls on the scale
-        α_mean = mean(α_samples)
-        text!(ax6, 0.5, 0.8, text="Posterior mean: α = $(round(α_mean, digits=2))",
+        # Show where shape falls on the scale
+        shape_mean = mean(shape_samples)
+        cv = 1.0 / sqrt(shape_mean)
+        text!(ax6, 0.5, 0.8, text="Posterior mean: shape = $(round(shape_mean, digits=2)) (CV = $(round(cv, digits=2)))",
             align=(:center, :center), fontsize=14)
 
-        if α_mean < 1.5
+        if shape_mean < 1.5
             interp = "Exponential-like (dSTORM/photobleaching)"
-        elseif α_mean > 5.0
-            interp = "Poisson-like (DNA-PAINT/constant rate)"
+        elseif shape_mean > 5.0
+            interp = "Peaked (DNA-PAINT/constant rate)"
         else
-            interp = "Intermediate heterogeneity"
+            interp = "Intermediate spread"
         end
         text!(ax6, 0.5, 0.5, text=interp,
             align=(:center, :center), fontsize=12)
 
         # Add reference lines
-        text!(ax6, 0.5, 0.2, text="α ≈ 1: Exponential | α → ∞: Poisson",
+        text!(ax6, 0.5, 0.2, text="shape ≈ 1: Exponential | shape → ∞: Delta",
             align=(:center, :center), fontsize=10, color=:gray)
     end
 

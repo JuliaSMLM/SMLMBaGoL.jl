@@ -40,7 +40,7 @@ struct AnimationRecord
     emitter_positions::Vector{Tuple{Float64, Float64}}
     allocations::Vector{Vector{Int}}  # allocations[i] = loc indices for emitter i
     μ::Float64
-    α::Float64
+    shape::Float64
 end
 
 """
@@ -60,7 +60,7 @@ Create a callback function for run_bagol_chain that collects animation data.
 - `interval`: Record every N iterations (default 10)
 """
 function make_animation_callback(collector::AnimationCollector, interval::Int=10)
-    return (iter, move_type, accepted, state, μ, α) -> begin
+    return (iter, move_type, accepted, state, μ, shape) -> begin
         if iter % interval == 0
             # Deep copy emitter positions and allocations
             positions = [(Float64(e.x), Float64(e.y)) for e in state.emitters]
@@ -73,7 +73,7 @@ function make_animation_callback(collector::AnimationCollector, interval::Int=10
                 positions,
                 allocations,
                 μ,
-                α
+                shape
             ))
         end
     end
@@ -237,7 +237,7 @@ function animate_chain(
             align=(:center, :center), fontsize=14)
         text!(ax_info, 0.5, 0.4, text="Move: $(r.move_type) ($acc_text)",
             align=(:center, :center), fontsize=14, color=move_color)
-        text!(ax_info, 0.5, 0.2, text="μ = $(round(r.μ, digits=2)), α = $(round(r.α, digits=2))",
+        text!(ax_info, 0.5, 0.2, text="μ = $(round(r.μ, digits=2)), shape = $(round(r.shape, digits=2))",
             align=(:center, :center), fontsize=12, color=:gray)
     end
 
