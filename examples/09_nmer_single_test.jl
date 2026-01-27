@@ -42,8 +42,8 @@ const BLINK_SHAPE = 2.0           # Gamma shape parameter (α)
 const BLINK_SCALE = 5.0           # Gamma scale parameter (θ), mean = α*θ = 10
 
 # BaGoL parameters
-const N_ITERATIONS = 10000
-const BURN_IN = 2000
+const N_ITERATIONS = 20000
+const BURN_IN = 4000
 const CALLBACK_INTERVAL = 50      # Record every N iterations for animation
 
 # Camera (for SMLD creation)
