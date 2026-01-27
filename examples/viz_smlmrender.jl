@@ -5,10 +5,12 @@
 #
 # Usage:
 #   include("viz_smlmrender.jl")
-#   render_bagol_suite(locs_smld, bagol_smld; true_positions=gt, output_dir="output")
+#   render_bagol_suite(locs_smld, bagol_smld; output_dir="output")
+#   render_posterior_histogram(chain, locs_smld; output_dir="output")
 
 using SMLMRender
 using SMLMData
+using SMLMBaGoL: RJMCMCChain
 
 """
 Calculate render bounds from localizations, expanded by factor.
@@ -89,6 +91,37 @@ function positions_to_smld(
 end
 
 """
+Convert chain samples to a BasicSMLD for histogram rendering.
+
+Extracts all (x, y) positions from chain samples and creates
+an SMLD where each sample emitter becomes one localization.
+Use with HistogramRender to visualize posterior density.
+
+# Arguments
+- `chain`: RJMCMCChain with samples
+- `camera`: Camera from original SMLD
+"""
+function chain_to_smld(chain::RJMCMCChain, camera::SMLMData.AbstractCamera)
+    emitters = SMLMData.Emitter2DFit[]
+    loc_id = 1
+
+    for sample in chain.samples
+        for emitter in sample.emitters
+            push!(emitters, SMLMData.Emitter2DFit(
+                Float64(emitter.x), Float64(emitter.y),
+                1000.0, 0.0,           # photons, bg
+                0.001, 0.001, 0.0,     # tiny σ for histogram binning
+                0.0, 0.0,              # σ_photons, σ_bg
+                loc_id, 1, 0, loc_id   # frame, dataset, track_id, id
+            ))
+            loc_id += 1
+        end
+    end
+
+    return SMLMData.BasicSMLD(emitters, camera, 1, 1)
+end
+
+"""
 Render complete BaGoL visualization suite.
 
 Calculates render bounds from localizations (2x extent of 1σ circles),
@@ -104,9 +137,13 @@ then renders all outputs at 1nm pixel size using consistent bounds.
 - `expand_factor`: How much to expand beyond 1σ bounds (default: 2.0)
 
 # Creates files
-- `{prefix}_gaussian.png`: Gaussian render of BaGoL result
+- `{prefix}_mapn_gaussian.png`: Gaussian render of BaGoL MAP-N result
+- `{prefix}_sr_gaussian.png`: Gaussian SR render of input localizations
 - `{prefix}_circles.png`: Circle overlay (locs cyan + BaGoL red)
 - `{prefix}_comparison.png`: Three-channel (locs gray + BaGoL red + GT blue)
+
+# Returns
+- `Image2DTarget`: The render target (pass to render_posterior_histogram for consistency)
 """
 function render_bagol_suite(
     locs_smld::SMLMData.SMLD,
@@ -127,17 +164,27 @@ function render_bagol_suite(
             "y=[$(round(y_min*1000, digits=1)), $(round(y_max*1000, digits=1))] nm")
     println("  Image size: $(target.width) x $(target.height) pixels at $(pixel_size) nm/pixel")
 
-    # 1. Gaussian render of BaGoL result
-    gaussian_path = joinpath(output_dir, "$(prefix)_gaussian.png")
+    # 1. Gaussian render of BaGoL MAP-N result
+    mapn_path = joinpath(output_dir, "$(prefix)_mapn_gaussian.png")
     render(bagol_smld;
         strategy = GaussianRender(),
         target = target,
         colormap = :inferno,
-        filename = gaussian_path
+        filename = mapn_path
     )
-    println("Saved: $gaussian_path")
+    println("Saved: $mapn_path")
 
-    # 2. Circle overlay: localizations (cyan) + BaGoL (red)
+    # 2. Gaussian SR render of input localizations
+    sr_path = joinpath(output_dir, "$(prefix)_sr_gaussian.png")
+    render(locs_smld;
+        strategy = GaussianRender(),
+        target = target,
+        colormap = :inferno,
+        filename = sr_path
+    )
+    println("Saved: $sr_path")
+
+    # 3. Circle overlay: localizations (cyan) + BaGoL (red)
     circles_path = joinpath(output_dir, "$(prefix)_circles.png")
     render([locs_smld, bagol_smld];
         colors = [:cyan, :red],
@@ -147,7 +194,7 @@ function render_bagol_suite(
     )
     println("Saved: $circles_path")
 
-    # 3. Three-channel comparison if GT provided
+    # 4. Three-channel comparison if GT provided
     if !isempty(true_positions)
         gt_smld = positions_to_smld(true_positions, locs_smld.camera)
         comparison_path = joinpath(output_dir, "$(prefix)_comparison.png")
@@ -159,6 +206,56 @@ function render_bagol_suite(
         )
         println("Saved: $comparison_path")
     end
+
+    return target  # Return target for use by posterior histogram
+end
+
+"""
+Render posterior density histogram from MCMC chain samples.
+
+Each emitter position from each chain sample adds 1 count to the pixel
+it falls in, producing a 2D histogram of the posterior distribution.
+
+# Arguments
+- `chain`: RJMCMCChain with samples
+- `locs_smld`: Input localizations SMLD (for camera and bounds)
+- `target`: Optional Image2DTarget (use output from render_bagol_suite for consistency)
+- `prefix`: Filename prefix (default: "render")
+- `output_dir`: Directory for output file (default: current directory)
+- `pixel_size`: Pixel size in nm if target not provided (default: 1.0)
+- `expand_factor`: Bound expansion factor if target not provided (default: 2.0)
+"""
+function render_posterior_histogram(
+    chain::RJMCMCChain,
+    locs_smld::SMLMData.SMLD;
+    target::Union{SMLMRender.Image2DTarget, Nothing} = nothing,
+    prefix::String = "render",
+    output_dir::String = ".",
+    pixel_size::Real = 1.0,
+    expand_factor::Real = 2.0
+)
+    # Create target if not provided
+    if target === nothing
+        x_min, x_max, y_min, y_max = calculate_render_bounds(locs_smld; expand_factor=expand_factor)
+        target = create_target(x_min, x_max, y_min, y_max; pixel_size=pixel_size)
+    end
+
+    # Convert chain samples to SMLD
+    chain_smld = chain_to_smld(chain, locs_smld.camera)
+
+    n_samples = length(chain.samples)
+    n_positions = length(chain_smld.emitters)
+    println("  Posterior histogram: $(n_positions) positions from $(n_samples) samples")
+
+    # Render with HistogramRender - each position adds 1 to pixel count
+    posterior_path = joinpath(output_dir, "$(prefix)_posterior.png")
+    render(chain_smld;
+        strategy = HistogramRender(),
+        target = target,
+        colormap = :inferno,
+        filename = posterior_path
+    )
+    println("Saved: $posterior_path")
 
     return nothing
 end
