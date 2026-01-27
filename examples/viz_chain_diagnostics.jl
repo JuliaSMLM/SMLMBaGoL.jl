@@ -14,7 +14,7 @@ using CairoMakie
 using Statistics
 using Distributions: NegativeBinomial, pdf
 using SMLMData
-using SMLMBaGoL: RJMCMCChain
+using SMLMBaGoL: RJMCMCChain, BaGoLSample
 
 """
 Draw a circle at (x, y) with radius r.
@@ -343,6 +343,99 @@ function plot_hierarchical_diagnostics(
         text!(ax6, 0.5, 0.2, text="α ≈ 1: Exponential | α → ∞: Poisson",
             align=(:center, :center), fontsize=10, color=:gray)
     end
+
+    if save_path !== nothing
+        save(save_path, fig)
+    end
+
+    return fig
+end
+
+"""
+Plot move type histogram showing proposed vs accepted counts.
+
+# Arguments
+- `chain`: RJMCMCChain with acceptance statistics
+- `save_path`: Optional path to save figure
+"""
+function plot_move_histogram(
+    chain::RJMCMCChain;
+    save_path::Union{String, Nothing} = nothing
+)
+    fig = Figure(size=(700, 400))
+
+    ax = Axis(fig[1, 1], title="RJMCMC Move Statistics",
+              xlabel="Move Type", ylabel="Count")
+
+    move_types = [:birth, :death, :move, :allocate]
+    proposed = [chain.acceptance[m][2] for m in move_types]
+    accepted = [chain.acceptance[m][1] for m in move_types]
+
+    # X positions for grouped bars
+    x = 1:length(move_types)
+    bar_width = 0.35
+
+    # Proposed (blue) and Accepted (green)
+    barplot!(ax, x .- bar_width/2, proposed,
+        color=:steelblue, label="Proposed", width=bar_width)
+    barplot!(ax, x .+ bar_width/2, accepted,
+        color=:seagreen, label="Accepted", width=bar_width)
+
+    # Add acceptance rate labels
+    for (i, (p, a)) in enumerate(zip(proposed, accepted))
+        rate = p > 0 ? round(100 * a / p, digits=1) : 0.0
+        text!(ax, i, max(p, a) * 1.05, text="$(rate)%",
+            align=(:center, :bottom), fontsize=10)
+    end
+
+    ax.xticks = (x, string.(move_types))
+    axislegend(ax, position=:rt)
+
+    if save_path !== nothing
+        save(save_path, fig)
+    end
+
+    return fig
+end
+
+"""
+Plot 2D posterior density of emitter positions from chain samples.
+
+# Arguments
+- `chain`: RJMCMCChain with samples
+- `bins`: Tuple of (n_x_bins, n_y_bins) for 2D histogram (default: (100, 100))
+- `save_path`: Optional path to save figure
+"""
+function plot_posterior_density(
+    chain::RJMCMCChain;
+    bins::Tuple{Int, Int} = (100, 100),
+    save_path::Union{String, Nothing} = nothing
+)
+    # Collect all emitter positions from samples
+    xs = Float64[]
+    ys = Float64[]
+    for sample in chain.samples
+        for emitter in sample.emitters
+            push!(xs, emitter.x)
+            push!(ys, emitter.y)
+        end
+    end
+
+    if isempty(xs)
+        @warn "No emitter positions in chain samples"
+        return Figure()
+    end
+
+    fig = Figure(size=(600, 550))
+
+    ax = Axis(fig[1, 1], title="Posterior Position Density",
+              xlabel="x (μm)", ylabel="y (μm)",
+              aspect=DataAspect())
+
+    # 2D histogram with colorbar
+    hm = hexbin!(ax, xs, ys, bins=bins[1],
+        colormap=:viridis)
+    Colorbar(fig[1, 2], hm, label="Count")
 
     if save_path !== nothing
         save(save_path, fig)
