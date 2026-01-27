@@ -3,9 +3,8 @@
 *.jl.mem
 /docs/build/
 Manifest.toml
-Manifest.toml
-.vscode/settings.json
-examples/.vscode/settings.json
+.vscode/
+examples/.vscode/
 *.mp4
 *.gif
 *.png
@@ -15,7 +14,6 @@ examples/output/
 
 **/.claude/settings.local.json
 .claude/code_review/
-.claude/local_memory/
 .claude/local_memory/
 
 # Reference materials (PDFs, papers)
