@@ -141,8 +141,8 @@ using Statistics
             push!(locs, SMLMData.Emitter2DFit(x, y, 1000.0, 10.0, σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, i))
         end
 
-        # Test with max_size=20, should split
-        partitions, skipped = partition_locs(locs; nsigma=6.0, min_size=3, max_size=20, oversized=:split)
+        # Test with max_size=20, should split (default behavior)
+        partitions, skipped = partition_locs(locs; nsigma=6.0, min_size=3, max_size=20)
 
         @test isempty(skipped)
         @test length(partitions) >= 2  # Should be split into at least 2
@@ -156,10 +156,10 @@ using Statistics
         total_locs = sum(length(p.locs) for p in partitions)
         @test total_locs == 50
 
-        # Test skip mode
-        partitions_skip, skipped_skip = partition_locs(locs; nsigma=6.0, min_size=3, max_size=20, oversized=:skip)
+        # Test skip mode: skip_size=20 means skip clusters >= 20 (same as max_size)
+        partitions_skip, skipped_skip = partition_locs(locs; nsigma=6.0, min_size=3, max_size=20, skip_size=20)
 
-        @test length(skipped_skip) >= 1  # The large cluster should be skipped
+        @test length(skipped_skip) >= 1  # The large cluster (50 locs) should be skipped
     end
 
     @testset "Partitioned BaGoL via SMLD" begin

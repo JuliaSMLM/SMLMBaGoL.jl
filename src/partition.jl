@@ -21,17 +21,19 @@ struct Partition{E<:SMLMData.AbstractEmitter}
 end
 
 """
-    partition_locs(locs, nsigma, min_size, max_size, oversized, boundary_margin)
+    partition_locs(locs; nsigma, min_size, max_size, skip_size, boundary_margin)
 
 Partition localizations using precision-weighted DBSCAN.
 
+Two localizations are neighbors if `||p_i - p_j|| / (σ_i + σ_j) < nsigma`.
+
 # Arguments
 - `locs`: Vector of localizations
-- `nsigma`: DBSCAN threshold in sigma units (default 4.0)
-- `min_size`: Minimum locs per partition (clusters below this are noise)
-- `max_size`: Target maximum locs per partition
-- `oversized`: Strategy for large clusters (:split or :skip)
-- `boundary_margin`: Distance from edge to flag as boundary (0 = auto)
+- `nsigma=3.0`: DBSCAN threshold in sigma units (Inf = no partitioning)
+- `min_size=0`: Minimum locs per partition (clusters below this are noise)
+- `max_size=1000`: Split partitions larger than this
+- `skip_size=typemax(Int)`: Skip partitions larger than this (Inf = never skip)
+- `boundary_margin=0.0`: Distance from edge to flag as boundary (0 = auto: 5×median(σ))
 
 # Returns
 - `partitions`: Vector of Partition for valid clusters
@@ -39,10 +41,10 @@ Partition localizations using precision-weighted DBSCAN.
 """
 function partition_locs(
     locs::Vector{E};
-    nsigma::Float64=4.0,
-    min_size::Int=10,
+    nsigma::Float64=3.0,
+    min_size::Int=0,
     max_size::Int=1000,
-    oversized::Symbol=:split,
+    skip_size::Int=typemax(Int),
     boundary_margin::Float64=0.0
 ) where E<:SMLMData.AbstractEmitter
     if isempty(locs)
@@ -74,19 +76,22 @@ function partition_locs(
         is_boundary = mark_boundaries(cluster_locs, boundary_margin)
         partition = Partition{E}(partition_id, cluster_locs, indices, is_boundary, 0)
 
-        if length(cluster_locs) <= max_size
+        n_locs = length(cluster_locs)
+        if n_locs <= max_size
+            # Small enough, keep as-is
             push!(partitions, partition)
             partition_id += 1
-        elseif oversized == :split
-            # Recursively split oversized clusters
+        elseif n_locs >= skip_size
+            # Too large, skip entirely
+            push!(skipped, partition)
+            partition_id += 1
+        else
+            # Between max_size and skip_size: split recursively
             sub_partitions = split_partition(partition, max_size, boundary_margin, partition_id)
             for sp in sub_partitions
                 push!(partitions, sp)
                 partition_id += 1
             end
-        else  # :skip
-            push!(skipped, partition)
-            partition_id += 1
         end
     end
 
