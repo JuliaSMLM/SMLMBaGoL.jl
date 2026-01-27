@@ -119,23 +119,18 @@ println("  k_bleach: $(round(fc_params.k_bleach, digits=4)) per frame")
 println("  p_miss:   $(round(fc_params.p_miss, digits=4))")
 
 # =============================================================================
-# 4. RUN PARTITIONED BAGOL
+# 4. RUN BAGOL
 # =============================================================================
-println("\n--- Running Partitioned BaGoL ---")
-
-# Extract connected localizations
-locs = smld_combined.emitters
+println("\n--- Running BaGoL ---")
 
 # Estimate expected number of emitters (fluorophores, not nmers)
 expected_fluors = length(true_positions)
 
-result = run_bagol_partitioned(
-    locs;
+result_smld, diagnostics = run_bagol(
+    smld_combined;
     # Partitioning parameters
-    nsigma = 4.0,
-    min_partition_size = 10,
+    nsigma = 3.0,
     max_partition_size = 200,
-    oversized = :split,
     # BaGoL parameters
     α = :auto,
     learn_α = true,
@@ -145,39 +140,34 @@ result = run_bagol_partitioned(
     verbose = true
 )
 
-n_bagol = length(result.emitters)
+n_bagol = diagnostics.n_emitters
 
 println("\n" * "="^70)
 println("RESULTS")
 println("="^70)
 println("True fluorophores: $(length(true_positions))")
-println("Frame-connected localizations: $(length(locs))")
-println("Partitions: $(length(result.partitions))")
+println("Frame-connected localizations: $(length(smld_combined.emitters))")
+println("Partitions: $(diagnostics.n_partitions)")
 println("BaGoL MAP-N estimate: $n_bagol")
+println("Final μ: $(round(diagnostics.final_μ, digits=2)) locs/emitter")
 
 # =============================================================================
-# 5. PARTITION VISUALIZATION
+# 5. RESULT VISUALIZATION
 # =============================================================================
-println("\n--- Generating partition visualization ---")
+println("\n--- Generating result visualization ---")
 
-fig_partitions = Figure(size=(1200, 600))
+fig_results = Figure(size=(1200, 600))
 
-# Left: Localizations colored by partition
-ax1 = Axis(fig_partitions[1, 1], title="Localizations by Partition",
+# Left: Input localizations
+ax1 = Axis(fig_results[1, 1], title="Frame-Connected Localizations",
            xlabel="x (μm)", ylabel="y (μm)", aspect=DataAspect())
 
-# Color each partition differently
-n_partitions = length(result.partitions)
-colors = cgrad(:turbo, n_partitions, categorical=true)
+locs = smld_combined.emitters
+scatter!(ax1, [loc.x for loc in locs], [loc.y for loc in locs],
+         color=(:gray, 0.3), markersize=2)
 
-for (i, partition) in enumerate(result.partitions)
-    xs = [loc.x for loc in partition.locs]
-    ys = [loc.y for loc in partition.locs]
-    scatter!(ax1, xs, ys, color=colors[i], markersize=3, alpha=0.6)
-end
-
-# Right: MAP-N emitters with partition boundaries
-ax2 = Axis(fig_partitions[1, 2], title="MAP-N Emitters ($n_bagol total)",
+# Right: MAP-N emitters vs ground truth
+ax2 = Axis(fig_results[1, 2], title="MAP-N Emitters ($n_bagol total)",
            xlabel="x (μm)", ylabel="y (μm)", aspect=DataAspect())
 
 # Plot true positions
@@ -185,13 +175,13 @@ scatter!(ax2, [p[1] for p in true_positions], [p[2] for p in true_positions],
          marker='x', color=:black, markersize=6, alpha=0.3, label="True ($(length(true_positions)))")
 
 # Plot MAP-N emitters
-scatter!(ax2, [e.x for e in result.emitters], [e.y for e in result.emitters],
+scatter!(ax2, [e.x for e in result_smld.emitters], [e.y for e in result_smld.emitters],
          color=:red, markersize=8, label="MAP-N ($n_bagol)")
 
 axislegend(ax2, position=:rt, framevisible=false)
 
-save(joinpath(OUTPUT_DIR, "pipeline_partitions.png"), fig_partitions)
-println("Saved: $(joinpath(OUTPUT_DIR, "pipeline_partitions.png"))")
+save(joinpath(OUTPUT_DIR, "pipeline_results.png"), fig_results)
+println("Saved: $(joinpath(OUTPUT_DIR, "pipeline_results.png"))")
 
 # =============================================================================
 # 6. SUPER-RESOLUTION RENDERING
@@ -211,8 +201,8 @@ true_emitters = [SMLMData.Emitter2DFit{Float64}(
 ) for (i, pos) in enumerate(true_positions)]
 smld_truth = BasicSMLD(true_emitters, camera, 1, 1)
 
-# Create BaGoL MAP-N result SMLD (emitters already have uncertainties)
-smld_bagol = BasicSMLD(result.emitters, camera, 1, 1)
+# BaGoL result SMLD (already have uncertainties)
+smld_bagol = result_smld
 
 # Gaussian blob renders
 println("  Rendering Gaussian blobs...")
@@ -242,12 +232,10 @@ println("  - pipeline_sr_comparison.png (frame-connected cyan vs BaGoL red ellip
 # 7. SUMMARY STATISTICS
 # =============================================================================
 println("\n--- Summary Statistics ---")
-println("Partitions processed: $(length(result.partitions))")
-partition_sizes = [length(p.locs) for p in result.partitions]
-println("Partition sizes: min=$(minimum(partition_sizes)), median=$(Int(round(median(partition_sizes)))), max=$(maximum(partition_sizes))")
-
-if !isempty(result.skipped)
-    println("Skipped partitions: $(length(result.skipped))")
+println("Partitions processed: $(diagnostics.n_partitions)")
+println("Acceptance rates:")
+for (move, rate) in diagnostics.acceptance_rates
+    println("  $move: $(round(100*rate, digits=1))%")
 end
 
 println("\n" * "="^70)
