@@ -85,7 +85,7 @@ smld_input = SMLMData.BasicSMLD(all_locs, camera, 100, 1)
 
 result_standard, diag_standard = run_bagol(
     smld_input;
-    partition_threshold = 0,  # Disable partitioning
+    nsigma = Inf,  # Disable partitioning (all locs in one cluster)
     λ_K = Float64(total_emitters),
     n_iterations = 10000,
     burn_in = 2000,
@@ -99,12 +99,10 @@ println("\nStandard BaGoL MAP-N: $(diag_standard.n_emitters) (true: $total_emitt
 # =============================================================================
 println("\n--- Running partitioned BaGoL (parallel via SMLD interface) ---")
 
-# Unified interface auto-partitions when n_locs > partition_threshold
+# Always partitions by default with nsigma=3.0
 result_partitioned, diag_partitioned = run_bagol(
     smld_input;
-    partition_threshold = 50,  # Force partitioning (our data has ~144 locs)
-    nsigma = 4.0,              # DBSCAN threshold in sigma units
-    min_partition_size = 5,    # Minimum locs per partition
+    nsigma = 3.0,              # DBSCAN threshold in sigma units
     max_partition_size = 100,  # Target max per partition
     sync_interval = 500,       # Global hierarchical sync every 500 iters
     n_iterations = 5000,       # Total iterations
