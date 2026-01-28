@@ -13,6 +13,7 @@
 using CairoMakie
 using Statistics
 using Distributions: NegativeBinomial, pdf
+using Hungarian
 using SMLMData
 using SMLMBaGoL: RJMCMCChain, BaGoLSample
 
@@ -62,7 +63,7 @@ function plot_bagol(
     # Left: Main visualization
     ax1 = Axis(fig[1, 1], title="BaGoL Results",
                xlabel="x (μm)", ylabel="y (μm)",
-               aspect=DataAspect())
+               aspect=DataAspect(), yreversed=true)
 
     # 1. Localizations as 1σ circles (gray)
     for loc in locs
@@ -147,7 +148,7 @@ function plot_mapn(
 
     ax1 = Axis(fig[1, 1], title="Localizations + MAP-N Emitters",
                xlabel="x (μm)", ylabel="y (μm)",
-               aspect=DataAspect())
+               aspect=DataAspect(), yreversed=true)
 
     # Localizations as 1σ circles
     for loc in locs
@@ -430,7 +431,7 @@ function plot_posterior_density(
 
     ax = Axis(fig[1, 1], title="Posterior Position Density",
               xlabel="x (μm)", ylabel="y (μm)",
-              aspect=DataAspect())
+              aspect=DataAspect(), yreversed=true)
 
     # 2D histogram with colorbar
     hm = hexbin!(ax, xs, ys, bins=bins[1],
@@ -442,4 +443,269 @@ function plot_posterior_density(
     end
 
     return fig
+end
+
+"""
+Plot side-by-side comparison of standard vs topology-preserving MAP-N.
+
+Shows both estimates with their uncertainty circles, highlighting the
+difference in uncertainty estimates between the two methods.
+
+# Arguments
+- `emitters_std`: Emitters from standard `estimate_mapn`
+- `emitters_topo`: Emitters from `estimate_mapn_topology`
+- `posterior_k`: Histogram of K from either method
+- `locs`: Input localizations
+- `true_positions`: Optional ground truth positions
+- `save_path`: Optional path to save figure
+"""
+function plot_mapn_comparison(
+    emitters_std::Vector{<:SMLMData.AbstractEmitter},
+    emitters_topo::Vector{<:SMLMData.AbstractEmitter},
+    posterior_k::Vector{Int},
+    locs::Vector{<:SMLMData.AbstractEmitter};
+    true_positions::Vector{Tuple{Float64, Float64}} = Tuple{Float64, Float64}[],
+    save_path::Union{String, Nothing} = nothing
+)
+    fig = Figure(size=(1200, 500))
+
+    # Compute bounds from localizations
+    xs_loc = [loc.x for loc in locs]
+    ys_loc = [loc.y for loc in locs]
+    margin = 0.05
+    x_range = (minimum(xs_loc) - margin, maximum(xs_loc) + margin)
+    y_range = (minimum(ys_loc) - margin, maximum(ys_loc) + margin)
+
+    titles = ["Standard Hungarian", "Iterative (median-based)"]
+    emitter_sets = [emitters_std, emitters_topo]
+
+    for (col, (title, emitters)) in enumerate(zip(titles, emitter_sets))
+        ax = Axis(fig[1, col], title=title,
+                  xlabel="x (μm)", ylabel="y (μm)",
+                  aspect=DataAspect(), yreversed=true)
+        xlims!(ax, x_range)
+        ylims!(ax, y_range)
+
+        # Draw localizations (gray circles at 1σ)
+        for loc in locs
+            σ = mean([loc.σ_x, loc.σ_y])
+            draw_circle!(ax, loc.x, loc.y, σ; color=:gray, linewidth=0.5, alpha=0.3)
+        end
+
+        # Draw true positions
+        if !isempty(true_positions)
+            for (tx, ty) in true_positions
+                draw_x!(ax, tx, ty, 0.005; color=:blue, linewidth=2.0)
+            end
+        end
+
+        # Draw MAP-N emitters with uncertainty circles
+        for e in emitters
+            σ = sqrt(e.σ_x^2 + e.σ_y^2)
+            scatter!(ax, [e.x], [e.y], color=:red, markersize=8)
+            draw_circle!(ax, e.x, e.y, σ; color=:red, linewidth=2.0, alpha=0.8)
+        end
+
+        # Add mean uncertainty label
+        σ_mean = mean([sqrt(e.σ_x^2 + e.σ_y^2) for e in emitters])
+        text!(ax, 0.02, 0.98, text="mean σ = $(round(σ_mean*1000, digits=1)) nm",
+            align=(:left, :top), fontsize=12, space=:relative,
+            color=:red)
+    end
+
+    # Right panel: uncertainty comparison bar chart
+    ax_bar = Axis(fig[1, 3], title="Uncertainty Comparison",
+                  xlabel="Emitter", ylabel="σ (nm)")
+
+    σ_std = [sqrt(e.σ_x^2 + e.σ_y^2) * 1000 for e in emitters_std]
+    σ_topo = [sqrt(e.σ_x^2 + e.σ_y^2) * 1000 for e in emitters_topo]
+
+    n_emitters = min(length(σ_std), length(σ_topo))
+    x = 1:n_emitters
+    bar_width = 0.35
+
+    barplot!(ax_bar, x .- bar_width/2, σ_std[1:n_emitters],
+        color=:steelblue, label="Standard", width=bar_width)
+    barplot!(ax_bar, x .+ bar_width/2, σ_topo[1:n_emitters],
+        color=:seagreen, label="Topology", width=bar_width)
+
+    axislegend(ax_bar, position=:rt)
+
+    if save_path !== nothing
+        save(save_path, fig)
+    end
+
+    return fig
+end
+
+# Color palette for matched position clusters
+const CLUSTER_COLORS = [
+    colorant"#e41a1c",  # red
+    colorant"#377eb8",  # blue
+    colorant"#4daf4a",  # green
+    colorant"#984ea3",  # purple
+    colorant"#ff7f00",  # orange
+    colorant"#ffff33",  # yellow
+    colorant"#a65628",  # brown
+    colorant"#f781bf",  # pink
+    colorant"#999999",  # gray
+    colorant"#66c2a5",  # teal
+    colorant"#fc8d62",  # salmon
+    colorant"#8da0cb",  # periwinkle
+]
+
+"""
+Visualize the matched positions used to compute MAP-N μ and σ.
+
+Shows a scatter plot where each point is a position from a chain sample,
+colored by the emitter identity assigned via Hungarian matching. This reveals
+label switching: if an emitter's cluster has points from multiple true positions,
+Hungarian assigned them incorrectly.
+
+# Arguments
+- `chain`: RJMCMCChain with samples
+- `true_positions`: Optional ground truth for comparison
+- `save_path`: Optional path to save figure
+
+# Returns
+- `fig`: The figure
+- `matched_positions`: Vector of position vectors for each emitter (for further analysis)
+"""
+function plot_mapn_matched_positions(
+    chain::RJMCMCChain;
+    true_positions::Vector{Tuple{Float64, Float64}} = Tuple{Float64, Float64}[],
+    save_path::Union{String, Nothing} = nothing
+)
+    samples = chain.samples
+
+    if isempty(samples)
+        @warn "No samples in chain"
+        return Figure(), Vector{Tuple{Float64,Float64}}[]
+    end
+
+    # Find MAP-N
+    ks = [length(s.emitters) for s in samples]
+    k_max = maximum(ks)
+    posterior_k = zeros(Int, k_max + 1)
+    for k in ks
+        posterior_k[k + 1] += 1
+    end
+    map_n = argmax(posterior_k) - 1
+
+    if map_n == 0
+        @warn "MAP-N is 0"
+        return Figure(), Vector{Tuple{Float64,Float64}}[]
+    end
+
+    # Get MAP-N samples
+    map_samples = filter(s -> length(s.emitters) == map_n, samples)
+
+    # Use first sample as reference (same as estimate_mapn)
+    reference = map_samples[1]
+
+    # Collect matched positions
+    matched_positions = [Vector{Tuple{Float64, Float64}}() for _ in 1:map_n]
+
+    for sample in map_samples
+        # Build cost matrix
+        cost = zeros(map_n, map_n)
+        for i in 1:map_n
+            for j in 1:map_n
+                ref_e = reference.emitters[i]
+                samp_e = sample.emitters[j]
+                cost[i, j] = (ref_e.x - samp_e.x)^2 + (ref_e.y - samp_e.y)^2
+            end
+        end
+
+        # Hungarian matching
+        assignment, _ = Hungarian.hungarian(cost)
+
+        # Record matched positions
+        for (i, j) in enumerate(assignment)
+            if j <= length(sample.emitters)
+                e = sample.emitters[j]
+                push!(matched_positions[i], (Float64(e.x), Float64(e.y)))
+            end
+        end
+    end
+
+    # Compute stats for each cluster
+    cluster_stats = NamedTuple[]
+    for (i, positions) in enumerate(matched_positions)
+        if !isempty(positions)
+            xs = [p[1] for p in positions]
+            ys = [p[2] for p in positions]
+            push!(cluster_stats, (
+                id = i,
+                n = length(positions),
+                μx = mean(xs),
+                μy = mean(ys),
+                σx = std(xs),
+                σy = std(ys),
+                σ = sqrt(std(xs)^2 + std(ys)^2)
+            ))
+        end
+    end
+
+    # Create figure
+    fig = Figure(size=(900, 800))
+
+    ax = Axis(fig[1, 1],
+        title="MAP-N Matched Positions (K=$map_n, $(length(map_samples)) samples)",
+        xlabel="x (μm)", ylabel="y (μm)",
+        aspect=DataAspect(),
+        yreversed=true)
+
+    # Plot each cluster with different color
+    for (i, positions) in enumerate(matched_positions)
+        if isempty(positions)
+            continue
+        end
+        xs = [p[1] for p in positions]
+        ys = [p[2] for p in positions]
+        color = CLUSTER_COLORS[mod1(i, length(CLUSTER_COLORS))]
+
+        # Scatter with transparency to show density
+        scatter!(ax, xs, ys, color=(color, 0.3), markersize=3)
+
+        # Mark the mean (MAP-N position)
+        μx, μy = mean(xs), mean(ys)
+        scatter!(ax, [μx], [μy], color=color, markersize=12,
+            strokecolor=:black, strokewidth=2, marker=:diamond)
+    end
+
+    # Plot ground truth if provided
+    if !isempty(true_positions)
+        for (tx, ty) in true_positions
+            scatter!(ax, [tx], [ty], marker=:xcross, color=:black,
+                markersize=15, strokewidth=3)
+        end
+    end
+
+    # Add legend/stats panel
+    ax_stats = Axis(fig[1, 2], title="Cluster Statistics")
+    hidedecorations!(ax_stats)
+    hidespines!(ax_stats)
+
+    stats_text = "Emitter   N      σ (nm)\n" * "─"^25 * "\n"
+    for s in cluster_stats
+        stats_text *= "   $(s.id)    $(lpad(s.n, 5))   $(lpad(round(s.σ * 1000, digits=1), 5))\n"
+    end
+    stats_text *= "─"^25 * "\n"
+    mean_σ = mean(s.σ for s in cluster_stats) * 1000
+    stats_text *= "  mean          $(lpad(round(mean_σ, digits=1), 5))"
+
+    text!(ax_stats, 0.1, 0.9, text=stats_text,
+        align=(:left, :top), fontsize=11)
+
+    # Add note about what we're seeing
+    text!(ax_stats, 0.1, 0.3,
+        text="Each color = one emitter identity\nScatter = positions from K=$map_n samples\nDiamond = computed mean (MAP-N)\nX = ground truth",
+        align=(:left, :top), fontsize=10, color=:gray)
+
+    if save_path !== nothing
+        save(save_path, fig)
+    end
+
+    return fig, matched_positions
 end

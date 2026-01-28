@@ -37,9 +37,11 @@ const PSF_SIGMA = 0.130           # PSF sigma in μm (130 nm)
 const PHOTON_MEAN = 500.0         # Mean photons (exponential distribution)
 const PHOTON_MIN = 100.0          # Minimum photons (reject below this)
 
-# Blink count distribution (Gamma)
-const BLINK_SHAPE = 2.0           # Gamma shape parameter (α)
-const BLINK_SCALE = 5.0           # Gamma scale parameter (θ), mean = α*θ = 10
+# Blink count distribution (Gamma approximating Poisson)
+# Poisson(λ) has mean=λ, var=λ. Gamma(shape, scale) has mean=shape*scale, var=shape*scale².
+# To match Poisson(8): shape=8, scale=1 gives mean=8, var=8.
+const BLINK_SHAPE = 8.0           # Gamma shape parameter (α)
+const BLINK_SCALE = 1.0           # Gamma scale parameter (θ), mean = α*θ = 8
 
 # BaGoL parameters
 const N_ITERATIONS = 20000
@@ -173,12 +175,17 @@ chain = run_bagol_chain(
     verbose = true
 )
 
+# MAP-N estimation (iterative Hungarian + MAD-based σ)
 emitters, posterior_k = estimate_mapn(chain)
 
 println("\n" * "-"^60)
 println("Results:")
 println("  True emitters: $(N_EMITTERS)")
 println("  MAP-N estimate: $(length(emitters))")
+
+# Show uncertainties
+σ_values = [sqrt(e.σ_x^2 + e.σ_y^2) for e in emitters]
+println("  Mean σ: $(round(mean(σ_values)*1000, digits=2)) nm")
 
 # =============================================================================
 # METRICS
@@ -237,7 +244,7 @@ animate_chain(collector, locs;
     true_positions = true_positions)
 
 # 8. SMLMRender outputs
-println("  [8/9] SMLMRender suite...")
+println("  [8/10] SMLMRender suite...")
 bagol_smld = SMLMData.BasicSMLD(emitters, camera, 1, 1)
 target = render_bagol_suite(locs_smld, bagol_smld;
     true_positions = true_positions,
@@ -245,9 +252,16 @@ target = render_bagol_suite(locs_smld, bagol_smld;
     output_dir = OUTPUT_DIR,
     pixel_size = 1.0)
 
-# 9. Posterior histogram from chain
-println("  [9/9] Posterior histogram...")
+# 9. Posterior histogram from chain (all samples)
+println("  [9/10] Posterior histogram (all K)...")
 render_posterior_histogram(chain, locs_smld;
+    target = target,
+    prefix = "render",
+    output_dir = OUTPUT_DIR)
+
+# 10. MAP-N histogram (only K=MAP-N samples) - for comparison with Gaussian render
+println("  [10/10] MAP-N histogram (K=MAP-N only)...")
+render_mapn_histogram(chain, locs_smld;
     target = target,
     prefix = "render",
     output_dir = OUTPUT_DIR)
@@ -272,7 +286,8 @@ println("  - render_mapn_gaussian.png  (Gaussian render of MAP-N)")
 println("  - render_sr_gaussian.png    (Gaussian SR of input locs)")
 println("  - render_circles.png        (locs cyan + MAP-N red)")
 println("  - render_comparison.png     (locs gray + MAP-N red + GT blue)")
-println("  - render_posterior.png      (histogram of chain samples)")
+println("  - render_posterior.png      (histogram of ALL chain samples)")
+println("  - render_mapn_histogram.png (histogram of K=MAP-N samples only)")
 println("\nMetrics:")
 println("  Jaccard Index: $(round(metrics.jaccard, digits=3))")
 println("  F1 Score: $(round(metrics.f1, digits=3))")
