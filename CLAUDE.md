@@ -36,10 +36,10 @@ julia --project=. -e "using Random; Random.seed!(123); using Pkg; Pkg.test()"
 src/
 ├── SMLMBaGoL.jl    # Module entry: all imports + exports
 ├── types.jl        # Emitter, BaGoLState, BaGoLSample, RJMCMCConfig, RJMCMCChain
-├── priors.jl       # UniformSpatialPrior, log_prior_k, log_prior_count
+├── priors.jl       # UniformSpatialPrior, log_prior_k, log_prior_total_count
 ├── likelihood.jl   # Gaussian likelihood with systematic uncertainty
-├── moves.jl        # RJMCMC moves: Birth, Death, Move, Allocate
-├── hierarchical.jl # Hierarchical Bayes updates for μ and α
+├── moves.jl        # RJMCMC moves: Split, Merge, Birth, Death, Move, Allocate
+├── hierarchical.jl # Hierarchical Bayes updates for μ and shape
 ├── rjmcmc.jl       # run_bagol() - main entry point
 ├── mapn.jl         # estimate_mapn() - Hungarian matching for MAP-N
 ├── spatial.jl      # Coordinate utilities for partitioning
@@ -51,10 +51,10 @@ src/
 ### Core Types
 - `Emitter{T}` - Position (x, y) with allocated localization indices (parametric on Float type)
 - `BaGoLState{T}` - Current MCMC state (emitters + log_posterior)
-- `BaGoLSample{T}` - Recorded sample with μ and α values
+- `BaGoLSample{T}` - Recorded sample with μ and shape values
 - `RJMCMCChain{T}` - Full chain with samples, config, acceptance stats
-- `BaGoLDiagnostics` - Diagnostics struct with n_emitters, posterior_k, acceptance_rates, final_μ, final_α
-- `Partition` - Spatial cluster with locs, indices, and boundary flags
+- `BaGoLDiagnostics` - Diagnostics struct with n_emitters, posterior_k, acceptance_rates, final_μ, final_shape, n_partitions
+- `Partition` - Spatial cluster with locs, original_indices, and boundary flags
 
 ### Main API
 
@@ -62,18 +62,18 @@ Two entry points depending on needs:
 
 ```julia
 # 1. Standard workflow - returns (BasicSMLD, BaGoLDiagnostics)
-#    Auto-partitions large datasets, handles everything
+#    Auto-partitions data via precision-weighted DBSCAN
 result_smld, diagnostics = run_bagol(smld; n_iterations=10000, burn_in=2000)
 
 # Key parameters for run_bagol:
-#   nsigma=3.0               # DBSCAN threshold (Inf = no partitioning)
-#   min_partition_size=0     # Keep all clusters (no noise filtering)
-#   max_partition_size=1000  # Split partitions larger than this
-#   skip_partition_size=Inf  # Skip partitions larger than this
-#   α=2.0                    # Shape param (or :auto to estimate from frames)
-#   learn_α=false            # Update α during MCMC
-#   λ_K=length(locs)/5.0     # Prior on emitter count
-#   sync_interval=500        # Iterations between global μ/α updates
+#   nsigma=3.0                    # DBSCAN threshold (Inf = no partitioning)
+#   min_partition_size=0          # Keep all clusters (no noise filtering)
+#   max_partition_size=1000       # Split partitions larger than this
+#   skip_partition_size=typemax   # Skip partitions larger than this
+#   shape=2.0                     # Gamma shape param (1=exponential, >1=peaked)
+#   learn_shape=true              # Update shape during MCMC
+#   λ_K=length(locs)/5.0          # Prior on emitter count
+#   sync_interval=500             # Iterations between global μ/shape updates
 
 # 2. Advanced: direct chain access for diagnostics
 chain = run_bagol_chain(locs; n_iterations=10000, burn_in=2000)
@@ -93,35 +93,42 @@ emitters, posterior_k = estimate_mapn(chain)
 The resulting σ values accurately represent the posterior width and are valid for downstream analysis assuming normal distributions.
 
 ### RJMCMC Algorithm
-- 4 move types: Birth (10%), Death (10%), Move (20%), Allocate (60%)
-- Posterior: Poisson prior on K, NegBinomial prior on counts, Gaussian likelihood
-- Hierarchical: Gibbs updates for μ, optional MH updates for α
+- 6 move types: Split (10%), Merge (10%), Birth (5%), Death (5%), Move (20%), Allocate (50%)
+- Posterior: Poisson prior on K, **marginal Gamma prior** P(N|K) on total count, Gaussian likelihood
+- Hierarchical: MH updates for μ, MH updates for shape (when `learn_shape=true`)
+
+**Count Prior (from Fazel et al. 2022):** Uses P(N|K) = Gamma(N; K×shape, μ/shape) where N is total localizations. This marginal formulation correctly accounts for the constraint that individual counts sum to N, avoiding bias toward fewer emitters.
+
+**Split/Merge Moves:** Operate in allocation space rather than position space:
+- Split: randomly partition one emitter's allocations into two, Gibbs sample positions
+- Merge: combine two emitters' allocations, Gibbs sample merged position
+- Uses allocation-independent proposal ratios (2/(K+1) for split, K/2 for merge) to avoid biasing K
+- Excludes spatial prior term since positions are derived from allocations, not sampled from prior
+
+These moves avoid the proposal density problem of birth/death at tight clusters. The allocation-independent proposal ensures unbiased K estimation even at 0nm separation.
 
 ### Partitioned BaGoL (Large Datasets)
-The main `run_bagol` automatically partitions when `n_locs > partition_threshold`.
-For advanced control, use `run_bagol_partitioned` directly:
+The main `run_bagol` always partitions data using precision-weighted DBSCAN.
+The `partition_locs` function is exported for advanced control:
 
 ```julia
-result = run_bagol_partitioned(locs;
-    nsigma=4.0,              # DBSCAN threshold in sigma units
-    min_partition_size=10,   # Minimum locs per partition
-    max_partition_size=1000, # Target max locs per partition
-    oversized=:split,        # :split or :skip oversized clusters
-    boundary_margin=0.0,     # 0 = auto (5×median(σ))
-    # ... all run_bagol_chain kwargs
+# Manual partitioning
+partitions, skipped = partition_locs(locs;
+    nsigma=4.0,      # DBSCAN threshold in sigma units
+    min_size=10,     # Minimum locs per partition
+    max_size=1000,   # Target max locs per partition
+    skip_size=Inf    # Skip clusters larger than this
 )
 
-# Access results
-result.emitters             # Combined Emitter2DFit after boundary deduplication
-result.posterior_k          # Combined K histogram
-result.chains               # Individual RJMCMCChain per partition
-result.partitions           # Partition definitions
-result.skipped              # Oversized clusters that were skipped
+# Each partition has:
+p.locs              # Vector of Emitter2DFit for this partition
+p.original_indices  # Indices back to original locs array
+p.is_boundary       # BitVector of which locs are near partition edge
 ```
 
 Algorithm: Precision-weighted DBSCAN clustering where distance = `||p_i - p_j|| / (σ_i + σ_j)`.
 Oversized clusters are recursively bisected along principal axis.
-Boundary emitters are deduplicated via Hungarian matching.
+Boundary emitters are deduplicated via Hungarian matching after merge.
 
 ## Dependencies
 
