@@ -163,7 +163,7 @@ function animate_chain(
     # Left panel: spatial view
     ax_spatial = Axis(fig[1:2, 1], title="Emitter Evolution",
                       xlabel="x (μm)", ylabel="y (μm)",
-                      aspect=DataAspect())
+                      aspect=DataAspect(), yreversed=true)
     xlims!(ax_spatial, x_range)
     ylims!(ax_spatial, y_range)
 
@@ -284,7 +284,7 @@ function plot_chain_snapshots(
     for (col, (idx, title)) in enumerate(zip(snapshot_indices, titles))
         ax = Axis(fig[1, col], title=title,
                   xlabel="x (μm)", ylabel="y (μm)",
-                  aspect=DataAspect())
+                  aspect=DataAspect(), yreversed=true)
 
         r = records[idx]
         loc_to_emitter = build_loc_to_emitter_map(r.allocations, n_locs)
