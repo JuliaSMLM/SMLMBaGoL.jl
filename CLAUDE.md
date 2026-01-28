@@ -83,6 +83,15 @@ emitters, posterior_k = estimate_mapn(chain)
 # Then use: plot_bagol(chain, emitters, posterior_k, locs)
 ```
 
+### MAP-N Estimation
+
+`estimate_mapn` extracts emitter positions and uncertainties from the RJMCMC chain using:
+
+1. **Iterative Hungarian matching** with median-based reference positions to handle label switching between nearby emitters
+2. **MAD-based uncertainty** (Median Absolute Deviation) which is robust to outliers from residual label switching
+
+The resulting σ values accurately represent the posterior width and are valid for downstream analysis assuming normal distributions.
+
 ### RJMCMC Algorithm
 - 4 move types: Birth (10%), Death (10%), Move (20%), Allocate (60%)
 - Posterior: Poisson prior on K, NegBinomial prior on counts, Gaussian likelihood
