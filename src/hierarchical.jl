@@ -4,25 +4,49 @@
 #   - μ = mean locs per emitter
 #   - shape = Gamma shape (1=exponential, higher=peaked)
 #
-# Both updated via MH with log-normal proposals.
+# MH updates use counts from recent samples (last chunk) for stable fitting.
+
+"""
+Get counts from the last chunk of recorded samples.
+Returns empty vector if no samples yet.
+"""
+function get_recent_counts(chain::RJMCMCChain)
+    counts = Int[]
+    n_samples = length(chain.samples)
+    chunk_size = min(chain.config.hierarchical_interval, n_samples)
+
+    if chunk_size == 0
+        # No samples yet (during burn-in), use current state
+        for e in chain.current_state.emitters
+            push!(counts, length(e.allocated))
+        end
+    else
+        # Use last chunk of samples
+        for i in (n_samples - chunk_size + 1):n_samples
+            for e in chain.samples[i].emitters
+                push!(counts, length(e.allocated))
+            end
+        end
+    end
+    return counts
+end
 
 """
 Update μ (mean locs per emitter) via Metropolis-Hastings.
 Uses log-normal proposal for positive support.
 
-Uses product of individual count priors: P(n₁,...,n_K | μ, shape) = ∏ᵢ Gamma(nᵢ; shape, μ/shape)
+Uses product of individual count priors from recent samples:
+P(n₁,...,n_K | μ, shape) = ∏ᵢ Gamma(nᵢ; shape, μ/shape)
 """
 function update_mu!(chain::RJMCMCChain)
-    state = chain.current_state
     config = chain.config
 
-    K = length(state.emitters)
-    if K == 0
+    # Get counts from last chunk of samples
+    counts = get_recent_counts(chain)
+
+    if isempty(counts)
         return
     end
-
-    # Individual counts
-    counts = [length(e.allocated) for e in state.emitters]
 
     μ_current = chain.μ
     shape = chain.shape
@@ -67,19 +91,18 @@ end
 Update shape parameter via Metropolis-Hastings.
 Uses log-normal proposal for positive support.
 
-Uses product of individual count priors: P(n₁,...,n_K | μ, shape) = ∏ᵢ Gamma(nᵢ; shape, μ/shape)
+Uses product of individual count priors from recent samples:
+P(n₁,...,n_K | μ, shape) = ∏ᵢ Gamma(nᵢ; shape, μ/shape)
 """
 function update_shape!(chain::RJMCMCChain)
-    state = chain.current_state
     config = chain.config
 
-    K = length(state.emitters)
-    if K == 0
+    # Get counts from last chunk of samples
+    counts = get_recent_counts(chain)
+
+    if isempty(counts)
         return
     end
-
-    # Individual counts
-    counts = [length(e.allocated) for e in state.emitters]
 
     shape_current = chain.shape
     μ = chain.μ
@@ -175,9 +198,20 @@ function pool_statistics(chains::Vector{RJMCMCChain})
 end
 
 """
+Get pooled counts from recent samples across all chains.
+"""
+function get_recent_counts_global(chains::Vector{RJMCMCChain})
+    all_counts = Int[]
+    for chain in chains
+        append!(all_counts, get_recent_counts(chain))
+    end
+    return all_counts
+end
+
+"""
     update_mu_global!(chains)
 
-MH update for μ using pooled statistics from all chains.
+MH update for μ using pooled counts from recent samples across all chains.
 Updates μ in all chains to the same global value.
 
 Uses product of individual count priors across all partitions.
@@ -187,8 +221,9 @@ function update_mu_global!(chains::Vector{RJMCMCChain})
         return
     end
 
-    total_K, all_counts = pool_statistics(chains)
-    if total_K == 0
+    # Get counts from recent samples across all chains
+    all_counts = get_recent_counts_global(chains)
+    if isempty(all_counts)
         return
     end
 
@@ -232,7 +267,7 @@ end
 """
     update_shape_global!(chains)
 
-MH update for shape using pooled statistics from all chains.
+MH update for shape using pooled counts from recent samples across all chains.
 Updates shape in all chains to the same global value.
 
 Uses product of individual count priors across all partitions.
@@ -242,8 +277,9 @@ function update_shape_global!(chains::Vector{RJMCMCChain})
         return
     end
 
-    total_K, all_counts = pool_statistics(chains)
-    if total_K == 0
+    # Get counts from recent samples across all chains
+    all_counts = get_recent_counts_global(chains)
+    if isempty(all_counts)
         return
     end
 
