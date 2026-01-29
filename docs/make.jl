@@ -1,0 +1,19 @@
+using Documenter
+using SMLMBaGoL
+
+makedocs(
+    sitename = "SMLMBaGoL.jl",
+    modules = [SMLMBaGoL],
+    format = Documenter.HTML(
+        prettyurls = get(ENV, "CI", nothing) == "true"
+    ),
+    pages = [
+        "Home" => "index.md",
+        "API Reference" => "api.md"
+    ]
+)
+
+deploydocs(
+    repo = "github.com/JuliaSMLM/SMLMBaGoL.jl.git",
+    devbranch = "main"
+)
