@@ -201,17 +201,17 @@ function run_bagol_chain(
     for i in 1:n_iterations
         accepted, move_type = rjmcmc_step!(chain, locs, spatial_prior)
 
-        # Hierarchical update
+        # Record sample after burn-in
+        if i > burn_in
+            record_sample!(chain)
+        end
+
+        # Hierarchical MH updates using counts from recent samples
         if i % hierarchical_interval == 0
             update_mu!(chain)
             if chain.learn_shape
                 update_shape!(chain)
             end
-        end
-
-        # Record sample after burn-in
-        if i > burn_in
-            record_sample!(chain)
         end
 
         # Call user callback if provided
@@ -363,6 +363,7 @@ function run_bagol(
                            sync_interval; record_after_burn_in=record)
         end
 
+        # Global MH updates using counts from recent samples across all partitions
         update_mu_global!(chains)
         if learn_shape
             update_shape_global!(chains)

@@ -131,12 +131,14 @@ function simulate_smlm(
 
             push!(localizations, SMLMData.Emitter2DFit(
                 x, y,           # position
-                photons,        # photons (now realistic)
-                background,     # background
+                photons,        # photons
+                background,     # background per pixel
                 σ_loc, σ_loc,   # σ_x, σ_y from CRLB
-                50.0, photons,  # llr, frame_photons
-                frame, 1,       # frame, dataset_idx
-                0, loc_id       # connect_idx, id
+                0.0,            # σ_xy (covariance, typically 0 for isotropic)
+                sqrt(photons),  # σ_photons (Poisson approx)
+                sqrt(background), # σ_bg
+                frame, 1,       # frame, dataset
+                0, loc_id       # track_id, id
             ))
             loc_id += 1
         end
