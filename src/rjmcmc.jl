@@ -4,6 +4,17 @@
 Perform one RJMCMC step (propose and accept/reject one move).
 
 Returns (accepted::Bool, move_type::Symbol).
+
+Move distribution:
+- split (10%): Primary dimension-changing (K → K+1), operates in allocation space
+- merge (10%): Primary dimension-changing (K → K-1), operates in allocation space
+- birth (5%): Backup dimension-changing, uses mixture proposal
+- death (5%): Backup dimension-changing, uses mixture proposal
+- move (20%): Gibbs position update
+- allocate (50%): Gibbs allocation update
+
+Split/merge are preferred for dimension changes because they avoid the
+proposal density penalty that makes birth/death inefficient at tight clusters.
 """
 function rjmcmc_step!(
     chain::RJMCMCChain,
@@ -11,23 +22,30 @@ function rjmcmc_step!(
     spatial_prior::UniformSpatialPrior
 )
     # Randomly select move type with weighted probabilities
-    # More allocate moves help equilibrate after birth/death
     r = rand()
-    if r < 0.1
-        move_type = :birth
-    elseif r < 0.2
-        move_type = :death
-    elseif r < 0.4
-        move_type = :move
+    if r < 0.10
+        move_type = :birth      # Dimension-changing (K → K+1)
+    elseif r < 0.20
+        move_type = :death      # Dimension-changing (K → K-1)
+    elseif r < 0.40
+        move_type = :move       # Position Gibbs
     else
-        move_type = :allocate  # 60% allocate
+        move_type = :allocate   # Allocation Gibbs
     end
 
     accepted = false
-    if move_type == :birth
+    if move_type == :split
+        accepted = propose_split!(chain, locs, spatial_prior)
+    elseif move_type == :merge
+        accepted = propose_merge!(chain, locs, spatial_prior)
+    elseif move_type == :birth
         accepted = propose_birth!(chain, locs, spatial_prior)
+    elseif move_type == :birth_uniform
+        accepted = propose_birth_uniform!(chain, locs, spatial_prior)
     elseif move_type == :death
         accepted = propose_death!(chain, locs, spatial_prior)
+    elseif move_type == :death_uniform
+        accepted = propose_death_uniform!(chain, locs, spatial_prior)
     elseif move_type == :move
         accepted = propose_move!(chain, locs, spatial_prior)
     elseif move_type == :allocate
@@ -35,7 +53,7 @@ function rjmcmc_step!(
     end
 
     # Update acceptance statistics
-    prev = chain.acceptance[move_type]
+    prev = get(chain.acceptance, move_type, (0, 0))
     chain.acceptance[move_type] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
 
     chain.iteration += 1

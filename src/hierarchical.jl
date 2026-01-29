@@ -9,15 +9,20 @@
 """
 Update μ (mean locs per emitter) via Metropolis-Hastings.
 Uses log-normal proposal for positive support.
+
+Uses product of individual count priors: P(n₁,...,n_K | μ, shape) = ∏ᵢ Gamma(nᵢ; shape, μ/shape)
 """
 function update_mu!(chain::RJMCMCChain)
     state = chain.current_state
     config = chain.config
 
-    counts = [length(e.allocated) for e in state.emitters]
-    if isempty(counts)
+    K = length(state.emitters)
+    if K == 0
         return
     end
+
+    # Individual counts
+    counts = [length(e.allocated) for e in state.emitters]
 
     μ_current = chain.μ
     shape = chain.shape
@@ -30,9 +35,15 @@ function update_mu!(chain::RJMCMCChain)
         return
     end
 
-    # Log-likelihood ratio for counts under Gamma(shape, μ/shape)
-    log_lik_current = sum(log_prior_count(n, μ_current, shape) for n in counts)
-    log_lik_proposed = sum(log_prior_count(n, μ_proposed, shape) for n in counts)
+    # Log-likelihood ratio using product of individual count priors
+    # P(n | μ, shape) = Gamma(n; shape, μ/shape)
+    scale_current = μ_current / shape
+    scale_proposed = μ_proposed / shape
+    dist_current = Gamma(shape, scale_current)
+    dist_proposed = Gamma(shape, scale_proposed)
+
+    log_lik_current = sum(logpdf(dist_current, max(n, 0.5)) for n in counts)
+    log_lik_proposed = sum(logpdf(dist_proposed, max(n, 0.5)) for n in counts)
 
     # Prior on μ: Gamma(shape, scale)
     prior_shape = config.μ_prior_shape
@@ -55,15 +66,20 @@ end
 """
 Update shape parameter via Metropolis-Hastings.
 Uses log-normal proposal for positive support.
+
+Uses product of individual count priors: P(n₁,...,n_K | μ, shape) = ∏ᵢ Gamma(nᵢ; shape, μ/shape)
 """
 function update_shape!(chain::RJMCMCChain)
     state = chain.current_state
     config = chain.config
 
-    counts = [length(e.allocated) for e in state.emitters]
-    if isempty(counts)
+    K = length(state.emitters)
+    if K == 0
         return
     end
+
+    # Individual counts
+    counts = [length(e.allocated) for e in state.emitters]
 
     shape_current = chain.shape
     μ = chain.μ
@@ -76,9 +92,14 @@ function update_shape!(chain::RJMCMCChain)
         return
     end
 
-    # Log-likelihood ratio
-    log_lik_current = sum(log_prior_count(n, μ, shape_current) for n in counts)
-    log_lik_proposed = sum(log_prior_count(n, μ, shape_proposed) for n in counts)
+    # Log-likelihood ratio using product of individual count priors
+    scale_current = μ / shape_current
+    scale_proposed = μ / shape_proposed
+    dist_current = Gamma(shape_current, scale_current)
+    dist_proposed = Gamma(shape_proposed, scale_proposed)
+
+    log_lik_current = sum(logpdf(dist_current, max(n, 0.5)) for n in counts)
+    log_lik_proposed = sum(logpdf(dist_proposed, max(n, 0.5)) for n in counts)
 
     # Prior on shape: Gamma(shape, scale)
     prior_shape = config.shape_prior_shape
@@ -158,6 +179,8 @@ end
 
 MH update for μ using pooled statistics from all chains.
 Updates μ in all chains to the same global value.
+
+Uses product of individual count priors across all partitions.
 """
 function update_mu_global!(chains::Vector{RJMCMCChain})
     if isempty(chains)
@@ -179,9 +202,14 @@ function update_mu_global!(chains::Vector{RJMCMCChain})
         return
     end
 
-    # Log-likelihood ratio using all counts
-    log_lik_current = sum(log_prior_count(n, μ_current, shape) for n in all_counts)
-    log_lik_proposed = sum(log_prior_count(n, μ_proposed, shape) for n in all_counts)
+    # Log-likelihood ratio using product of individual count priors
+    scale_current = μ_current / shape
+    scale_proposed = μ_proposed / shape
+    dist_current = Gamma(shape, scale_current)
+    dist_proposed = Gamma(shape, scale_proposed)
+
+    log_lik_current = sum(logpdf(dist_current, max(n, 0.5)) for n in all_counts)
+    log_lik_proposed = sum(logpdf(dist_proposed, max(n, 0.5)) for n in all_counts)
 
     # Prior
     log_prior_current = logpdf(Gamma(config.μ_prior_shape, config.μ_prior_scale), μ_current)
@@ -206,6 +234,8 @@ end
 
 MH update for shape using pooled statistics from all chains.
 Updates shape in all chains to the same global value.
+
+Uses product of individual count priors across all partitions.
 """
 function update_shape_global!(chains::Vector{RJMCMCChain})
     if isempty(chains)
@@ -227,9 +257,14 @@ function update_shape_global!(chains::Vector{RJMCMCChain})
         return
     end
 
-    # Log-likelihood ratio
-    log_lik_current = sum(log_prior_count(n, μ, shape_current) for n in all_counts)
-    log_lik_proposed = sum(log_prior_count(n, μ, shape_proposed) for n in all_counts)
+    # Log-likelihood ratio using product of individual count priors
+    scale_current = μ / shape_current
+    scale_proposed = μ / shape_proposed
+    dist_current = Gamma(shape_current, scale_current)
+    dist_proposed = Gamma(shape_proposed, scale_proposed)
+
+    log_lik_current = sum(logpdf(dist_current, max(n, 0.5)) for n in all_counts)
+    log_lik_proposed = sum(logpdf(dist_proposed, max(n, 0.5)) for n in all_counts)
 
     # Prior
     log_prior_current = logpdf(Gamma(config.shape_prior_shape, config.shape_prior_scale), shape_current)

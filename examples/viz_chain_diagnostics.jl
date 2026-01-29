@@ -12,7 +12,7 @@
 
 using CairoMakie
 using Statistics
-using Distributions: NegativeBinomial, pdf
+using Distributions: Gamma, pdf, cdf
 using Hungarian
 using SMLMData
 using SMLMBaGoL: RJMCMCChain, BaGoLSample
@@ -68,7 +68,7 @@ function plot_bagol(
     # 1. Localizations as 1σ circles (gray)
     for loc in locs
         σ = mean([loc.σ_x, loc.σ_y])
-        draw_circle!(ax1, loc.x, loc.y, σ; color=:gray, linewidth=0.5, alpha=0.4)
+        draw_circle!(ax1, loc.x, loc.y, σ; color=:gray, linewidth=1.0, alpha=0.6)
     end
 
     # 2. Chain emitter positions as scatter (all samples)
@@ -153,7 +153,7 @@ function plot_mapn(
     # Localizations as 1σ circles
     for loc in locs
         σ = mean([loc.σ_x, loc.σ_y])
-        draw_circle!(ax1, loc.x, loc.y, σ; color=:gray, linewidth=0.5, alpha=0.4)
+        draw_circle!(ax1, loc.x, loc.y, σ; color=:gray, linewidth=1.0, alpha=0.6)
     end
 
     # MAP-N emitters as 1σ circles
@@ -290,14 +290,17 @@ function plot_hierarchical_diagnostics(
         end
 
         # Gamma model curve with posterior mean μ and shape
+        # Now that μ/shape are learned from individual counts, this should fit
         shape_post = mean(shape_samples)
         μ_post = mean(μ_samples)
-        gamma_dist = Gamma(shape_post, μ_post / shape_post)
+        scale_post = μ_post / shape_post
+        gamma_dist = Gamma(shape_post, scale_post)
 
         x_model = 1:max_count
-        y_model = [pdf(gamma_dist, Float64(k)) for k in x_model]
+        # Discretize: P(k) = CDF(k+0.5) - CDF(k-0.5)
+        y_model = [cdf(gamma_dist, k + 0.5) - cdf(gamma_dist, k - 0.5) for k in x_model]
         lines!(ax3, x_model, y_model, color=:black, linewidth=2,
-            label="Gamma(shape=$(round(shape_post, digits=1)), μ=$(round(μ_post, digits=1)))")
+            label="Gamma($(round(shape_post, digits=1)), μ=$(round(μ_post, digits=1)))")
 
         axislegend(ax3, position=:rt)
     end
@@ -489,7 +492,7 @@ function plot_mapn_comparison(
         # Draw localizations (gray circles at 1σ)
         for loc in locs
             σ = mean([loc.σ_x, loc.σ_y])
-            draw_circle!(ax, loc.x, loc.y, σ; color=:gray, linewidth=0.5, alpha=0.3)
+            draw_circle!(ax, loc.x, loc.y, σ; color=:gray, linewidth=1.0, alpha=0.6)
         end
 
         # Draw true positions
