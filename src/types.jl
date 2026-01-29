@@ -76,7 +76,8 @@ function RJMCMCChain(config::RJMCMCConfig, initial_state::BaGoLState{T};
         learn_shape,
         initial_state,
         0,
-        Dict(:birth => (0, 0), :death => (0, 0), :move => (0, 0), :allocate => (0, 0))
+        Dict(:birth => (0, 0), :death => (0, 0), :move => (0, 0), :allocate => (0, 0),
+             :split => (0, 0), :merge => (0, 0))
     )
 end
 
