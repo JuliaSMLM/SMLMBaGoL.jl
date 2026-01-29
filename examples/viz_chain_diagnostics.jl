@@ -262,26 +262,34 @@ function plot_hierarchical_diagnostics(
     end
     axislegend(ax2, position=:rt)
 
-    # 3. Locs/emitter count distribution
-    ax3 = Axis(fig[1, 3], title="Locs/Emitter Distribution",
+    # 3. Locs/emitter count distribution (last hierarchical chunk only)
+    # Use only samples from the last hierarchical update period, where μ/shape were fixed
+    ax3 = Axis(fig[1, 3], title="Locs/Emitter (last chunk)",
                xlabel="Count", ylabel="Probability")
 
-    # Get allocation counts from chain samples
-    all_counts = Int[]
-    for sample in chain.samples
+    # Find samples from the last hierarchical chunk
+    # These all share the same μ/shape (the final values)
+    n_samples = length(chain.samples)
+    hierarchical_interval = chain.config.hierarchical_interval
+    chunk_size = min(hierarchical_interval, n_samples)
+    last_chunk_samples = chain.samples[end-chunk_size+1:end]
+
+    # Get counts from last chunk only
+    chunk_counts = Int[]
+    for sample in last_chunk_samples
         for emitter in sample.emitters
-            push!(all_counts, length(emitter.allocated))
+            push!(chunk_counts, length(emitter.allocated))
         end
     end
 
-    if !isempty(all_counts)
-        max_count = max(maximum(all_counts),
+    if !isempty(chunk_counts)
+        max_count = max(maximum(chunk_counts),
                         true_locs_per_emitter !== nothing ? maximum(true_locs_per_emitter) : 0)
         bins = 0:(max_count + 1)
 
-        # Estimated histogram (from chain)
-        hist!(ax3, all_counts, bins=bins, normalization=:probability,
-            color=(:steelblue, 0.6), label="Estimated")
+        # Estimated histogram (from last chunk)
+        hist!(ax3, chunk_counts, bins=bins, normalization=:probability,
+            color=(:steelblue, 0.6), label="Last chunk")
 
         # True histogram (if provided)
         if true_locs_per_emitter !== nothing && !isempty(true_locs_per_emitter)
@@ -289,18 +297,29 @@ function plot_hierarchical_diagnostics(
                 color=(:red, 0.4), label="True")
         end
 
-        # Gamma model curve with posterior mean μ and shape
-        # Now that μ/shape are learned from individual counts, this should fit
-        shape_post = mean(shape_samples)
-        μ_post = mean(μ_samples)
-        scale_post = μ_post / shape_post
-        gamma_dist = Gamma(shape_post, scale_post)
+        # 1. Prior curve: Gamma using μ/shape that were active during this chunk
+        prior_μ = last_chunk_samples[end].μ
+        prior_shape = last_chunk_samples[end].shape
+        prior_scale = prior_μ / prior_shape
+        prior_dist = Gamma(prior_shape, prior_scale)
 
         x_model = 1:max_count
-        # Discretize: P(k) = CDF(k+0.5) - CDF(k-0.5)
-        y_model = [cdf(gamma_dist, k + 0.5) - cdf(gamma_dist, k - 0.5) for k in x_model]
-        lines!(ax3, x_model, y_model, color=:black, linewidth=2,
-            label="Gamma($(round(shape_post, digits=1)), μ=$(round(μ_post, digits=1)))")
+        y_prior = [cdf(prior_dist, k + 0.5) - cdf(prior_dist, k - 0.5) for k in x_model]
+        lines!(ax3, x_model, y_prior, color=:black, linewidth=2,
+            label="Prior(shape=$(round(prior_shape, digits=1)), μ=$(round(prior_μ, digits=1)))")
+
+        # 2. Empirical fit: Gamma with parameters from observed counts (method of moments)
+        emp_μ = mean(chunk_counts)
+        emp_var = var(chunk_counts)
+        if emp_var > 0 && emp_μ > 0
+            emp_shape = emp_μ^2 / emp_var
+            emp_scale = emp_var / emp_μ
+            emp_dist = Gamma(emp_shape, emp_scale)
+
+            y_emp = [cdf(emp_dist, k + 0.5) - cdf(emp_dist, k - 0.5) for k in x_model]
+            lines!(ax3, x_model, y_emp, color=:green, linewidth=2, linestyle=:dash,
+                label="Fit(shape=$(round(emp_shape, digits=1)), μ=$(round(emp_μ, digits=1)))")
+        end
 
         axislegend(ax3, position=:rt)
     end
