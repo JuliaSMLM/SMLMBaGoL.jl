@@ -165,7 +165,7 @@ function animate_chain(
                       xlabel="x (μm)", ylabel="y (μm)",
                       aspect=DataAspect(), yreversed=true)
     xlims!(ax_spatial, x_range)
-    ylims!(ax_spatial, y_range)
+    ylims!(ax_spatial, y_range[2], y_range[1])  # reversed for microscopy convention
 
     # Right top: K trace
     ax_k = Axis(fig[1, 2], title="Emitter Count (K)",

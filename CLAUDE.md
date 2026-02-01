@@ -81,6 +81,14 @@ emitters, posterior_k = estimate_mapn(chain)
 
 # Visualization: include examples/viz_chain_diagnostics.jl
 # Then use: plot_bagol(chain, emitters, posterior_k, locs)
+
+# 3. Animation/per-iteration callbacks
+records = []
+chain = run_bagol_chain(locs;
+    callback = (i, move_type, accepted, state, μ, shape) ->
+        push!(records, (i, length(state.emitters))),
+    callback_interval = 10
+)
 ```
 
 ### MAP-N Estimation
@@ -93,19 +101,11 @@ emitters, posterior_k = estimate_mapn(chain)
 The resulting σ values accurately represent the posterior width and are valid for downstream analysis assuming normal distributions.
 
 ### RJMCMC Algorithm
-- 6 move types: Split (10%), Merge (10%), Birth (5%), Death (5%), Move (20%), Allocate (50%)
+- 4 move types: Birth (10%), Death (10%), Move (20%), Allocate (50%)
 - Posterior: Poisson prior on K, **marginal Gamma prior** P(N|K) on total count, Gaussian likelihood
 - Hierarchical: MH updates for μ, MH updates for shape (when `learn_shape=true`)
 
 **Count Prior (from Fazel et al. 2022):** Uses P(N|K) = Gamma(N; K×shape, μ/shape) where N is total localizations. This marginal formulation correctly accounts for the constraint that individual counts sum to N, avoiding bias toward fewer emitters.
-
-**Split/Merge Moves:** Operate in allocation space rather than position space:
-- Split: randomly partition one emitter's allocations into two, Gibbs sample positions
-- Merge: combine two emitters' allocations, Gibbs sample merged position
-- Uses allocation-independent proposal ratios (2/(K+1) for split, K/2 for merge) to avoid biasing K
-- Excludes spatial prior term since positions are derived from allocations, not sampled from prior
-
-These moves avoid the proposal density problem of birth/death at tight clusters. The allocation-independent proposal ensures unbiased K estimation even at 0nm separation.
 
 ### Partitioned BaGoL (Large Datasets)
 The main `run_bagol` always partitions data using precision-weighted DBSCAN.
