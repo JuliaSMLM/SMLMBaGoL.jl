@@ -166,7 +166,7 @@ function match_positions(
     matched_distances = Float64[]
 
     for (i, j) in enumerate(assignment)
-        if j <= n_true
+        if 0 < j <= n_true
             d = cost[i, j]
             if d <= threshold
                 assignments[i] = j

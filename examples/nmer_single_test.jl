@@ -37,11 +37,8 @@ const PSF_SIGMA = 0.130           # PSF sigma in μm (130 nm)
 const PHOTON_MEAN = 500.0         # Mean photons (exponential distribution)
 const PHOTON_MIN = 100.0          # Minimum photons (reject below this)
 
-# Blink count distribution (Gamma approximating Poisson)
-# Poisson(λ) has mean=λ, var=λ. Gamma(shape, scale) has mean=shape*scale, var=shape*scale².
-# To match Poisson(8): shape=8, scale=1 gives mean=8, var=8.
-const BLINK_SHAPE = 8.0           # Gamma shape parameter (α)
-const BLINK_SCALE = 1.0           # Gamma scale parameter (θ), mean = α*θ = 8
+# Blink count distribution - Poisson with mean 10
+const BLINK_MEAN = 10.0           # Mean blinks per emitter
 
 # BaGoL parameters
 const N_ITERATIONS = 20000
@@ -71,8 +68,8 @@ println("\nParameters:")
 println("  Cluster diameter: $(CLUSTER_DIAMETER * 1000) nm")
 println("  PSF sigma: $(PSF_SIGMA * 1000) nm")
 println("  Photon mean: $PHOTON_MEAN (min: $PHOTON_MIN)")
-println("  Blink distribution: Gamma(α=$(BLINK_SHAPE), θ=$(BLINK_SCALE))")
-println("  Expected blinks/emitter: $(BLINK_SHAPE * BLINK_SCALE)")
+println("  Blink distribution: Poisson($(BLINK_MEAN))")
+println("  Expected blinks/emitter: $(BLINK_MEAN)")
 
 # =============================================================================
 # GENERATE N-MER
@@ -95,7 +92,7 @@ for i in 1:N_EMITTERS
 end
 
 # Generate localizations
-blink_dist = Gamma(BLINK_SHAPE, BLINK_SCALE)
+blink_dist = Poisson(BLINK_MEAN)
 photon_dist = Exponential(PHOTON_MEAN)
 
 function generate_localizations(positions, blink_dist, photon_dist)
@@ -104,32 +101,23 @@ function generate_localizations(positions, blink_dist, photon_dist)
     loc_id = 1
 
     for (ex, ey) in positions
-        # Draw number of blinks from Gamma
-        n_blinks = max(1, round(Int, rand(blink_dist)))
+        # Draw number of blinks from Poisson
+        n_blinks = max(1, rand(blink_dist))
         actual_blinks = 0
 
         for _ in 1:n_blinks
-            # Draw photons from exponential
             N = rand(photon_dist)
+            N < PHOTON_MIN && continue
 
-            # Reject if below minimum
-            if N < PHOTON_MIN
-                continue
-            end
-
-            # Compute localization precision
             σ = PSF_SIGMA / sqrt(N)
-
-            # Generate localization position
             x = ex + σ * randn()
             y = ey + σ * randn()
 
-            # Create emitter
             push!(locs, SMLMData.Emitter2DFit(
                 x, y,
-                N, 10.0,           # photons, background
-                σ, σ, 0.0,         # σ_x, σ_y, σ_xy
-                sqrt(N), 1.0,      # σ_photons, σ_bg
+                N, 10.0,
+                σ, σ, 0.0,
+                sqrt(N), 1.0,
                 loc_id, 1, 0, loc_id
             ))
             loc_id += 1
