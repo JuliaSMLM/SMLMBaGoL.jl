@@ -39,7 +39,7 @@ const DENSITY = 2.0                # patterns per μm² → ~80 n-mers (faster)
 const N_EMITTERS = 8               # 8-mer
 const CLUSTER_DIAMETER = 0.050     # 50 nm
 
-# StaticSMLMParams
+# StaticSMLMConfig
 const PSF_SIGMA = 0.130            # 130 nm PSF
 const NFRAMES = 1000               # 1000 frames (faster)
 const FRAMERATE = 50.0             # 50 fps
@@ -691,8 +691,8 @@ println("  Fluorophore: $(PHOTON_RATE) photons/s, τ_on=$(round(1000/K_OFF, digi
 println("\n" * "-"^60)
 println("Running SMLMSim simulation...")
 
-# Create StaticSMLMParams
-params = SMLMSim.StaticSMLMParams(
+# Create StaticSMLMConfig
+params = SMLMSim.StaticSMLMConfig(
     density = DENSITY,
     σ_psf = PSF_SIGMA,
     minphotons = MIN_PHOTONS,
@@ -709,16 +709,17 @@ fluor = SMLMSim.GenericFluor(photons=PHOTON_RATE, k_off=K_OFF, k_on=K_ON)
 # Create camera
 camera = SMLMData.IdealCamera(CAMERA_PIXELS, CAMERA_PIXELS, PIXEL_SIZE)
 
-# Run simulation
-smld_true, smld_model, smld_noisy = SMLMSim.simulate(params;
+# Run simulation - returns (smld_noisy, SimInfo)
+smld_noisy, sim_info = SMLMSim.simulate(params;
     pattern = pattern,
     molecule = fluor,
     camera = camera
 )
+smld_true = sim_info.smld_true
 
 # Extract ground truth
 true_positions = get_unique_true_positions(smld_true)
-n_patterns = length(unique(e.id for e in smld_true.emitters))
+n_patterns = sim_info.n_patterns
 n_locs = length(smld_noisy.emitters)
 
 println("  Generated $n_patterns patterns with $(length(true_positions)) unique emitters")
