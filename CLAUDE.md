@@ -141,10 +141,7 @@ Examples use `CairoMakie` and `SMLMRender` for visualization (see `examples/viz_
 
 ## Reference Implementation (MATLAB)
 
-This package is a Julia reimplementation of BaGoL. The original MATLAB code lives in two places:
-
-- **Standalone:** [LidkeLab/BaGoL](https://github.com/LidkeLab/BaGoL) -- original repo with `@BaGoL` class, examples, and data flow diagram. MATLAB + C++ (88/12%).
-- **Integrated:** [LidkeLab/smite](https://github.com/LidkeLab/smite) at `+smi/@BaGoL` -- BaGoL integrated into the SMITE toolbox with shared SMF/SMD data structures.
+This package is a Julia reimplementation of BaGoL. The current MATLAB implementation is in [LidkeLab/smite](https://github.com/LidkeLab/smite) at `+smi/@BaGoL`, integrated into the SMITE toolbox with shared SMF/SMD data structures.
 
 **Paper:** Fazel et al., "High-Precision Estimation of Emitter Positions using Bayesian Grouping of Localizations", *Nature Communications* 13, 7152 (2022). [doi:10.1038/s41467-022-34894-2](https://doi.org/10.1038/s41467-022-34894-2)
 
