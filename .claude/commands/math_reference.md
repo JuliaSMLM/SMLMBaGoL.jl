@@ -1,260 +1,365 @@
-# Hierarchical Bayes RJMCMC for SMLM with Latent Positions — Updated Mathematical Specification
+# SMLMBaGoL Mathematical Reference — Current Implementation
+
+*Generated from source code on the `gamma-count-prior` branch.*
 
 ---
 
 ## 1. Problem Statement
 
-Given a set of single-molecule localisation events
-$$\mathcal{D} = \{(x_i, y_i, \sigma_i)\}_{i=1}^{N}$$
-obtained from an upstream PSF-fitting algorithm, we seek to infer simultaneously:
+Given a set of single-molecule localization events
 
-- The unknown number of emitters $k$
-- Their mean positions $\mathbf{s} = \{\mathbf{s}_j \in \mathbb{R}^2\}_{j=1}^{k}$  
-- The blinking-statistics hyperparameters $(\mu,\kappa)$ governing the distribution of localisations per emitter
-- The systematic localization variance $\tau^2$ capturing physical variations
+$$\mathcal{D} = \{(x_i, y_i, \sigma_{x,i}, \sigma_{y,i}, \sigma_{xy,i})\}_{i=1}^{N}$$
 
-**Key constraints:**
-1. Every localisation is assigned to exactly one emitter (no noise class)
-2. The localisation/emitter histogram is dataset-specific and learned *in situ*
-3. Latent positions are auxiliary variables maintained for computational efficiency
-4. The posterior is explored with reversible-jump MCMC (RJMCMC) inside disjoint spatial partitions processed in parallel; global hyperparameters are synchronised every $T_{\mathrm{sync}}$ sweeps
-5. **NEW**: The number of emitters $k$ is constrained by the total number of localizations $N$
+from an upstream PSF-fitting algorithm, infer:
+
+- The unknown number of emitters $K$
+- Their positions $\mathbf{s} = \{(s_{x,j}, s_{y,j})\}_{j=1}^{K}$
+- The assignment $z_i \in \{1, \ldots, K\}$ of each localization to an emitter
+- Hyperparameters $(\mu, \alpha)$ governing the distribution of localizations per emitter
+
+**Constraints:**
+1. Every localization is assigned to exactly one emitter (no noise class)
+2. The count distribution is learned hierarchically
+3. Explored via RJMCMC within disjoint spatial partitions processed in parallel
+4. Global hyperparameters synchronized every $T_\text{sync}$ iterations
 
 ---
 
-## 2. Generative Hierarchy with Latent Positions (per partition)
-
-The hierarchical model introduces latent "true" positions to make $\tau^2$ conjugate:
+## 2. Generative Model (per partition)
 
 $$
 \begin{aligned}
-\lambda_j &\sim \mathrm{Gamma}(\kappa, \kappa/\mu) && \text{(emitter blinking rate)} \\[0.5em]
-n_j \mid \lambda_j &\sim \mathrm{Poisson}(\lambda_j), \quad n_j \geq 1 && \text{(observed blinks)} \\[0.5em]
-\mathbf{s}_j &\sim \mathrm{Uniform}(\text{ROI}) && \text{(mean molecular position)} \\[0.5em]
-\mathbf{r}_i \mid z_i = j &\sim \mathcal{N}_2(\mathbf{s}_j, \tau^2 \mathbf{I}) && \text{(true position at frame)} \\[0.5em]
-(x_i, y_i) \mid \mathbf{r}_i &\sim \mathcal{N}_2(\mathbf{r}_i, \mathrm{diag}(\sigma_{x,i}^2, \sigma_{y,i}^2)) && \text{(observed localization)}
+K &\sim \text{Poisson}(\lambda_K) && \text{(number of emitters)} \\[0.3em]
+\mathbf{s}_j &\sim \text{Uniform}(\text{ROI}) \quad j = 1, \ldots, K && \text{(emitter positions)} \\[0.3em]
+n_j &\sim \text{Gamma}(\alpha,\; \mu/\alpha) \quad n_j \geq 1 && \text{(localizations per emitter, continuous approx.)} \\[0.3em]
+(x_i, y_i) \mid z_i = j &\sim \mathcal{N}_2\!\left(\mathbf{s}_j,\; \Sigma_i\right) && \text{(observed localization)}
 \end{aligned}
 $$
 
-**Physical interpretation:**
-- $\mathbf{s}_j$: Time-averaged molecular position
-- $\mathbf{r}_i$: Actual molecular position when photons were emitted (accounts for drift, vibrations, etc.)
-- $\tau^2$: Systematic variation (stage drift, molecular motion, thermal effects)
+where $\Sigma_i = \begin{pmatrix} \sigma_{x,i}^2 & \sigma_{xy,i} \\ \sigma_{xy,i} & \sigma_{y,i}^2 \end{pmatrix}$ is the per-localization covariance from PSF fitting.
 
-**Marginal likelihood:** Integrating out $\mathbf{r}_i$ recovers the original model:
-$$(x_i, y_i) \mid z_i = j \sim \mathcal{N}_2(\mathbf{s}_j, \mathrm{diag}(\sigma_{x,i}^2 + \tau^2, \sigma_{y,i}^2 + \tau^2))$$
+**Count model parameters:**
+- $\mu$: Mean localizations per emitter, $\mathbb{E}[n_j] = \mu$
+- $\alpha$: Gamma shape (called `shape` in code), controls count dispersion
+  - $\alpha = 1$: Exponential (dSTORM-like)
+  - $\alpha > 1$: Peaked (DNA-PAINT-like)
+  - $\alpha \to \infty$: Delta function at $\mu$
+  - $\text{CV}[n_j] = 1/\sqrt{\alpha}$
 
-**Hyperpriors** (shared across partitions):
-$$\mu \sim \mathrm{Gamma}(a_\mu, b_\mu), \quad \kappa \sim \mathrm{Gamma}(a_\kappa, b_\kappa), \quad \tau^2 \sim \mathrm{InverseGamma}(a_\tau, b_\tau)$$
-
----
-
-## 3. Prior on Number of Emitters Given Total Count
-
-**CRITICAL UPDATE**: To prevent the pathological behavior where $k \to \infty$ and $\tau^2 \to 0$, we introduce a prior on $k$ that depends on the total number of localizations $N$:
-
-$$\boxed{k \mid N, \mu, \kappa \sim \mathrm{NegativeBinomial}\left(\kappa, \frac{\kappa}{\kappa + N/\mu}\right)}$$
-
-This prior is centered at $k \approx N/\mu$ (the expected number of emitters given $N$ localizations with mean $\mu$ per emitter) and has overdispersion controlled by $\kappa$.
-
-**Rationale**: Without this prior, the model can increase likelihood by adding emitters (increasing $k$) while reducing $\tau^2$, leading to a degenerate solution with one emitter per localization. The prior $P(k|N,\mu,\kappa)$ penalizes deviations from the expected number of emitters.
-
----
-
-## 4. Marginalisation over $\lambda_j$ ⟹ Negative Binomial Prior
-
-Integrating out the latent blinking rates $\lambda_j$ yields:
-
-$$n_j \mid \mu, \kappa \sim \mathrm{NegativeBinomial}\left(\kappa, \frac{\kappa}{\kappa + \mu}\right), \quad \Pr(n_j = 0) = 0$$
-
-The conditional predictive probability of assigning localisation $i$ to emitter $j$ becomes:
-
-$$\boxed{w_{ij} \propto (n_j + \kappa) \cdot L_{ij}}$$
-
-where the spatial likelihood is computed using the marginal form:
-$$L_{ij} = \mathcal{N}_2((x_i, y_i); \mathbf{s}_j, \mathrm{diag}(\sigma_{x,i}^2 + \tau^2, \sigma_{y,i}^2 + \tau^2))$$
-
----
-
-## 5. Integrated MCMC Moves (fixed $k$)
-
-**CRITICAL REVISION:** Latent positions $\mathbf{r}_i$ are auxiliary variables that must remain consistent with the model. They are updated **immediately** whenever their conditioning variables change, not as a separate move.
-
-### 5.1 Allocate Move: Update All Allocations with Integrated Latent Updates
-
-1. **For each localization $i$:**
-   - Sample new allocation $z_i$ from categorical distribution with probabilities $w_{ij}/\sum_r w_{ir}$
-   
-2. **Immediately update latent position for reallocated localization:**
-   $$\mathbf{r}_i \sim \mathcal{N}_2\left(\boldsymbol{\mu}_{\mathrm{post}}, \boldsymbol{\Sigma}_{\mathrm{post}}\right)$$
-   where:
-   $$\boldsymbol{\Sigma}_{\mathrm{post}}^{-1} = \tau^{-2}\mathbf{I} + \mathrm{diag}(\sigma_{x,i}^{-2}, \sigma_{y,i}^{-2})$$
-   $$\boldsymbol{\mu}_{\mathrm{post}} = \boldsymbol{\Sigma}_{\mathrm{post}} \left(\tau^{-2}\mathbf{s}_{z_i} + \mathrm{diag}(\sigma_{x,i}^{-2}, \sigma_{y,i}^{-2})(x_i, y_i)^T\right)$$
-
-### 5.2 Move: Update Emitter Position with Integrated Latent Updates
-
-1. **Select emitter $j$ uniformly at random**
-
-2. **Sample new position from posterior:**
-   $$\mathbf{s}_j \sim \mathcal{N}_2\left(\bar{\mathbf{r}}_j, \frac{\tau^2}{n_j}\mathbf{I}\right)$$
-   where $\bar{\mathbf{r}}_j = \frac{1}{n_j}\sum_{i: z_i = j} \mathbf{r}_i$ and $n_j = |\{i : z_i = j\}|$
-
-3. **Immediately update latent positions for all localizations assigned to moved emitter:**
-   For all $i$ where $z_i = j$, sample new $\mathbf{r}_i$ from posterior given new $\mathbf{s}_j$
-
-### 5.3 Hyperparameter Updates (at synchronization points)
-
-$
-\begin{aligned}
-\mu &\sim \mathrm{Gamma}\left(a_\mu + \sum_j n_j, \frac{1}{b_\mu + k\kappa}\right) \\[0.5em]
-\tau^2 &\sim \mathrm{InverseGamma}\left(a_\tau + \frac{N_{\mathrm{alloc}}}{2}, b_\tau + \frac{1}{2}\sum_{i: z_i \neq 0} \|\mathbf{r}_i - \mathbf{s}_{z_i}\|^2\right) \\[0.5em]
-\kappa &\quad \text{slice sampling or Metropolis-Hastings on } \log\kappa
-\end{aligned}
-$
-
-where $N_{\mathrm{alloc}} = 2 \times |\{i : z_i \neq 0\}|$ counts allocated coordinate dimensions.
-
----
-
-## 6. RJMCMC Dimension Moves (per partition)
-
-### 6.1 Birth Move: $k \to k+1$
-
-**Proposal distribution:** Define a mixture of normals centered at all observed localizations:
-$$q_{\mathrm{birth}}(\mathbf{s}_*) = \frac{1}{N} \sum_{i=1}^{N} \mathcal{N}_2(\mathbf{s}_*; (x_i, y_i), \mathrm{diag}(\sigma_{x,i}^2, \sigma_{y,i}^2))$$
-
-**Birth procedure:**
-1. **Position proposal:** Draw new emitter position $\mathbf{s}_* \sim q_{\mathrm{birth}}(\cdot)$
-2. **Cloud size:** Draw $m \sim 1 + \mathrm{NegativeBinomial}(\kappa, \kappa/(\kappa + \mu))$
-3. **Allocation proposal:** Select $m$ localisations with probabilities proportional to marginal likelihood $\mathcal{N}_2((x_i, y_i); \mathbf{s}_*, \mathrm{diag}(\sigma_{x,i}^2 + \tau^2, \sigma_{y,i}^2 + \tau^2))$
-4. **Latent position initialization:** For each newly allocated localization, sample $\mathbf{r}_i$ from posterior given $\mathbf{s}_*$ and $(x_i, y_i)$
-5. **State update:** Form new emitter cluster and increment $k \to k+1$
-
-### 6.2 Death Move: $k \to k-1$
-
-**Death procedure:**
-1. **Victim selection:** Choose emitter $r$ uniformly with probability $1/k$
-2. **Proposal density:** Evaluate $q_{\mathrm{birth}}(\mathbf{s}_r)$ for the victim's position
-3. **Reallocation:** Reassign localisations $\{i : z_i = r\}$ to remaining emitters using weights $w_{ij}$
-4. **Latent position update:** Update $\mathbf{r}_i$ for each reallocated localization
-5. **Affected emitter update:** For each emitter that received reallocated localizations:
-   - Collect all its latent positions $\{\mathbf{r}_i : z_i = j\}$
-   - Sample new position: $\mathbf{s}_j \sim \mathcal{N}_2(\bar{\mathbf{r}}_j, \tau^2/n_j\mathbf{I})$
-6. **State update:** Remove $\mathbf{s}_r$ and decrement $k \to k-1$
-
-### 6.3 Acceptance Probability
-
-The acceptance ratio incorporates the proposal density ratio **and the prior on k**:
-$$\log \alpha = \Delta \log p_{\mathrm{NB}} + \Delta \log L_{\mathrm{spatial}} + \boxed{\Delta \log P(k|N,\mu,\kappa)} + \Delta \log p(k) + \log \frac{q_{\mathrm{death}}}{q_{\mathrm{birth}}}$$
-
-**NEW TERM**: $\Delta \log P(k|N,\mu,\kappa) = \log P(k_{\mathrm{proposed}}|N,\mu,\kappa) - \log P(k_{\mathrm{current}}|N,\mu,\kappa)$
-
-This additional term penalizes proposals that deviate from the expected number of emitters $N/\mu$.
-
----
-
-## 7. Algorithm Structure
-
-### 7.1 Within Each Partition
-
-For each RJMCMC iteration:
-1. **Select move type** according to weights (e.g., 40% Allocate, 40% Move, 10% Birth, 10% Death)
-2. **Execute move** with integrated latent position updates
-3. **Accept/reject** according to Metropolis-Hastings ratio (including k prior for Birth/Death)
-4. **Store sample** if past burn-in and meets thinning criteria
-
-### 7.2 Hierarchical Updates
-
-Every $T_{\mathrm{sync}}$ iterations:
-1. **Synchronization barrier:** Wait for all partitions
-2. **Pool statistics:** Collect $\{n_j, \sum\|\mathbf{r}_i - \mathbf{s}_{z_i}\|^2\}$ across partitions
-3. **Update hyperparameters:** Sample new $(\mu, \kappa, \tau^2)$ with minimum threshold
-4. **Broadcast:** Distribute updated hyperparameters to all partitions
-
----
-
-## 8. τ² Initialization Strategy
-
-**Data-driven initialization with physical constraints:**
-
+**Hyperpriors:**
 $$
-\tau^2_{\mathrm{init}} = \max\left\{
-    (0.1 \times \text{median}(\sigma))^2, \quad  
-    (0.020)^2  \text{ μm}^2
-\right\}
+\mu \sim \text{Gamma}(a_\mu, b_\mu), \quad \alpha \sim \text{Gamma}(a_\alpha, b_\alpha)
 $$
 
-Where:
-- $\text{median}(\sigma)$: Median localization precision from data
-- $0.020$ μm: Expected systematic error from physical sources
-  - Stage drift: 10-50 nm
-  - Thermal vibrations: 5-30 nm  
-  - Sample movement: 10-20 nm
-
-**Hyperprior:** $\tau^2 \sim \mathrm{InverseGamma}(3, 4 \times \tau^2_{\mathrm{init}})$
-- Prior mean: $2 \times \tau^2_{\mathrm{init}}$
-- Prior mode: $\tau^2_{\mathrm{init}}$
+Defaults: $a_\mu = 2, b_\mu = 5$ (mean 10), $a_\alpha = 2, b_\alpha = 1$ (mean 2).
 
 ---
 
-## 9. Key Algorithmic Improvements
+## 3. Prior Distributions
 
-- **Prior on k given N:** Prevents pathological k → ∞, τ² → 0 behavior
-- **Integrated updates:** Latent positions updated immediately with their conditioning variables
-- **Collapsed $\lambda_j$:** Reduces state space and improves mixing
-- **Pólya-weighted allocations:** Prevents pathological shrinkage behaviour  
-- **Conjugate $\tau^2$ update:** Eliminates expensive Metropolis-Hastings steps
-- **Block updates in Death move:** Maintains detailed balance while ensuring consistency
-- **Parallel partitioning:** Near-linear scaling with periodic global synchronisation
+### 3.1 K Prior (Poisson)
 
----
+$$P(K) = \text{Poisson}(K; \lambda_K) = \frac{\lambda_K^K e^{-\lambda_K}}{K!}$$
 
-## 10. Computational Complexity (per partition per iteration)
+Default: $\lambda_K = N / 5$ where $N$ is the number of localizations in the partition.
 
-| Component | Memory | Cost |
-|-----------|--------|------|
-| Localisations $N$ | $O(N)$ | - |
-| Emitters $k$ | $O(k)$ | - |
-| Latent positions | $O(N)$ | $O(N)$ |
-| Allocate move | $O(1)$ | $O(Nk)$ |
-| Move operation | $O(1)$ | $O(n_j)$ |
-| Birth/Death | $O(1)$ | $O(N)$ + k prior eval |
-| $\tau^2$ update | $O(1)$ | $O(N)$ |
-| **Total** | $O(N + k)$ | $O(Nk)$ |
+**Implementation:** `log_prior_k(k, λ_K)` in `priors.jl:54`.
 
----
+### 3.2 Spatial Prior (Uniform)
 
-## 11. Posterior Inference
+$$P(\mathbf{s}_1, \ldots, \mathbf{s}_K) = \left(\frac{1}{A}\right)^K$$
 
-**Important:** Final inference uses **emitter positions** $\mathbf{s}_j$, not latent positions $\mathbf{r}_i$:
+where $A = (x_\max - x_\min)(y_\max - y_\min)$ is the ROI area, computed with automatic padding:
+- Percentage padding: 5% of data extent in each dimension
+- Minimum padding: $3 \bar{\sigma}$ (ensures proposals stay in bounds)
 
-- **MAPN extraction:** Hungarian algorithm operates on $\{\mathbf{s}_j\}$ across samples
-- **Posterior summaries:** Report mean/variance of $\mathbf{s}_j$ positions
-- **Uncertainty quantification:** Based on variance in $\mathbf{s}_j$ across MCMC samples
+**Implementation:** `UniformSpatialPrior` in `priors.jl:6`, `log_spatial_prior()` in `priors.jl:34`.
 
-The latent positions $\mathbf{r}_i$ are computational auxiliary variables that:
-1. Enable conjugate $\tau^2$ updates
-2. Provide physical interpretation
-3. Must remain consistent with the model throughout sampling
-4. Are marginalized out in final analysis
+### 3.3 Count Prior (Marginal Gamma)
 
----
+Instead of individual count priors $\prod_j P(n_j \mid \mu, \alpha)$, the posterior uses the **marginal** distribution of the total count $N = \sum_j n_j$:
 
-## 12. Mathematical Justification for k Prior
+$$P(N \mid K, \mu, \alpha) = \text{Gamma}(N;\; K\alpha,\; \mu/\alpha)$$
 
-The joint posterior without the k prior is:
-$$P(k, \boldsymbol{\theta}, \mathbf{z} | \mathcal{D}) \propto P(\mathcal{D} | k, \boldsymbol{\theta}, \mathbf{z}) P(\mathbf{z} | k, \boldsymbol{\theta}) P(\boldsymbol{\theta}) P(k)$$
+This exploits the property that $\sum_{j=1}^K X_j$ where $X_j \sim \text{Gamma}(\alpha, \beta)$ is $\text{Gamma}(K\alpha, \beta)$.
 
-With a flat prior P(k) ∝ 1, the model exhibits a **likelihood ridge** where:
-- Increasing k allows emitters closer to each localization
-- This reduces required τ² for good fit
-- Likelihood increases as τ² → 0
+- $\mathbb{E}[N \mid K] = K \mu$
+- $\text{Var}[N \mid K] = K \mu^2 / \alpha$
 
-The prior P(k | N, μ, κ) breaks this degeneracy by encoding the constraint:
-$$\mathbb{E}[k | N, \mu] = N/\mu$$
+**Implementation:** `log_prior_total_count(N, K, μ, shape)` in `priors.jl:99`.
 
-This reflects the physical reality that emitters produce multiple localizations, preventing the pathological one-emitter-per-localization solution.
+**Note:** An individual count prior `log_prior_count(n, μ, shape)` exists in `priors.jl:76` but is **not used** in the posterior computation — only the marginal form is used.
+
+### 3.4 Individual Count Prior (used only in hierarchical updates)
+
+$$P(n_j \mid \mu, \alpha) = \text{Gamma}(n_j;\; \alpha,\; \mu/\alpha)$$
+
+This form is used only in the MH updates for $\mu$ and $\alpha$ (Section 6), NOT in the RJMCMC posterior.
 
 ---
 
-*This updated specification addresses the k → ∞, τ² → 0 pathology through principled Bayesian modeling of the relationship between emitter count and total localizations.*
+## 4. Posterior
+
+The log-posterior used for RJMCMC acceptance ratios is:
+
+$$\log P(K, \mathbf{s}, \mathbf{z} \mid \mathcal{D}) = \underbrace{\log P(K)}_{\text{K prior}} + \underbrace{K \cdot (-\log A)}_{\text{spatial prior}} + \underbrace{\log P(N \mid K, \mu, \alpha)}_{\text{marginal count}} + \underbrace{\sum_{j=1}^K \sum_{i: z_i=j} \log \mathcal{N}_2((x_i,y_i); \mathbf{s}_j, \Sigma_i)}_{\text{likelihood}}$$
+
+**Implementation:** `compute_log_posterior()` in `moves.jl:228`.
+
+A variant **without** the spatial prior term is used by split/merge moves: `compute_log_posterior_no_spatial()` in `moves.jl:263`.
+
+---
+
+## 5. RJMCMC Moves
+
+### 5.0 Move Selection
+
+Each iteration samples one move type:
+
+| Move | Probability | Type |
+|------|-------------|------|
+| Birth | 10% | Dimension-changing ($K \to K+1$) |
+| Death | 10% | Dimension-changing ($K \to K-1$) |
+| Move | 20% | Fixed-dimension (position update) |
+| Allocate | 60% | Fixed-dimension (assignment update) |
+
+**Note:** Split and merge moves are implemented (`propose_split!`, `propose_merge!`) but **never selected** by the move selector. The move selector code at `rjmcmc.jl:26-33` only generates `:birth`, `:death`, `:move`, and `:allocate`.
+
+**Implementation:** `rjmcmc_step!()` in `rjmcmc.jl:19`.
+
+### 5.1 Birth Move ($K \to K+1$)
+
+1. Sample position from mixture proposal:
+   $$q_\text{birth}(\mathbf{s}_*) = \frac{1}{N} \sum_{i=1}^N \mathcal{N}_2(\mathbf{s}_*; (x_i, y_i), \text{diag}(\sigma_{x,i}^2, \sigma_{y,i}^2))$$
+2. Add new emitter at $\mathbf{s}_*$
+3. Gibbs reallocate all localizations (likelihood-only weights)
+4. Accept with MH ratio:
+   $$\log \alpha = [\log P_\text{new} - \log P_\text{old}] + [-\log(K+1) - \log q_\text{birth}(\mathbf{s}_*)]$$
+
+**Implementation:** `propose_birth!()` in `moves.jl:294`.
+
+### 5.2 Death Move ($K \to K-1$)
+
+1. Select emitter $j$ uniformly: $j \sim \text{Uniform}\{1, \ldots, K\}$
+2. Evaluate mixture density at victim position: $\log q_\text{birth}(\mathbf{s}_j)$
+3. Remove emitter $j$ and Gibbs reallocate all localizations
+4. Accept with MH ratio:
+   $$\log \alpha = [\log P_\text{new} - \log P_\text{old}] + [\log K + \log q_\text{birth}(\mathbf{s}_j)]$$
+
+Constraint: $K \geq 1$ always (never removes last emitter).
+
+**Implementation:** `propose_death!()` in `moves.jl:360`.
+
+### 5.3 Move (Gibbs Position Update)
+
+1. Select emitter $j$ uniformly
+2. Sample new position from posterior given allocated localizations:
+   $$\Lambda_\text{post} = \sum_{i: z_i = j} \Sigma_i^{-1}$$
+   $$\boldsymbol{\mu}_\text{post} = \Lambda_\text{post}^{-1} \sum_{i: z_i = j} \Sigma_i^{-1} (x_i, y_i)^T$$
+   $$\mathbf{s}_j \sim \mathcal{N}_2(\boldsymbol{\mu}_\text{post}, \Lambda_\text{post}^{-1})$$
+3. Reject if outside spatial prior bounds
+
+Full 2D covariance is used: $\Sigma_i = \begin{pmatrix} \sigma_{x,i}^2 & \sigma_{xy,i} \\ \sigma_{xy,i} & \sigma_{y,i}^2 \end{pmatrix}$.
+
+**Implementation:** `propose_move!()` in `moves.jl:613`, `sample_position_gibbs()` in `moves.jl:66`.
+
+### 5.4 Allocate (Gibbs Assignment Update)
+
+1. Pick a random localization $i$
+2. Compute log-likelihood for each emitter:
+   $$\log w_{ij} = \log \mathcal{N}_2((x_i, y_i); \mathbf{s}_j, \Sigma_i) \quad \forall j$$
+3. Sample new assignment from softmax: $z_i \sim \text{Categorical}(\text{softmax}(\log \mathbf{w}_i))$
+4. Update positions of affected emitters via Gibbs sampling
+5. **Remove emitters with no allocated localizations** (`remove_empty_emitters!`)
+
+**Allocation weights:** Likelihood-only. There are no count-based weights (no Polya/CRP terms).
+
+**Implementation:** `propose_allocate!()` in `moves.jl:525`.
+
+**Note:** The call to `remove_empty_emitters!()` at `moves.jl:601` performs an implicit dimension change ($K \to K-1$) that bypasses the RJMCMC acceptance ratio.
+
+### 5.5 Full Gibbs Reallocation
+
+Used within birth and death moves after adding/removing an emitter. Reassigns ALL localizations:
+
+For each localization $i$:
+$$z_i \sim \text{Categorical}\!\left(\frac{\exp(\log w_{ij})}{\sum_r \exp(\log w_{ir})}\right), \quad \log w_{ij} = \log \mathcal{N}_2((x_i, y_i); \mathbf{s}_j, \Sigma_i)$$
+
+**Implementation:** `allocate_gibbs!()` in `moves.jl:167`.
+
+### 5.6 Split Move ($K \to K+1$) — IMPLEMENTED BUT INACTIVE
+
+1. Choose emitter $j$ uniformly, require $n_j \geq 2$
+2. Random coin-flip partition of $j$'s localizations into two non-empty sets
+3. Create two emitters with Gibbs-sampled positions from their allocations
+4. Accept with ratio (no spatial prior):
+   $$\log \alpha = [\log P'_\text{no-spatial} - \log P_\text{no-spatial}] + [\log 2 - \log(K+1)]$$
+
+**Implementation:** `propose_split!()` in `moves.jl:696`.
+
+### 5.7 Merge Move ($K \to K-1$) — IMPLEMENTED BUT INACTIVE
+
+1. Require $K \geq 2$. Choose unordered pair $(i, j)$ uniformly from $\binom{K}{2}$ pairs
+2. Combine allocations, Gibbs sample merged position
+3. Accept with ratio (no spatial prior):
+   $$\log \alpha = [\log P'_\text{no-spatial} - \log P_\text{no-spatial}] + [\log K - \log 2]$$
+
+**Implementation:** `propose_merge!()` in `moves.jl:792`.
+
+### 5.8 Uniform Birth/Death — IMPLEMENTED BUT INACTIVE
+
+Alternative birth/death moves using flat spatial proposal $q(\mathbf{s}) = 1/A$ instead of the mixture proposal. Present for testing but never selected.
+
+**Implementation:** `propose_birth_uniform!()` in `moves.jl:418`, `propose_death_uniform!()` in `moves.jl:468`.
+
+---
+
+## 6. Hierarchical Updates
+
+Updated every `hierarchical_interval` iterations (default 100) via Metropolis-Hastings with log-normal proposals.
+
+### 6.1 μ Update
+
+**Proposal:** $\mu' = \mu \cdot e^{\epsilon}$, $\epsilon \sim \mathcal{N}(0, 0.3^2)$
+
+**Acceptance:**
+$$\log \alpha = \underbrace{\sum_{j} \left[\log \text{Gamma}(n_j; \alpha, \mu'/\alpha) - \log \text{Gamma}(n_j; \alpha, \mu/\alpha)\right]}_{\text{individual count likelihood}} + \underbrace{[\log P(\mu') - \log P(\mu)]}_{\text{prior}} + \underbrace{[\log \mu' - \log \mu]}_{\text{proposal Jacobian}}$$
+
+where the sum is over **individual emitter counts** $n_j$ from recent samples (last `hierarchical_interval` samples, or current state during burn-in). Counts below 1 are clamped to 0.5.
+
+**Range:** $\mu \in [1, 500]$ (proposals outside this range are rejected).
+
+**Important:** This uses the **product of individual** count priors $\prod_j \text{Gamma}(n_j; \alpha, \mu/\alpha)$, while the posterior (Section 4) uses the **marginal** count prior $\text{Gamma}(N; K\alpha, \mu/\alpha)$.
+
+**Implementation:** `update_mu!()` in `hierarchical.jl:41`.
+
+### 6.2 Shape ($\alpha$) Update
+
+Identical structure to μ update, with counts evaluated under $\text{Gamma}(n_j; \alpha', \mu/\alpha')$.
+
+**Range:** $\alpha \in [0.5, 50]$.
+
+**Implementation:** `update_shape!()` in `hierarchical.jl:97`.
+
+### 6.3 Initialization
+
+- $\mu_\text{init} = a_\mu \cdot b_\mu$ (prior mean, default 10)
+- $\alpha_\text{init}$: Configurable (default 2.0), or estimated from count CV via `estimate_initial_shape()`
+
+---
+
+## 7. Partitioned Execution
+
+### 7.1 Spatial Partitioning
+
+Precision-weighted DBSCAN clusters localizations using the effective distance:
+
+$$d_\text{eff}(i, j) = \frac{\|\mathbf{p}_i - \mathbf{p}_j\|}{\bar{\sigma}_i + \bar{\sigma}_j}$$
+
+where $\bar{\sigma} = \sqrt{\sigma_x \cdot \sigma_y}$ is the geometric mean uncertainty.
+
+Two localizations are neighbors if $d_\text{eff} < n_\sigma$ (default $n_\sigma = 3$).
+
+Oversized clusters are split via principal axis bisection at the median.
+
+**Implementation:** `partition_locs()` in `partition.jl:42`, `precision_dbscan()` in `partition.jl:112`.
+
+### 7.2 Synchronized Execution
+
+```
+for outer in 1:n_outer
+    parallel: run sync_interval iterations on each partition
+    global: update_mu_global!(chains)
+    global: update_shape_global!(chains)
+end
+```
+
+Global updates pool individual counts from recent samples across ALL partitions, then propose a single MH step. The accepted value is broadcast to all chains.
+
+**Implementation:** `run_bagol()` in `rjmcmc.jl:279`, global updates in `hierarchical.jl:219` and `hierarchical.jl:275`.
+
+### 7.3 Partition Merging
+
+1. Run `estimate_mapn()` on each partition chain
+2. Identify emitters near partition boundaries (within $2 \times$ boundary margin of any boundary localization)
+3. Hungarian matching on boundary emitters across adjacent partitions
+4. Merge matched pairs closer than $2 \times$ margin via precision-weighted averaging:
+   - Position: $\mathbf{s}_\text{merged} = \frac{w_i \mathbf{s}_i + w_j \mathbf{s}_j}{w_i + w_j}$ where $w = 1/\det(\Sigma)$
+   - Uncertainty: $\sigma_\text{merged}^{-2} = \sigma_i^{-2} + \sigma_j^{-2}$ (per axis)
+
+**Implementation:** `merge_partition_results()` in `partitioned.jl:152`.
+
+---
+
+## 8. Likelihood
+
+2D Gaussian with full covariance:
+
+$$\log L_i(j) = -\frac{1}{2}\left[\mathbf{d}^T \Sigma_i^{-1} \mathbf{d} + \log\!\left(4\pi^2 \det \Sigma_i\right)\right]$$
+
+where $\mathbf{d} = (x_i - s_{x,j},\; y_i - s_{y,j})^T$.
+
+Falls back to diagonal covariance if $\det \Sigma_i \leq 0$.
+
+**Implementation:** `log_likelihood_single()` in `likelihood.jl:10`.
+
+---
+
+## 9. MAP-N Estimation
+
+Posterior inference via iterative Hungarian matching:
+
+1. **MAP-N selection:** Most frequent $K$ in post-burn-in samples
+2. **Filter:** Keep only samples with $K = K_\text{MAP}$
+3. **Initialize reference:** Sample whose centroid is closest to the overall centroid
+4. **Iterative refinement** ($n_\text{refine}$ iterations, default 10):
+   - Hungarian-match each filtered sample to current reference positions
+   - Update reference to component-wise median of matched positions
+5. **Final estimates:**
+   - Position: Median of matched positions (robust)
+   - Uncertainty $\sigma_x, \sigma_y$: MAD-based estimate, $\hat{\sigma} = 1.4826 \cdot \text{median}(|x_i - \text{median}|)$
+   - Cross-covariance $\sigma_{xy}$: Sample covariance around median
+
+**Implementation:** `estimate_mapn()` in `mapn.jl:123`.
+
+---
+
+## 10. Initialization
+
+1. Create single emitter at centroid of all localizations
+2. Assign all localizations to it (nearest-neighbor)
+3. Gibbs-sample emitter position from allocations
+4. $\mu$ initialized to prior mean ($a_\mu \cdot b_\mu = 10$)
+5. $\alpha$ initialized to configured value (default 2.0)
+
+**Implementation:** `run_bagol_chain()` in `rjmcmc.jl:155`, lines 186-198.
+
+---
+
+## 11. Known Issues
+
+### 11.1 μ–K Feedback Loop
+
+The hierarchical update (Section 6) fits μ to **individual allocation counts** using $\prod_j \text{Gamma}(n_j; \alpha, \mu/\alpha)$, while the posterior (Section 4) uses the **marginal** $\text{Gamma}(N; K\alpha, \mu/\alpha)$.
+
+When K is over-estimated, each emitter gets $\sim N/K$ localizations. The hierarchical update then estimates $\mu \approx N/K$. With this μ, the marginal count prior satisfies $\mathbb{E}[N] = K\mu = N$ for any K, providing no penalty for over-counting.
+
+### 11.2 Likelihood-Only Allocation Weights
+
+Allocation (Section 5.4) uses pure likelihood weights $w_{ij} \propto L_{ij}$. There are no count-based (Polya/CRP) weights that would encourage localizations to cluster onto fewer emitters. This allows counts to spread evenly across too many emitters.
+
+### 11.3 Silent Dimension Change in Allocate
+
+`remove_empty_emitters!()` in the allocate move (Section 5.4) performs $K \to K-1$ transitions without computing an acceptance ratio, breaking detailed balance.
+
+### 11.4 Dead Code: Split/Merge Moves
+
+Split and merge moves are fully implemented but never selected by the move scheduler.
+
+### 11.5 Static K Prior
+
+The Poisson prior $P(K; \lambda_K = N/5)$ is fixed at initialization and does not adapt as μ is learned. With true μ = 10, the prior centers K at $N/5 = 2N/\mu$ — roughly double the expected number of emitters.
+
+### 11.6 MAP-N Covariance Inconsistency
+
+In `estimate_mapn()`, $\sigma_x$ and $\sigma_y$ use MAD-based robust estimation, but $\sigma_{xy}$ uses sample covariance around the median. These estimators have different breakdown points and efficiency.
