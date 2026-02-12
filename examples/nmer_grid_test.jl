@@ -21,7 +21,6 @@ using JSON
 # Include visualization functions
 include(joinpath(@__DIR__, "viz_chain_diagnostics.jl"))
 include(joinpath(@__DIR__, "viz_metrics.jl"))
-include(joinpath(@__DIR__, "viz_smlmrender.jl"))
 
 # =============================================================================
 # ADJUSTABLE PARAMETERS
@@ -617,37 +616,90 @@ function write_diagnostic_report(
 end
 
 """
-Plot full FOV result.
+Plot zoomed-in view of each cluster in a grid layout.
+Each subplot shows localizations, BaGoL emitters, and true positions for one cluster.
 """
-function plot_full_fov(
+function plot_cluster_grid(
     locs::Vector{<:SMLMData.AbstractEmitter},
     emitters::Vector{SMLMData.Emitter2DFit},
-    true_positions::Vector{Tuple{Float64, Float64}};
-    fov_size::Float64 = FOV_SIZE,
+    true_positions::Vector{Tuple{Float64, Float64}},
+    cluster_centers::Vector{Tuple{Float64, Float64}},
+    cluster_positions::Vector{Vector{Tuple{Float64, Float64}}};
+    grid_size::Int = GRID_SIZE,
+    zoom_radius::Float64 = 0.060,  # μm around each center (60 nm)
     save_path::Union{String, Nothing} = nothing
 )
-    fig = Figure(size=(800, 800))
+    fig = Figure(size=(280 * grid_size, 280 * grid_size + 40))
 
-    ax = Axis(fig[1, 1], title="BaGoL Results ($(N_EMITTERS)-mer Grid)",
-              xlabel="x (μm)", ylabel="y (μm)",
-              aspect=DataAspect())
-    xlims!(ax, 0, fov_size)
-    ylims!(ax, 0, fov_size)
+    # Layout matches spatial grid: row 1 = top of FOV (highest y)
+    for idx in 1:length(cluster_centers)
+        cx, cy = cluster_centers[idx]
+        # Grid indices: i = column (x), j = row (y) from generate_identical_nmer_grid
+        j = (idx - 1) ÷ grid_size + 1  # y index (1=bottom)
+        i = (idx - 1) % grid_size + 1  # x index (1=left)
+        # Flip row so top of FOV is row 1 in the figure
+        fig_row = grid_size - j + 1
 
-    scatter!(ax, [loc.x for loc in locs], [loc.y for loc in locs],
-             color=(:gray, 0.3), markersize=2)
+        # Convert zoom window to nm relative to center for display
+        zoom_nm = zoom_radius * 1000  # nm
+        ax = Axis(fig[fig_row, i], aspect=DataAspect(),
+                  xticklabelsize=7, yticklabelsize=7,
+                  xticks=WilkinsonTicks(3), yticks=WilkinsonTicks(3))
+        xlims!(ax, -zoom_nm, zoom_nm)
+        ylims!(ax, -zoom_nm, zoom_nm)
 
-    for e in emitters
-        scatter!(ax, [e.x], [e.y], color=:red, markersize=6)
-        σ = mean([e.σ_x, e.σ_y])
-        if σ > 0
-            draw_circle!(ax, e.x, e.y, σ; color=:red, linewidth=1.0, alpha=0.7)
+        # Only show axis labels on edges
+        if fig_row < grid_size
+            hidexdecorations!(ax, ticks=false, grid=false)
         end
+        if i > 1
+            hideydecorations!(ax, ticks=false, grid=false)
+        end
+
+        # Filter data within zoom window (with margin)
+        r = zoom_radius * 1.2
+        nearby_locs = filter(l -> abs(l.x - cx) < r && abs(l.y - cy) < r, locs)
+        nearby_emitters = filter(e -> abs(e.x - cx) < r && abs(e.y - cy) < r, emitters)
+        nearby_true = filter(p -> abs(p[1] - cx) < r && abs(p[2] - cy) < r, true_positions)
+
+        # Localizations as 1σ circles (centered at 0,0 in nm)
+        for loc in nearby_locs
+            σ = mean([loc.σ_x, loc.σ_y]) * 1000
+            draw_circle!(ax, (loc.x - cx) * 1000, (loc.y - cy) * 1000, σ;
+                        color=:gray30, linewidth=0.8, alpha=0.5)
+        end
+
+        # True positions as blue X
+        for (tx, ty) in nearby_true
+            draw_x!(ax, (tx - cx) * 1000, (ty - cy) * 1000, 4.0;
+                    color=:blue, linewidth=2.0)
+        end
+
+        # BaGoL emitters as red dots + uncertainty circles
+        for e in nearby_emitters
+            scatter!(ax, [(e.x - cx) * 1000], [(e.y - cy) * 1000],
+                    color=:red, markersize=5)
+            σ = mean([e.σ_x, e.σ_y]) * 1000
+            if σ > 0
+                draw_circle!(ax, (e.x - cx) * 1000, (e.y - cy) * 1000, σ;
+                            color=:red, linewidth=1.0, alpha=0.7)
+            end
+        end
+
+        # Label: n_est / n_true
+        n_est = length(nearby_emitters)
+        n_true = length(nearby_true)
+        label_color = n_est == n_true ? :forestgreen : :orangered
+        text!(ax, 0.03, 0.97, text="$(n_est)/$(n_true)",
+              align=(:left, :top), fontsize=12, space=:relative,
+              color=label_color, font=:bold)
     end
 
-    for (tx, ty) in true_positions
-        draw_x!(ax, tx, ty, 0.015; color=:blue, linewidth=1.5)
-    end
+    # Shared axis labels
+    Label(fig[grid_size + 1, :], "nm from center", fontsize=12)
+    Label(fig[1:grid_size, 0], "nm from center", fontsize=12, rotation=π/2)
+    Label(fig[0, :], "BaGoL Cluster Results  (blue=true, red=estimated, gray=localizations)",
+          fontsize=14)
 
     if save_path !== nothing
         save(save_path, fig)
@@ -808,9 +860,9 @@ println("  N-recovery: $(n_correct)/$(length(partitions)) correct ($(round(n_cor
 println("\n" * "-"^60)
 println("Generating visualizations...")
 
-# 1. Full FOV result
-println("  [1/10] Full FOV result...")
-plot_full_fov(locs, emitters, true_positions;
+# 1. Zoomed cluster grid
+println("  [1/10] Zoomed cluster grid...")
+plot_cluster_grid(locs, emitters, true_positions, cluster_centers, cluster_positions;
     save_path = joinpath(OUTPUT_DIR, "bagol_result.png"))
 
 # 2. Partition circles
