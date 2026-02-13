@@ -13,6 +13,7 @@ using Statistics
 # Export main API
 export run_bagol, run_bagol_chain
 export estimate_mapn
+export posterior_image, save_posterior_png
 export RJMCMCConfig, RJMCMCChain
 export BaGoLDiagnostics
 
@@ -42,6 +43,7 @@ include("mapn.jl")
 include("partition.jl")    # Must come before rjmcmc (provides Partition)
 include("partitioned.jl")  # Must come before rjmcmc (provides merge_partition_results)
 include("rjmcmc.jl")
+include("posterior_image.jl")
 include("simulation.jl")
 
 end # module

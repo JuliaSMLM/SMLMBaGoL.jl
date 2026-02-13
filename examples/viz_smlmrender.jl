@@ -128,6 +128,51 @@ function chain_to_smld(chain::RJMCMCChain, camera::SMLMData.AbstractCamera; filt
 end
 
 """
+Convert multiple partition chains to a single SMLD for histogram rendering.
+
+Concatenates all sample positions from all chains. When `filter_mapn=true`,
+each partition's MAP-N is computed independently and only matching samples are included.
+"""
+function chains_to_smld(chains::Vector{<:RJMCMCChain}, camera::SMLMData.AbstractCamera;
+                        filter_mapn::Bool = false)
+    all_emitters = SMLMData.Emitter2DFit[]
+    loc_id = 1
+
+    for chain in chains
+        if filter_mapn
+            ks = [length(s.emitters) for s in chain.samples]
+            isempty(ks) && continue
+            k_max = maximum(ks)
+            posterior_k = zeros(Int, k_max + 1)
+            for k in ks
+                posterior_k[k + 1] += 1
+            end
+            filter_k = argmax(posterior_k) - 1
+        else
+            filter_k = nothing
+        end
+
+        for sample in chain.samples
+            if filter_k !== nothing && length(sample.emitters) != filter_k
+                continue
+            end
+            for emitter in sample.emitters
+                push!(all_emitters, SMLMData.Emitter2DFit(
+                    Float64(emitter.x), Float64(emitter.y),
+                    1000.0, 0.0,
+                    0.001, 0.001, 0.0,
+                    0.0, 0.0,
+                    loc_id, 1, 0, loc_id
+                ))
+                loc_id += 1
+            end
+        end
+    end
+
+    return SMLMData.BasicSMLD(all_emitters, camera, 1, 1)
+end
+
+"""
 Render complete BaGoL visualization suite.
 
 Calculates render bounds from localizations (2x extent of 1σ circles),
@@ -145,7 +190,7 @@ then renders all outputs at 1nm pixel size using consistent bounds.
 # Creates files
 - `{prefix}_mapn_gaussian.png`: Gaussian render of BaGoL MAP-N result
 - `{prefix}_sr_gaussian.png`: Gaussian SR render of input localizations
-- `{prefix}_circles.png`: Circle overlay (locs cyan + BaGoL red)
+- `{prefix}_circles.png`: Circle overlay (locs gray + BaGoL red)
 - `{prefix}_comparison.png`: Three-channel (locs gray + BaGoL red + GT blue)
 
 # Returns
@@ -158,10 +203,15 @@ function render_bagol_suite(
     prefix::String = "render",
     output_dir::String = ".",
     pixel_size::Real = 1.0,
-    expand_factor::Real = 2.0
+    expand_factor::Real = 2.0,
+    fov::Union{Nothing, Tuple{Float64, Float64, Float64, Float64}} = nothing
 )
-    # Calculate bounds from localizations
-    x_min, x_max, y_min, y_max = calculate_render_bounds(locs_smld; expand_factor=expand_factor)
+    # Use explicit FOV bounds if provided, otherwise calculate from data
+    if fov !== nothing
+        x_min, x_max, y_min, y_max = fov
+    else
+        x_min, x_max, y_min, y_max = calculate_render_bounds(locs_smld; expand_factor=expand_factor)
+    end
 
     # Create common target for all renders
     target = create_target(x_min, x_max, y_min, y_max; pixel_size=pixel_size)
@@ -190,10 +240,10 @@ function render_bagol_suite(
     )
     println("Saved: $sr_path")
 
-    # 3. Circle overlay: localizations (cyan) + BaGoL (red)
+    # 3. Circle overlay: localizations (gray) + BaGoL (red)
     circles_path = joinpath(output_dir, "$(prefix)_circles.png")
     render([locs_smld, bagol_smld];
-        colors = [:cyan, :red],
+        colors = [:gray, :red],
         strategy = CircleRender(),
         target = target,
         filename = circles_path
@@ -324,4 +374,75 @@ function render_mapn_histogram(
     println("Saved: $mapn_hist_path")
 
     return map_n
+end
+
+# ============================================================================
+# Multi-chain overloads for partitioned BaGoL
+# ============================================================================
+
+"""
+Render posterior histogram from multiple partition chains.
+Combines all sample positions from all partitions into one histogram.
+"""
+function render_posterior_histogram(
+    chains::Vector{<:RJMCMCChain},
+    locs_smld::SMLMData.SMLD;
+    target::Union{SMLMRender.Image2DTarget, Nothing} = nothing,
+    prefix::String = "render",
+    output_dir::String = ".",
+    pixel_size::Real = 1.0,
+    expand_factor::Real = 2.0
+)
+    if target === nothing
+        x_min, x_max, y_min, y_max = calculate_render_bounds(locs_smld; expand_factor=expand_factor)
+        target = create_target(x_min, x_max, y_min, y_max; pixel_size=pixel_size)
+    end
+
+    chain_smld = chains_to_smld(chains, locs_smld.camera)
+    n_samples = sum(length(c.samples) for c in chains)
+    n_positions = length(chain_smld.emitters)
+    println("  Posterior histogram: $(n_positions) positions from $(n_samples) samples across $(length(chains)) partitions")
+
+    posterior_path = joinpath(output_dir, "$(prefix)_posterior.png")
+    render(chain_smld;
+        strategy = HistogramRender(),
+        target = target,
+        colormap = :inferno,
+        filename = posterior_path
+    )
+    println("Saved: $posterior_path")
+    return nothing
+end
+
+"""
+Render MAP-N histogram from multiple partition chains.
+Each partition's MAP-N is computed independently.
+"""
+function render_mapn_histogram(
+    chains::Vector{<:RJMCMCChain},
+    locs_smld::SMLMData.SMLD;
+    target::Union{SMLMRender.Image2DTarget, Nothing} = nothing,
+    prefix::String = "render",
+    output_dir::String = ".",
+    pixel_size::Real = 1.0,
+    expand_factor::Real = 2.0
+)
+    if target === nothing
+        x_min, x_max, y_min, y_max = calculate_render_bounds(locs_smld; expand_factor=expand_factor)
+        target = create_target(x_min, x_max, y_min, y_max; pixel_size=pixel_size)
+    end
+
+    chain_smld = chains_to_smld(chains, locs_smld.camera; filter_mapn=true)
+    n_positions = length(chain_smld.emitters)
+    println("  MAP-N histogram (per-partition MAP-N): $(n_positions) positions across $(length(chains)) partitions")
+
+    mapn_hist_path = joinpath(output_dir, "$(prefix)_mapn_histogram.png")
+    render(chain_smld;
+        strategy = HistogramRender(),
+        target = target,
+        colormap = :inferno,
+        filename = mapn_hist_path
+    )
+    println("Saved: $mapn_hist_path")
+    return nothing
 end

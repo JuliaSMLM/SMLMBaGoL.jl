@@ -162,6 +162,56 @@ using Statistics
         @test length(skipped_skip) >= 1  # The large cluster (50 locs) should be skipped
     end
 
+    @testset "Posterior Image" begin
+        Random.seed!(555)
+
+        # Create test data: 1 emitter
+        locs = SMLMData.Emitter2DFit[]
+        σ = 0.005
+        for i in 1:10
+            x = 0.1 + randn() * σ
+            y = 0.1 + randn() * σ
+            push!(locs, SMLMData.Emitter2DFit(x, y, 1000.0, 10.0, σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, i))
+        end
+
+        # Run a short chain
+        chain = run_bagol_chain(locs; n_iterations=500, burn_in=100, verbose=false)
+
+        # Single-chain posterior image
+        post = posterior_image(chain; pixel_size=0.005)
+        @test post.image isa Matrix{Int}
+        @test post.pixel_size == 0.005
+        @test length(post.edges_x) == size(post.image, 1) + 1
+        @test length(post.edges_y) == size(post.image, 2) + 1
+        @test sum(post.image) > 0  # Should have some counts
+
+        # Explicit bounds
+        post_bounded = posterior_image(chain; pixel_size=0.005,
+                                       xlim=(0.08, 0.12), ylim=(0.08, 0.12))
+        @test post_bounded.edges_x[1] ≈ 0.08
+        @test post_bounded.edges_y[1] ≈ 0.08
+
+        # Multi-chain accumulation
+        chain2 = run_bagol_chain(locs; n_iterations=500, burn_in=100, verbose=false)
+        post_multi = posterior_image([chain, chain2]; pixel_size=0.005)
+        @test sum(post_multi.image) >= sum(post.image)
+
+        # Integration: run_bagol with posterior_pixel_size
+        camera = SMLMData.IdealCamera(64, 64, 0.1)
+        smld = SMLMData.BasicSMLD(locs, camera, 100, 1)
+        result_smld, diagnostics = run_bagol(smld;
+            n_iterations=500, burn_in=100, verbose=false,
+            posterior_pixel_size=0.005)
+        @test diagnostics.posterior_image !== nothing
+        @test diagnostics.posterior_image.pixel_size == 0.005
+        @test sum(diagnostics.posterior_image.image) > 0
+
+        # Default: no posterior image
+        _, diag_default = run_bagol(smld;
+            n_iterations=500, burn_in=100, verbose=false)
+        @test diag_default.posterior_image === nothing
+    end
+
     @testset "Partitioned BaGoL via SMLD" begin
         Random.seed!(321)
 
