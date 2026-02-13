@@ -21,6 +21,7 @@ using JSON
 # Include visualization functions
 include(joinpath(@__DIR__, "viz_chain_diagnostics.jl"))
 include(joinpath(@__DIR__, "viz_metrics.jl"))
+include(joinpath(@__DIR__, "viz_smlmrender.jl"))
 
 # =============================================================================
 # ADJUSTABLE PARAMETERS
@@ -45,6 +46,9 @@ const PSF_SIGMA = 0.130            # PSF sigma in μm (130 nm)
 const PHOTON_MEAN = 500.0          # Mean photons (exponential distribution)
 const PHOTON_MIN = 100.0           # Minimum photons
 const BLINK_MEAN = 10.0            # Mean blinks per emitter (Poisson)
+
+# Precision filter
+const PRECISION_MAX = 0.010        # Max σ in μm (10 nm) - reject imprecise locs
 
 # BaGoL parameters
 const N_ITERATIONS = 15000
@@ -631,18 +635,19 @@ function plot_cluster_grid(
 )
     fig = Figure(size=(280 * grid_size, 280 * grid_size + 40))
 
-    # Layout matches spatial grid: row 1 = top of FOV (highest y)
+    # Layout matches spatial grid with camera convention (y increases downward)
+    # Generation loop: outer i → cx, inner j → cy
+    # idx encodes: slow index = gen_i (cx), fast index = gen_j (cy)
     for idx in 1:length(cluster_centers)
         cx, cy = cluster_centers[idx]
-        # Grid indices: i = column (x), j = row (y) from generate_identical_nmer_grid
-        j = (idx - 1) ÷ grid_size + 1  # y index (1=bottom)
-        i = (idx - 1) % grid_size + 1  # x index (1=left)
-        # Flip row so top of FOV is row 1 in the figure
-        fig_row = grid_size - j + 1
+        gen_i = (idx - 1) ÷ grid_size + 1  # cx direction → figure column
+        gen_j = (idx - 1) % grid_size + 1  # cy direction → figure row
+        fig_row = gen_j  # camera convention: small cy at top
+        fig_col = gen_i  # small cx at left
 
         # Convert zoom window to nm relative to center for display
         zoom_nm = zoom_radius * 1000  # nm
-        ax = Axis(fig[fig_row, i], aspect=DataAspect(),
+        ax = Axis(fig[fig_row, fig_col], aspect=DataAspect(), yreversed=true,
                   xticklabelsize=7, yticklabelsize=7,
                   xticks=WilkinsonTicks(3), yticks=WilkinsonTicks(3))
         xlims!(ax, -zoom_nm, zoom_nm)
@@ -652,7 +657,7 @@ function plot_cluster_grid(
         if fig_row < grid_size
             hidexdecorations!(ax, ticks=false, grid=false)
         end
-        if i > 1
+        if fig_col > 1
             hideydecorations!(ax, ticks=false, grid=false)
         end
 
@@ -675,14 +680,14 @@ function plot_cluster_grid(
                     color=:blue, linewidth=2.0)
         end
 
-        # BaGoL emitters as red dots + uncertainty circles
+        # BaGoL emitters as red dots + uncertainty ellipses
         for e in nearby_emitters
             scatter!(ax, [(e.x - cx) * 1000], [(e.y - cy) * 1000],
                     color=:red, markersize=5)
-            σ = mean([e.σ_x, e.σ_y]) * 1000
-            if σ > 0
-                draw_circle!(ax, (e.x - cx) * 1000, (e.y - cy) * 1000, σ;
-                            color=:red, linewidth=1.0, alpha=0.7)
+            if e.σ_x > 0 && e.σ_y > 0
+                draw_ellipse!(ax, (e.x - cx) * 1000, (e.y - cy) * 1000,
+                             e.σ_x * 1000, e.σ_y * 1000;
+                             color=:red, linewidth=1.0, alpha=0.7)
             end
         end
 
@@ -721,7 +726,7 @@ function plot_partition_circles(
 
     ax = Axis(fig[1, 1], title="Localizations by Partition ($(length(partitions)) partitions)",
               xlabel="x (μm)", ylabel="y (μm)",
-              aspect=DataAspect())
+              aspect=DataAspect(), yreversed=true)
     xlims!(ax, 0, fov_size)
     ylims!(ax, 0, fov_size)
 
@@ -773,6 +778,11 @@ locs, true_blink_counts = generate_localizations(true_positions)
 println("  Generated $(length(locs)) localizations")
 println("  Mean blinks/emitter: $(round(mean(true_blink_counts), digits=1))")
 
+# Precision filter
+n_before = length(locs)
+locs = filter(loc -> max(loc.σ_x, loc.σ_y) <= PRECISION_MAX, locs)
+println("  Precision filter (σ ≤ $(PRECISION_MAX*1000) nm): $(n_before) → $(length(locs)) locs ($(n_before - length(locs)) removed)")
+
 camera = SMLMData.IdealCamera(CAMERA_PIXELS, CAMERA_PIXELS, PIXEL_SIZE)
 locs_smld = SMLMData.BasicSMLD(locs, camera, 1, 1)
 
@@ -799,11 +809,16 @@ locs_with_partition = assign_partition_ids(locs, partitions)
 println("\n" * "-"^60)
 println("Running BaGoL...")
 
-result_smld, diagnostics = run_bagol(locs_smld;
+fov_extent = Float64(CAMERA_PIXELS * PIXEL_SIZE)
+result_smld, diagnostics, partition_chains = run_bagol(locs_smld;
     nsigma = NSIGMA,
     max_partition_size = MAX_PARTITION_SIZE,
     n_iterations = N_ITERATIONS,
     burn_in = BURN_IN,
+    posterior_pixel_size = 0.002,
+    posterior_xlim = (0.0, fov_extent),
+    posterior_ylim = (0.0, fov_extent),
+    return_chains = true,
     verbose = true)
 
 emitters = result_smld.emitters
@@ -860,56 +875,89 @@ println("  N-recovery: $(n_correct)/$(length(partitions)) correct ($(round(n_cor
 println("\n" * "-"^60)
 println("Generating visualizations...")
 
-# 1. Zoomed cluster grid
-println("  [1/10] Zoomed cluster grid...")
+# 0. Posterior image (raw PNG from partitioned chains)
+if diagnostics.posterior_image !== nothing
+    println("  [0/14] Posterior image PNG...")
+    save_posterior_png(joinpath(OUTPUT_DIR, "posterior_image.png"), diagnostics.posterior_image; percentile=0.99)
+    post = diagnostics.posterior_image
+    println("    Image size: $(size(post.image, 1))×$(size(post.image, 2)), $(sum(post.image)) counts")
+end
+
+# 1. SMLMRender suite (uses partitioned result, not single chain)
+println("  [1/11] SMLMRender suite...")
+bagol_smld = SMLMData.BasicSMLD(emitters, camera, 1, 1)
+camera_fov = (0.0, Float64(CAMERA_PIXELS * PIXEL_SIZE),
+              0.0, Float64(CAMERA_PIXELS * PIXEL_SIZE))
+target = render_bagol_suite(locs_smld, bagol_smld;
+    true_positions = true_positions,
+    prefix = "render",
+    output_dir = OUTPUT_DIR,
+    pixel_size = 1.0,
+    fov = camera_fov)
+
+# 2. Posterior histogram from partition chains
+println("  [2/13] Posterior histogram (all partitions)...")
+render_posterior_histogram(partition_chains, locs_smld;
+    target = target,
+    prefix = "render",
+    output_dir = OUTPUT_DIR)
+
+# 3. MAP-N histogram from partition chains
+println("  [3/13] MAP-N histogram (all partitions)...")
+render_mapn_histogram(partition_chains, locs_smld;
+    target = target,
+    prefix = "render",
+    output_dir = OUTPUT_DIR)
+
+# 4. Zoomed cluster grid
+println("  [4/13] Zoomed cluster grid...")
 plot_cluster_grid(locs, emitters, true_positions, cluster_centers, cluster_positions;
     save_path = joinpath(OUTPUT_DIR, "bagol_result.png"))
 
-# 2. Partition circles
-println("  [2/10] Partition circles...")
+# 5. Partition circles
+println("  [5/13] Partition circles...")
 plot_partition_circles(locs_with_partition, partitions;
     save_path = joinpath(OUTPUT_DIR, "partition_circles.png"))
 
-# 3. MAP-N result
-println("  [3/10] MAP-N result...")
-chain_emitters, posterior_k = estimate_mapn(chain)
-plot_mapn(chain_emitters, posterior_k, locs;
+# 6. MAP-N result (uses partitioned result, not single chain)
+println("  [6/13] MAP-N result...")
+plot_mapn(emitters, diagnostics.posterior_k, locs;
     true_positions = true_positions,
     save_path = joinpath(OUTPUT_DIR, "mapn_result.png"))
 
-# 4. Hierarchical diagnostics
-println("  [4/10] Hierarchical diagnostics...")
+# 7. Hierarchical diagnostics (single chain - for convergence diagnostics only)
+println("  [7/13] Hierarchical diagnostics...")
 plot_hierarchical_diagnostics(chain;
     true_locs_per_emitter = true_blink_counts,
     save_path = joinpath(OUTPUT_DIR, "hierarchical_diagnostics.png"))
 
-# 5. Move histogram
-println("  [5/10] Move histogram...")
+# 8. Move histogram
+println("  [8/13] Move histogram...")
 plot_move_histogram(chain;
     save_path = joinpath(OUTPUT_DIR, "move_histogram.png"))
 
-# 6. Per-partition histograms
-println("  [6/10] Per-partition histograms...")
+# 9. Per-partition histograms
+println("  [9/13] Per-partition histograms...")
 plot_per_partition_histograms(per_partition_metrics;
     save_path = joinpath(OUTPUT_DIR, "per_partition_histograms.png"))
 
-# 7. N-recovery histogram
-println("  [7/10] N-recovery histogram...")
+# 10. N-recovery histogram
+println("  [10/13] N-recovery histogram...")
 plot_n_recovery_histogram(per_partition_metrics, N_EMITTERS;
     save_path = joinpath(OUTPUT_DIR, "n_recovery_histogram.png"))
 
-# 8. Convergence diagnostics
-println("  [8/10] Convergence diagnostics...")
+# 11. Convergence diagnostics (single chain)
+println("  [11/13] Convergence diagnostics...")
 plot_convergence_diagnostics(chain;
     save_path = joinpath(OUTPUT_DIR, "convergence_diagnostics.png"))
 
-# 9. Uncertainty calibration
-println("  [9/10] Uncertainty calibration...")
+# 12. Uncertainty calibration
+println("  [12/13] Uncertainty calibration...")
 plot_uncertainty_calibration(emitters, true_positions;
     save_path = joinpath(OUTPUT_DIR, "calibration.png"))
 
-# 10. Write reports
-println("  [10/10] Writing reports...")
+# 13. Write reports
+println("  [13/13] Writing reports...")
 write_diagnostic_report(
     joinpath(OUTPUT_DIR, "diagnostic_report.md"),
     global_metrics,
@@ -935,6 +983,15 @@ write_diagnostic_json(
 println("\n" * "="^60)
 println("Output files saved to: $OUTPUT_DIR")
 println("="^60)
+println("\nRaw images:")
+println("  - posterior_image.png")
+println("\nSMLMRender outputs:")
+println("  - render_mapn_gaussian.png    (Gaussian render of MAP-N)")
+println("  - render_sr_gaussian.png      (Gaussian SR of input locs)")
+println("  - render_circles.png          (locs gray + MAP-N red)")
+println("  - render_comparison.png       (locs gray + MAP-N red + GT blue)")
+println("  - render_posterior.png        (histogram of ALL chain samples)")
+println("  - render_mapn_histogram.png   (histogram of K=MAP-N samples only)")
 println("\nPlots:")
 println("  - bagol_result.png")
 println("  - partition_circles.png")
