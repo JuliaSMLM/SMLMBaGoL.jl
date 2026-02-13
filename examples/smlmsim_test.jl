@@ -52,6 +52,9 @@ const K_OFF = 50.0                 # 50 Hz → 20 ms ON time
 const K_ON = 0.5                   # 0.5 Hz → ~10 blinks in 20s
 const EXPECTED_BLINKS = 10         # For reporting
 
+# Precision filter
+const PRECISION_MAX = 0.010        # Max σ in μm (10 nm) - reject imprecise locs
+
 # BaGoL parameters
 const N_ITERATIONS = 15000
 const BURN_IN = 3000
@@ -635,7 +638,7 @@ function plot_full_fov(
 
     ax = Axis(fig[1, 1], title="BaGoL Results (SMLMSim $(N_EMITTERS)-mers)",
               xlabel="x (μm)", ylabel="y (μm)",
-              aspect=DataAspect())
+              aspect=DataAspect(), yreversed=true)
     xlims!(ax, 0, fov_size)
     ylims!(ax, 0, fov_size)
 
@@ -644,12 +647,11 @@ function plot_full_fov(
     locs_y = [loc.y for loc in locs]
     scatter!(ax, locs_x, locs_y, color=(:gray, 0.3), markersize=2)
 
-    # MAP-N emitters as red circles
+    # MAP-N emitters as red ellipses
     for e in emitters
         scatter!(ax, [e.x], [e.y], color=:red, markersize=6)
-        σ = mean([e.σ_x, e.σ_y])
-        if σ > 0
-            draw_circle!(ax, e.x, e.y, σ; color=:red, linewidth=1.0, alpha=0.7)
+        if e.σ_x > 0 && e.σ_y > 0
+            draw_ellipse!(ax, e.x, e.y, e.σ_x, e.σ_y; color=:red, linewidth=1.0, alpha=0.7)
         end
     end
 
@@ -730,17 +732,28 @@ println("  Mean locs/emitter: $(round(n_locs / length(true_positions), digits=1)
 sigmas = [loc.σ_x for loc in smld_noisy.emitters]
 println("  Localization precision: $(round(mean(sigmas)*1000, digits=1)) ± $(round(std(sigmas)*1000, digits=1)) nm")
 
+# Precision filter
+n_before = length(smld_noisy.emitters)
+filtered_locs = filter(loc -> max(loc.σ_x, loc.σ_y) <= PRECISION_MAX, smld_noisy.emitters)
+println("  Precision filter (σ ≤ $(PRECISION_MAX*1000) nm): $(n_before) → $(length(filtered_locs)) locs ($(n_before - length(filtered_locs)) removed)")
+smld_noisy = SMLMData.BasicSMLD(filtered_locs, camera, 1, 1)
+n_locs = length(filtered_locs)
+
 # -----------------------------------------------------------------------------
 # Run BaGoL
 # -----------------------------------------------------------------------------
 println("\n" * "-"^60)
 println("Running BaGoL...")
 
-result_smld, diagnostics = run_bagol(smld_noisy;
+result_smld, diagnostics, partition_chains = run_bagol(smld_noisy;
     nsigma = NSIGMA,
     max_partition_size = MAX_PARTITION_SIZE,
     n_iterations = N_ITERATIONS,
     burn_in = BURN_IN,
+    posterior_pixel_size = 0.002,
+    posterior_xlim = (0.0, Float64(fov_size)),
+    posterior_ylim = (0.0, Float64(fov_size)),
+    return_chains = true,
     verbose = true)
 
 emitters = result_smld.emitters
@@ -801,72 +814,81 @@ println("  N-recovery accuracy: $(n_correct)/$(length(n_errors)) ($(round(n_corr
 println("\n" * "-"^60)
 println("Generating visualizations...")
 
+# 0. Posterior image (raw PNG from partitioned chains)
+if diagnostics.posterior_image !== nothing
+    println("  [0/10] Posterior image PNG...")
+    save_posterior_png(joinpath(OUTPUT_DIR, "posterior_image.png"), diagnostics.posterior_image; percentile=0.99)
+    post = diagnostics.posterior_image
+    println("    Image size: $(size(post.image, 1))×$(size(post.image, 2)), $(sum(post.image)) counts")
+end
+
 # 1. Full FOV result
-println("  [1/11] Full FOV result...")
+println("  [1/10] Full FOV result...")
 plot_full_fov(locs, emitters, true_positions;
     save_path = joinpath(OUTPUT_DIR, "bagol_result.png"))
 
-# 2. MAP-N result
-println("  [2/11] MAP-N result...")
-chain_emitters, posterior_k = estimate_mapn(chain)
-plot_mapn(chain_emitters, posterior_k, locs;
+# 2. MAP-N result (uses partitioned result, not single chain)
+println("  [2/10] MAP-N result...")
+plot_mapn(emitters, diagnostics.posterior_k, locs;
     true_positions = true_positions,
     save_path = joinpath(OUTPUT_DIR, "mapn_result.png"))
 
-# 3. Hierarchical diagnostics
-println("  [3/11] Hierarchical diagnostics...")
+# 3. Hierarchical diagnostics (single chain - diagnostics only)
+println("  [3/10] Hierarchical diagnostics...")
 plot_hierarchical_diagnostics(chain;
     save_path = joinpath(OUTPUT_DIR, "hierarchical_diagnostics.png"))
 
 # 4. Move histogram
-println("  [4/11] Move histogram...")
+println("  [4/10] Move histogram...")
 plot_move_histogram(chain;
     save_path = joinpath(OUTPUT_DIR, "move_histogram.png"))
 
-# 5. Posterior density
-println("  [5/11] Posterior density...")
+# 5. Posterior density (single chain)
+println("  [5/10] Posterior density...")
 plot_posterior_density(chain;
     save_path = joinpath(OUTPUT_DIR, "posterior_density.png"))
 
 # 6. N-recovery histogram
-println("  [6/11] N-recovery histogram...")
+println("  [6/10] N-recovery histogram...")
 plot_n_recovery_histogram(per_pattern_metrics, N_EMITTERS;
     save_path = joinpath(OUTPUT_DIR, "n_recovery_histogram.png"))
 
-# 7. Convergence diagnostics
-println("  [7/11] Convergence diagnostics...")
+# 7. Convergence diagnostics (single chain)
+println("  [7/10] Convergence diagnostics...")
 plot_convergence_diagnostics(chain;
     save_path = joinpath(OUTPUT_DIR, "convergence_diagnostics.png"))
 
 # 8. Uncertainty calibration
-println("  [8/11] Uncertainty calibration...")
+println("  [8/10] Uncertainty calibration...")
 plot_uncertainty_calibration(emitters, true_positions;
     save_path = joinpath(OUTPUT_DIR, "calibration.png"))
 
-# 9. SMLMRender suite
-println("  [9/11] SMLMRender suite...")
+# 9. SMLMRender suite (uses partitioned result, not single chain)
+println("  [9/10] SMLMRender suite...")
 bagol_smld = SMLMData.BasicSMLD(emitters, camera, 1, 1)
 locs_smld = SMLMData.BasicSMLD(locs, camera, 1, 1)
+camera_fov = (0.0, Float64(fov_size), 0.0, Float64(fov_size))
 target = render_bagol_suite(locs_smld, bagol_smld;
     true_positions = true_positions,
     prefix = "render",
     output_dir = OUTPUT_DIR,
-    pixel_size = 1.0)
+    pixel_size = 1.0,
+    fov = camera_fov)
 
-# Posterior histogram from chain
-render_posterior_histogram(chain, locs_smld;
+# Posterior histogram from partition chains
+render_posterior_histogram(partition_chains, locs_smld;
     target = target,
     prefix = "render",
     output_dir = OUTPUT_DIR)
 
-# MAP-N histogram
-render_mapn_histogram(chain, locs_smld;
+# MAP-N histogram from partition chains
+render_mapn_histogram(partition_chains, locs_smld;
     target = target,
     prefix = "render",
     output_dir = OUTPUT_DIR)
 
 # 10. Write reports
-println("  [10/11] Writing diagnostic reports...")
+println("  [10/10] Writing diagnostic reports...")
 write_simulation_params(joinpath(OUTPUT_DIR, "simulation_params.md"))
 
 write_diagnostic_report(
@@ -879,8 +901,8 @@ write_diagnostic_report(
     n_locs
 )
 
-# 11. JSON export
-println("  [11/11] Writing JSON data...")
+# JSON export
+println("  Writing JSON data...")
 write_diagnostic_json(
     joinpath(OUTPUT_DIR, "diagnostic_data.json"),
     global_metrics,
@@ -907,10 +929,12 @@ println("  - posterior_density.png       (2D position density)")
 println("  - n_recovery_histogram.png    (N-error distribution)")
 println("  - convergence_diagnostics.png (trace, autocorr, ESS)")
 println("  - calibration.png             (σ vs error, coverage)")
+println("\nRaw images:")
+println("  - posterior_image.png         (grayscale posterior, 0.99 percentile)")
 println("\nSMLMRender outputs:")
 println("  - render_mapn_gaussian.png    (Gaussian render of MAP-N)")
 println("  - render_sr_gaussian.png      (Gaussian SR of input locs)")
-println("  - render_circles.png          (locs cyan + MAP-N red)")
+println("  - render_circles.png          (locs gray + MAP-N red)")
 println("  - render_comparison.png       (locs gray + MAP-N red + GT blue)")
 println("  - render_posterior.png        (histogram of ALL chain samples)")
 println("  - render_mapn_histogram.png   (histogram of K=MAP-N samples only)")

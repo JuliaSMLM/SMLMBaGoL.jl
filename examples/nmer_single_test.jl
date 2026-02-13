@@ -40,6 +40,9 @@ const PHOTON_MIN = 100.0          # Minimum photons (reject below this)
 # Blink count distribution - Poisson with mean 10
 const BLINK_MEAN = 10.0           # Mean blinks per emitter
 
+# Precision filter
+const PRECISION_MAX = 0.010       # Max σ in μm (10 nm) - reject imprecise locs
+
 # BaGoL parameters
 const N_ITERATIONS = 20000
 const BURN_IN = 4000
@@ -138,6 +141,11 @@ println("  Mean blinks: $(round(mean(true_blink_counts), digits=1))")
 sigmas = [loc.σ_x for loc in locs]
 println("  Localization precision: $(round(mean(sigmas)*1000, digits=1)) ± $(round(std(sigmas)*1000, digits=1)) nm")
 
+# Precision filter
+n_before = length(locs)
+locs = filter(loc -> max(loc.σ_x, loc.σ_y) <= PRECISION_MAX, locs)
+println("  Precision filter (σ ≤ $(PRECISION_MAX*1000) nm): $(n_before) → $(length(locs)) locs ($(n_before - length(locs)) removed)")
+
 # Create camera and SMLD
 camera = SMLMData.IdealCamera(CAMERA_PIXELS, CAMERA_PIXELS, PIXEL_SIZE)
 locs_smld = SMLMData.BasicSMLD(locs, camera, 1, 1)
@@ -231,8 +239,14 @@ animate_chain(collector, locs;
     fps = 30,
     true_positions = true_positions)
 
-# 8. SMLMRender outputs
-println("  [8/10] SMLMRender suite...")
+# 8. Posterior image (raw PNG)
+println("  [8/11] Posterior image PNG...")
+post = posterior_image(chain; pixel_size=0.002)
+save_posterior_png(joinpath(OUTPUT_DIR, "posterior_image.png"), post; percentile=0.99)
+println("    Image size: $(size(post.image, 1))×$(size(post.image, 2)), $(sum(post.image)) counts")
+
+# 9. SMLMRender outputs
+println("  [9/11] SMLMRender suite...")
 bagol_smld = SMLMData.BasicSMLD(emitters, camera, 1, 1)
 target = render_bagol_suite(locs_smld, bagol_smld;
     true_positions = true_positions,
@@ -240,15 +254,15 @@ target = render_bagol_suite(locs_smld, bagol_smld;
     output_dir = OUTPUT_DIR,
     pixel_size = 1.0)
 
-# 9. Posterior histogram from chain (all samples)
-println("  [9/10] Posterior histogram (all K)...")
+# 10. Posterior histogram from chain (all samples)
+println("  [10/11] Posterior histogram (all K)...")
 render_posterior_histogram(chain, locs_smld;
     target = target,
     prefix = "render",
     output_dir = OUTPUT_DIR)
 
-# 10. MAP-N histogram (only K=MAP-N samples) - for comparison with Gaussian render
-println("  [10/10] MAP-N histogram (K=MAP-N only)...")
+# 11. MAP-N histogram (only K=MAP-N samples) - for comparison with Gaussian render
+println("  [11/11] MAP-N histogram (K=MAP-N only)...")
 render_mapn_histogram(chain, locs_smld;
     target = target,
     prefix = "render",
@@ -269,10 +283,12 @@ println("  - move_histogram.png      (proposed vs accepted moves)")
 println("  - posterior_density.png   (2D position density)")
 println("  - chain_snapshots.png     (burn-in, middle, final states)")
 println("  - chain_animation.mp4     (full chain evolution)")
+println("\nRaw images:")
+println("  - posterior_image.png     (grayscale posterior, 0.99 percentile)")
 println("\nSMLMRender outputs:")
 println("  - render_mapn_gaussian.png  (Gaussian render of MAP-N)")
 println("  - render_sr_gaussian.png    (Gaussian SR of input locs)")
-println("  - render_circles.png        (locs cyan + MAP-N red)")
+println("  - render_circles.png        (locs gray + MAP-N red)")
 println("  - render_comparison.png     (locs gray + MAP-N red + GT blue)")
 println("  - render_posterior.png      (histogram of ALL chain samples)")
 println("  - render_mapn_histogram.png (histogram of K=MAP-N samples only)")
