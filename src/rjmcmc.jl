@@ -98,18 +98,20 @@ end
 """
 Build BaGoLDiagnostics from chain.
 """
-function build_diagnostics(chain::RJMCMCChain, posterior_k::Vector{Int}, n_emitters::Int; n_partitions::Int=1)
+function build_diagnostics(chain::RJMCMCChain, posterior_k::Vector{Int}, n_emitters::Int;
+                           n_partitions::Int=1, post_image=nothing)
     acceptance_rates = Dict{Symbol, Float64}()
     for (move, (acc, tot)) in chain.acceptance
         acceptance_rates[move] = tot > 0 ? acc / tot : 0.0
     end
-    return BaGoLDiagnostics(n_emitters, posterior_k, acceptance_rates, chain.μ, chain.shape, n_partitions)
+    return BaGoLDiagnostics(n_emitters, posterior_k, acceptance_rates, chain.μ, chain.shape, n_partitions, post_image)
 end
 
 """
 Build BaGoLDiagnostics from multiple chains (partitioned run).
 """
-function build_diagnostics(chains::Vector{<:RJMCMCChain}, posterior_k::Vector{Int}, n_emitters::Int)
+function build_diagnostics(chains::Vector{<:RJMCMCChain}, posterior_k::Vector{Int}, n_emitters::Int;
+                           post_image=nothing)
     # Aggregate acceptance rates across chains
     acceptance_totals = Dict{Symbol, Tuple{Int, Int}}()
     for chain in chains
@@ -124,7 +126,7 @@ function build_diagnostics(chains::Vector{<:RJMCMCChain}, posterior_k::Vector{In
     end
     # Use first chain for final μ, shape (all chains have same value after global updates)
     return BaGoLDiagnostics(n_emitters, posterior_k, acceptance_rates,
-                            chains[1].μ, chains[1].shape, length(chains))
+                            chains[1].μ, chains[1].shape, length(chains), post_image)
 end
 
 # ============================================================================
@@ -275,6 +277,7 @@ n_j ~ Gamma(shape, μ/shape) where:
 # Returns
 - `BasicSMLD`: Grouped emitter positions with uncertainties
 - `BaGoLDiagnostics`: n_emitters, posterior_k, acceptance_rates, final parameters
+- `Vector{RJMCMCChain}` (only when `return_chains=true`): Partition chains for posterior analysis
 """
 function run_bagol(
     smld::SMLMData.SMLD;
@@ -287,6 +290,10 @@ function run_bagol(
     burn_in::Int = 2000,
     shape::Float64 = 2.0,
     learn_shape::Bool = true,
+    posterior_pixel_size::Float64 = 0.0,
+    posterior_xlim::Union{Nothing, Tuple{Float64, Float64}} = nothing,
+    posterior_ylim::Union{Nothing, Tuple{Float64, Float64}} = nothing,
+    return_chains::Bool = false,
     verbose::Bool = true,
     kwargs...
 )
@@ -313,7 +320,7 @@ function run_bagol(
     if isempty(partitions)
         @warn "No valid partitions"
         empty_smld = SMLMData.BasicSMLD(SMLMData.Emitter2DFit[], camera, 1, 1)
-        empty_diag = BaGoLDiagnostics(0, Int[], Dict{Symbol,Float64}(), 0.0, shape, 0)
+        empty_diag = BaGoLDiagnostics(0, Int[], Dict{Symbol,Float64}(), 0.0, shape, 0, nothing)
         return empty_smld, empty_diag
     end
 
@@ -395,13 +402,24 @@ function run_bagol(
 
     # Merge results from all partitions
     merged_emitters, posterior_k = merge_partition_results(chains, partitions, boundary_margin)
-    diagnostics = build_diagnostics(chains, posterior_k, length(merged_emitters))
+
+    # Compute posterior image if requested
+    post_img = nothing
+    if posterior_pixel_size > 0.0
+        post_img = posterior_image(chains; pixel_size=posterior_pixel_size,
+                                   xlim=posterior_xlim, ylim=posterior_ylim)
+    end
+
+    diagnostics = build_diagnostics(chains, posterior_k, length(merged_emitters); post_image=post_img)
     result_smld = SMLMData.BasicSMLD(merged_emitters, camera, 1, 1)
 
     if verbose
         println("Result: $(length(merged_emitters)) emitters")
     end
 
+    if return_chains
+        return result_smld, diagnostics, chains
+    end
     return result_smld, diagnostics
 end
 

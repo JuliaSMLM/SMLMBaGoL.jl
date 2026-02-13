@@ -28,6 +28,16 @@ function draw_circle!(ax, x, y, r; color=:black, linewidth=1.0, alpha=1.0)
 end
 
 """
+Draw an ellipse at (x, y) with semi-axes rx, ry.
+"""
+function draw_ellipse!(ax, x, y, rx, ry; color=:black, linewidth=1.0, alpha=1.0)
+    θ = range(0, 2π, length=50)
+    ex = x .+ rx .* cos.(θ)
+    ey = y .+ ry .* sin.(θ)
+    lines!(ax, ex, ey, color=(color, alpha), linewidth=linewidth)
+end
+
+"""
 Draw an X marker at (x, y) with half-size r.
 """
 function draw_x!(ax, x, y, r; color=:blue, linewidth=2.0, alpha=1.0)
@@ -85,11 +95,10 @@ function plot_bagol(
             color=(:red, 0.05), markersize=3, label="Chain samples")
     end
 
-    # 3. MAP-N emitters as 1σ circles (red)
+    # 3. MAP-N emitters as 1σ ellipses (red)
     for e in emitters
-        σ = mean([e.σ_x, e.σ_y])
-        if σ > 0
-            draw_circle!(ax1, e.x, e.y, σ; color=:red, linewidth=2.0)
+        if e.σ_x > 0 && e.σ_y > 0
+            draw_ellipse!(ax1, e.x, e.y, e.σ_x, e.σ_y; color=:red, linewidth=2.0)
         end
         scatter!(ax1, [e.x], [e.y], color=:red, markersize=8)
     end
@@ -156,11 +165,10 @@ function plot_mapn(
         draw_circle!(ax1, loc.x, loc.y, σ; color=:gray, linewidth=1.0, alpha=0.6)
     end
 
-    # MAP-N emitters as 1σ circles
+    # MAP-N emitters as 1σ ellipses
     for e in emitters
-        σ = mean([e.σ_x, e.σ_y])
-        if σ > 0
-            draw_circle!(ax1, e.x, e.y, σ; color=:red, linewidth=2.0)
+        if e.σ_x > 0 && e.σ_y > 0
+            draw_ellipse!(ax1, e.x, e.y, e.σ_x, e.σ_y; color=:red, linewidth=2.0)
         end
         scatter!(ax1, [e.x], [e.y], color=:red, markersize=8)
     end
@@ -521,11 +529,10 @@ function plot_mapn_comparison(
             end
         end
 
-        # Draw MAP-N emitters with uncertainty circles
+        # Draw MAP-N emitters with uncertainty ellipses
         for e in emitters
-            σ = sqrt(e.σ_x^2 + e.σ_y^2)
             scatter!(ax, [e.x], [e.y], color=:red, markersize=8)
-            draw_circle!(ax, e.x, e.y, σ; color=:red, linewidth=2.0, alpha=0.8)
+            draw_ellipse!(ax, e.x, e.y, e.σ_x, e.σ_y; color=:red, linewidth=2.0, alpha=0.8)
         end
 
         # Add mean uncertainty label
