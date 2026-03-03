@@ -319,3 +319,163 @@ function update_shape_global!(chains::Vector{RJMCMCChain})
         end
     end
 end
+
+# ============================================================================
+# Collapsed Gibbs sampler hierarchical updates
+# ============================================================================
+
+"""
+    _get_collapsed_counts(state::CollapsedState) -> Vector{Int}
+
+Extract counts from active clusters in a collapsed state.
+"""
+function _get_collapsed_counts(state::CollapsedState)
+    counts = Int[]
+    for (j, cs) in enumerate(state.clusters)
+        state.active[j] || continue
+        push!(counts, Int(cs.n))
+    end
+    return counts
+end
+
+"""
+    _update_mu_collapsed(state, μ_current, shape, config) -> Float64
+
+MH update for μ using counts from the current collapsed state.
+Returns new μ value.
+"""
+function _update_mu_collapsed(state::CollapsedState, μ_current::Float64,
+                               shape::Float64, config::NamedTuple)
+    counts = _get_collapsed_counts(state)
+    isempty(counts) && return μ_current
+
+    μ_proposed = μ_current * exp(randn() * 0.3)
+    (μ_proposed < 1.0 || μ_proposed > 500.0) && return μ_current
+
+    scale_current = μ_current / shape
+    scale_proposed = μ_proposed / shape
+    dist_current = Gamma(shape, scale_current)
+    dist_proposed = Gamma(shape, scale_proposed)
+
+    log_lik_current = sum(logpdf(dist_current, max(n, 0.5)) for n in counts)
+    log_lik_proposed = sum(logpdf(dist_proposed, max(n, 0.5)) for n in counts)
+
+    log_prior_current = logpdf(Gamma(config.μ_prior_shape, config.μ_prior_scale), μ_current)
+    log_prior_proposed = logpdf(Gamma(config.μ_prior_shape, config.μ_prior_scale), μ_proposed)
+
+    log_proposal_ratio = log(μ_proposed) - log(μ_current)
+
+    log_accept = (log_lik_proposed - log_lik_current) +
+                 (log_prior_proposed - log_prior_current) +
+                 log_proposal_ratio
+
+    return log(rand()) < log_accept ? μ_proposed : μ_current
+end
+
+"""
+    _update_shape_collapsed(state, μ, shape_current, config) -> Float64
+
+MH update for shape using counts from the current collapsed state.
+Returns new shape value.
+"""
+function _update_shape_collapsed(state::CollapsedState, μ::Float64,
+                                  shape_current::Float64, config::NamedTuple)
+    counts = _get_collapsed_counts(state)
+    isempty(counts) && return shape_current
+
+    shape_proposed = shape_current * exp(randn() * 0.3)
+    (shape_proposed < 0.5 || shape_proposed > 50.0) && return shape_current
+
+    scale_current = μ / shape_current
+    scale_proposed = μ / shape_proposed
+    dist_current = Gamma(shape_current, scale_current)
+    dist_proposed = Gamma(shape_proposed, scale_proposed)
+
+    log_lik_current = sum(logpdf(dist_current, max(n, 0.5)) for n in counts)
+    log_lik_proposed = sum(logpdf(dist_proposed, max(n, 0.5)) for n in counts)
+
+    log_prior_current = logpdf(Gamma(config.shape_prior_shape, config.shape_prior_scale), shape_current)
+    log_prior_proposed = logpdf(Gamma(config.shape_prior_shape, config.shape_prior_scale), shape_proposed)
+
+    log_proposal_ratio = log(shape_proposed) - log(shape_current)
+
+    log_accept = (log_lik_proposed - log_lik_current) +
+                 (log_prior_proposed - log_prior_current) +
+                 log_proposal_ratio
+
+    return log(rand()) < log_accept ? shape_proposed : shape_current
+end
+
+"""
+    _update_mu_collapsed_global!(states, μ_current, shape, config) -> Float64
+
+Global MH update for μ using pooled counts across all collapsed partition states.
+"""
+function _update_mu_collapsed_global!(states::Vector{CollapsedState},
+                                      μ_current::Float64, shape::Float64,
+                                      config::NamedTuple)
+    all_counts = Int[]
+    for state in states
+        append!(all_counts, _get_collapsed_counts(state))
+    end
+    isempty(all_counts) && return μ_current
+
+    μ_proposed = μ_current * exp(randn() * 0.3)
+    (μ_proposed < 1.0 || μ_proposed > 500.0) && return μ_current
+
+    scale_current = μ_current / shape
+    scale_proposed = μ_proposed / shape
+    dist_current = Gamma(shape, scale_current)
+    dist_proposed = Gamma(shape, scale_proposed)
+
+    log_lik_current = sum(logpdf(dist_current, max(n, 0.5)) for n in all_counts)
+    log_lik_proposed = sum(logpdf(dist_proposed, max(n, 0.5)) for n in all_counts)
+
+    log_prior_current = logpdf(Gamma(config.μ_prior_shape, config.μ_prior_scale), μ_current)
+    log_prior_proposed = logpdf(Gamma(config.μ_prior_shape, config.μ_prior_scale), μ_proposed)
+
+    log_proposal_ratio = log(μ_proposed) - log(μ_current)
+
+    log_accept = (log_lik_proposed - log_lik_current) +
+                 (log_prior_proposed - log_prior_current) +
+                 log_proposal_ratio
+
+    return log(rand()) < log_accept ? μ_proposed : μ_current
+end
+
+"""
+    _update_shape_collapsed_global!(states, μ, shape_current, config) -> Float64
+
+Global MH update for shape using pooled counts across all collapsed partition states.
+"""
+function _update_shape_collapsed_global!(states::Vector{CollapsedState},
+                                         μ::Float64, shape_current::Float64,
+                                         config::NamedTuple)
+    all_counts = Int[]
+    for state in states
+        append!(all_counts, _get_collapsed_counts(state))
+    end
+    isempty(all_counts) && return shape_current
+
+    shape_proposed = shape_current * exp(randn() * 0.3)
+    (shape_proposed < 0.5 || shape_proposed > 50.0) && return shape_current
+
+    scale_current = μ / shape_current
+    scale_proposed = μ / shape_proposed
+    dist_current = Gamma(shape_current, scale_current)
+    dist_proposed = Gamma(shape_proposed, scale_proposed)
+
+    log_lik_current = sum(logpdf(dist_current, max(n, 0.5)) for n in all_counts)
+    log_lik_proposed = sum(logpdf(dist_proposed, max(n, 0.5)) for n in all_counts)
+
+    log_prior_current = logpdf(Gamma(config.shape_prior_shape, config.shape_prior_scale), shape_current)
+    log_prior_proposed = logpdf(Gamma(config.shape_prior_shape, config.shape_prior_scale), shape_proposed)
+
+    log_proposal_ratio = log(shape_proposed) - log(shape_current)
+
+    log_accept = (log_lik_proposed - log_lik_current) +
+                 (log_prior_proposed - log_prior_current) +
+                 log_proposal_ratio
+
+    return log(rand()) < log_accept ? shape_proposed : shape_current
+end
