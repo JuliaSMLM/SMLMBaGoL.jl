@@ -81,6 +81,10 @@ function RJMCMCChain(config::RJMCMCConfig, initial_state::BaGoLState{T};
     )
 end
 
+# ============================================================================
+# Diagnostics (must come before BaGoLResult which references it)
+# ============================================================================
+
 """
 Diagnostics from BaGoL analysis for QC and visualization.
 """
@@ -92,4 +96,52 @@ struct BaGoLDiagnostics
     final_shape::Float64
     n_partitions::Int  # 1 for non-partitioned runs
     posterior_image::Union{Nothing, NamedTuple{(:image, :edges_x, :edges_y, :pixel_size), Tuple{Matrix{Int}, Vector{Float64}, Vector{Float64}, Float64}}}
+end
+
+# ============================================================================
+# Collapsed Gibbs sampler types
+# ============================================================================
+
+"""
+    CollapsedState
+
+MCMC state for the collapsed Gibbs sampler. Stores only assignments
+(which locs belong to which cluster) — emitter positions are derived
+from ClusterStats sufficient statistics.
+
+Cluster slots are pre-allocated and reused via the `active` bitvector.
+"""
+mutable struct CollapsedState
+    assignments::Vector{Int16}      # assignments[i] = cluster label for loc i
+    clusters::Vector{ClusterStats}  # Pre-allocated slots
+    active::BitVector               # Which slots are in use
+    n_active::Int                   # Number of active clusters
+    log_area::Float64               # log(area) for spatial prior
+end
+
+"""
+    BaGoLResult
+
+Complete result from collapsed BaGoL analysis.
+"""
+struct BaGoLResult
+    emitters::Vector{SMLMData.Emitter2DFit}  # Point estimates
+    diagnostics::BaGoLDiagnostics
+    accumulators::Dict{Symbol, Any}           # Named accumulator results
+    archive_path::Union{Nothing, String}
+end
+
+"""
+    CollapsedChainResult
+
+Result from a single collapsed chain (one partition).
+Lightweight — no sample storage, just final state + accumulator results.
+"""
+struct CollapsedChainResult
+    state::CollapsedState
+    μ::Float64
+    shape::Float64
+    accumulators::Vector{Any}  # accumulator result objects
+    acceptance::Dict{Symbol, Tuple{Int, Int}}  # (accepted, total) per move type
+    n_iterations::Int
 end
