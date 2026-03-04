@@ -119,6 +119,42 @@ Accumulators collect statistics from the chain without storing full samples:
 - `EmitterCountHist` - Histogram of K per iteration
 - `PosteriorImage` - Rao-Blackwellized posterior image (Gaussian blobs per cluster)
 - `NNDistHist` - Nearest-neighbor distance histogram between emitter positions
+- `CoAssignmentMatrix` - Posterior similarity matrix (PSM): P_ij = fraction of iterations where locs i,j are co-assigned
+- `PartitionSamples` - Stores thinned assignment vectors for Binder loss evaluation
+
+### PSM Consensus Partition
+
+The collapsed sampler has a one-sided counting bias: well-separated emitters can
+be over-split (K too high) but never merged to zero (K too low). The PSM addresses
+this by summarizing partition uncertainty across the full chain.
+
+**Emitter extraction methods (in order of recommendation):**
+
+1. `extract_emitters_psm(psm, samples, locs)` — **Recommended.** Two-phase: find best
+   visited partition under symmetric Binder loss (b=1), then greedily merge cluster
+   pairs whose average cross-pair PSM > 0.5. No tuning parameters. Principled
+   (symmetric loss = Bayes-optimal pairwise decision). Requires both `CoAssignmentMatrix`
+   and `PartitionSamples` accumulators.
+
+2. `extract_emitters_binder(psm, samples, locs; a, b)` — Search visited partitions
+   for minimum Binder loss. Set b > a to penalize over-splitting. The ratio b/a maps
+   to a PSM decision threshold: t = a/(a+b). Requires tuning b.
+
+3. `extract_emitters_consensus(psm, locs; threshold)` — Complete-linkage hierarchical
+   clustering on 1-PSM. Conservative (requires ALL cross-pairs above threshold). Tends
+   to over-split.
+
+4. `extract_emitters(state, locs)` — Final chain state. Single MCMC sample, subject
+   to one-sided K bias.
+
+**Binder loss:** L(c) = Σ_{i<j} [a·𝟙(same)·(1-P_ij) + b·𝟙(diff)·P_ij]. With a=b=1
+(symmetric), co-assign iff P_ij > 0.5. With b > a, threshold drops to a/(a+b).
+
+**Why not just symmetric Binder?** Two failure modes:
+- Searching visited partitions with b=1 still over-counts because the sampler
+  generates over-split partitions. Greedy merge post-processing fixes this.
+- Direct optimization from singletons (binder_partition) gets stuck in local
+  optima and over-splits worse than the final state.
 
 ### ClusterStats
 
