@@ -246,13 +246,13 @@ println("Generating visualizations...")
 
 # 0. Posterior image
 if diagnostics.posterior_image !== nothing
-    println("  [0/8] Posterior image PNG...")
+    println("  [0/9] Posterior image PNG...")
     SMLMBaGoL.save_posterior_png(joinpath(OUTPUT_DIR, "posterior_image.png"),
                                  diagnostics.posterior_image; percentile=0.99)
 end
 
 # 1. Full FOV result
-println("  [1/8] Full FOV result...")
+println("  [1/9] Full FOV result...")
 fig_fov = Figure(size=(800, 800))
 ax_fov = Axis(fig_fov[1, 1],
     title="Collapsed Gibbs Results (SMLMSim $(N_EMITTERS)-mers)",
@@ -276,14 +276,14 @@ end
 save(joinpath(OUTPUT_DIR, "bagol_result.png"), fig_fov)
 
 # 2. MAP-N result plot
-println("  [2/8] MAP-N result...")
+println("  [2/9] MAP-N result...")
 include(joinpath(@__DIR__, "viz_chain_diagnostics.jl"))
 plot_mapn(emitters, diagnostics.posterior_k, locs;
     true_positions = true_positions,
     save_path = joinpath(OUTPUT_DIR, "mapn_result.png"))
 
 # 3. N-recovery histogram
-println("  [3/8] N-recovery histogram...")
+println("  [3/9] N-recovery histogram...")
 fig_nrec = Figure(size=(700, 500))
 ax_nrec = Axis(fig_nrec[1, 1], title="N-Recovery: Estimated Emitter Counts",
                xlabel="N_estimated", ylabel="Count")
@@ -299,7 +299,7 @@ axislegend(ax_nrec, position=:lt)
 save(joinpath(OUTPUT_DIR, "n_recovery_histogram.png"), fig_nrec)
 
 # 4. Uncertainty calibration
-println("  [4/8] Uncertainty calibration...")
+println("  [4/9] Uncertainty calibration...")
 fig_cal = Figure(size=(1000, 400))
 
 assignments, cost, _ = match_positions(emitters, true_positions, 0.100)
@@ -335,8 +335,32 @@ if !isempty(σ_values)
 end
 save(joinpath(OUTPUT_DIR, "calibration.png"), fig_cal)
 
-# 5. Posterior heatmap
-println("  [5/8] Posterior heatmap...")
+# 5. NN distance histogram from estimated emitters
+println("  [5/9] NN distance histogram...")
+if length(emitters) >= 2
+    nn_dists = Float64[]
+    for i in eachindex(emitters)
+        d_min = Inf
+        for j in eachindex(emitters)
+            i == j && continue
+            d = sqrt((emitters[i].x - emitters[j].x)^2 + (emitters[i].y - emitters[j].y)^2)
+            d < d_min && (d_min = d)
+        end
+        push!(nn_dists, d_min * 1000)  # μm → nm
+    end
+    fig_nn = Figure(size=(600, 400))
+    ax_nn = Axis(fig_nn[1, 1], title="Nearest-Neighbor Distances (Estimated Emitters)",
+                 xlabel="Distance (nm)", ylabel="Count")
+    hist!(ax_nn, nn_dists, bins=50, color=:steelblue)
+    nn_true = CLUSTER_DIAMETER * sin(π / N_EMITTERS) * 1000
+    vlines!(ax_nn, [nn_true], color=:red, linewidth=2,
+            label="True NN = $(round(nn_true, digits=1)) nm")
+    axislegend(ax_nn, position=:rt)
+    save(joinpath(OUTPUT_DIR, "nn_distances.png"), fig_nn)
+end
+
+# 6. Posterior heatmap
+println("  [6/9] Posterior heatmap...")
 if diagnostics.posterior_image !== nothing
     post = diagnostics.posterior_image
     fig_post = Figure(size=(800, 700))
@@ -352,8 +376,8 @@ if diagnostics.posterior_image !== nothing
     save(joinpath(OUTPUT_DIR, "posterior_heatmap.png"), fig_post)
 end
 
-# 6. SMLMRender suite
-println("  [6/8] SMLMRender suite...")
+# 7. SMLMRender suite
+println("  [7/9] SMLMRender suite...")
 bagol_smld = SMLMData.BasicSMLD(emitters, camera, 1, 1)
 locs_smld = SMLMData.BasicSMLD(locs, camera, 1, 1)
 camera_fov = (0.0, Float64(fov_size), 0.0, Float64(fov_size))
@@ -364,8 +388,8 @@ render_bagol_suite(locs_smld, bagol_smld;
     pixel_size = 1.0,
     fov = camera_fov)
 
-# 7. Write reports
-println("  [7/8] Writing reports...")
+# 8. Write reports
+println("  [8/9] Writing reports...")
 
 open(joinpath(OUTPUT_DIR, "simulation_params.md"), "w") do io
     println(io, "# SMLMSim Simulation Parameters (Collapsed Gibbs)\n")
@@ -409,8 +433,8 @@ open(joinpath(OUTPUT_DIR, "diagnostic_data.json"), "w") do io
     JSON.print(io, report_data, 2)
 end
 
-# 8. Summary
-println("  [8/8] Done.")
+# 9. Summary
+println("  [9/9] Done.")
 
 println("\n" * "="^60)
 println("Output files saved to: $OUTPUT_DIR")
