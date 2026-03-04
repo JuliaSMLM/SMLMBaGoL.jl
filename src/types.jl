@@ -110,6 +110,8 @@ MCMC state for the collapsed Gibbs sampler. Stores only assignments
 from ClusterStats sufficient statistics.
 
 Cluster slots are pre-allocated and reused via the `active` bitvector.
+Workspace buffers (`_perm`, `_active_slots`, `_log_probs`, `_rollback_*`)
+are pre-allocated for zero-allocation hot-path operation.
 """
 mutable struct CollapsedState
     assignments::Vector{Int16}      # assignments[i] = cluster label for loc i
@@ -117,6 +119,17 @@ mutable struct CollapsedState
     active::BitVector               # Which slots are in use
     n_active::Int                   # Number of active clusters
     log_area::Float64               # log(area) for spatial prior
+
+    # Precomputed loc precisions (computed once, locs don't change)
+    _loc_precs::Vector{LocPrecision}
+
+    # Workspace buffers (pre-allocated, reused across iterations)
+    _perm::Vector{Int}              # Permutation for Gibbs sweep
+    _active_slots::Vector{Int}      # Active cluster indices
+    _log_probs::Vector{Float64}     # Log probabilities for categorical
+    _rollback_assignments::Vector{Int16}  # Rollback buffer for MH moves
+    _rollback_clusters::Vector{ClusterStats}
+    _rollback_active::BitVector
 end
 
 """
