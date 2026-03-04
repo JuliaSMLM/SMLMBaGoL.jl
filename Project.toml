@@ -1,9 +1,10 @@
 name = "SMLMBaGoL"
 uuid = "70c4bcd9-ed9a-43d6-baf8-7d0db1eb70ee"
-authors = ["klidke@unm.edu"]
 version = "0.1.1"
+authors = ["klidke@unm.edu"]
 
 [deps]
+BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 Hungarian = "e91730f6-4275-51fb-a7a0-7064cfbd3b39"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
@@ -16,6 +17,7 @@ StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 
 [compat]
+BenchmarkTools = "1.6.3"
 Distributions = "0.25"
 Hungarian = "0.6, 0.7"
 NearestNeighbors = "0.4"

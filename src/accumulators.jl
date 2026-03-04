@@ -210,42 +210,57 @@ end
 
 Histogram of nearest-neighbor distances between emitter posterior means,
 computed per iteration. Useful for detecting clustering patterns.
+Pre-allocates position buffers for zero-allocation updates.
 """
 mutable struct NNDistHist <: AbstractAccumulator
     counts::Vector{Int}
     bin_edges::Vector{Float64}
+    _pos_x::Vector{Float64}   # Workspace: x-coordinates of active clusters
+    _pos_y::Vector{Float64}   # Workspace: y-coordinates of active clusters
 end
 
 function NNDistHist(; max_dist::Float64 = 0.1, n_bins::Int = 100)
     bin_size = max_dist / n_bins
     edges = collect(0.0:bin_size:max_dist)
-    NNDistHist(zeros(Int, n_bins), edges)
+    NNDistHist(zeros(Int, n_bins), edges, Float64[], Float64[])
 end
 
 function accumulator_update!(acc::NNDistHist, state::CollapsedState,
                              locs::Vector{<:SMLMData.AbstractEmitter},
                              μ::Float64, shape::Float64, iter::Int)
-    # Collect active cluster positions
-    positions = Tuple{Float64, Float64}[]
-    for (j, cs) in enumerate(state.clusters)
-        state.active[j] || continue
-        cs.n == 0 && continue
-        push!(positions, posterior_mean(cs))
+    # Collect active cluster positions into workspace buffers
+    K = state.n_active
+    # Grow buffers if needed (rare, once at most)
+    if length(acc._pos_x) < K
+        resize!(acc._pos_x, K)
+        resize!(acc._pos_y, K)
     end
 
-    length(positions) < 2 && return
+    n_pos = 0
+    @inbounds for (j, cs) in enumerate(state.clusters)
+        state.active[j] || continue
+        cs.n == 0 && continue
+        n_pos += 1
+        mx, my = posterior_mean(cs)
+        acc._pos_x[n_pos] = mx
+        acc._pos_y[n_pos] = my
+    end
+
+    n_pos < 2 && return
 
     n_bins = length(acc.counts)
     bin_size = acc.bin_edges[2] - acc.bin_edges[1]
 
     # For each emitter, find nearest neighbor distance
-    for i in eachindex(positions)
+    @inbounds for i in 1:n_pos
         min_d = Inf
-        pi = positions[i]
-        for j in eachindex(positions)
+        px_i = acc._pos_x[i]
+        py_i = acc._pos_y[i]
+        for j in 1:n_pos
             i == j && continue
-            pj = positions[j]
-            d = sqrt((pi[1] - pj[1])^2 + (pi[2] - pj[2])^2)
+            dx = px_i - acc._pos_x[j]
+            dy = py_i - acc._pos_y[j]
+            d = sqrt(dx^2 + dy^2)
             if d < min_d
                 min_d = d
             end

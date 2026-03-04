@@ -24,7 +24,21 @@ function initialize_collapsed_state(locs::Vector{<:SMLMData.AbstractEmitter},
     active = BitVector([true])
     n_active = 1
 
-    return CollapsedState(assignments, clusters, active, n_active, log_area)
+    # Precompute loc precisions (locs never change during chain)
+    _loc_precs = precompute_loc_precisions(locs)
+
+    # Pre-allocate workspace buffers
+    max_K = max(N, 16)  # Upper bound on cluster count
+    _perm = collect(1:N)
+    _active_slots = Vector{Int}(undef, max_K)
+    _log_probs = Vector{Float64}(undef, max_K + 1)
+    _rollback_assignments = similar(assignments)
+    _rollback_clusters = similar(clusters)
+    _rollback_active = similar(active)
+
+    return CollapsedState(assignments, clusters, active, n_active, log_area,
+                          _loc_precs, _perm, _active_slots, _log_probs,
+                          _rollback_assignments, _rollback_clusters, _rollback_active)
 end
 
 """

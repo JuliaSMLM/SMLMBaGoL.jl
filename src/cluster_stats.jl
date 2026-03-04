@@ -36,13 +36,35 @@ end
 ClusterStats() = ClusterStats(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, Int32(0), 0.0)
 
 """
+    LocPrecision
+
+Precomputed precision contributions for a localization.
+Computed once from loc data and cached to avoid repeated field access
+on mutable parametric emitter types (which causes dynamic dispatch).
+
+Stores position (x, y) and combined σ for spatial distance checks in block moves.
+"""
+struct LocPrecision
+    λ_xx::Float64
+    λ_xy::Float64
+    λ_yy::Float64
+    η_x::Float64
+    η_y::Float64
+    quad::Float64
+    log_det::Float64
+    x::Float64
+    y::Float64
+    σ::Float64  # sqrt(σ_x² + σ_y²) for distance threshold
+end
+
+"""
     _loc_precision(loc) -> (λ_xx, λ_xy, λ_yy, η_x, η_y, quad, log_det)
 
 Extract precision contributions from a single localization.
 Returns the precision matrix elements, natural parameters, quadratic form,
 and log-determinant of the localization's covariance.
 """
-function _loc_precision(loc::SMLMData.AbstractEmitter)
+@inline function _loc_precision(loc::SMLMData.AbstractEmitter)
     var_x = loc.σ_x^2
     var_y = loc.σ_y^2
     cov_xy = get_cov_xy(loc)
@@ -78,7 +100,7 @@ end
 
 Add a localization's precision contribution to the cluster. O(1).
 """
-function add_loc(cs::ClusterStats, loc::SMLMData.AbstractEmitter)
+@inline function add_loc(cs::ClusterStats, loc::SMLMData.AbstractEmitter)
     λ_xx, λ_xy, λ_yy, η_x, η_y, q, log_det = _loc_precision(loc)
     ClusterStats(
         cs.Λ_xx + λ_xx,
@@ -98,7 +120,7 @@ end
 Remove a localization's precision contribution from the cluster. O(1).
 Exact inverse of add_loc.
 """
-function remove_loc(cs::ClusterStats, loc::SMLMData.AbstractEmitter)
+@inline function remove_loc(cs::ClusterStats, loc::SMLMData.AbstractEmitter)
     λ_xx, λ_xy, λ_yy, η_x, η_y, q, log_det = _loc_precision(loc)
     ClusterStats(
         cs.Λ_xx - λ_xx,
@@ -113,11 +135,67 @@ function remove_loc(cs::ClusterStats, loc::SMLMData.AbstractEmitter)
 end
 
 """
+    precompute_loc_precisions(locs) -> Vector{LocPrecision}
+
+Precompute precision contributions for all locs. Called once at initialization.
+"""
+function precompute_loc_precisions(locs::Vector{<:SMLMData.AbstractEmitter})
+    precs = Vector{LocPrecision}(undef, length(locs))
+    for i in eachindex(locs)
+        loc = locs[i]
+        λ_xx, λ_xy, λ_yy, η_x, η_y, q, ld = _loc_precision(loc)
+        σ = sqrt(loc.σ_x^2 + loc.σ_y^2)
+        precs[i] = LocPrecision(λ_xx, λ_xy, λ_yy, η_x, η_y, q, ld,
+                                Float64(loc.x), Float64(loc.y), σ)
+    end
+    return precs
+end
+
+"""
+    add_loc(cs, lp::LocPrecision) -> ClusterStats
+
+Add precomputed precision contribution. O(1), zero-allocation.
+"""
+@inline function add_loc(cs::ClusterStats, lp::LocPrecision)
+    ClusterStats(
+        cs.Λ_xx + lp.λ_xx, cs.Λ_xy + lp.λ_xy, cs.Λ_yy + lp.λ_yy,
+        cs.η_x + lp.η_x, cs.η_y + lp.η_y, cs.quad + lp.quad,
+        cs.n + Int32(1), cs.log_det_sum + lp.log_det
+    )
+end
+
+"""
+    remove_loc(cs, lp::LocPrecision) -> ClusterStats
+
+Remove precomputed precision contribution. O(1), zero-allocation.
+"""
+@inline function remove_loc(cs::ClusterStats, lp::LocPrecision)
+    ClusterStats(
+        cs.Λ_xx - lp.λ_xx, cs.Λ_xy - lp.λ_xy, cs.Λ_yy - lp.λ_yy,
+        cs.η_x - lp.η_x, cs.η_y - lp.η_y, cs.quad - lp.quad,
+        cs.n - Int32(1), cs.log_det_sum - lp.log_det
+    )
+end
+
+"""
+    log_predictive(cs, lp::LocPrecision, log_area) -> Float64
+
+Predictive using precomputed precision. Zero-allocation.
+"""
+@inline function log_predictive(cs::ClusterStats, lp::LocPrecision, log_area::Float64)
+    if cs.n == 0
+        return -log_area
+    end
+    cs_new = add_loc(cs, lp)
+    return log_marginal_likelihood(cs_new, log_area) - log_marginal_likelihood(cs, log_area)
+end
+
+"""
     _posterior_precision_inv(cs::ClusterStats) -> (det, S_xx, S_xy, S_yy)
 
 Invert the posterior precision matrix. Returns determinant and covariance elements.
 """
-function _posterior_precision_inv(cs::ClusterStats)
+@inline function _posterior_precision_inv(cs::ClusterStats)
     det_Λ = cs.Λ_xx * cs.Λ_yy - cs.Λ_xy^2
     if det_Λ <= 0
         return 0.0, Inf, 0.0, Inf
@@ -168,7 +246,7 @@ log p(data_j | cluster_j) = (1-n_j) log(2π) - ½ log_det_sum
 This is the key quantity for the collapsed sampler - it replaces the
 explicit likelihood + position sampling of the uncollapsed version.
 """
-function log_marginal_likelihood(cs::ClusterStats, log_area::Float64)
+@inline function log_marginal_likelihood(cs::ClusterStats, log_area::Float64)
     n = Int(cs.n)
     if n == 0
         return 0.0
@@ -204,7 +282,7 @@ This is the ratio of marginal likelihoods:
   log p = log_marginal(cs + loc) - log_marginal(cs)
 which automatically handles the normalization.
 """
-function log_predictive(cs::ClusterStats, loc::SMLMData.AbstractEmitter, log_area::Float64)
+@inline function log_predictive(cs::ClusterStats, loc::SMLMData.AbstractEmitter, log_area::Float64)
     if cs.n == 0
         # New cluster: uniform spatial prior
         return -log_area
