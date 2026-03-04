@@ -341,9 +341,10 @@ if nn_result isa NamedTuple && haskey(nn_result, :counts)
     bin_centers = [(nn_result.bin_edges[i] + nn_result.bin_edges[i+1]) / 2 * 1000
                    for i in 1:length(nn_result.counts)]
     barplot!(ax4, bin_centers, nn_result.counts, color=:steelblue)
-    # Mark true cluster diameter
-    vlines!(ax4, [CLUSTER_DIAMETER * 1000], color=:red, linewidth=2,
-            label="Cluster d = $(CLUSTER_DIAMETER * 1000) nm")
+    # Mark true NN distance: chord length between adjacent emitters on circle
+    nn_true = CLUSTER_DIAMETER * sin(π / N_EMITTERS) * 1000  # nm
+    vlines!(ax4, [nn_true], color=:red, linewidth=2,
+            label="True NN = $(round(nn_true, digits=1)) nm")
     axislegend(ax4, position=:rt)
     save(joinpath(OUTPUT_DIR, "nn_distances.png"), fig4)
 end
