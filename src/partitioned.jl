@@ -55,11 +55,11 @@ function run_bagol_partitioned(
         println("Partitioning $(length(locs)) localizations...")
     end
 
-    # Auto boundary margin
+    # Auto boundary margin (scaled with nsigma)
     actual_margin = boundary_margin
     if actual_margin <= 0.0
         sigmas = [mean_sigma(loc) for loc in locs]
-        actual_margin = 5.0 * median(sigmas)
+        actual_margin = nsigma * median(sigmas)
     end
 
     # Partition the data
@@ -260,13 +260,15 @@ function deduplicate_boundary_emitters(
 
             assignment, _ = Hungarian.hungarian(cost)
 
-            threshold = 2 * margin
             for (ii, jj) in enumerate(assignment)
                 jj == 0 && continue
-                if cost[ii, jj] < threshold
-                    ki, kj = idx_i[ii], idx_j[jj]
-                    e_i, e_j = result[ki], result[kj]
+                ki, kj = idx_i[ii], idx_j[jj]
+                e_i, e_j = result[ki], result[kj]
 
+                # Merge threshold: distance must be within combined uncertainties
+                σ_combined = sqrt(e_i.σ_x^2 + e_i.σ_y^2 + e_j.σ_x^2 + e_j.σ_y^2)
+                threshold = 2.0 * σ_combined  # 2σ test
+                if cost[ii, jj] < threshold
                     # Precision-weighted merge using covariance determinant
                     det_i = e_i.σ_x^2 * e_i.σ_y^2 - e_i.σ_xy^2
                     det_j = e_j.σ_x^2 * e_j.σ_y^2 - e_j.σ_xy^2
@@ -280,9 +282,9 @@ function deduplicate_boundary_emitters(
                     new_σ_y = sqrt(1.0 / (1.0/e_i.σ_y^2 + 1.0/e_j.σ_y^2 + 1e-10))
                     new_σ_xy = (w_i * e_i.σ_xy + w_j * e_j.σ_xy) / w_total
 
-                    # Create merged emitter
+                    # Create merged emitter (sum photons from both)
                     result[ki] = SMLMData.Emitter2DFit(
-                        new_x, new_y, 0.0, 0.0,
+                        new_x, new_y, e_i.photons + e_j.photons, 0.0,
                         new_σ_x, new_σ_y, new_σ_xy,
                         0.0, 0.0, 1, 1, 0, e_i.id
                     )

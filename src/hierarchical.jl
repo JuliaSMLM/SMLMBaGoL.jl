@@ -485,3 +485,4 @@ function _update_shape_collapsed_global!(states::Vector{CollapsedState},
 
     return log(rand()) < log_accept ? shape_proposed : shape_current
 end
+

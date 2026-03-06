@@ -382,6 +382,7 @@ function _run_bagol_collapsed(
     states = Vector{CollapsedState}(undef, n_partitions)
     partition_accumulators = Vector{Vector{AbstractAccumulator}}(undef, n_partitions)
     count_hists = Vector{EmitterCountHist}(undef, n_partitions)
+    partition_samples = Vector{PartitionSamples}(undef, n_partitions)
 
     Threads.@threads for i in 1:n_partitions
         p_locs = partitions[i].locs
@@ -393,6 +394,10 @@ function _run_bagol_collapsed(
         count_hist = EmitterCountHist()
         push!(accs, count_hist)
         count_hists[i] = count_hist
+
+        ps_acc = PartitionSamples(thin=5)
+        push!(accs, ps_acc)
+        partition_samples[i] = ps_acc
 
         if posterior_pixel_size > 0.0
             push!(accs, PosteriorImage(pixel_size=posterior_pixel_size,
@@ -464,16 +469,27 @@ function _run_bagol_collapsed(
         println("\nMerging partition results...")
     end
 
-    # Extract emitters from each partition's final state
+    # Extract emitters via MAP-N from stored assignment samples
     all_emitters = SMLMData.Emitter2DFit[]
     partition_ids = Int[]
     is_near_boundary = Bool[]
 
     sigmas = [mean_sigma(loc) for loc in locs]
-    boundary_margin = 5.0 * median(sigmas)
+    # Scale margin with nsigma: partition gap ≈ nsigma*(σ_i+σ_j), so emitters
+    # can only be duplicates if within ~nsigma*σ of boundary
+    boundary_margin = nsigma * median(sigmas)
 
-    for (pid, (partition, state)) in enumerate(zip(partitions, states))
-        emitters = extract_emitters(state, partition.locs)
+    for (pid, (partition, ps_acc)) in enumerate(zip(partitions, partition_samples))
+        samples = accumulator_result(ps_acc)
+        if isempty(samples)
+            error("Partition $pid ($(length(partition.locs)) locs): no assignment samples collected. " *
+                  "Check burn_in ($burn_in) < n_iterations ($n_iterations).")
+        end
+        emitters, _ = estimate_mapn_collapsed(samples, partition.locs)
+        if isempty(emitters)
+            error("Partition $pid ($(length(partition.locs)) locs): estimate_mapn_collapsed returned " *
+                  "0 emitters from $(length(samples)) samples.")
+        end
         for emitter in emitters
             push!(all_emitters, emitter)
             push!(partition_ids, pid)
@@ -481,14 +497,20 @@ function _run_bagol_collapsed(
             push!(is_near_boundary, near_boundary)
         end
     end
-
     # Deduplicate boundary emitters
+    n_pre_dedup = length(all_emitters)
+    n_boundary = count(is_near_boundary)
     if !isempty(all_emitters)
         merged_emitters = deduplicate_boundary_emitters(
             all_emitters, partition_ids, is_near_boundary, boundary_margin
         )
     else
         merged_emitters = SMLMData.Emitter2DFit[]
+    end
+    if verbose
+        n_deduped = n_pre_dedup - length(merged_emitters)
+        println("  Pre-dedup: $n_pre_dedup emitters ($n_boundary near boundary), " *
+                "removed $n_deduped duplicates")
     end
 
     # Merge count histograms for posterior_k
@@ -665,9 +687,9 @@ function _run_bagol_rjmcmc(
         println("\nMerging partition results...")
     end
 
-    # Compute boundary margin for merge
+    # Compute boundary margin for merge (scaled with nsigma)
     sigmas = [mean_sigma(loc) for loc in locs]
-    boundary_margin = 5.0 * median(sigmas)
+    boundary_margin = nsigma * median(sigmas)
 
     # Merge results from all partitions
     merged_emitters, posterior_k = merge_partition_results(chains, partitions, boundary_margin)

@@ -23,10 +23,8 @@ export BaGoLDiagnostics
 export CollapsedState, CollapsedChainResult, BaGoLResult
 export ClusterStats
 export AbstractAccumulator, EmitterCountHist, PosteriorImage, NNDistHist
-export CoAssignmentMatrix, PartitionSamples
-export consensus_partition, extract_emitters_consensus
-export binder_loss, binder_consensus, extract_emitters_binder
-export binder_partition, extract_emitters_psm, otsu_threshold
+export PartitionSamples
+export estimate_mapn_collapsed
 
 # Export types (legacy RJMCMC)
 export Emitter, BaGoLState, BaGoLSample

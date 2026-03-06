@@ -239,7 +239,7 @@ using Statistics
         @test length(nn.counts) == 50
     end
 
-    @testset "CoAssignmentMatrix" begin
+    @testset "Collapsed MAP-N" begin
         Random.seed!(42)
 
         σ = 0.005
@@ -258,105 +258,35 @@ using Statistics
             push!(locs, SMLMData.Emitter2DFit(x, y, 1000.0, 10.0, σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, i+5))
         end
 
-        # Run with CoAssignmentMatrix accumulator
-        psm_acc = CoAssignmentMatrix()
+        # Run with PartitionSamples accumulator
+        ps_acc = PartitionSamples(thin=5)
         result = run_collapsed_chain(locs;
             n_iterations=3000, burn_in=500,
-            accumulators=AbstractAccumulator[psm_acc],
+            accumulators=AbstractAccumulator[ps_acc],
             verbose=false)
 
-        psm_result = SMLMBaGoL.accumulator_result(psm_acc)
-        psm = psm_result.psm
-        @test size(psm) == (10, 10)
-        @test psm_result.n_samples > 0
+        samples = SMLMBaGoL.accumulator_result(ps_acc)
+        @test length(samples) > 0
 
-        # Diagonal should be 1
-        for i in 1:10
-            @test psm[i, i] ≈ 1.0
-        end
+        # MAP-N estimation from collapsed samples
+        emitters, posterior_k = estimate_mapn_collapsed(samples, locs)
+        @test length(emitters) >= 1
+        @test length(posterior_k) > 0
+        @test sum(posterior_k) == length(samples)
 
-        # Within-cluster co-assignment should be high (locs 1-5 together)
-        for i in 1:4
-            for j in i+1:5
-                @test psm[i, j] > 0.5
-            end
-        end
-
-        # Cross-cluster co-assignment should be low (locs 1-5 vs 6-10)
-        for i in 1:5
-            for j in 6:10
-                @test psm[i, j] < 0.3
-            end
-        end
-
-        # Consensus partition should recover 2 clusters
-        labels = consensus_partition(psm; threshold=0.5)
-        @test length(labels) == 10
-        K = length(unique(labels))
-        @test K == 2
-
-        # Locs 1-5 should be in same cluster, 6-10 in same cluster
-        @test all(labels[i] == labels[1] for i in 1:5)
-        @test all(labels[i] == labels[6] for i in 6:10)
-        @test labels[1] != labels[6]
-
-        # extract_emitters_consensus
-        emitters = extract_emitters_consensus(psm, locs; threshold=0.5)
+        # With well-separated emitters, MAP-N should find 2
         @test length(emitters) == 2
+
         # Positions should be near true emitter locations
         positions = sort([(e.x, e.y) for e in emitters])
         @test abs(positions[1][1] - 0.1) < 0.01
         @test abs(positions[2][1] - 0.2) < 0.01
 
-        # PartitionSamples + Binder consensus
-        Random.seed!(42)
-        psm_acc2 = CoAssignmentMatrix()
-        ps_acc = PartitionSamples(thin=5)
-        result2 = run_collapsed_chain(locs;
-            n_iterations=3000, burn_in=500,
-            accumulators=AbstractAccumulator[psm_acc2, ps_acc],
-            verbose=false)
-
-        psm2 = SMLMBaGoL.accumulator_result(psm_acc2).psm
-        samples = SMLMBaGoL.accumulator_result(ps_acc)
-        @test length(samples) > 0
-
-        # Binder loss is finite
-        loss = binder_loss(samples[1], psm2)
-        @test isfinite(loss)
-        @test loss >= 0
-
-        # Binder consensus finds a partition
-        labels_b, best_loss = binder_consensus(psm2, samples)
-        @test length(labels_b) == 10
-        @test length(unique(labels_b)) >= 1
-        @test best_loss <= loss  # best must be ≤ any sample
-
-        # Asymmetric Binder (b > a) should merge more
-        labels_sym, _ = binder_consensus(psm2, samples; a=1.0, b=1.0)
-        labels_asym, _ = binder_consensus(psm2, samples; a=1.0, b=3.0)
-        @test length(unique(labels_asym)) <= length(unique(labels_sym))
-
-        # extract_emitters_binder
-        emitters_b = extract_emitters_binder(psm2, samples, locs)
-        @test length(emitters_b) >= 1
-        @test all(e -> e isa SMLMData.Emitter2DFit, emitters_b)
-
-        # binder_partition — direct optimization from PSM
-        labels_opt = binder_partition(psm2)
-        @test length(labels_opt) == 10
-
-        # refine_partition — visited + greedy merge
-        labels_ref = SMLMBaGoL.refine_partition(psm2, samples)
-        @test length(labels_ref) == 10
-        K_ref = length(unique(labels_ref))
-        @test K_ref == 2  # well-separated emitters → should find 2
-        @test all(labels_ref[i] == labels_ref[1] for i in 1:5)
-        @test all(labels_ref[i] == labels_ref[6] for i in 6:10)
-
-        # extract_emitters_psm
-        emitters_opt = extract_emitters_psm(psm2, samples, locs)
-        @test length(emitters_opt) == 2
+        # Uncertainties should be positive
+        for e in emitters
+            @test e.σ_x >= 0
+            @test e.σ_y >= 0
+        end
     end
 
     @testset "Spatial Utilities" begin

@@ -42,7 +42,7 @@ src/
 ├── likelihood.jl          # Gaussian likelihood (RJMCMC only)
 ├── moves.jl               # RJMCMC moves: Birth, Death, Move, Allocate, Split, Merge
 ├── hierarchical.jl        # Hierarchical Bayes updates (both RJMCMC + collapsed)
-├── mapn.jl                # estimate_mapn() - Hungarian matching (RJMCMC only)
+├── mapn.jl                # estimate_mapn() + estimate_mapn_collapsed() - Hungarian matching
 ├── accumulators.jl        # Accumulator interface + EmitterCountHist, PosteriorImage, NNDistHist
 ├── collapsed_moves.jl     # Collapsed moves: Gibbs sweep, block birth/death
 ├── collapsed_sampler.jl   # run_collapsed_chain() - collapsed Gibbs sampler
@@ -61,7 +61,7 @@ src/
 - Emitter positions integrated out analytically via ClusterStats
 - Moves: Gibbs allocation sweep (70%), block birth (15%), block death (15%)
 - Rao-Blackwellized posterior image (Gaussian blobs, not point deltas)
-- No MAP-N needed — positions from ClusterStats posterior mean/cov
+- MAP-N estimation via `estimate_mapn_collapsed` on stored assignment samples
 
 **Legacy RJMCMC (`sampler=:rjmcmc`):**
 - State = explicit emitter positions + allocations
@@ -119,42 +119,25 @@ Accumulators collect statistics from the chain without storing full samples:
 - `EmitterCountHist` - Histogram of K per iteration
 - `PosteriorImage` - Rao-Blackwellized posterior image (Gaussian blobs per cluster)
 - `NNDistHist` - Nearest-neighbor distance histogram between emitter positions
-- `CoAssignmentMatrix` - Posterior similarity matrix (PSM): P_ij = fraction of iterations where locs i,j are co-assigned
-- `PartitionSamples` - Stores thinned assignment vectors for Binder loss evaluation
+- `PartitionSamples` - Stores thinned assignment vectors for MAP-N estimation
 
-### PSM Consensus Partition
+### MAP-N Estimation
 
-The collapsed sampler has a one-sided counting bias: well-separated emitters can
-be over-split (K too high) but never merged to zero (K too low). The PSM addresses
-this by summarizing partition uncertainty across the full chain.
+Both samplers use MAP-N (Maximum A Posteriori Number) for emitter extraction:
 
-**Emitter extraction methods (in order of recommendation):**
+1. Build histogram of K across post-burn-in samples
+2. Find MAP-N = mode of K distribution
+3. Filter to samples with K = MAP-N
+4. Iterative Hungarian matching to solve label switching
+5. Median positions (robust to outliers) + MAD-based uncertainties
 
-1. `extract_emitters_psm(psm, samples, locs)` — **Recommended.** Two-phase: find best
-   visited partition under symmetric Binder loss (b=1), then greedily merge cluster
-   pairs whose average cross-pair PSM > 0.5. No tuning parameters. Principled
-   (symmetric loss = Bayes-optimal pairwise decision). Requires both `CoAssignmentMatrix`
-   and `PartitionSamples` accumulators.
+**Collapsed:** `estimate_mapn_collapsed(samples, locs)` — positions derived from
+ClusterStats posterior means (deterministic given assignments). Uses `PartitionSamples`
+accumulator which is automatically included in `run_bagol`.
 
-2. `extract_emitters_binder(psm, samples, locs; a, b)` — Search visited partitions
-   for minimum Binder loss. Set b > a to penalize over-splitting. The ratio b/a maps
-   to a PSM decision threshold: t = a/(a+b). Requires tuning b.
+**RJMCMC:** `estimate_mapn(chain)` — positions from explicit emitter coordinates.
 
-3. `extract_emitters_consensus(psm, locs; threshold)` — Complete-linkage hierarchical
-   clustering on 1-PSM. Conservative (requires ALL cross-pairs above threshold). Tends
-   to over-split.
-
-4. `extract_emitters(state, locs)` — Final chain state. Single MCMC sample, subject
-   to one-sided K bias.
-
-**Binder loss:** L(c) = Σ_{i<j} [a·𝟙(same)·(1-P_ij) + b·𝟙(diff)·P_ij]. With a=b=1
-(symmetric), co-assign iff P_ij > 0.5. With b > a, threshold drops to a/(a+b).
-
-**Why not just symmetric Binder?** Two failure modes:
-- Searching visited partitions with b=1 still over-counts because the sampler
-  generates over-split partitions. Greedy merge post-processing fixes this.
-- Direct optimization from singletons (binder_partition) gets stuck in local
-  optima and over-splits worse than the final state.
+**Fallback:** `extract_emitters(state, locs)` — final chain state only (single sample).
 
 ### ClusterStats
 
