@@ -1,9 +1,15 @@
 # Collapsed RJMCMC moves for BaGoL
 #
-# Three move types for the collapsed Gibbs sampler:
+# Five move types for the collapsed Gibbs sampler:
 # 1. Allocation Gibbs sweep — full sweep reassigning each loc
 # 2. Block birth — create new cluster from seed loc + nearby locs
 # 3. Block death — dissolve a cluster, redistributing locs
+# 4. Split — partition one cluster's locs into two clusters (K → K+1)
+# 5. Merge — combine two clusters into one (K → K-1)
+#
+# Split/merge operate purely in allocation space. Since positions are
+# integrated out in the collapsed model, the acceptance ratio uses only
+# marginal likelihoods — no position proposals needed.
 
 # ============================================================================
 # Helpers
@@ -430,4 +436,183 @@ function propose_block_death!(state::CollapsedState,
         _restore_rollback!(state, old_n_active, old_len)
         return false
     end
+end
+
+# ============================================================================
+# Split move (K → K+1)
+# ============================================================================
+
+"""
+    propose_split!(state, locs, μ, shape, λ_K) -> Bool
+
+Split: choose a random active cluster uniformly, coin-flip partition its
+locs into two new clusters. Accept/reject via MH with marginal likelihood.
+
+Coin-flip choices are stored so the accepted state matches what was evaluated.
+
+Proposal ratio: 2/(K+1) for split, symmetric with K/2 for merge.
+Both use uniform cluster selection for correct detailed balance.
+"""
+function propose_split!(state::CollapsedState,
+                         locs::Vector{<:SMLMData.AbstractEmitter},
+                         μ::Float64, shape::Float64, λ_K::Float64)
+    K = state.n_active
+    K == 0 && return false
+
+    N = length(locs)
+    loc_precs = state._loc_precs
+
+    # Collect active cluster slots
+    active_slots = state._active_slots
+    n_active = 0
+    @inbounds for j in eachindex(state.active)
+        if state.active[j]
+            n_active += 1
+            active_slots[n_active] = j
+        end
+    end
+
+    # Choose cluster uniformly
+    split_slot = active_slots[rand(1:K)]
+    cs_old = state.clusters[split_slot]
+
+    # Need at least 2 locs to split
+    cs_old.n < 2 && return false
+
+    # Coin-flip partition — track choices in assignments buffer
+    # Use _rollback_assignments to store coin-flip (0=left, 1=right)
+    cs_left = ClusterStats()
+    cs_right = ClusterStats()
+    n_left = 0
+    n_right = 0
+
+    @inbounds for i in 1:N
+        state.assignments[i] == split_slot || continue
+        if rand() < 0.5
+            cs_left = add_loc(cs_left, loc_precs[i])
+            state._rollback_assignments[i] = Int16(0)  # left
+            n_left += 1
+        else
+            cs_right = add_loc(cs_right, loc_precs[i])
+            state._rollback_assignments[i] = Int16(1)  # right
+            n_right += 1
+        end
+    end
+
+    # Both sides must be non-empty
+    (n_left == 0 || n_right == 0) && return false
+
+    # Marginal likelihood change
+    Δ_marginal = log_marginal_likelihood(cs_left, state.log_area) +
+                 log_marginal_likelihood(cs_right, state.log_area) -
+                 log_marginal_likelihood(cs_old, state.log_area)
+
+    K_new = K + 1
+    Δ_prior = log_prior_k(K_new, λ_K) - log_prior_k(K, λ_K) +
+              log_prior_total_count(N, K_new, μ, shape) -
+              log_prior_total_count(N, K, μ, shape)
+
+    # Proposal ratio: split chooses 1/K, merge chooses 2/(K(K+1))
+    # Net: 2/(K+1)
+    log_proposal_ratio = log(2) - log(K_new)
+
+    log_accept = Δ_marginal + Δ_prior + log_proposal_ratio
+
+    if log(rand()) < log_accept
+        # Accept: apply the exact coin-flip partition that was evaluated
+        new_slot = _find_inactive_slot(state)
+        _activate_cluster!(state, new_slot, cs_right)
+        state.clusters[split_slot] = cs_left
+
+        @inbounds for i in 1:N
+            state.assignments[i] == split_slot || continue
+            if state._rollback_assignments[i] == Int16(1)
+                state.assignments[i] = Int16(new_slot)
+            end
+        end
+
+        return true
+    end
+    return false
+end
+
+# ============================================================================
+# Merge move (K → K-1)
+# ============================================================================
+
+"""
+    propose_merge!(state, locs, μ, shape, λ_K) -> Bool
+
+Merge: choose a random pair of active clusters, combine their locs into
+one cluster. Accept/reject via MH with marginal likelihood ratio.
+
+Uniform pair selection for correct detailed balance with uniform split.
+
+Proposal ratio: K/2 (symmetric with split's 2/(K+1)).
+"""
+function propose_merge!(state::CollapsedState,
+                         locs::Vector{<:SMLMData.AbstractEmitter},
+                         μ::Float64, shape::Float64, λ_K::Float64)
+    K = state.n_active
+    K <= 1 && return false
+
+    N = length(locs)
+    loc_precs = state._loc_precs
+
+    # Collect active cluster slots
+    active_slots = state._active_slots
+    n_active = 0
+    @inbounds for j in eachindex(state.active)
+        if state.active[j]
+            n_active += 1
+            active_slots[n_active] = j
+        end
+    end
+
+    # Choose uniform pair
+    i = rand(1:K)
+    j = rand(1:K-1)
+    j >= i && (j += 1)
+
+    slot_i = active_slots[i]
+    slot_j = active_slots[j]
+    cs_i = state.clusters[slot_i]
+    cs_j = state.clusters[slot_j]
+
+    # Build merged ClusterStats
+    cs_merged = ClusterStats()
+    @inbounds for idx in 1:N
+        a = state.assignments[idx]
+        if a == slot_i || a == slot_j
+            cs_merged = add_loc(cs_merged, loc_precs[idx])
+        end
+    end
+
+    # Marginal likelihood change
+    Δ_marginal = log_marginal_likelihood(cs_merged, state.log_area) -
+                 log_marginal_likelihood(cs_i, state.log_area) -
+                 log_marginal_likelihood(cs_j, state.log_area)
+
+    K_new = K - 1
+    Δ_prior = log_prior_k(K_new, λ_K) - log_prior_k(K, λ_K) +
+              log_prior_total_count(N, K_new, μ, shape) -
+              log_prior_total_count(N, K, μ, shape)
+
+    # Proposal ratio: symmetric with split's 2/(K+1)
+    log_proposal_ratio = log(K) - log(2)
+
+    log_accept = Δ_marginal + Δ_prior + log_proposal_ratio
+
+    if log(rand()) < log_accept
+        # Accept: merge into slot_i, deactivate slot_j
+        state.clusters[slot_i] = cs_merged
+        @inbounds for idx in 1:N
+            if state.assignments[idx] == slot_j
+                state.assignments[idx] = Int16(slot_i)
+            end
+        end
+        _deactivate_cluster!(state, slot_j)
+        return true
+    end
+    return false
 end

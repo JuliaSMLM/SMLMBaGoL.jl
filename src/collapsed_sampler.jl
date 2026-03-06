@@ -64,9 +64,11 @@ Run the collapsed Gibbs sampler on a set of localizations.
 - `callback_interval=1`: How often to call callback
 
 # Move distribution
-- 70%: Allocation Gibbs sweep (full sweep per iteration)
-- 15%: Block birth
-- 15%: Block death
+- 50%: Allocation Gibbs sweep (full sweep per iteration)
+- 10%: Block birth
+- 10%: Block death
+- 15%: Split (K → K+1, targets large clusters)
+- 15%: Merge (K → K-1, targets nearest pair)
 """
 function run_collapsed_chain(
     locs::Vector{<:SMLMData.AbstractEmitter};
@@ -100,7 +102,9 @@ function run_collapsed_chain(
     acceptance = Dict{Symbol, Tuple{Int, Int}}(
         :gibbs_sweep => (0, 0),
         :block_birth => (0, 0),
-        :block_death => (0, 0)
+        :block_death => (0, 0),
+        :split => (0, 0),
+        :merge => (0, 0)
     )
 
     config_nt = (
@@ -113,21 +117,31 @@ function run_collapsed_chain(
     for iter in 1:n_iterations
         r = rand()
 
-        if r < 0.70
+        if r < 0.50
             # Gibbs allocation sweep (always "accepts" — it's exact Gibbs)
             gibbs_allocation_sweep!(state, locs, μ, current_shape, λ_K)
             prev = acceptance[:gibbs_sweep]
             acceptance[:gibbs_sweep] = (prev[1] + 1, prev[2] + 1)
-        elseif r < 0.85
+        elseif r < 0.60
             # Block birth
             accepted = propose_block_birth!(state, locs, μ, current_shape, λ_K)
             prev = acceptance[:block_birth]
             acceptance[:block_birth] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
-        else
+        elseif r < 0.70
             # Block death
             accepted = propose_block_death!(state, locs, μ, current_shape, λ_K)
             prev = acceptance[:block_death]
             acceptance[:block_death] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
+        elseif r < 0.85
+            # Split
+            accepted = propose_split!(state, locs, μ, current_shape, λ_K)
+            prev = acceptance[:split]
+            acceptance[:split] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
+        else
+            # Merge
+            accepted = propose_merge!(state, locs, μ, current_shape, λ_K)
+            prev = acceptance[:merge]
+            acceptance[:merge] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
         end
 
         # Hierarchical updates
@@ -193,12 +207,16 @@ function run_collapsed_iterations!(
         current_iter += 1
 
         r = rand()
-        if r < 0.70
+        if r < 0.50
             gibbs_allocation_sweep!(state, locs, μ, shape, λ_K)
-        elseif r < 0.85
+        elseif r < 0.60
             propose_block_birth!(state, locs, μ, shape, λ_K)
-        else
+        elseif r < 0.70
             propose_block_death!(state, locs, μ, shape, λ_K)
+        elseif r < 0.85
+            propose_split!(state, locs, μ, shape, λ_K)
+        else
+            propose_merge!(state, locs, μ, shape, λ_K)
         end
 
         # Update accumulators after burn-in
