@@ -445,10 +445,12 @@ end
 """
     propose_split!(state, locs, μ, shape, λ_K) -> Bool
 
-Split: choose a random active cluster uniformly, coin-flip partition its
-locs into two new clusters. Accept/reject via MH with marginal likelihood.
+Split: choose a random active cluster uniformly, partition its locs along
+the PCA major axis into two spatially coherent sub-clusters. Accept/reject
+via MH with marginal likelihood.
 
-Coin-flip choices are stored so the accepted state matches what was evaluated.
+Split choices are stored in `_rollback_assignments` so the accepted state
+matches what was evaluated.
 
 Proposal ratio: 2/(K+1) for split, symmetric with K/2 for merge.
 Both use uniform cluster selection for correct detailed balance.
@@ -479,8 +481,69 @@ function propose_split!(state::CollapsedState,
     # Need at least 2 locs to split
     cs_old.n < 2 && return false
 
-    # Coin-flip partition — track choices in assignments buffer
-    # Use _rollback_assignments to store coin-flip (0=left, 1=right)
+    # --- PCA-based split ---
+    # Accumulate mean and covariance from loc positions (zero-allocation)
+    n_cluster = 0
+    sum_x = 0.0
+    sum_y = 0.0
+    @inbounds for i in 1:N
+        state.assignments[i] == split_slot || continue
+        n_cluster += 1
+        sum_x += loc_precs[i].x
+        sum_y += loc_precs[i].y
+    end
+    mean_x = sum_x / n_cluster
+    mean_y = sum_y / n_cluster
+
+    # Covariance accumulation
+    c_xx = 0.0
+    c_xy = 0.0
+    c_yy = 0.0
+    @inbounds for i in 1:N
+        state.assignments[i] == split_slot || continue
+        dx = loc_precs[i].x - mean_x
+        dy = loc_precs[i].y - mean_y
+        c_xx += dx * dx
+        c_xy += dx * dy
+        c_yy += dy * dy
+    end
+    # Normalize (sample covariance not needed — relative scale suffices)
+
+    # Closed-form 2×2 eigendecomposition
+    tr = c_xx + c_yy
+    det = c_xx * c_yy - c_xy * c_xy
+    disc = sqrt(max(tr * tr / 4 - det, 0.0))
+    λ_max = tr / 2 + disc
+    λ_min = tr / 2 - disc
+
+    # Guard: skip if cluster is nearly round and tiny
+    if λ_max / max(λ_min, 1e-30) < 1.5 && n_cluster < 4
+        return false
+    end
+
+    # Major eigenvector
+    if abs(c_xy) > 1e-30
+        vx = λ_max - c_yy
+        vy = c_xy
+        vnorm = sqrt(vx * vx + vy * vy)
+        vx /= vnorm
+        vy /= vnorm
+    else
+        # Diagonal case: major axis is x if c_xx > c_yy, else y
+        if c_xx >= c_yy
+            vx = 1.0
+            vy = 0.0
+        else
+            vx = 0.0
+            vy = 1.0
+        end
+    end
+
+    # Stochastic split point along major axis
+    σ_proj = sqrt(max(λ_max / n_cluster, 0.0))
+    split_offset = σ_proj * randn() * 0.3
+
+    # Partition locs by projection onto major axis relative to centroid
     cs_left = ClusterStats()
     cs_right = ClusterStats()
     n_left = 0
@@ -488,7 +551,8 @@ function propose_split!(state::CollapsedState,
 
     @inbounds for i in 1:N
         state.assignments[i] == split_slot || continue
-        if rand() < 0.5
+        proj = (loc_precs[i].x - mean_x) * vx + (loc_precs[i].y - mean_y) * vy
+        if proj <= split_offset
             cs_left = add_loc(cs_left, loc_precs[i])
             state._rollback_assignments[i] = Int16(0)  # left
             n_left += 1
@@ -519,7 +583,7 @@ function propose_split!(state::CollapsedState,
     log_accept = Δ_marginal + Δ_prior + log_proposal_ratio
 
     if log(rand()) < log_accept
-        # Accept: apply the exact coin-flip partition that was evaluated
+        # Accept: apply the PCA partition that was evaluated
         new_slot = _find_inactive_slot(state)
         _activate_cluster!(state, new_slot, cs_right)
         state.clusters[split_slot] = cs_left
