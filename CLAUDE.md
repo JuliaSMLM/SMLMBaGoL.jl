@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Run all tests
 julia --project=. -e "using Pkg; Pkg.test()"
 
-# Run examples (use threads for parallel partition processing)
+# Run examples (threads needed for parallel partition processing)
 julia --threads=auto --project=examples examples/02_nmer_demo.jl
 
 # Interactive development
@@ -21,6 +21,13 @@ include("test/runtests.jl")  # runs all tests
 # Run tests with specific seed for reproducibility
 julia --project=. -e "using Random; Random.seed!(123); using Pkg; Pkg.test()"
 ```
+
+**Examples environment:** `examples/Project.toml` is a separate project with local path deps
+to sibling JuliaSMLM repos (`SMLMData`, `SMLMSim`, `SMLMRender`, `SMLMFrameConnection`).
+Always use `--project=examples` when running examples.
+
+**Threading:** Partitioned BaGoL uses `Threads.@threads` for parallel partition processing.
+Use `julia --threads=auto` for any workload with multiple partitions.
 
 ## Code Conventions
 
@@ -53,6 +60,14 @@ src/
 ├── archive.jl             # Mmap-based binary chain archive
 └── simulation.jl          # simulate_smlm, simulate_grid, simulate_nmers
 ```
+
+**Include order matters:** Files are included in dependency order in `SMLMBaGoL.jl`.
+`spatial.jl` before `cluster_stats.jl`, `partition.jl` and `partitioned.jl` before `rjmcmc.jl`.
+
+**Other directories:**
+- `examples/` — Complete workflow scripts (separate project environment)
+- `dev/` — Debug and analysis scripts (not part of package)
+- `test/` — All tests in `runtests.jl` (single file, all testsets inline)
 
 ### Two Samplers
 
@@ -89,6 +104,9 @@ src/
 ```julia
 # 1. Standard workflow (collapsed Gibbs, default)
 result_smld, diagnostics = run_bagol(smld; n_iterations=10000, burn_in=2000)
+
+# Also accepts Vector{Emitter2DFit} directly:
+result_smld, diagnostics = run_bagol(locs; camera=camera, n_iterations=10000)
 
 # Key parameters:
 #   sampler=:collapsed            # or :rjmcmc for legacy

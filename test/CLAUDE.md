@@ -1,90 +1,47 @@
 # Testing Guidelines for test/
 
-This directory contains all tests for the package. Follow these conventions when writing or modifying tests.
+## Structure
 
-## Test Structure
-
-### runtests.jl Organization
-- **Only contains**: `using` statements and the overall test structure
-- **No test logic**: All actual tests are included from other files
-- **All imports here**: Any packages needed for testing must be imported at the top of runtests.jl
-
-### Test File Organization
-1. **User-facing API tests** (e.g., `test_api.jl`)
-   - Tests all exported functions that users interact with
-   - Tests various keyword arguments and options
-   - Focuses on expected use cases and behavior
-
-2. **Internal function tests** (organized by module/concept)
-   - Separate files for different modules or logical groupings
-   - Tests internal functions and implementation details
-   - Clear naming scheme (e.g., `test_utils.jl`, `test_parser.jl`)
+All tests live in `runtests.jl` as inline `@testset` blocks. There are no separate included test files.
 
 ### Important Rules
-- **No using statements in included files** - All imports must be in runtests.jl
-- **Aim for simplicity** - Good coverage without bloating tests
-- **Avoid pedantic edge cases** - Focus on meaningful tests that aid development
-- **Maintainability first** - Tests should be easy to update as code evolves
+- **No `using` statements in included files** — all imports at the top of `runtests.jl`
+- **Aim for simplicity** — good coverage without bloating tests
+- **Avoid pedantic edge cases** — focus on meaningful tests that aid development
+- **Maintainability first** — tests should be easy to update as code evolves
 
 ## Running Tests
 
-### From Julia REPL
-```julia
-# Activate the project (from package root)
-using Pkg
-Pkg.activate(".")
+```bash
+# From shell
+julia --project=. -e "using Pkg; Pkg.test()"
 
-# Run all tests
-Pkg.test()
-
-# Or with package name
-Pkg.test("SMLMBaGoL")
-```
-
-### During Development
-```julia
-# Run specific test file directly
+# From REPL (with project activated)
 include("test/runtests.jl")
 
-# Or run a specific test file
-include("test/test_specific.jl")  # Only works if no using statements needed
+# With specific seed for reproducibility
+julia --project=. -e "using Random; Random.seed!(123); using Pkg; Pkg.test()"
 ```
 
-## Writing New Tests
-- Group related tests in `@testset` blocks with descriptive names
-- Use meaningful test descriptions
-- Test both success cases and expected failures
-- Keep tests focused and independent
+## Current Testsets
 
-## Current Test Structure
+- **Basic Types** — Emitter construction
+- **ClusterStats** — add/remove loc, posterior mean/cov, marginal likelihood, predictive
+- **Collapsed Sampler - 2 Emitters** — integration test with `run_collapsed_chain`
+- **run_bagol Collapsed Integration** — full pipeline with SMLD input
+- **run_bagol RJMCMC Legacy** — legacy sampler + `estimate_mapn`
+- **Accumulators** — EmitterCountHist merge, NNDistHist init
+- **Collapsed MAP-N** — PartitionSamples + `estimate_mapn_collapsed` with position validation
+- **Spatial Utilities** — get_coords, get_sigma, mean_sigma, precision_weighted_distance
+- **Partitioning** — partition_locs with cluster separation + index tracking
+- **Oversized Cluster Splitting** — max_size enforcement + skip_size
+- **Posterior Image (RJMCMC)** — posterior_image from chain
+- **Posterior Image (Collapsed)** — via run_bagol with posterior_pixel_size
+- **Partitioned BaGoL Collapsed** — multi-partition with sync
+- **Archive Write/Read** — mmap archive round-trip
 
-### Existing Test Files
-- `test_emitter_utils.jl` - Tests for emitter utility functions
-- `test_hierarchical_fitting.jl` - Tests for hierarchical Bayesian fitting
-- `test_hierarchical_k_math.jl` - Mathematical validation of hierarchical κ parameters
-- `test_latent_positions.jl` - Tests for latent position handling
+## Notes
 
-### Key Testing Areas
-- **Core RJMCMC moves**: Birth, Death, Move, Allocate operations
-- **Likelihood calculations**: Standard and consistency likelihood implementations
-- **Prior distributions**: Spatial, count, and hierarchical priors
-- **Hierarchical updates**: Parameter updates and initialization
-- **Utility functions**: Emitter manipulation, data conversion
-- **Integration tests**: End-to-end workflow validation
-
-## SMLMBaGoL-Specific Testing Notes
-
-### Multi-threading Tests
-- Use `julia --threads=auto` when testing parallel functionality
-- Test both single-threaded and multi-threaded code paths
-- Ensure reproducibility with proper random seeds
-
-### Statistical Tests
-- Use appropriate tolerances for floating-point comparisons
-- Test statistical properties over multiple runs where needed
-- Validate MCMC chain properties (acceptance rates, convergence)
-
-### Integration with SMLMSim
-- Test simulation integration for reproducible test data
-- Validate against known ground truth scenarios
-- Test various localization precision scenarios
+- MCMC tests use `Random.seed!()` for reproducibility but are statistical — if a test flakes, check whether the seed still produces the expected clustering
+- Use `julia --threads=auto` when testing parallel partitioned functionality
+- Tests create `Emitter2DFit` manually with 13-arg constructor: `(x, y, photons, bg, σ_x, σ_y, Δx, Δy, Δz, frame, dataset, channel, id)`
