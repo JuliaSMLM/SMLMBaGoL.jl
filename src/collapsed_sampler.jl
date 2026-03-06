@@ -3,6 +3,10 @@
 # Main sampler loop that coordinates allocation Gibbs sweeps,
 # block birth/death moves, hierarchical updates, and accumulators.
 
+# ============================================================================
+# State initialization and main sampler
+# ============================================================================
+
 """
     initialize_collapsed_state(locs; spatial_prior) -> CollapsedState
 
@@ -230,7 +234,7 @@ function extract_emitters(state::CollapsedState,
         σ_y = sqrt(max(Σ_yy, 0.0))
 
         push!(emitters, SMLMData.Emitter2DFit(
-            mx, my, 0.0, 0.0,
+            mx, my, Float64(cs.n), 0.0,  # photons = n_locs in cluster
             σ_x, σ_y, Σ_xy,
             0.0, 0.0, 1, 1, 0, id
         ))

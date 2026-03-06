@@ -33,7 +33,7 @@ Two localizations are neighbors if `||p_i - p_j|| / (σ_i + σ_j) < nsigma`.
 - `min_size=0`: Minimum locs per partition (clusters below this are noise)
 - `max_size=1000`: Split partitions larger than this
 - `skip_size=typemax(Int)`: Skip partitions larger than this (Inf = never skip)
-- `boundary_margin=0.0`: Distance from edge to flag as boundary (0 = auto: 5×median(σ))
+- `boundary_margin=0.0`: Distance from edge to flag as boundary (0 = auto: nsigma×median(σ))
 
 # Returns
 - `partitions`: Vector of Partition for valid clusters
@@ -51,10 +51,10 @@ function partition_locs(
         return Partition{E}[], Partition{E}[]
     end
 
-    # Auto boundary margin: 5× median sigma
+    # Auto boundary margin: scale with nsigma (partition gap ≈ nsigma*(σ_i+σ_j))
     if boundary_margin <= 0.0
         sigmas = [mean_sigma(loc) for loc in locs]
-        boundary_margin = 5.0 * median(sigmas)
+        boundary_margin = nsigma * median(sigmas)
     end
 
     # Run precision-weighted DBSCAN
