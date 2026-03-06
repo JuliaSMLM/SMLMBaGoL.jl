@@ -104,7 +104,8 @@ function build_diagnostics(chain::RJMCMCChain, posterior_k::Vector{Int}, n_emitt
     for (move, (acc, tot)) in chain.acceptance
         acceptance_rates[move] = tot > 0 ? acc / tot : 0.0
     end
-    return BaGoLDiagnostics(n_emitters, posterior_k, acceptance_rates, chain.μ, chain.shape, n_partitions, post_image)
+    cluster_sizes = [length(e.allocated) for e in chain.current_state.emitters]
+    return BaGoLDiagnostics(n_emitters, posterior_k, acceptance_rates, chain.μ, chain.shape, n_partitions, cluster_sizes, post_image)
 end
 
 """
@@ -124,9 +125,16 @@ function build_diagnostics(chains::Vector{<:RJMCMCChain}, posterior_k::Vector{In
     for (move, (acc, tot)) in acceptance_totals
         acceptance_rates[move] = tot > 0 ? acc / tot : 0.0
     end
+    # Pool cluster sizes from all chains' final states
+    cluster_sizes = Int[]
+    for chain in chains
+        for e in chain.current_state.emitters
+            push!(cluster_sizes, length(e.allocated))
+        end
+    end
     # Use first chain for final μ, shape (all chains have same value after global updates)
     return BaGoLDiagnostics(n_emitters, posterior_k, acceptance_rates,
-                            chains[1].μ, chains[1].shape, length(chains), post_image)
+                            chains[1].μ, chains[1].shape, length(chains), cluster_sizes, post_image)
 end
 
 # ============================================================================
@@ -364,7 +372,7 @@ function _run_bagol_collapsed(
     if isempty(partitions)
         @warn "No valid partitions"
         empty_smld = SMLMData.BasicSMLD(SMLMData.Emitter2DFit[], camera, 1, 1)
-        empty_diag = BaGoLDiagnostics(0, Int[], Dict{Symbol,Float64}(), 0.0, shape, 0, nothing)
+        empty_diag = BaGoLDiagnostics(0, Int[], Dict{Symbol,Float64}(), 0.0, shape, 0, Int[], nothing)
         return empty_smld, empty_diag
     end
 
@@ -547,10 +555,19 @@ function _run_bagol_collapsed(
     # Build acceptance rates from first partition (representative)
     acceptance_rates = Dict{Symbol, Float64}()
 
+    # Pool cluster sizes from all partition final states (what the Gamma was fit to)
+    cluster_sizes = Int[]
+    for s in states
+        for (j, cs) in enumerate(s.clusters)
+            s.active[j] || continue
+            push!(cluster_sizes, Int(cs.n))
+        end
+    end
+
     # Build diagnostics
     diagnostics = BaGoLDiagnostics(
         length(merged_emitters), posterior_k, acceptance_rates,
-        μ, current_shape, n_partitions, post_img
+        μ, current_shape, n_partitions, cluster_sizes, post_img
     )
     result_smld = SMLMData.BasicSMLD(merged_emitters, camera, 1, 1)
 
@@ -611,7 +628,7 @@ function _run_bagol_rjmcmc(
     if isempty(partitions)
         @warn "No valid partitions"
         empty_smld = SMLMData.BasicSMLD(SMLMData.Emitter2DFit[], camera, 1, 1)
-        empty_diag = BaGoLDiagnostics(0, Int[], Dict{Symbol,Float64}(), 0.0, shape, 0, nothing)
+        empty_diag = BaGoLDiagnostics(0, Int[], Dict{Symbol,Float64}(), 0.0, shape, 0, Int[], nothing)
         return empty_smld, empty_diag
     end
 
