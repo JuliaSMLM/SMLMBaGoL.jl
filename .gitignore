@@ -15,5 +15,5 @@ examples/output/
 .claude/code_review/
 .claude/local_memory/
 
-# Reference materials (PDFs, papers)
-references/
+# Reference materials (PDFs, papers) — track .md files only
+references/*.pdf
