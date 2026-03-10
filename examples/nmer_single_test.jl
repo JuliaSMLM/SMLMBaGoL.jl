@@ -4,7 +4,7 @@
 # Uses run_collapsed_chain with accumulators instead of RJMCMC chain.
 # Emitter positions come from ClusterStats posterior (no MAP-N step).
 #
-# Run with: julia --project=examples examples/nmer_single_collapsed.jl
+# Run with: julia --project=examples examples/nmer_single.jl
 
 using Pkg
 Pkg.activate(@__DIR__)
@@ -50,7 +50,7 @@ const CAMERA_PIXELS = 256
 const PIXEL_SIZE = 0.100          # μm per pixel
 
 # Output
-const OUTPUT_DIR = joinpath(@__DIR__, "output", "nmer_single_collapsed")
+const OUTPUT_DIR = joinpath(@__DIR__, "output", "nmer_single")
 
 # =============================================================================
 # SETUP
