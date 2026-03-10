@@ -1,9 +1,10 @@
-# Single N-mer Visualization Test
-# ================================
-# Generates a single n-mer cluster and produces all visualization outputs.
-# Adjust parameters at top of script for testing.
+# Single N-mer — Collapsed Gibbs Sampler
+# =======================================
+# Collapsed Gibbs version of nmer_single_test.jl.
+# Uses run_collapsed_chain with accumulators instead of RJMCMC chain.
+# Emitter positions come from ClusterStats posterior (no MAP-N step).
 #
-# Run with: julia --project=examples examples/09_nmer_single_test.jl
+# Run with: julia --project=examples examples/nmer_single_collapsed.jl
 
 using Pkg
 Pkg.activate(@__DIR__)
@@ -13,10 +14,9 @@ using SMLMData
 using Random
 using Statistics
 using Distributions
+using CairoMakie
 
-# Include visualization functions
-include(joinpath(@__DIR__, "viz_chain_diagnostics.jl"))
-include(joinpath(@__DIR__, "viz_animation.jl"))
+# Include shared visualization functions (metrics + render suite)
 include(joinpath(@__DIR__, "viz_metrics.jl"))
 include(joinpath(@__DIR__, "viz_smlmrender.jl"))
 
@@ -24,36 +24,33 @@ include(joinpath(@__DIR__, "viz_smlmrender.jl"))
 # ADJUSTABLE PARAMETERS
 # =============================================================================
 
-# Random seed for reproducibility (set to nothing for random results)
 const SEED = nothing
 # const SEED = 42
 
 # N-mer geometry
-const N_EMITTERS = 8              # Number of emitters in cluster
-const CLUSTER_DIAMETER = 0.050    # Diameter in μm (50 nm)
+const N_EMITTERS = 6
+const CLUSTER_DIAMETER = 0.025    # μm (25 nm)
 
 # Photophysics
-const PSF_SIGMA = 0.130           # PSF sigma in μm (130 nm)
-const PHOTON_MEAN = 500.0         # Mean photons (exponential distribution)
-const PHOTON_MIN = 100.0          # Minimum photons (reject below this)
-
-# Blink count distribution - Poisson with mean 10
-const BLINK_MEAN = 10.0           # Mean blinks per emitter
+const PSF_SIGMA = 0.130           # μm (130 nm)
+const PHOTON_MEAN = 500.0
+const PHOTON_MIN = 100.0
+const BLINK_MEAN = 10.0
 
 # Precision filter
-const PRECISION_MAX = 0.010       # Max σ in μm (10 nm) - reject imprecise locs
+const PRECISION_MAX = 0.010       # μm (10 nm)
 
 # BaGoL parameters
 const N_ITERATIONS = 20000
 const BURN_IN = 4000
-const CALLBACK_INTERVAL = 50      # Record every N iterations for animation
+const CALLBACK_INTERVAL = 50
 
-# Camera (for SMLD creation)
+# Camera
 const CAMERA_PIXELS = 256
-const PIXEL_SIZE = 0.100          # μm per pixel (FOV = 25.6 μm)
+const PIXEL_SIZE = 0.100          # μm per pixel
 
 # Output
-const OUTPUT_DIR = joinpath(@__DIR__, "output", "nmer_single")
+const OUTPUT_DIR = joinpath(@__DIR__, "output", "nmer_single_collapsed")
 
 # =============================================================================
 # SETUP
@@ -65,14 +62,13 @@ if SEED !== nothing
 end
 
 println("="^60)
-println("Single $(N_EMITTERS)-mer Visualization Test")
+println("Single $(N_EMITTERS)-mer — Collapsed Gibbs Sampler")
 println("="^60)
 println("\nParameters:")
 println("  Cluster diameter: $(CLUSTER_DIAMETER * 1000) nm")
 println("  PSF sigma: $(PSF_SIGMA * 1000) nm")
 println("  Photon mean: $PHOTON_MEAN (min: $PHOTON_MIN)")
 println("  Blink distribution: Poisson($(BLINK_MEAN))")
-println("  Expected blinks/emitter: $(BLINK_MEAN)")
 
 # =============================================================================
 # GENERATE N-MER
@@ -81,10 +77,9 @@ println("  Expected blinks/emitter: $(BLINK_MEAN)")
 println("\n" * "-"^60)
 println("Generating $(N_EMITTERS)-mer...")
 
-# Place emitters in circle at center of camera FOV
 cluster_radius = CLUSTER_DIAMETER / 2
-fov_size = CAMERA_PIXELS * PIXEL_SIZE  # 25.6 μm
-center_x, center_y = fov_size / 2, fov_size / 2  # Center of camera FOV
+fov_size = CAMERA_PIXELS * PIXEL_SIZE
+center_x, center_y = fov_size / 2, fov_size / 2
 
 true_positions = Tuple{Float64, Float64}[]
 for i in 1:N_EMITTERS
@@ -102,23 +97,17 @@ function generate_localizations(positions, blink_dist, photon_dist)
     locs = SMLMData.Emitter2DFit[]
     blink_counts = Int[]
     loc_id = 1
-
     for (ex, ey) in positions
-        # Draw number of blinks from Poisson
         n_blinks = max(1, rand(blink_dist))
         actual_blinks = 0
-
         for _ in 1:n_blinks
             N = rand(photon_dist)
             N < PHOTON_MIN && continue
-
             σ = PSF_SIGMA / sqrt(N)
             x = ex + σ * randn()
             y = ey + σ * randn()
-
             push!(locs, SMLMData.Emitter2DFit(
-                x, y,
-                N, 10.0,
+                x, y, N, 10.0,
                 σ, σ, 0.0,
                 sqrt(N), 1.0,
                 loc_id, 1, 0, loc_id
@@ -137,49 +126,91 @@ println("  Generated $(length(locs)) localizations from $(N_EMITTERS) emitters")
 println("  Blinks per emitter: $(true_blink_counts)")
 println("  Mean blinks: $(round(mean(true_blink_counts), digits=1))")
 
-# Compute localization precision statistics
 sigmas = [loc.σ_x for loc in locs]
 println("  Localization precision: $(round(mean(sigmas)*1000, digits=1)) ± $(round(std(sigmas)*1000, digits=1)) nm")
 
 # Precision filter
 n_before = length(locs)
 locs = filter(loc -> max(loc.σ_x, loc.σ_y) <= PRECISION_MAX, locs)
-println("  Precision filter (σ ≤ $(PRECISION_MAX*1000) nm): $(n_before) → $(length(locs)) locs ($(n_before - length(locs)) removed)")
+println("  Precision filter (σ ≤ $(PRECISION_MAX*1000) nm): $(n_before) → $(length(locs)) locs")
 
-# Create camera and SMLD
 camera = SMLMData.IdealCamera(CAMERA_PIXELS, CAMERA_PIXELS, PIXEL_SIZE)
 locs_smld = SMLMData.BasicSMLD(locs, camera, 1, 1)
 
 # =============================================================================
-# RUN BAGOL WITH CALLBACK
+# RUN COLLAPSED GIBBS WITH CALLBACK
 # =============================================================================
 
 println("\n" * "-"^60)
-println("Running BaGoL...")
+println("Running collapsed Gibbs sampler...")
 
-# Create animation collector
-collector = AnimationCollector()
-callback = make_animation_callback(collector, CALLBACK_INTERVAL)
+# Trace collector for diagnostics + animation frames
+mutable struct CollapsedTraceCollector
+    iters::Vector{Int}
+    ks::Vector{Int}
+    mus::Vector{Float64}
+    shapes::Vector{Float64}
+    # Animation frames: assignment snapshots + cluster positions
+    frame_iters::Vector{Int}
+    frame_assignments::Vector{Vector{Int16}}
+    frame_positions::Vector{Vector{Tuple{Float64, Float64}}}
+end
+CollapsedTraceCollector() = CollapsedTraceCollector(
+    Int[], Int[], Float64[], Float64[],
+    Int[], Vector{Int16}[], Vector{Tuple{Float64, Float64}}[])
 
-chain = run_bagol_chain(
+trace = CollapsedTraceCollector()
+const ANIM_INTERVAL = 10  # capture every 10 iterations for animation
+
+function trace_callback(iter, state, μ, shape)
+    push!(trace.iters, iter)
+    push!(trace.ks, state.n_active)
+    push!(trace.mus, μ)
+    push!(trace.shapes, shape)
+
+    # Capture animation frame at higher frequency
+    if iter % ANIM_INTERVAL == 0
+        push!(trace.frame_iters, iter)
+        push!(trace.frame_assignments, copy(state.assignments))
+        # Extract posterior mean positions for active clusters
+        positions = Tuple{Float64, Float64}[]
+        for (j, cs) in enumerate(state.clusters)
+            state.active[j] || continue
+            cs.n == 0 && continue
+            mx, my = SMLMBaGoL.posterior_mean(cs)
+            push!(positions, (mx, my))
+        end
+        push!(trace.frame_positions, positions)
+    end
+end
+
+# Create accumulators
+count_hist = EmitterCountHist()
+post_img = PosteriorImage(pixel_size=0.002)
+nn_hist = NNDistHist(max_dist=0.100, n_bins=100)
+
+result = run_collapsed_chain(
     locs;
     λ_K = Float64(N_EMITTERS),
     n_iterations = N_ITERATIONS,
     burn_in = BURN_IN,
-    callback = callback,
+    accumulators = AbstractAccumulator[count_hist, post_img, nn_hist],
+    callback = trace_callback,
     callback_interval = CALLBACK_INTERVAL,
     verbose = true
 )
 
-# MAP-N estimation (iterative Hungarian + MAD-based σ)
-emitters, posterior_k = estimate_mapn(chain)
+# Extract emitters from final state
+emitters = SMLMBaGoL.extract_emitters(result.state, locs)
+
+# Build posterior_k from EmitterCountHist
+posterior_k = result.accumulators[1]  # EmitterCountHist result = Vector{Int}
 
 println("\n" * "-"^60)
 println("Results:")
 println("  True emitters: $(N_EMITTERS)")
-println("  MAP-N estimate: $(length(emitters))")
+println("  Estimated emitters: $(length(emitters))")
 
-# Show uncertainties
 σ_values = [sqrt(e.σ_x^2 + e.σ_y^2) for e in emitters]
 println("  Mean σ: $(round(mean(σ_values)*1000, digits=2)) nm")
 
@@ -192,81 +223,276 @@ println("Evaluation Metrics:")
 metrics = print_metrics(emitters, true_positions; threshold=0.020)
 
 # =============================================================================
-# GENERATE ALL PLOTS
+# GENERATE VISUALIZATIONS
 # =============================================================================
 
 println("\n" * "-"^60)
 println("Generating visualizations...")
 
-# 1. Main BaGoL result plot (chain samples + MAP-N + GT)
-println("  [1/8] BaGoL result plot...")
-fig1 = plot_bagol(chain, emitters, posterior_k, locs;
-    true_positions = true_positions,
-    save_path = joinpath(OUTPUT_DIR, "bagol_result.png"))
+# Helper functions
+function draw_circle!(ax, x, y, r; color=:black, linewidth=1.0, alpha=1.0)
+    poly!(ax, Circle(Point2f(x, y), Float32(r)),
+          color=(:white, 0.0), strokecolor=(color, alpha), strokewidth=linewidth)
+end
 
-# 2. Simple MAP-N plot (no chain samples)
-println("  [2/8] MAP-N plot...")
-fig2 = plot_mapn(emitters, posterior_k, locs;
-    true_positions = true_positions,
-    save_path = joinpath(OUTPUT_DIR, "mapn_result.png"))
+function draw_ellipse!(ax, x, y, rx, ry; color=:black, linewidth=1.0, alpha=1.0)
+    θ = range(0, 2π, length=50)
+    ex = x .+ rx .* cos.(θ)
+    ey = y .+ ry .* sin.(θ)
+    lines!(ax, ex, ey, color=(color, alpha), linewidth=linewidth)
+end
 
-# 3. Hierarchical diagnostics (μ trace, posterior, count distribution)
-println("  [3/8] Hierarchical diagnostics...")
-fig3 = plot_hierarchical_diagnostics(chain;
-    true_locs_per_emitter = true_blink_counts,
-    save_path = joinpath(OUTPUT_DIR, "hierarchical_diagnostics.png"))
+function draw_x!(ax, x, y, r; color=:blue, linewidth=2.0, alpha=1.0)
+    lines!(ax, [x - r, x + r], [y + r, y - r], color=(color, alpha), linewidth=linewidth)
+    lines!(ax, [x - r, x + r], [y - r, y + r], color=(color, alpha), linewidth=linewidth)
+end
 
-# 4. Move type histogram
-println("  [4/8] Move histogram...")
-fig4 = plot_move_histogram(chain;
-    save_path = joinpath(OUTPUT_DIR, "move_histogram.png"))
+# 1. Collapsed Gibbs diagnostics (K trace, μ trace, shape trace, posterior K)
+println("  [1/7] Collapsed diagnostics...")
+fig1 = Figure(size=(1200, 800))
 
-# 5. Posterior density
-println("  [5/8] Posterior density...")
-fig5 = plot_posterior_density(chain;
-    save_path = joinpath(OUTPUT_DIR, "posterior_density.png"))
+# K trace
+ax1 = Axis(fig1[1, 1], title="Emitter Count K", xlabel="Iteration", ylabel="K")
+lines!(ax1, trace.iters, trace.ks, color=:steelblue, linewidth=0.5)
+vlines!(ax1, [BURN_IN], color=:red, linestyle=:dash, linewidth=2, label="Burn-in")
+post_burn_ks = trace.ks[trace.iters .> BURN_IN]
+if !isempty(post_burn_ks)
+    hlines!(ax1, [mean(post_burn_ks)], color=:green, linewidth=2,
+            label="Mean = $(round(mean(post_burn_ks), digits=1))")
+end
+axislegend(ax1, position=:rt)
 
-# 6. Chain snapshots
-println("  [6/8] Chain snapshots...")
-fig6 = plot_chain_snapshots(collector, locs;
-    burn_in = BURN_IN,
-    save_path = joinpath(OUTPUT_DIR, "chain_snapshots.png"))
+# μ trace
+ax2 = Axis(fig1[1, 2], title="Hierarchical μ", xlabel="Iteration", ylabel="μ")
+lines!(ax2, trace.iters, trace.mus, color=:darkorange, linewidth=0.8)
+vlines!(ax2, [BURN_IN], color=:red, linestyle=:dash, linewidth=2)
+# Mark true mean blinks
+true_mean_blinks = mean(true_blink_counts)
+hlines!(ax2, [true_mean_blinks], color=:blue, linestyle=:dot, linewidth=2,
+        label="True mean = $(round(true_mean_blinks, digits=1))")
+axislegend(ax2, position=:rt)
 
-# 7. Animation (MP4)
-println("  [7/8] Chain animation (MP4)...")
-animate_chain(collector, locs;
-    filename = joinpath(OUTPUT_DIR, "chain_animation.mp4"),
-    fps = 30,
-    true_positions = true_positions)
+# Shape trace
+ax3 = Axis(fig1[2, 1], title="Gamma Shape", xlabel="Iteration", ylabel="shape")
+lines!(ax3, trace.iters, trace.shapes, color=:purple, linewidth=0.8)
+vlines!(ax3, [BURN_IN], color=:red, linestyle=:dash, linewidth=2)
 
-# 8. Posterior image (raw PNG)
-println("  [8/11] Posterior image PNG...")
-post = posterior_image(chain; pixel_size=0.002)
-save_posterior_png(joinpath(OUTPUT_DIR, "posterior_image.png"), post; percentile=0.99)
-println("    Image size: $(size(post.image, 1))×$(size(post.image, 2)), $(sum(post.image)) counts")
+# Posterior K histogram
+ax4 = Axis(fig1[2, 2], title="Posterior K", xlabel="K", ylabel="Count")
+k_values = 0:(length(posterior_k) - 1)
+barplot!(ax4, collect(k_values), posterior_k, color=:steelblue)
+vlines!(ax4, [N_EMITTERS], color=:red, linewidth=3, label="True K = $N_EMITTERS")
+axislegend(ax4, position=:rt)
 
-# 9. SMLMRender outputs
-println("  [9/11] SMLMRender suite...")
+save(joinpath(OUTPUT_DIR, "collapsed_diagnostics.png"), fig1)
+
+# 2. Result plot (localizations + emitters + GT)
+println("  [2/7] Result plot...")
+fig2 = Figure(size=(800, 800))
+ax = Axis(fig2[1, 1],
+    title="Collapsed Gibbs Result (K=$(length(emitters)))",
+    xlabel="x (μm)", ylabel="y (μm)",
+    aspect=DataAspect(), yreversed=true)
+
+# Zoom to cluster region
+loc_xs = [l.x for l in locs]
+loc_ys = [l.y for l in locs]
+pad = 0.030
+xlims!(ax, minimum(loc_xs) - pad, maximum(loc_xs) + pad)
+ylims!(ax, minimum(loc_ys) - pad, maximum(loc_ys) + pad)
+
+# Localizations as 1σ circles
+for loc in locs
+    σ = mean([loc.σ_x, loc.σ_y])
+    draw_circle!(ax, loc.x, loc.y, σ; color=:gray30, linewidth=0.8, alpha=0.5)
+end
+
+# True positions as blue X
+for (tx, ty) in true_positions
+    draw_x!(ax, tx, ty, 0.003; color=:blue, linewidth=2.0)
+end
+
+# BaGoL emitters as red dots + uncertainty ellipses
+for e in emitters
+    scatter!(ax, [e.x], [e.y], color=:red, markersize=8)
+    if e.σ_x > 0 && e.σ_y > 0
+        draw_ellipse!(ax, e.x, e.y, e.σ_x, e.σ_y;
+                     color=:red, linewidth=1.0, alpha=0.7)
+    end
+end
+
+save(joinpath(OUTPUT_DIR, "result.png"), fig2)
+
+# 3. Posterior image (Rao-Blackwellized)
+println("  [3/7] Rao-Blackwellized posterior image...")
+post = result.accumulators[2]  # PosteriorImage result
+if post isa NamedTuple && haskey(post, :image)
+    # Save raw PNG
+    SMLMBaGoL.save_posterior_png(joinpath(OUTPUT_DIR, "posterior_image.png"), post; percentile=0.99)
+    println("    Image size: $(size(post.image, 1))×$(size(post.image, 2))")
+
+    # Also plot with CairoMakie colormap
+    fig3 = Figure(size=(700, 600))
+    ax3 = Axis(fig3[1, 1], title="Rao-Blackwellized Posterior Image",
+               xlabel="x (μm)", ylabel="y (μm)", aspect=DataAspect(), yreversed=true)
+    img = post.image
+    # Clip at 99th percentile
+    sorted_vals = sort(vec(img))
+    nonzero = filter(>(0), sorted_vals)
+    vmax = isempty(nonzero) ? 1.0 : nonzero[min(end, round(Int, length(nonzero) * 0.99))]
+    clipped = min.(img, vmax)
+    heatmap!(ax3, post.edges_x[1:end-1], post.edges_y[1:end-1], clipped',
+             colormap=:inferno)
+    # Overlay true positions
+    for (tx, ty) in true_positions
+        scatter!(ax3, [tx], [ty], color=:cyan, markersize=6, marker=:xcross, strokewidth=1)
+    end
+    Colorbar(fig3[1, 2], limits=(0, vmax), colormap=:inferno, label="Density")
+    save(joinpath(OUTPUT_DIR, "posterior_heatmap.png"), fig3)
+end
+
+# 4. Nearest-neighbor distance histogram
+println("  [4/7] NN distance histogram...")
+nn_result = result.accumulators[3]  # NNDistHist result
+if nn_result isa NamedTuple && haskey(nn_result, :counts)
+    fig4 = Figure(size=(600, 400))
+    ax4 = Axis(fig4[1, 1], title="Nearest-Neighbor Distances",
+               xlabel="Distance (nm)", ylabel="Count")
+    bin_centers = [(nn_result.bin_edges[i] + nn_result.bin_edges[i+1]) / 2 * 1000
+                   for i in 1:length(nn_result.counts)]
+    barplot!(ax4, bin_centers, nn_result.counts, color=:steelblue)
+    # Mark true NN distance: chord length between adjacent emitters on circle
+    nn_true = CLUSTER_DIAMETER * sin(π / N_EMITTERS) * 1000  # nm
+    vlines!(ax4, [nn_true], color=:red, linewidth=2,
+            label="True NN = $(round(nn_true, digits=1)) nm")
+    axislegend(ax4, position=:rt)
+    save(joinpath(OUTPUT_DIR, "nn_distances.png"), fig4)
+end
+
+# 5. Acceptance rates
+println("  [5/7] Acceptance rates...")
+fig5 = Figure(size=(600, 400))
+ax5 = Axis(fig5[1, 1], title="Acceptance Rates", ylabel="Rate (%)")
+
+move_names = String[]
+rates = Float64[]
+for (move, (acc, tot)) in result.acceptance
+    push!(move_names, string(move))
+    push!(rates, tot > 0 ? 100.0 * acc / tot : 0.0)
+end
+barplot!(ax5, 1:length(move_names), rates, color=:steelblue)
+ax5.xticks = (1:length(move_names), move_names)
+save(joinpath(OUTPUT_DIR, "acceptance_rates.png"), fig5)
+
+# 6. Posterior image (raw PNG)
+println("  [6/7] Posterior image PNG (alt method via save_posterior_png)...")
+# Already saved above
+
+# 7. SMLMRender suite
+println("  [7/7] SMLMRender suite...")
 bagol_smld = SMLMData.BasicSMLD(emitters, camera, 1, 1)
-target = render_bagol_suite(locs_smld, bagol_smld;
+render_bagol_suite(locs_smld, bagol_smld;
     true_positions = true_positions,
     prefix = "render",
     output_dir = OUTPUT_DIR,
     pixel_size = 1.0)
 
-# 10. Posterior histogram from chain (all samples)
-println("  [10/11] Posterior histogram (all K)...")
-render_posterior_histogram(chain, locs_smld;
-    target = target,
-    prefix = "render",
-    output_dir = OUTPUT_DIR)
+# 8. Chain animation (collapsed Gibbs)
+println("  [8/8] Chain animation...")
 
-# 11. MAP-N histogram (only K=MAP-N samples) - for comparison with Gaussian render
-println("  [11/11] MAP-N histogram (K=MAP-N only)...")
-render_mapn_histogram(chain, locs_smld;
-    target = target,
-    prefix = "render",
-    output_dir = OUTPUT_DIR)
+const PALETTE = [
+    colorant"#e41a1c", colorant"#377eb8", colorant"#4daf4a",
+    colorant"#984ea3", colorant"#ff7f00", colorant"#ffff33",
+    colorant"#a65628", colorant"#f781bf", colorant"#999999",
+    colorant"#66c2a5", colorant"#fc8d62", colorant"#8da0cb",
+]
+
+loc_xs = [l.x for l in locs]
+loc_ys = [l.y for l in locs]
+pad = 0.030
+xlim = (minimum(loc_xs) - pad, maximum(loc_xs) + pad)
+ylim = (minimum(loc_ys) - pad, maximum(loc_ys) + pad)
+median_σ = median([mean([l.σ_x, l.σ_y]) for l in locs])
+
+n_frames = length(trace.frame_iters)
+if n_frames > 0
+    fig_anim = Figure(size=(1200, 600))
+    ax_sp = Axis(fig_anim[1:2, 1], title="Collapsed Gibbs Evolution",
+                 xlabel="x (μm)", ylabel="y (μm)",
+                 aspect=DataAspect())
+    xlims!(ax_sp, xlim...)
+    ylims!(ax_sp, ylim...)
+
+    ax_kt = Axis(fig_anim[1, 2], title="K trace",
+                 xlabel="Iteration", ylabel="K")
+    xlims!(ax_kt, 0, maximum(trace.frame_iters))
+    ylims!(ax_kt, 0, maximum(trace.ks) + 2)
+
+    ax_inf = Axis(fig_anim[2, 2])
+    hidedecorations!(ax_inf)
+    hidespines!(ax_inf)
+
+    record(fig_anim, joinpath(OUTPUT_DIR, "chain_animation.mp4"),
+           1:n_frames; framerate=30) do fi
+        empty!(ax_sp)
+        empty!(ax_kt)
+        empty!(ax_inf)
+
+        assignments = trace.frame_assignments[fi]
+        positions = trace.frame_positions[fi]
+        iter = trace.frame_iters[fi]
+
+        # Build slot → color index mapping
+        slot_to_color = Dict{Int16, Int}()
+        cidx = 0
+        for s in sort(unique(assignments))
+            s <= 0 && continue
+            cidx += 1
+            slot_to_color[s] = cidx
+        end
+
+        # Draw localizations colored by cluster assignment
+        for (i, loc) in enumerate(locs)
+            σ = mean([loc.σ_x, loc.σ_y])
+            s = assignments[i]
+            if s > 0 && haskey(slot_to_color, s)
+                c = PALETTE[mod1(slot_to_color[s], length(PALETTE))]
+                poly!(ax_sp, Circle(Point2f(loc.x, loc.y), Float32(σ)),
+                      color=(:white, 0.0), strokecolor=(c, 0.6), strokewidth=0.8)
+            end
+        end
+
+        # Draw true positions
+        for (tx, ty) in true_positions
+            scatter!(ax_sp, [tx], [ty], marker=:xcross,
+                     color=:black, markersize=12, strokewidth=2)
+        end
+
+        # Draw cluster posterior means
+        for (ci, (mx, my)) in enumerate(positions)
+            c = PALETTE[mod1(ci, length(PALETTE))]
+            scatter!(ax_sp, [mx], [my], color=c, markersize=10,
+                     strokecolor=:black, strokewidth=1)
+            poly!(ax_sp, Circle(Point2f(mx, my), Float32(median_σ)),
+                  color=(:white, 0.0), strokecolor=(c, 0.9), strokewidth=2.5)
+        end
+
+        # K trace up to current frame
+        idx_up_to = searchsortedlast(trace.iters, iter)
+        if idx_up_to > 0
+            lines!(ax_kt, trace.iters[1:idx_up_to], trace.ks[1:idx_up_to],
+                   color=:steelblue, linewidth=1)
+        end
+        hlines!(ax_kt, [N_EMITTERS], color=:red, linestyle=:dash, linewidth=1.5)
+        K_now = length(positions)
+        scatter!(ax_kt, [iter], [K_now], color=:red, markersize=8)
+
+        # Info
+        text!(ax_inf, 0.5, 0.7, text="Iter $iter / $(N_ITERATIONS)\nK = $K_now",
+              align=(:center, :center), fontsize=16)
+    end
+    println("    Saved chain_animation.mp4 ($n_frames frames)")
+end
 
 # =============================================================================
 # SUMMARY
@@ -275,23 +501,19 @@ render_mapn_histogram(chain, locs_smld;
 println("\n" * "="^60)
 println("Output files saved to: $OUTPUT_DIR")
 println("="^60)
-println("\nCairoMakie plots:")
-println("  - bagol_result.png        (chain samples + MAP-N + GT)")
-println("  - mapn_result.png         (MAP-N + GT, no chain samples)")
-println("  - hierarchical_diagnostics.png (μ/shape traces and posteriors)")
-println("  - move_histogram.png      (proposed vs accepted moves)")
-println("  - posterior_density.png   (2D position density)")
-println("  - chain_snapshots.png     (burn-in, middle, final states)")
-println("  - chain_animation.mp4     (full chain evolution)")
-println("\nRaw images:")
-println("  - posterior_image.png     (grayscale posterior, 0.99 percentile)")
+println("\nCollapsed Gibbs diagnostics:")
+println("  - collapsed_diagnostics.png   (K, μ, shape traces + posterior K)")
+println("  - result.png                  (emitters + GT + localizations)")
+println("  - posterior_heatmap.png        (Rao-Blackwellized posterior image)")
+println("  - posterior_image.png          (raw grayscale posterior)")
+println("  - nn_distances.png            (nearest-neighbor distance histogram)")
+println("  - acceptance_rates.png        (move acceptance rates)")
+println("  - chain_animation.mp4         (collapsed Gibbs chain animation)")
 println("\nSMLMRender outputs:")
-println("  - render_mapn_gaussian.png  (Gaussian render of MAP-N)")
-println("  - render_sr_gaussian.png    (Gaussian SR of input locs)")
-println("  - render_circles.png        (locs gray + MAP-N red)")
-println("  - render_comparison.png     (locs gray + MAP-N red + GT blue)")
-println("  - render_posterior.png      (histogram of ALL chain samples)")
-println("  - render_mapn_histogram.png (histogram of K=MAP-N samples only)")
+println("  - render_mapn_gaussian.png    (Gaussian render of emitters)")
+println("  - render_sr_gaussian.png      (Gaussian SR of input locs)")
+println("  - render_circles.png          (locs gray + emitters red)")
+println("  - render_comparison.png       (locs gray + emitters red + GT blue)")
 println("\nMetrics:")
 println("  Jaccard Index: $(round(metrics.jaccard, digits=3))")
 println("  F1 Score: $(round(metrics.f1, digits=3))")

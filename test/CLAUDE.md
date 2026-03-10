@@ -25,19 +25,16 @@ julia --project=. -e "using Random; Random.seed!(123); using Pkg; Pkg.test()"
 
 ## Current Testsets
 
-- **Basic Types** — Emitter construction
 - **ClusterStats** — add/remove loc, posterior mean/cov, marginal likelihood, predictive
 - **Collapsed Sampler - 2 Emitters** — integration test with `run_collapsed_chain`
-- **run_bagol Collapsed Integration** — full pipeline with SMLD input
-- **run_bagol RJMCMC Legacy** — legacy sampler + `estimate_mapn`
+- **run_bagol Integration** — full pipeline with SMLD input
 - **Accumulators** — EmitterCountHist merge, NNDistHist init
 - **Collapsed MAP-N** — PartitionSamples + `estimate_mapn_collapsed` with position validation
 - **Spatial Utilities** — get_coords, get_sigma, mean_sigma, precision_weighted_distance
 - **Partitioning** — partition_locs with cluster separation + index tracking
 - **Oversized Cluster Splitting** — max_size enforcement + skip_size
-- **Posterior Image (RJMCMC)** — posterior_image from chain
 - **Posterior Image (Collapsed)** — via run_bagol with posterior_pixel_size
-- **Partitioned BaGoL Collapsed** — multi-partition with sync
+- **Partitioned BaGoL** — multi-partition with sync
 - **Archive Write/Read** — mmap archive round-trip
 
 ## Notes

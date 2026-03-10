@@ -240,26 +240,27 @@ function render_bagol_suite(
     )
     println("Saved: $sr_path")
 
-    # 3. Circle overlay: localizations (gray) + BaGoL (red)
+    # 3. Circle overlay: localizations (gray) + BaGoL (red) via compose
     circles_path = joinpath(output_dir, "$(prefix)_circles.png")
-    render([locs_smld, bagol_smld];
-        colors = [:gray, :red],
-        strategy = CircleRender(),
-        target = target,
-        filename = circles_path
-    )
+    (bg_img, _) = render(locs_smld;
+        strategy = CircleRender(), color = :gray,
+        target = target, clip_percentile = nothing)
+    (fg_img, _) = render(bagol_smld;
+        strategy = CircleRender(), color = :red,
+        target = target, clip_percentile = nothing)
+    combined = compose(bg_img, fg_img; blend=:replace)
+    save_image(circles_path, combined)
     println("Saved: $circles_path")
 
     # 4. Three-channel comparison if GT provided
     if !isempty(true_positions)
         gt_smld = positions_to_smld(true_positions, locs_smld.camera)
         comparison_path = joinpath(output_dir, "$(prefix)_comparison.png")
-        render([locs_smld, bagol_smld, gt_smld];
-            colors = [:gray, :red, :blue],
-            strategy = CircleRender(),
-            target = target,
-            filename = comparison_path
-        )
+        (gt_img, _) = render(gt_smld;
+            strategy = CircleRender(), color = :blue,
+            target = target, clip_percentile = nothing)
+        combined3 = compose(combined, gt_img; blend=:replace)
+        save_image(comparison_path, combined3)
         println("Saved: $comparison_path")
     end
 
