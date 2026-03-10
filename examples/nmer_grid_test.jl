@@ -4,7 +4,7 @@
 # Uses run_bagol(sampler=:collapsed) with Rao-Blackwellized posterior image.
 # No chain storage needed — emitters from ClusterStats posterior.
 #
-# Run with: julia --threads=auto --project=examples examples/nmer_grid_collapsed.jl
+# Run with: julia --threads=auto --project=examples examples/nmer_grid.jl
 
 using Pkg
 Pkg.activate(@__DIR__)
@@ -57,7 +57,7 @@ const NSIGMA = 3.0
 const MAX_PARTITION_SIZE = 1000
 
 # Output
-const OUTPUT_DIR = joinpath(@__DIR__, "output", "nmer_grid_collapsed")
+const OUTPUT_DIR = joinpath(@__DIR__, "output", "nmer_grid")
 
 # =============================================================================
 # HELPER FUNCTIONS

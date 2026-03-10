@@ -3,7 +3,7 @@
 # Collapsed Gibbs version of smlmsim_test.jl.
 # Uses run_bagol(sampler=:collapsed) with realistic SMLMSim photophysics.
 #
-# Run with: julia --threads=auto --project=examples examples/smlmsim_collapsed.jl
+# Run with: julia --threads=auto --project=examples examples/smlmsim.jl
 
 using Pkg
 Pkg.activate(@__DIR__)
@@ -61,7 +61,7 @@ const NSIGMA = 3.0
 const MAX_PARTITION_SIZE = 1000
 
 # Output
-const OUTPUT_DIR = joinpath(@__DIR__, "output", "smlmsim_collapsed")
+const OUTPUT_DIR = joinpath(@__DIR__, "output", "smlmsim")
 
 # =============================================================================
 # HELPER FUNCTIONS
