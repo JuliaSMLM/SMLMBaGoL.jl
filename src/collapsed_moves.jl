@@ -50,16 +50,22 @@ function _deactivate_cluster!(state::CollapsedState, slot::Integer)
 end
 
 """
-    _collapsed_log_posterior(state, N, μ, shape, λ_K) -> Float64
+    _collapsed_log_posterior(state, N, μ, shape, λ_K, β) -> Float64
 
-Collapsed log posterior: priors + sum of marginal likelihoods.
+Collapsed log posterior: Poisson prior on K + DM partition prior + count prior +
+sum of marginal likelihoods.
 """
 function _collapsed_log_posterior(state::CollapsedState, N::Int,
-                                  μ::Float64, shape::Float64, λ_K::Float64)
+                                  μ::Float64, shape::Float64, λ_K::Float64,
+                                  β::Float64)
     K = state.n_active
+    α_dm = β / K
     lp = log_prior_k(K, λ_K) + log_prior_total_count(N, K, μ, shape)
+    # DM partition prior normalization
+    lp += loggamma(β) - K * loggamma(α_dm) - loggamma(N + β)
     for (j, cs) in enumerate(state.clusters)
         state.active[j] || continue
+        lp += loggamma(cs.n + α_dm)  # DM per-cluster term
         lp += log_marginal_likelihood(cs, state.log_area)
     end
     return lp
@@ -70,19 +76,23 @@ end
 # ============================================================================
 
 """
-    gibbs_allocation_sweep!(state, locs, μ, shape, λ_K)
+    gibbs_allocation_sweep!(state, locs, μ, shape, λ_K, β)
 
-Full Gibbs sweep: for each loc (random order), reassign to the cluster
-with highest predictive probability, including the option of creating
-a new cluster.
+Full Gibbs sweep with Dirichlet-Multinomial conditional: for each loc
+(random order), reassign among the K active clusters with weight
+(n_k + β/K) × predictive. K is fixed during the sweep; only birth/death
+moves change K.
 
 Uses precomputed LocPrecision data for zero-allocation inner loop.
 """
 function gibbs_allocation_sweep!(state::CollapsedState,
                                   locs::Vector{<:SMLMData.AbstractEmitter},
-                                  μ::Float64, shape::Float64, λ_K::Float64)
+                                  μ::Float64, shape::Float64, λ_K::Float64,
+                                  β::Float64)
     N = length(locs)
     loc_precs = state._loc_precs
+    K = state.n_active  # Fixed for this sweep
+    α_dm = β / K        # DM per-component concentration
 
     # In-place Fisher-Yates shuffle of workspace permutation buffer
     perm = state._perm
@@ -94,58 +104,42 @@ function gibbs_allocation_sweep!(state::CollapsedState,
     active_slots = state._active_slots
     log_probs = state._log_probs
 
+    # Collect active cluster indices once (K is fixed during sweep)
+    idx = 0
+    @inbounds for j in eachindex(state.active)
+        if state.active[j]
+            idx += 1
+            active_slots[idx] = j
+        end
+    end
+
     @inbounds for loc_pos in 1:N
         loc_idx = perm[loc_pos]
         lp = loc_precs[loc_idx]
         old_cluster = state.assignments[loc_idx]
 
-        # Remove loc from current cluster
+        # Remove loc from current cluster (don't deactivate if empty — K is fixed)
         if old_cluster > 0 && state.active[old_cluster]
             state.clusters[old_cluster] = remove_loc(state.clusters[old_cluster], lp)
-
-            # If cluster is now empty, deactivate it
-            if state.clusters[old_cluster].n == 0
-                _deactivate_cluster!(state, old_cluster)
-            end
         end
 
-        # Compute log predictive for each active cluster + new cluster
-        K = state.n_active
-        n_options = K + 1  # existing clusters + new cluster
-
-        # Collect active cluster indices into workspace buffer
-        idx = 0
-        for j in eachindex(state.active)
-            if state.active[j]
-                idx += 1
-                active_slots[idx] = j
-            end
-        end
-
-        # Existing clusters
+        # Compute DM-weighted predictive for each active cluster
         for i in 1:K
             slot = active_slots[i]
             cs = state.clusters[slot]
-            # Predictive × CRP-like weight (proportional to cluster size)
-            log_probs[i] = log_predictive(cs, lp, state.log_area) + log(Float64(cs.n))
+            # DM weight: (n_k + β/K) × predictive likelihood
+            log_probs[i] = log_predictive(cs, lp, state.log_area) + log(Float64(cs.n) + α_dm)
         end
 
-        # New cluster option
-        K_new = K + 1
-        log_pk_ratio = log_prior_k(K_new, λ_K) - log_prior_k(K, λ_K)
-        log_pn_ratio = log_prior_total_count(N, K_new, μ, shape) -
-                       log_prior_total_count(N, max(K, 1), μ, shape)
-        log_probs[n_options] = -state.log_area + log_pk_ratio + log_pn_ratio
-
-        # In-place log-sum-exp normalization → probabilities in log_probs[1:n_options]
+        # In-place log-sum-exp normalization → probabilities in log_probs[1:K]
         max_lp = log_probs[1]
-        for i in 2:n_options
+        for i in 2:K
             if log_probs[i] > max_lp
                 max_lp = log_probs[i]
             end
         end
         total = 0.0
-        for i in 1:n_options
+        for i in 1:K
             v = exp(log_probs[i] - max_lp)
             log_probs[i] = v
             total += v
@@ -155,8 +149,8 @@ function gibbs_allocation_sweep!(state::CollapsedState,
         # Sample from categorical (cumulative sum)
         u = rand()
         cumsum_p = 0.0
-        chosen = n_options  # default to new cluster
-        for i in 1:n_options
+        chosen = K  # default to last cluster
+        for i in 1:K
             cumsum_p += log_probs[i] * inv_total
             if u < cumsum_p
                 chosen = i
@@ -164,17 +158,17 @@ function gibbs_allocation_sweep!(state::CollapsedState,
             end
         end
 
-        if chosen <= K
-            # Assign to existing cluster
-            slot = active_slots[chosen]
-            state.clusters[slot] = add_loc(state.clusters[slot], lp)
-            state.assignments[loc_idx] = Int16(slot)
-        else
-            # Create new cluster
-            slot = _find_inactive_slot(state)
-            cs_new = add_loc(ClusterStats(), lp)
-            _activate_cluster!(state, slot, cs_new)
-            state.assignments[loc_idx] = Int16(slot)
+        # Assign to chosen cluster
+        slot = active_slots[chosen]
+        state.clusters[slot] = add_loc(state.clusters[slot], lp)
+        state.assignments[loc_idx] = Int16(slot)
+    end
+
+    # Post-sweep cleanup: deactivate any empty clusters
+    # (K adjusts so priors use occupied count for birth/death moves)
+    @inbounds for j in eachindex(state.active)
+        if state.active[j] && state.clusters[j].n == 0
+            _deactivate_cluster!(state, j)
         end
     end
 end
@@ -220,14 +214,15 @@ function _restore_rollback!(state::CollapsedState, old_n_active::Int, old_len::I
 end
 
 """
-    propose_block_birth!(state, locs, μ, shape, λ_K) -> Bool
+    propose_block_birth!(state, locs, μ, shape, λ_K, β) -> Bool
 
 Block birth: pick a random seed loc, create new cluster, probabilistically
 recruit nearby locs via predictive. MH accept/reject.
 """
 function propose_block_birth!(state::CollapsedState,
                                locs::Vector{<:SMLMData.AbstractEmitter},
-                               μ::Float64, shape::Float64, λ_K::Float64)
+                               μ::Float64, shape::Float64, λ_K::Float64,
+                               β::Float64)
     N = length(locs)
     N == 0 && return false
     loc_precs = state._loc_precs
@@ -237,7 +232,7 @@ function propose_block_birth!(state::CollapsedState,
     old_n_active = state.n_active
     _save_rollback!(state)
 
-    old_log_post = _collapsed_log_posterior(state, N, μ, shape, λ_K)
+    old_log_post = _collapsed_log_posterior(state, N, μ, shape, λ_K, β)
 
     # Pick random seed loc
     seed_idx = rand(1:N)
@@ -303,7 +298,7 @@ function propose_block_birth!(state::CollapsedState,
         end
     end
 
-    new_log_post = _collapsed_log_posterior(state, N, μ, shape, λ_K)
+    new_log_post = _collapsed_log_posterior(state, N, μ, shape, λ_K, β)
 
     # Compute reverse proposal probability (block death of new cluster)
     K_new = state.n_active
@@ -324,14 +319,15 @@ end
 # ============================================================================
 
 """
-    propose_block_death!(state, locs, μ, shape, λ_K) -> Bool
+    propose_block_death!(state, locs, μ, shape, λ_K, β) -> Bool
 
 Block death: pick a random active cluster (K > 1), redistribute its locs
 to remaining clusters via predictive. MH accept/reject.
 """
 function propose_block_death!(state::CollapsedState,
                                locs::Vector{<:SMLMData.AbstractEmitter},
-                               μ::Float64, shape::Float64, λ_K::Float64)
+                               μ::Float64, shape::Float64, λ_K::Float64,
+                               β::Float64)
     K = state.n_active
     K <= 1 && return false
 
@@ -343,7 +339,7 @@ function propose_block_death!(state::CollapsedState,
     old_n_active = state.n_active
     _save_rollback!(state)
 
-    old_log_post = _collapsed_log_posterior(state, N, μ, shape, λ_K)
+    old_log_post = _collapsed_log_posterior(state, N, μ, shape, λ_K, β)
 
     # Pick random active cluster to kill (use workspace to avoid findall)
     active_slots = state._active_slots
@@ -372,19 +368,20 @@ function propose_block_death!(state::CollapsedState,
         end
     end
 
-    # Redistribute locs in killed cluster via predictive
+    # Redistribute locs in killed cluster via predictive (DM weights)
     log_q_redistribute = 0.0
     log_probs = state._log_probs
+    α_dm_remaining = β / K_remaining  # DM concentration for remaining clusters
 
     @inbounds for loc_idx in 1:N
         state._rollback_assignments[loc_idx] == kill_slot || continue
         lp_i = loc_precs[loc_idx]
 
-        # Compute predictive for each remaining cluster (in-place)
+        # Compute predictive for each remaining cluster (in-place, DM weights)
         for i in 1:n_remaining
             slot = active_slots[i]
             log_probs[i] = log_predictive(state.clusters[slot], lp_i, state.log_area) +
-                           log(Float64(state.clusters[slot].n))
+                           log(Float64(state.clusters[slot].n) + α_dm_remaining)
         end
 
         # In-place log-sum-exp → probabilities
@@ -420,7 +417,7 @@ function propose_block_death!(state::CollapsedState,
         log_q_redistribute += log(log_probs[chosen] * inv_total)
     end
 
-    new_log_post = _collapsed_log_posterior(state, N, μ, shape, λ_K)
+    new_log_post = _collapsed_log_posterior(state, N, μ, shape, λ_K, β)
 
     log_acceptance = (new_log_post - old_log_post) + (log_q_forward - log_q_redistribute)
 

@@ -5,13 +5,6 @@ using Random
 using Statistics
 
 @testset "SMLMBaGoL.jl Tests" begin
-    @testset "Basic Types" begin
-        emitter = Emitter(0.1, 0.2)
-        @test emitter.x == 0.1
-        @test emitter.y == 0.2
-        @test isempty(emitter.allocated)
-    end
-
     # ================================================================
     # ClusterStats unit tests
     # ================================================================
@@ -134,9 +127,9 @@ using Statistics
     end
 
     # ================================================================
-    # run_bagol with collapsed sampler (default)
+    # run_bagol integration
     # ================================================================
-    @testset "run_bagol Collapsed Integration" begin
+    @testset "run_bagol Integration" begin
         Random.seed!(123)
 
         locs = SMLMData.Emitter2DFit[]
@@ -159,7 +152,6 @@ using Statistics
         camera = SMLMData.IdealCamera(64, 64, 0.1)
         smld = SMLMData.BasicSMLD(locs, camera, 100, 1)
 
-        # Default sampler (collapsed)
         result_smld, diagnostics = run_bagol(smld;
             n_iterations=1000,
             burn_in=200,
@@ -174,51 +166,6 @@ using Statistics
         if diagnostics.n_emitters > 0
             @test result_smld.emitters[1] isa SMLMData.Emitter2DFit
         end
-    end
-
-    # ================================================================
-    # Legacy RJMCMC sampler still works
-    # ================================================================
-    @testset "run_bagol RJMCMC Legacy" begin
-        Random.seed!(123)
-
-        locs = SMLMData.Emitter2DFit[]
-        σ = 0.005
-
-        for i in 1:5
-            x = 0.1 + randn() * σ
-            y = 0.1 + randn() * σ
-            push!(locs, SMLMData.Emitter2DFit(x, y, 1000.0, 10.0, σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, i))
-        end
-        for i in 1:5
-            x = 0.2 + randn() * σ
-            y = 0.2 + randn() * σ
-            push!(locs, SMLMData.Emitter2DFit(x, y, 1000.0, 10.0, σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, i+5))
-        end
-
-        camera = SMLMData.IdealCamera(64, 64, 0.1)
-        smld = SMLMData.BasicSMLD(locs, camera, 100, 1)
-
-        result_smld, diagnostics = run_bagol(smld;
-            sampler=:rjmcmc,
-            n_iterations=500,
-            burn_in=100,
-            verbose=false
-        )
-
-        @test result_smld isa SMLMData.BasicSMLD
-        @test diagnostics isa BaGoLDiagnostics
-
-        # run_bagol_chain still works
-        chain = run_bagol_chain(locs;
-            n_iterations=500,
-            burn_in=100,
-            verbose=false
-        )
-        @test length(chain.samples) > 0
-
-        emitters, posterior_k = estimate_mapn(chain)
-        @test length(emitters) >= 0
     end
 
     # ================================================================
@@ -369,26 +316,6 @@ using Statistics
         @test length(skipped_skip) >= 1
     end
 
-    @testset "Posterior Image (RJMCMC)" begin
-        Random.seed!(555)
-
-        locs = SMLMData.Emitter2DFit[]
-        σ = 0.005
-        for i in 1:10
-            x = 0.1 + randn() * σ
-            y = 0.1 + randn() * σ
-            push!(locs, SMLMData.Emitter2DFit(x, y, 1000.0, 10.0, σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, i))
-        end
-
-        chain = run_bagol_chain(locs; n_iterations=500, burn_in=100, verbose=false)
-
-        post = posterior_image(chain; pixel_size=0.005)
-        @test post.image isa Matrix{Int}
-        @test post.pixel_size == 0.005
-        @test length(post.edges_x) == size(post.image, 1) + 1
-        @test sum(post.image) > 0
-    end
-
     @testset "Posterior Image (Collapsed)" begin
         Random.seed!(555)
 
@@ -416,7 +343,7 @@ using Statistics
         @test diag_default.posterior_image === nothing
     end
 
-    @testset "Partitioned BaGoL Collapsed" begin
+    @testset "Partitioned BaGoL" begin
         Random.seed!(321)
 
         locs = SMLMData.Emitter2DFit[]

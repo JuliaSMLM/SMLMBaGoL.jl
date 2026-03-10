@@ -1,5 +1,67 @@
 # Collapsed Gibbs Sampler — Mathematical Reference
 
+## 0. Problem Context
+
+### The Physical Problem
+
+In single-molecule localization microscopy (SMLM), fluorescent emitters are
+activated stochastically across many camera frames. Each activation produces a
+diffraction-limited spot that is fit to yield a **localization**: a 2D position
+estimate (x, y) with an associated uncertainty (sigma_x, sigma_y). A single
+physical emitter typically produces multiple localizations across different frames,
+each corrupted by independent photon-counting and camera noise.
+
+The fundamental problem: **given N noisy localizations, determine how many
+physical emitters K produced them, which localizations belong to which emitter,
+and estimate each emitter's true position with sub-localization precision.**
+
+### Why This Is Hard
+
+1. **Unknown K:** The number of emitters is not known a priori. A cluster of 20
+   localizations might come from 1 emitter (blinking many times), 2 nearby
+   emitters, or even 5 closely-spaced emitters.
+
+2. **Heteroscedastic noise:** Each localization has a different uncertainty,
+   determined by photon count and background level. Some localizations are
+   precise (bright frames), others are poor (dim frames).
+
+3. **Spatial overlap:** When emitters are separated by less than the localization
+   uncertainty, their localization clouds overlap, making assignment ambiguous.
+
+4. **Variable blinking statistics:** Different labeling chemistries (dSTORM vs
+   DNA-PAINT) produce very different distributions of localizations per emitter,
+   from geometric/exponential (dSTORM, alpha~1) to peaked (DNA-PAINT, alpha>>1).
+
+### The BaGoL Approach
+
+BaGoL (Bayesian Grouping of Localizations) treats this as a Bayesian mixture
+model with unknown number of components:
+
+- **Observations:** N localizations {(d_i, Sigma_i)}, each a position with known
+  covariance
+- **Latent variables:** K (number of emitters), Z (allocation vector assigning
+  each localization to an emitter), theta_{1:K} (emitter positions)
+- **Inference:** Posterior P(K, Z, theta | data) via MCMC, then extract MAP-N
+  (most probable number of emitters) and estimate positions
+
+The **collapsed Gibbs** formulation integrates out emitter positions theta
+analytically, leaving only the discrete allocation vector Z as the sampled
+variable. This dramatically reduces the state space and improves mixing.
+
+### Key Output
+
+For each spatial cluster of localizations, BaGoL reports:
+- **MAP-N:** The most probable number of emitters
+- **Emitter positions:** Precision-weighted posterior means with uncertainties
+  that improve as ~1/sqrt(n_k) over individual localizations
+- **Posterior image:** Rao-Blackwellized probability density of emitter locations
+
+Typical precision improvement: 10-50x over individual localizations, enabling
+resolution of emitters separated by ~10 nm from data with ~30 nm localization
+precision (Fazel et al. 2022).
+
+---
+
 ## 1. Generative Model
 
 ### Data
@@ -69,39 +131,56 @@ where:
 - alpha > 1: peaked (DNA-PAINT)
 - alpha -> infinity: delta function at K * mu
 
-### 2.4 Allocation Prior (CRP Partition Prior)
+### 2.4 Allocation Prior (Dirichlet-Multinomial)
 
-The allocation vector Z defines a partition of N localizations into K occupied
-clusters with sizes n_1, ..., n_K. We place a Chinese Restaurant Process (CRP)
-prior with concentration alpha = 1 on this partition.
+The allocation vector Z assigns N localizations to K components (where K is
+controlled by the Poisson prior in Section 2.1). Conditional on K, we place a
+symmetric Dirichlet-Multinomial (DM) prior on the allocations:
 
-**Exchangeable Partition Probability Function (EPPF):**
+    pi | K, beta ~ Dirichlet(beta/K, ..., beta/K)   (K-dimensional)
+    z_i | pi     ~ Categorical(pi)
 
-    P(partition) = alpha^K * prod_k Gamma(n_k) / Gamma(N + alpha)
+Integrating out the mixing weights pi gives the collapsed DM:
 
-With alpha = 1:
+    P(Z | K, beta) = Gamma(beta) / Gamma(N + beta)
+                     * prod_k Gamma(n_k + beta/K) / Gamma(beta/K)^K
 
-    P(partition) = prod_k (n_k - 1)! / Gamma(N + 1)
-                 = prod_k (n_k - 1)! / N!
+or equivalently:
 
-This is a distribution over partitions (unordered groupings), not over labeled
-assignments. K is not fixed — it is determined by the partition.
+    log P(Z | K, beta) = logGamma(beta) - K * logGamma(beta/K)
+                        + sum_k logGamma(n_k + beta/K) - logGamma(N + beta)
 
-**Gibbs conditional (CRP predictive rule):** When reassigning localization i
-(removed from its current cluster), the conditional probability is:
+where n_k = |{i : z_i = k}| is the number of localizations in cluster k.
 
-    P(z_i = j | Z_{-i}) propto n_j^{-i}     (existing cluster j, size excluding loc i)
-    P(z_i = new)         propto alpha = 1     (new cluster)
+**Why DM, not CRP:** The CRP is a prior over partitions that induces its own
+implicit prior on K (the number of occupied tables). This conflicts with
+the explicit Poisson prior on K (Section 2.1) and the Gamma count prior
+(Section 2.3), creating an incoherent model with two competing priors on K.
+The DM cleanly separates roles:
+- P(K): Poisson prior controls how many emitters
+- P(Z|K,beta): DM controls allocation balance given K
+- P(N|K,mu,alpha): count prior controls blinking statistics
 
-where n_j^{-i} is the number of localizations in cluster j after removing loc i.
-If removing loc i empties cluster j (n_j^{-i} = 0), that cluster ceases to exist.
+**Gibbs conditional (DM predictive rule):** When reassigning localization i
+(removed from its current cluster), K is held fixed and the conditional is:
 
-**Why CRP, not finite Dirichlet-Multinomial:** A finite symmetric
-Dirichlet-Multinomial with K labeled components and beta = 1 gives the
-conditional propto n_j^{-i} + 1, not n_j^{-i}. The "+1" assigns non-zero
-weight to empty labeled slots. The CRP has no empty slots — only occupied
-clusters participate — which matches the code (empty clusters are deactivated
-and get log-probability -Inf).
+    P(z_i = k | Z_{-i}, K) propto (n_k^{-i} + beta/K) * P(d_i | D_k^{-i})
+
+for k = 1, ..., K (all K components, including any that are currently empty).
+Unlike the CRP, there is no "new cluster" option — K changes only through
+birth/death moves (Section 5).
+
+**Default beta = 1:** With beta = 1, the per-component concentration is 1/K.
+This gives mild preference for balanced allocations without strongly constraining
+cluster sizes. The DM smoothing term beta/K decreases as K grows, naturally
+discouraging proliferation of near-empty components.
+
+**Empty clusters during Gibbs sweep:** An empty cluster (n_k = 0) has allocation
+weight beta/K in the DM conditional. Its predictive likelihood is the prior
+predictive (uniform over R). This makes it unlikely but not impossible for locs
+to be assigned to an empty cluster. After each Gibbs sweep, any clusters that
+remain empty are deactivated (K decreases), so empty clusters are transient
+artifacts that birth/death moves resolve.
 
 ---
 
@@ -162,16 +241,16 @@ clusters where data is interior to the partition.
 ### 3.2 Full Collapsed Log Posterior
 
     log P(K, Z | data) = log P(K | rho, |R|)              ... Poisson prior on K
-                        + log P(Z | K)                      ... Dirichlet-Multinomial allocation
+                        + log P(Z | K, beta)                ... Dirichlet-Multinomial allocation
                         + log P(N | K, mu, alpha)            ... Gamma count prior
                         + sum_{k=1}^{K} log P(D_k | R)      ... marginal likelihoods
 
-The CRP allocation prior contributes:
+The DM allocation prior contributes:
 
-    log P(partition) = sum_k log Gamma(n_k) - log Gamma(N + 1)
-                     = sum_k log((n_k - 1)!) - log(N!)
+    log P(Z | K, beta) = logGamma(beta) - K * logGamma(beta/K)
+                        + sum_k logGamma(n_k + beta/K) - logGamma(N + beta)
 
-This term depends on the partition sizes {n_k} but is independent of |R|.
+This term depends on the partition sizes {n_k} and K but is independent of |R|.
 
 Expanding the |R|-dependent terms from the Poisson prior and marginal likelihoods:
 
@@ -183,7 +262,7 @@ The remaining |R|-dependent term is `-rho * |R|` from the Poisson normalizer.
 This is independent of K and does not affect model selection between different
 K values (see Section 4).
 
-**Implementation:** `_collapsed_log_posterior(state, N, mu, shape, lambda_K)` in `src/collapsed_moves.jl`
+**Implementation:** `_collapsed_log_posterior(state, N, mu, shape, lambda_K, beta)` in `src/collapsed_moves.jl`
 
 ---
 
@@ -264,16 +343,21 @@ for BaGoL's primary output (MAP-N).
 ### 5.1 Gibbs Allocation Sweep
 
 For each localization i (random order), remove from current cluster, then sample
-new assignment from the full conditional:
+new assignment from the Dirichlet-Multinomial conditional (K held fixed):
 
-    P(z_i = k | Z_{-i}, data) propto n_k^{-i} * P(d_i | D_k^{-i})   for existing cluster k
-    P(z_i = new | Z_{-i}, data) propto P_new * (1/|R|)                for new cluster
+    P(z_i = k | Z_{-i}, K, data) propto (n_k^{-i} + beta/K) * P(d_i | D_k^{-i})
+
+for k = 1, ..., K (all K active components, including any that are empty).
 
 where:
-- n_k^{-i} = size of cluster k after removing loc i (from the Dirichlet-Multinomial
-  conditional, Section 2.4)
-- P(d_i | D_k^{-i}) = predictive probability for loc i given cluster k's other data
-- P_new = prior probability ratios for creating a new cluster
+- n_k^{-i} = size of cluster k after removing loc i
+- beta/K = DM smoothing term (per-component concentration)
+- P(d_i | D_k^{-i}) = predictive probability for loc i given cluster k's data
+
+There is no "new cluster" option — K changes only through block birth/death moves.
+If a cluster empties during the sweep, it persists with allocation weight beta/K
+and prior predictive likelihood. After the sweep completes, any empty clusters
+are deactivated (K decreases).
 
 **Predictive probability:**
 
@@ -282,16 +366,8 @@ where:
 This is computed as the difference of marginal likelihoods. The `-log|R|` terms
 cancel in the difference (both marginals have exactly one `-log|R|`).
 
-**New cluster probability (fully specified):**
-
-    P_new = alpha * [P(K+1 | rho, |R|) / P(K | rho, |R|)]
-            * [P(N | K+1, mu, alpha_count) / P(N | K, mu, alpha_count)]
-
-where alpha = 1 is the CRP concentration parameter. The first ratio is the
-Poisson prior change for K -> K+1, the second is the count prior change.
-The CRP partition prior change is absorbed into the alpha weight (new table
-gets weight alpha in CRP). The `1/|R|` factor outside P_new is the marginal
-likelihood of a single-localization cluster.
+For an empty cluster (n_k^{-i} = 0), the predictive is the prior predictive:
+P(d_i | empty) = 1/|R| (single-loc marginal likelihood under uniform prior).
 
 **Implementation:** `gibbs_allocation_sweep!()` in `src/collapsed_moves.jl`
 
@@ -451,7 +527,7 @@ via Hungarian matching based on position proximity.
 |---------------|-------|-----------------------|
 | Phi_R ≈ 1 (truncation) | Section 3.1 | Posterior mean interior to R by several sigma |
 | Continuous Gamma for integer N | Section 2.3 | N > 5 (good for typical BaGoL data) |
-| CRP with alpha=1 | Section 2.4 | No strong prior on number of clusters |
+| DM with beta=1 | Section 2.4 | Mild preference for balanced allocations |
 
 ---
 

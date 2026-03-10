@@ -26,7 +26,29 @@ function UniformSpatialPrior(locs::Vector{<:SMLMData.AbstractEmitter}; padding::
     dx = max(dx, 3 * σ_x_mean)
     dy = max(dy, 3 * σ_y_mean)
 
-    UniformSpatialPrior(x_min - dx, x_max + dx, y_min - dy, y_max + dy)
+    x_lo = x_min - dx
+    x_hi = x_max + dx
+    y_lo = y_min - dy
+    y_hi = y_max + dy
+
+    # Minimum area floor: prevents per-cluster spatial bonus from dominating
+    # when data is compact. Each localization gets one resolution circle of area.
+    N = length(locs)
+    σ_med = median([(loc.σ_x + loc.σ_y) / 2 for loc in locs])
+    min_area = N * π * (3 * σ_med)^2
+    current_area = (x_hi - x_lo) * (y_hi - y_lo)
+
+    if current_area < min_area
+        scale = sqrt(min_area / current_area)
+        cx = (x_lo + x_hi) / 2
+        cy = (y_lo + y_hi) / 2
+        hw = (x_hi - x_lo) / 2 * scale
+        hh = (y_hi - y_lo) / 2 * scale
+        x_lo, x_hi = cx - hw, cx + hw
+        y_lo, y_hi = cy - hh, cy + hh
+    end
+
+    UniformSpatialPrior(x_lo, x_hi, y_lo, y_hi)
 end
 
 area(prior::UniformSpatialPrior) = (prior.x_max - prior.x_min) * (prior.y_max - prior.y_min)
@@ -81,6 +103,25 @@ function log_prior_count(n::Int, μ::Float64, shape::Float64)
     scale = μ / shape
     dist = Gamma(shape, scale)
     return logpdf(dist, Float64(n))
+end
+
+"""
+Log Dirichlet-Multinomial partition prior P(Z | K, β).
+
+For K components with symmetric Dirichlet(β/K, ..., β/K):
+    log P(Z|K,β) = logΓ(β) - K*logΓ(β/K) + Σ_k logΓ(n_k + β/K) - logΓ(N + β)
+
+This replaces the CRP partition prior. Unlike CRP, the DM does not induce its
+own prior on K — it only describes how N items are allocated among K given slots.
+K is controlled separately by the Poisson prior.
+"""
+function log_dm_partition(cluster_sizes, K::Int, N::Int, β::Float64)
+    α = β / K  # per-component concentration
+    lp = loggamma(β) - K * loggamma(α) - loggamma(N + β)
+    for n_k in cluster_sizes
+        lp += loggamma(n_k + α)
+    end
+    return lp
 end
 
 """
