@@ -1,10 +1,9 @@
-# Grid of Identical N-mers — Collapsed Gibbs Sampler
-# ===================================================
-# Collapsed Gibbs version of nmer_grid_test.jl.
-# Uses run_bagol(sampler=:collapsed) with Rao-Blackwellized posterior image.
-# No chain storage needed — emitters from ClusterStats posterior.
+# Grid of Identical N-mers
+# =======================
+# Generates a grid of identical N-mers, runs BaGoL, and evaluates results.
+# Uses Rao-Blackwellized posterior image; emitters from ClusterStats posterior.
 #
-# Run with: julia --threads=auto --project=examples examples/nmer_grid.jl
+# Run with: julia --threads=auto --project=examples examples/nmer_grid_test.jl
 
 using Pkg
 Pkg.activate(@__DIR__)
@@ -186,7 +185,6 @@ println("Running BaGoL (collapsed Gibbs)...")
 
 fov_extent = Float64(CAMERA_PIXELS * PIXEL_SIZE)
 result_smld, diagnostics = run_bagol(locs_smld;
-    # sampler=:collapsed is default
     nsigma = NSIGMA,
     max_partition_size = MAX_PARTITION_SIZE,
     n_iterations = N_ITERATIONS,
@@ -339,12 +337,22 @@ Label(fig_grid[0, :],
     fontsize=14)
 save(joinpath(OUTPUT_DIR, "bagol_result.png"), fig_grid)
 
-# 3. MAP-N result plot
+# 3. MAP-N result plot (posterior K histogram)
 println("  [3/8] MAP-N result...")
-include(joinpath(@__DIR__, "viz_chain_diagnostics.jl"))
-plot_mapn(emitters, diagnostics.posterior_k, locs;
-    true_positions = true_positions,
-    save_path = joinpath(OUTPUT_DIR, "mapn_result.png"))
+fig_mapn = Figure(size=(800, 400))
+ax_mapn = Axis(fig_mapn[1, 1], title="Posterior K (Number of Emitters)",
+               xlabel="K", ylabel="Count")
+pk = diagnostics.posterior_k
+if !isempty(pk)
+    k_min, k_max = minimum(pk), maximum(pk)
+    hist!(ax_mapn, pk, bins=(k_min - 0.5):(k_max + 0.5), color=:steelblue)
+    map_n = length(emitters)
+    vlines!(ax_mapn, [map_n], color=:red, linewidth=3, label="MAP-N = $map_n")
+    vlines!(ax_mapn, [length(true_positions)], color=:blue, linewidth=2,
+            linestyle=:dash, label="True = $(length(true_positions))")
+    axislegend(ax_mapn, position=:rt)
+end
+save(joinpath(OUTPUT_DIR, "mapn_result.png"), fig_mapn)
 
 # 4. Per-partition histograms
 println("  [4/8] Per-partition histograms...")

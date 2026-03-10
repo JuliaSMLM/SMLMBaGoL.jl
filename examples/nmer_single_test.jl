@@ -1,10 +1,9 @@
-# Single N-mer — Collapsed Gibbs Sampler
-# =======================================
-# Collapsed Gibbs version of nmer_single_test.jl.
-# Uses run_collapsed_chain with accumulators instead of RJMCMC chain.
-# Emitter positions come from ClusterStats posterior (no MAP-N step).
+# Single N-mer
+# ============
+# Runs BaGoL on a single N-mer cluster using run_collapsed_chain directly.
+# Emitter positions come from ClusterStats posterior.
 #
-# Run with: julia --project=examples examples/nmer_single.jl
+# Run with: julia --project=examples examples/nmer_single_test.jl
 
 using Pkg
 Pkg.activate(@__DIR__)

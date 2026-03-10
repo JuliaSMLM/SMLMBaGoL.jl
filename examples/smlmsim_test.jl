@@ -1,9 +1,8 @@
-# SMLMSim Realistic Photophysics — Collapsed Gibbs Sampler
-# ========================================================
-# Collapsed Gibbs version of smlmsim_test.jl.
-# Uses run_bagol(sampler=:collapsed) with realistic SMLMSim photophysics.
+# SMLMSim Realistic Photophysics
+# ==============================
+# BaGoL with realistic SMLMSim photophysics.
 #
-# Run with: julia --threads=auto --project=examples examples/smlmsim.jl
+# Run with: julia --threads=auto --project=examples examples/smlmsim_test.jl
 
 using Pkg
 Pkg.activate(@__DIR__)
@@ -189,7 +188,6 @@ println("\n" * "-"^60)
 println("Running BaGoL (collapsed Gibbs)...")
 
 result_smld, diagnostics = run_bagol(smld_noisy;
-    # sampler=:collapsed is default
     nsigma = NSIGMA,
     max_partition_size = MAX_PARTITION_SIZE,
     n_iterations = N_ITERATIONS,
@@ -274,12 +272,22 @@ for (tx, ty) in true_positions
 end
 save(joinpath(OUTPUT_DIR, "bagol_result.png"), fig_fov)
 
-# 2. MAP-N result plot
+# 2. MAP-N result plot (posterior K histogram)
 println("  [2/9] MAP-N result...")
-include(joinpath(@__DIR__, "viz_chain_diagnostics.jl"))
-plot_mapn(emitters, diagnostics.posterior_k, locs;
-    true_positions = true_positions,
-    save_path = joinpath(OUTPUT_DIR, "mapn_result.png"))
+fig_mapn = Figure(size=(800, 400))
+ax_mapn = Axis(fig_mapn[1, 1], title="Posterior K (Number of Emitters)",
+               xlabel="K", ylabel="Count")
+pk = diagnostics.posterior_k
+if !isempty(pk)
+    k_min, k_max = minimum(pk), maximum(pk)
+    hist!(ax_mapn, pk, bins=(k_min - 0.5):(k_max + 0.5), color=:steelblue)
+    map_n = length(emitters)
+    vlines!(ax_mapn, [map_n], color=:red, linewidth=3, label="MAP-N = $map_n")
+    vlines!(ax_mapn, [length(true_positions)], color=:blue, linewidth=2,
+            linestyle=:dash, label="True = $(length(true_positions))")
+    axislegend(ax_mapn, position=:rt)
+end
+save(joinpath(OUTPUT_DIR, "mapn_result.png"), fig_mapn)
 
 # 3. N-recovery histogram
 println("  [3/9] N-recovery histogram...")
