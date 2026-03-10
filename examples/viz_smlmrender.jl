@@ -6,11 +6,9 @@
 # Usage:
 #   include("viz_smlmrender.jl")
 #   render_bagol_suite(locs_smld, bagol_smld; output_dir="output")
-#   render_posterior_histogram(chain, locs_smld; output_dir="output")
 
 using SMLMRender
 using SMLMData
-using SMLMBaGoL: RJMCMCChain
 
 """
 Calculate render bounds from localizations, expanded by factor.
@@ -91,88 +89,6 @@ function positions_to_smld(
 end
 
 """
-Convert chain samples to a BasicSMLD for histogram rendering.
-
-Extracts all (x, y) positions from chain samples and creates
-an SMLD where each sample emitter becomes one localization.
-Use with HistogramRender to visualize posterior density.
-
-# Arguments
-- `chain`: RJMCMCChain with samples
-- `camera`: Camera from original SMLD
-- `filter_k`: If provided, only include samples with this K (default: nothing = all samples)
-"""
-function chain_to_smld(chain::RJMCMCChain, camera::SMLMData.AbstractCamera; filter_k::Union{Int, Nothing} = nothing)
-    emitters = SMLMData.Emitter2DFit[]
-    loc_id = 1
-
-    for sample in chain.samples
-        # Skip if filtering by K and this sample doesn't match
-        if filter_k !== nothing && length(sample.emitters) != filter_k
-            continue
-        end
-
-        for emitter in sample.emitters
-            push!(emitters, SMLMData.Emitter2DFit(
-                Float64(emitter.x), Float64(emitter.y),
-                1000.0, 0.0,           # photons, bg
-                0.001, 0.001, 0.0,     # tiny σ for histogram binning
-                0.0, 0.0,              # σ_photons, σ_bg
-                loc_id, 1, 0, loc_id   # frame, dataset, track_id, id
-            ))
-            loc_id += 1
-        end
-    end
-
-    return SMLMData.BasicSMLD(emitters, camera, 1, 1)
-end
-
-"""
-Convert multiple partition chains to a single SMLD for histogram rendering.
-
-Concatenates all sample positions from all chains. When `filter_mapn=true`,
-each partition's MAP-N is computed independently and only matching samples are included.
-"""
-function chains_to_smld(chains::Vector{<:RJMCMCChain}, camera::SMLMData.AbstractCamera;
-                        filter_mapn::Bool = false)
-    all_emitters = SMLMData.Emitter2DFit[]
-    loc_id = 1
-
-    for chain in chains
-        if filter_mapn
-            ks = [length(s.emitters) for s in chain.samples]
-            isempty(ks) && continue
-            k_max = maximum(ks)
-            posterior_k = zeros(Int, k_max + 1)
-            for k in ks
-                posterior_k[k + 1] += 1
-            end
-            filter_k = argmax(posterior_k) - 1
-        else
-            filter_k = nothing
-        end
-
-        for sample in chain.samples
-            if filter_k !== nothing && length(sample.emitters) != filter_k
-                continue
-            end
-            for emitter in sample.emitters
-                push!(all_emitters, SMLMData.Emitter2DFit(
-                    Float64(emitter.x), Float64(emitter.y),
-                    1000.0, 0.0,
-                    0.001, 0.001, 0.0,
-                    0.0, 0.0,
-                    loc_id, 1, 0, loc_id
-                ))
-                loc_id += 1
-            end
-        end
-    end
-
-    return SMLMData.BasicSMLD(all_emitters, camera, 1, 1)
-end
-
-"""
 Render complete BaGoL visualization suite.
 
 Calculates render bounds from localizations (2x extent of 1σ circles),
@@ -194,7 +110,7 @@ then renders all outputs at 1nm pixel size using consistent bounds.
 - `{prefix}_comparison.png`: Three-channel (locs gray + BaGoL red + GT blue)
 
 # Returns
-- `Image2DTarget`: The render target (pass to render_posterior_histogram for consistency)
+- `Image2DTarget`: The render target for consistency with other renders
 """
 function render_bagol_suite(
     locs_smld::SMLMData.SMLD,
@@ -264,186 +180,5 @@ function render_bagol_suite(
         println("Saved: $comparison_path")
     end
 
-    return target  # Return target for use by posterior histogram
-end
-
-"""
-Render posterior density histogram from MCMC chain samples.
-
-Each emitter position from each chain sample adds 1 count to the pixel
-it falls in, producing a 2D histogram of the posterior distribution.
-
-# Arguments
-- `chain`: RJMCMCChain with samples
-- `locs_smld`: Input localizations SMLD (for camera and bounds)
-- `target`: Optional Image2DTarget (use output from render_bagol_suite for consistency)
-- `prefix`: Filename prefix (default: "render")
-- `output_dir`: Directory for output file (default: current directory)
-- `pixel_size`: Pixel size in nm if target not provided (default: 1.0)
-- `expand_factor`: Bound expansion factor if target not provided (default: 2.0)
-"""
-function render_posterior_histogram(
-    chain::RJMCMCChain,
-    locs_smld::SMLMData.SMLD;
-    target::Union{SMLMRender.Image2DTarget, Nothing} = nothing,
-    prefix::String = "render",
-    output_dir::String = ".",
-    pixel_size::Real = 1.0,
-    expand_factor::Real = 2.0
-)
-    # Create target if not provided
-    if target === nothing
-        x_min, x_max, y_min, y_max = calculate_render_bounds(locs_smld; expand_factor=expand_factor)
-        target = create_target(x_min, x_max, y_min, y_max; pixel_size=pixel_size)
-    end
-
-    # Convert chain samples to SMLD
-    chain_smld = chain_to_smld(chain, locs_smld.camera)
-
-    n_samples = length(chain.samples)
-    n_positions = length(chain_smld.emitters)
-    println("  Posterior histogram: $(n_positions) positions from $(n_samples) samples")
-
-    # Render with HistogramRender - each position adds 1 to pixel count
-    posterior_path = joinpath(output_dir, "$(prefix)_posterior.png")
-    render(chain_smld;
-        strategy = HistogramRender(),
-        target = target,
-        colormap = :inferno,
-        filename = posterior_path
-    )
-    println("Saved: $posterior_path")
-
-    return nothing
-end
-
-"""
-Render histogram from only MAP-N samples (K = modal K).
-
-This allows direct comparison with MAP-N Gaussian blobs to isolate
-σ computation issues from sample selection issues.
-
-# Arguments
-- `chain`: RJMCMCChain with samples
-- `locs_smld`: Input localizations SMLD (for camera and bounds)
-- `target`: Optional Image2DTarget (use output from render_bagol_suite for consistency)
-- `prefix`: Filename prefix (default: "render")
-- `output_dir`: Directory for output file (default: current directory)
-
-# Returns
-- `map_n`: The modal K value used for filtering
-"""
-function render_mapn_histogram(
-    chain::RJMCMCChain,
-    locs_smld::SMLMData.SMLD;
-    target::Union{SMLMRender.Image2DTarget, Nothing} = nothing,
-    prefix::String = "render",
-    output_dir::String = ".",
-    pixel_size::Real = 1.0,
-    expand_factor::Real = 2.0
-)
-    # Create target if not provided
-    if target === nothing
-        x_min, x_max, y_min, y_max = calculate_render_bounds(locs_smld; expand_factor=expand_factor)
-        target = create_target(x_min, x_max, y_min, y_max; pixel_size=pixel_size)
-    end
-
-    # Find MAP-N (modal K)
-    ks = [length(s.emitters) for s in chain.samples]
-    k_max = maximum(ks)
-    posterior_k = zeros(Int, k_max + 1)
-    for k in ks
-        posterior_k[k + 1] += 1
-    end
-    map_n = argmax(posterior_k) - 1
-
-    # Convert chain samples to SMLD, filtering to only K=MAP-N
-    chain_smld = chain_to_smld(chain, locs_smld.camera; filter_k=map_n)
-
-    n_mapn_samples = count(s -> length(s.emitters) == map_n, chain.samples)
-    n_positions = length(chain_smld.emitters)
-    println("  MAP-N histogram (K=$map_n only): $(n_positions) positions from $(n_mapn_samples) samples")
-
-    # Render with HistogramRender
-    mapn_hist_path = joinpath(output_dir, "$(prefix)_mapn_histogram.png")
-    render(chain_smld;
-        strategy = HistogramRender(),
-        target = target,
-        colormap = :inferno,
-        filename = mapn_hist_path
-    )
-    println("Saved: $mapn_hist_path")
-
-    return map_n
-end
-
-# ============================================================================
-# Multi-chain overloads for partitioned BaGoL
-# ============================================================================
-
-"""
-Render posterior histogram from multiple partition chains.
-Combines all sample positions from all partitions into one histogram.
-"""
-function render_posterior_histogram(
-    chains::Vector{<:RJMCMCChain},
-    locs_smld::SMLMData.SMLD;
-    target::Union{SMLMRender.Image2DTarget, Nothing} = nothing,
-    prefix::String = "render",
-    output_dir::String = ".",
-    pixel_size::Real = 1.0,
-    expand_factor::Real = 2.0
-)
-    if target === nothing
-        x_min, x_max, y_min, y_max = calculate_render_bounds(locs_smld; expand_factor=expand_factor)
-        target = create_target(x_min, x_max, y_min, y_max; pixel_size=pixel_size)
-    end
-
-    chain_smld = chains_to_smld(chains, locs_smld.camera)
-    n_samples = sum(length(c.samples) for c in chains)
-    n_positions = length(chain_smld.emitters)
-    println("  Posterior histogram: $(n_positions) positions from $(n_samples) samples across $(length(chains)) partitions")
-
-    posterior_path = joinpath(output_dir, "$(prefix)_posterior.png")
-    render(chain_smld;
-        strategy = HistogramRender(),
-        target = target,
-        colormap = :inferno,
-        filename = posterior_path
-    )
-    println("Saved: $posterior_path")
-    return nothing
-end
-
-"""
-Render MAP-N histogram from multiple partition chains.
-Each partition's MAP-N is computed independently.
-"""
-function render_mapn_histogram(
-    chains::Vector{<:RJMCMCChain},
-    locs_smld::SMLMData.SMLD;
-    target::Union{SMLMRender.Image2DTarget, Nothing} = nothing,
-    prefix::String = "render",
-    output_dir::String = ".",
-    pixel_size::Real = 1.0,
-    expand_factor::Real = 2.0
-)
-    if target === nothing
-        x_min, x_max, y_min, y_max = calculate_render_bounds(locs_smld; expand_factor=expand_factor)
-        target = create_target(x_min, x_max, y_min, y_max; pixel_size=pixel_size)
-    end
-
-    chain_smld = chains_to_smld(chains, locs_smld.camera; filter_mapn=true)
-    n_positions = length(chain_smld.emitters)
-    println("  MAP-N histogram (per-partition MAP-N): $(n_positions) positions across $(length(chains)) partitions")
-
-    mapn_hist_path = joinpath(output_dir, "$(prefix)_mapn_histogram.png")
-    render(chain_smld;
-        strategy = HistogramRender(),
-        target = target,
-        colormap = :inferno,
-        filename = mapn_hist_path
-    )
-    println("Saved: $mapn_hist_path")
-    return nothing
+    return target  # Return target for use by other renders
 end
