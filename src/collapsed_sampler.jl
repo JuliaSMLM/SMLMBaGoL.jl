@@ -56,7 +56,7 @@ Run the collapsed Gibbs sampler on a set of localizations.
 - `burn_in=2000`: Burn-in iterations before accumulating
 - `shape=2.0`: Initial Gamma shape for count distribution
 - `learn_shape=true`: Update shape during MCMC
-- `λ_K`: Prior mean for emitter count (default: N/5)
+- `λ_K`: Prior mean for emitter count (default: N/μ)
 - `hierarchical_interval=100`: Iterations between μ/shape MH updates
 - `accumulators=AbstractAccumulator[]`: List of accumulators to update after burn-in
 - `verbose=false`: Print progress
@@ -65,10 +65,8 @@ Run the collapsed Gibbs sampler on a set of localizations.
 
 # Move distribution
 - 50%: Allocation Gibbs sweep (full sweep per iteration)
-- 10%: Block birth
-- 10%: Block death
-- 15%: Split (K → K+1, targets large clusters)
-- 15%: Merge (K → K-1, targets nearest pair)
+- 25%: Block birth
+- 25%: Block death
 """
 function run_collapsed_chain(
     locs::Vector{<:SMLMData.AbstractEmitter};
@@ -76,9 +74,9 @@ function run_collapsed_chain(
     burn_in::Int = 2000,
     shape::Float64 = 2.0,
     learn_shape::Bool = true,
-    λ_K::Float64 = Float64(length(locs)) / 5.0,
     μ_prior_shape::Float64 = 2.0,
     μ_prior_scale::Float64 = 5.0,
+    λ_K::Float64 = NaN,  # default: N/μ (computed below)
     shape_prior_shape::Float64 = 2.0,
     shape_prior_scale::Float64 = 1.0,
     hierarchical_interval::Int = 100,
@@ -97,14 +95,15 @@ function run_collapsed_chain(
     state = initialize_collapsed_state(locs, spatial_prior)
 
     μ = μ_prior_shape * μ_prior_scale  # Initial μ from prior mean
+    if isnan(λ_K)
+        λ_K = Float64(N) / μ
+    end
     current_shape = shape
 
     acceptance = Dict{Symbol, Tuple{Int, Int}}(
         :gibbs_sweep => (0, 0),
         :block_birth => (0, 0),
         :block_death => (0, 0),
-        :split => (0, 0),
-        :merge => (0, 0)
     )
 
     config_nt = (
@@ -122,26 +121,16 @@ function run_collapsed_chain(
             gibbs_allocation_sweep!(state, locs, μ, current_shape, λ_K)
             prev = acceptance[:gibbs_sweep]
             acceptance[:gibbs_sweep] = (prev[1] + 1, prev[2] + 1)
-        elseif r < 0.60
+        elseif r < 0.75
             # Block birth
             accepted = propose_block_birth!(state, locs, μ, current_shape, λ_K)
             prev = acceptance[:block_birth]
             acceptance[:block_birth] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
-        elseif r < 0.70
+        else
             # Block death
             accepted = propose_block_death!(state, locs, μ, current_shape, λ_K)
             prev = acceptance[:block_death]
             acceptance[:block_death] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
-        elseif r < 0.85
-            # Split
-            accepted = propose_split!(state, locs, μ, current_shape, λ_K)
-            prev = acceptance[:split]
-            acceptance[:split] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
-        else
-            # Merge
-            accepted = propose_merge!(state, locs, μ, current_shape, λ_K)
-            prev = acceptance[:merge]
-            acceptance[:merge] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
         end
 
         # Hierarchical updates
@@ -187,10 +176,11 @@ function run_collapsed_chain(
 end
 
 """
-    run_collapsed_iterations!(state, locs, n, μ, shape, λ_K, accumulators, burn_in, current_iter)
+    run_collapsed_iterations!(state, locs, n, μ, shape, λ_K, accumulators, burn_in, current_iter;
+                              acceptance=nothing)
 
 Run n iterations on an existing collapsed state. Used for synchronized partitioned execution.
-Returns (new_μ, new_shape, updated_current_iter).
+Returns updated_current_iter. If `acceptance` dict is provided, accumulates (accepted, total) counts.
 """
 function run_collapsed_iterations!(
     state::CollapsedState,
@@ -201,7 +191,8 @@ function run_collapsed_iterations!(
     λ_K::Float64,
     accumulators::Vector{<:AbstractAccumulator},
     burn_in::Int,
-    current_iter::Int
+    current_iter::Int;
+    acceptance::Union{Dict{Symbol, Tuple{Int, Int}}, Nothing}=nothing
 )
     for _ in 1:n
         current_iter += 1
@@ -209,14 +200,22 @@ function run_collapsed_iterations!(
         r = rand()
         if r < 0.50
             gibbs_allocation_sweep!(state, locs, μ, shape, λ_K)
-        elseif r < 0.60
-            propose_block_birth!(state, locs, μ, shape, λ_K)
-        elseif r < 0.70
-            propose_block_death!(state, locs, μ, shape, λ_K)
-        elseif r < 0.85
-            propose_split!(state, locs, μ, shape, λ_K)
+            if acceptance !== nothing
+                prev = acceptance[:gibbs_sweep]
+                acceptance[:gibbs_sweep] = (prev[1] + 1, prev[2] + 1)
+            end
+        elseif r < 0.75
+            accepted = propose_block_birth!(state, locs, μ, shape, λ_K)
+            if acceptance !== nothing
+                prev = acceptance[:block_birth]
+                acceptance[:block_birth] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
+            end
         else
-            propose_merge!(state, locs, μ, shape, λ_K)
+            accepted = propose_block_death!(state, locs, μ, shape, λ_K)
+            if acceptance !== nothing
+                prev = acceptance[:block_death]
+                acceptance[:block_death] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
+            end
         end
 
         # Update accumulators after burn-in
