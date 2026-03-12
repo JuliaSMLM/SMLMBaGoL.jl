@@ -10,6 +10,7 @@ using Pkg
 Pkg.activate(@__DIR__)
 
 using SMLMBaGoL
+using SMLMBaGoL: accumulator_result
 using SMLMData
 using Random
 using Statistics
@@ -194,6 +195,8 @@ end
 count_hist = EmitterCountHist()
 post_img = PosteriorImage(pixel_size=0.002)
 nn_hist = NNDistHist(max_dist=0.100, n_bins=100)
+ps_acc = PartitionSamples(thin=5)
+psm_acc = PSMAccumulator()
 
 result = run_collapsed_chain(
     locs;
@@ -205,14 +208,18 @@ result = run_collapsed_chain(
     shape = TRUE_SHAPE,
     learn_shape = false,
     hierarchical_interval = N_ITERATIONS + 1,
-    accumulators = AbstractAccumulator[count_hist, post_img, nn_hist],
+    accumulators = AbstractAccumulator[count_hist, post_img, nn_hist, ps_acc, psm_acc],
     callback = trace_callback,
     callback_interval = CALLBACK_INTERVAL,
     verbose = true
 )
 
-# Extract emitters from final state
-emitters = SMLMBaGoL.extract_emitters(result.state, locs)
+# Extract emitters via Dahl+MAP-N (Dahl's K + Hungarian matching positions)
+samples = accumulator_result(ps_acc)
+psm = accumulator_result(psm_acc).psm
+dahl_emitters, _, _ = estimate_dahl(samples, locs, psm)
+k_dahl = length(dahl_emitters)
+emitters, _ = estimate_mapn_collapsed(samples, locs; k_override=k_dahl)
 
 # Build posterior_k from EmitterCountHist
 posterior_k = result.accumulators[1]  # EmitterCountHist result = Vector{Int}

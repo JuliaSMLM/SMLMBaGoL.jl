@@ -14,7 +14,7 @@ using Statistics
 # Export main API
 export run_bagol
 export run_collapsed_chain
-export estimate_mapn_collapsed
+export estimate_mapn_collapsed, estimate_mapn_psm, estimate_dahl, estimate_vi_greedy
 export save_posterior_png
 export BaGoLDiagnostics
 
@@ -22,7 +22,7 @@ export BaGoLDiagnostics
 export CollapsedState, CollapsedChainResult, BaGoLResult
 export ClusterStats
 export AbstractAccumulator, EmitterCountHist, PosteriorImage, NNDistHist
-export PartitionSamples
+export PartitionSamples, PSMAccumulator
 
 # Export partitioning (internal use, partition_locs exposed for advanced users)
 export Partition

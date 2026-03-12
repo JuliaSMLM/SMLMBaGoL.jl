@@ -134,6 +134,7 @@ function _run_bagol_collapsed(
     partition_accumulators = Vector{Vector{AbstractAccumulator}}(undef, n_partitions)
     count_hists = Vector{EmitterCountHist}(undef, n_partitions)
     partition_samples = Vector{PartitionSamples}(undef, n_partitions)
+    partition_psms = Vector{PSMAccumulator}(undef, n_partitions)
 
     Threads.@threads for i in 1:n_partitions
         p_locs = partitions[i].locs
@@ -149,6 +150,10 @@ function _run_bagol_collapsed(
         ps_acc = PartitionSamples(thin=5)
         push!(accs, ps_acc)
         partition_samples[i] = ps_acc
+
+        psm_acc = PSMAccumulator()
+        push!(accs, psm_acc)
+        partition_psms[i] = psm_acc
 
         if posterior_pixel_size > 0.0
             push!(accs, PosteriorImage(pixel_size=posterior_pixel_size,
@@ -240,16 +245,21 @@ function _run_bagol_collapsed(
     # can only be duplicates if within ~nsigma*σ of boundary
     boundary_margin = nsigma * median(sigmas)
 
-    for (pid, (partition, ps_acc)) in enumerate(zip(partitions, partition_samples))
+    for (pid, (partition, ps_acc, psm_acc)) in enumerate(zip(partitions, partition_samples, partition_psms))
         samples = accumulator_result(ps_acc)
         if isempty(samples)
             error("Partition $pid ($(length(partition.locs)) locs): no assignment samples collected. " *
                   "Check burn_in ($burn_in) < n_iterations ($n_iterations).")
         end
-        emitters, _ = estimate_mapn_collapsed(samples, partition.locs)
+        # Dahl+MAP-N: use Dahl's K (unbiased) with MAP-N position pipeline
+        psm_result = accumulator_result(psm_acc)
+        psm = psm_result.psm
+        dahl_emitters, _, _ = estimate_dahl(samples, partition.locs, psm)
+        k_dahl = length(dahl_emitters)
+        emitters, _ = estimate_mapn_collapsed(samples, partition.locs; k_override=k_dahl)
         if isempty(emitters)
             error("Partition $pid ($(length(partition.locs)) locs): estimate_mapn_collapsed returned " *
-                  "0 emitters from $(length(samples)) samples.")
+                  "0 emitters from $(length(samples)) samples (k_dahl=$k_dahl).")
         end
         for emitter in emitters
             push!(all_emitters, emitter)
