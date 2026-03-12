@@ -50,11 +50,11 @@ end
 Compute sum of logpdf(dist, n) over active cluster counts.
 Zero-allocation: iterates directly over clusters without collecting counts.
 """
-function _collapsed_count_loglik(state::CollapsedState, dist::Gamma)
+function _collapsed_count_loglik(state::CollapsedState, dist::UnivariateDistribution)
     ll = 0.0
     @inbounds for (j, cs) in enumerate(state.clusters)
         state.active[j] || continue
-        ll += logpdf(dist, max(Float64(cs.n), 0.5))
+        ll += logpdf(dist, Int(cs.n))
     end
     return ll
 end
@@ -72,8 +72,10 @@ function _update_mu_collapsed(state::CollapsedState, μ_current::Float64,
     μ_proposed = μ_current * exp(randn() * 0.3)
     (μ_proposed < 1.0 || μ_proposed > 500.0) && return μ_current
 
-    dist_current = Gamma(shape, μ_current / shape)
-    dist_proposed = Gamma(shape, μ_proposed / shape)
+    p_current = shape / (shape + μ_current)
+    p_proposed = shape / (shape + μ_proposed)
+    dist_current = NegativeBinomial(shape, p_current)
+    dist_proposed = NegativeBinomial(shape, p_proposed)
 
     log_lik_current = _collapsed_count_loglik(state, dist_current)
     log_lik_proposed = _collapsed_count_loglik(state, dist_proposed)
@@ -104,8 +106,10 @@ function _update_shape_collapsed(state::CollapsedState, μ::Float64,
     shape_proposed = shape_current * exp(randn() * 0.3)
     (shape_proposed < 0.5 || shape_proposed > 50.0) && return shape_current
 
-    dist_current = Gamma(shape_current, μ / shape_current)
-    dist_proposed = Gamma(shape_proposed, μ / shape_proposed)
+    p_current = shape_current / (shape_current + μ)
+    p_proposed = shape_proposed / (shape_proposed + μ)
+    dist_current = NegativeBinomial(shape_current, p_current)
+    dist_proposed = NegativeBinomial(shape_proposed, p_proposed)
 
     log_lik_current = _collapsed_count_loglik(state, dist_current)
     log_lik_proposed = _collapsed_count_loglik(state, dist_proposed)
@@ -139,8 +143,10 @@ function _update_mu_collapsed_global!(states::Vector{CollapsedState},
     μ_proposed = μ_current * exp(randn() * 0.3)
     (μ_proposed < 1.0 || μ_proposed > 500.0) && return μ_current
 
-    dist_current = Gamma(shape, μ_current / shape)
-    dist_proposed = Gamma(shape, μ_proposed / shape)
+    p_current = shape / (shape + μ_current)
+    p_proposed = shape / (shape + μ_proposed)
+    dist_current = NegativeBinomial(shape, p_current)
+    dist_proposed = NegativeBinomial(shape, p_proposed)
 
     log_lik_current = sum(_collapsed_count_loglik(s, dist_current) for s in states)
     log_lik_proposed = sum(_collapsed_count_loglik(s, dist_proposed) for s in states)
@@ -173,8 +179,10 @@ function _update_shape_collapsed_global!(states::Vector{CollapsedState},
     shape_proposed = shape_current * exp(randn() * 0.3)
     (shape_proposed < 0.5 || shape_proposed > 50.0) && return shape_current
 
-    dist_current = Gamma(shape_current, μ / shape_current)
-    dist_proposed = Gamma(shape_proposed, μ / shape_proposed)
+    p_current = shape_current / (shape_current + μ)
+    p_proposed = shape_proposed / (shape_proposed + μ)
+    dist_current = NegativeBinomial(shape_current, p_current)
+    dist_proposed = NegativeBinomial(shape_proposed, p_proposed)
 
     log_lik_current = sum(_collapsed_count_loglik(s, dist_current) for s in states)
     log_lik_proposed = sum(_collapsed_count_loglik(s, dist_proposed) for s in states)

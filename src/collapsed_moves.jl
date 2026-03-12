@@ -1,9 +1,9 @@
-# Collapsed RJMCMC moves for BaGoL
+# Collapsed Gibbs sampler moves for BaGoL
 #
-# Three move types for the collapsed Gibbs sampler:
-# 1. Allocation Gibbs sweep — full sweep reassigning each loc
-# 2. Block birth — create new cluster from seed loc + nearby locs
-# 3. Block death — dissolve a cluster, redistributing locs
+# Three move types:
+# 1. Allocation Gibbs sweep — reassign each loc among K clusters (K fixed)
+# 2. Split — divide one cluster into two via restricted Gibbs scan
+# 3. Merge — combine two clusters into one
 
 # ============================================================================
 # Helpers
@@ -50,24 +50,28 @@ function _deactivate_cluster!(state::CollapsedState, slot::Integer)
 end
 
 """
-    _collapsed_log_posterior(state, N, μ, shape, λ_K, β) -> Float64
+    _log_count_posterior(K, N, shape, μ, λ_K) -> Float64
 
-Collapsed log posterior: Poisson prior on K + DM partition prior + count prior +
-sum of marginal likelihoods.
+Count-model log posterior for K emitters.
+
+  π(K) ∝ P(K) × P(N|K)
+
+where P(N|K) = NegBin(N; K×α, α/(α+μ)) is the total count model.
+
+The theoretical MAP-N accuracy is limited by the count model's variance:
+  σ_N = √(K × μ(μ+α)/α)
+For K=8, μ=20, α=5: σ_N ≈ 28, giving ~28% theoretical maximum accuracy.
+This is a fundamental property of the count model, not a sampler limitation.
+
+Uses fixed μ₀ (prior mean) rather than adaptive μ to prevent the μ-K
+positive feedback loop where adaptive μ tracks K, making the count model
+non-informative for K changes.
 """
-function _collapsed_log_posterior(state::CollapsedState, N::Int,
-                                  μ::Float64, shape::Float64, λ_K::Float64,
-                                  β::Float64)
-    K = state.n_active
-    α_dm = β / K
-    lp = log_prior_k(K, λ_K) + log_prior_total_count(N, K, μ, shape)
-    # DM partition prior normalization
-    lp += loggamma(β) - K * loggamma(α_dm) - loggamma(N + β)
-    for (j, cs) in enumerate(state.clusters)
-        state.active[j] || continue
-        lp += loggamma(cs.n + α_dm)  # DM per-cluster term
-        lp += log_marginal_likelihood(cs, state.log_area)
-    end
+function _log_count_posterior(K::Int, N::Int,
+                              shape::Float64, μ::Float64, λ_K::Float64)
+    lp = log_prior_k(K, λ_K)
+    p = shape / (shape + μ)
+    lp += logpdf(NegativeBinomial(K * shape, p), N)
     return lp
 end
 
@@ -78,9 +82,14 @@ end
 """
     gibbs_allocation_sweep!(state, locs, μ, shape, λ_K, β)
 
-Full Gibbs sweep with Dirichlet-Multinomial conditional: for each loc
-(random order), reassign among the K active clusters with weight
-(n_k + β/K) × predictive. K is fixed during the sweep; only birth/death
+Full Gibbs sweep: for each loc (random order), reassign among the K active
+clusters with weight proportional to the collapsed spatial predictive.
+
+At fixed K, the Gibbs conditional is purely spatial:
+  P(z_i = k | rest) ∝ predictive(d_i | cluster_k)
+Cluster sizes are determined by spatial evidence alone.
+
+Sole occupants are skipped to maintain K during the sweep. Only split/merge
 moves change K.
 
 Uses precomputed LocPrecision data for zero-allocation inner loop.
@@ -92,7 +101,6 @@ function gibbs_allocation_sweep!(state::CollapsedState,
     N = length(locs)
     loc_precs = state._loc_precs
     K = state.n_active  # Fixed for this sweep
-    α_dm = β / K        # DM per-component concentration
 
     # In-place Fisher-Yates shuffle of workspace permutation buffer
     perm = state._perm
@@ -118,17 +126,21 @@ function gibbs_allocation_sweep!(state::CollapsedState,
         lp = loc_precs[loc_idx]
         old_cluster = state.assignments[loc_idx]
 
-        # Remove loc from current cluster (don't deactivate if empty — K is fixed)
+        # Skip sole occupants to maintain K during sweep
+        if old_cluster > 0 && state.active[old_cluster] && state.clusters[old_cluster].n <= 1
+            continue
+        end
+
+        # Remove loc from current cluster
         if old_cluster > 0 && state.active[old_cluster]
             state.clusters[old_cluster] = remove_loc(state.clusters[old_cluster], lp)
         end
 
-        # Compute DM-weighted predictive for each active cluster
+        # Compute spatial predictive for each active cluster
         for i in 1:K
             slot = active_slots[i]
             cs = state.clusters[slot]
-            # DM weight: (n_k + β/K) × predictive likelihood
-            log_probs[i] = log_predictive(cs, lp, state.log_area) + log(Float64(cs.n) + α_dm)
+            log_probs[i] = log_predictive(cs, lp, state.log_area)
         end
 
         # In-place log-sum-exp normalization → probabilities in log_probs[1:K]
@@ -163,18 +175,10 @@ function gibbs_allocation_sweep!(state::CollapsedState,
         state.clusters[slot] = add_loc(state.clusters[slot], lp)
         state.assignments[loc_idx] = Int16(slot)
     end
-
-    # Post-sweep cleanup: deactivate any empty clusters
-    # (K adjusts so priors use occupied count for birth/death moves)
-    @inbounds for j in eachindex(state.active)
-        if state.active[j] && state.clusters[j].n == 0
-            _deactivate_cluster!(state, j)
-        end
-    end
 end
 
 # ============================================================================
-# Block birth move
+# Rollback helpers (used by split/merge MH moves)
 # ============================================================================
 
 """
@@ -213,219 +217,241 @@ function _restore_rollback!(state::CollapsedState, old_n_active::Int, old_len::I
     state.n_active = old_n_active
 end
 
-"""
-    propose_block_birth!(state, locs, μ, shape, λ_K, β) -> Bool
+# ============================================================================
+# Direct K sampling with count-model posterior
+# ============================================================================
 
-Block birth: pick a random seed loc, create new cluster, probabilistically
-recruit nearby locs via predictive. MH accept/reject.
 """
-function propose_block_birth!(state::CollapsedState,
+    _total_spatial_lml(state) -> Float64
+
+Sum of log marginal likelihoods across all active clusters.
+"""
+function _total_spatial_lml(state::CollapsedState)
+    total = 0.0
+    @inbounds for j in eachindex(state.active)
+        if state.active[j]
+            total += log_marginal_likelihood(state.clusters[j], state.log_area)
+        end
+    end
+    return total
+end
+
+"""
+    propose_split_merge!(state, locs, μ, shape, λ_K, β) -> (Bool, Symbol)
+
+K sampling from count-model posterior with spatial MH correction.
+
+1. Propose K_new from π_count(K) ∝ P(K) × P(N|K)  (count-only posterior)
+2. Execute heuristic split/merge to adjust allocation
+3. Accept/reject with spatial fit improvement (area-invariant):
+
+   log α = Δ_fit = [Σ log ML(new) - Σ log ML(old)] + ΔK × log(A)
+
+The +ΔK×log(A) cancels the -log(A) per cluster in log_marginal_likelihood,
+implementing the spatial Poisson process prior. This makes the acceptance:
+- Neutral (~0) for co-located emitters (pure Q-PAINT behavior)
+- Positive for splits that align with spatial structure (beats Q-PAINT)
+
+Returns (accepted, move_type) where move_type is :split or :merge.
+"""
+function propose_split_merge!(state::CollapsedState,
                                locs::Vector{<:SMLMData.AbstractEmitter},
                                μ::Float64, shape::Float64, λ_K::Float64,
                                β::Float64)
     N = length(locs)
-    N == 0 && return false
-    loc_precs = state._loc_precs
+    N < 2 && return false, :split
+    K = state.n_active
 
-    # Save state for rollback (into pre-allocated buffers)
-    old_len = length(state.clusters)
-    old_n_active = state.n_active
+    # Compute count-model posterior for K = 1..K_max
+    K_max = max(2 * K, min(N, 30))
+    log_posts = state._log_probs  # reuse workspace
+    @inbounds for k in 1:K_max
+        log_posts[k] = _log_count_posterior(k, N, shape, μ, λ_K)
+    end
+
+    # Sample from normalized distribution (in-place log-sum-exp)
+    max_lp = log_posts[1]
+    @inbounds for k in 2:K_max
+        if log_posts[k] > max_lp
+            max_lp = log_posts[k]
+        end
+    end
+    total = 0.0
+    @inbounds for k in 1:K_max
+        v = exp(log_posts[k] - max_lp)
+        log_posts[k] = v
+        total += v
+    end
+
+    u = rand() * total
+    K_new = K_max
+    cumsum_p = 0.0
+    @inbounds for k in 1:K_max
+        cumsum_p += log_posts[k]
+        if u < cumsum_p
+            K_new = k
+            break
+        end
+    end
+
+    K_new == K && return false, :split
+
+    # Save state for potential rollback
     _save_rollback!(state)
+    old_n_active = K
+    old_len = length(state.clusters)
 
-    old_log_post = _collapsed_log_posterior(state, N, μ, shape, λ_K, β)
+    # Compute spatial LML before the move
+    lml_before = _total_spatial_lml(state)
 
-    # Pick random seed loc
-    seed_idx = rand(1:N)
-    seed_lp = loc_precs[seed_idx]
-    old_cluster = state.assignments[seed_idx]
-
-    # Remove seed from its current cluster
-    if old_cluster > 0 && state.active[old_cluster]
-        state.clusters[old_cluster] = remove_loc(state.clusters[old_cluster], seed_lp)
-        if state.clusters[old_cluster].n == 0
-            _deactivate_cluster!(state, old_cluster)
-        end
-    end
-
-    # Create new cluster with seed
-    new_slot = _find_inactive_slot(state)
-    cs_new = add_loc(ClusterStats(), seed_lp)
-    _activate_cluster!(state, new_slot, cs_new)
-    state.assignments[seed_idx] = Int16(new_slot)
-
-    # Recruit nearby locs (within 5σ of seed)
-    seed_x = seed_lp.x
-    seed_y = seed_lp.y
-    radius = 5 * seed_lp.σ
-    log_q_forward = 0.0
-
-    @inbounds for i in 1:N
-        i == seed_idx && continue
-        lp_i = loc_precs[i]
-        dx = lp_i.x - seed_x
-        dy = lp_i.y - seed_y
-        d = sqrt(dx^2 + dy^2)
-        d > radius && continue
-
-        # Compute predictive for new cluster vs current cluster
-        current_slot = state.assignments[i]
-        cs_current = (current_slot > 0 && state.active[current_slot]) ?
-                     state.clusters[current_slot] : ClusterStats()
-        cs_new_with = state.clusters[new_slot]
-
-        log_p_new = log_predictive(cs_new_with, lp_i, state.log_area)
-        log_p_old = log_predictive(cs_current, lp_i, state.log_area)
-
-        # Probability of moving to new cluster
-        max_lp = max(log_p_new, log_p_old)
-        p_new = exp(log_p_new - max_lp)
-        p_old = exp(log_p_old - max_lp)
-        prob_move = p_new / (p_new + p_old)
-
-        if rand() < prob_move
-            # Move loc to new cluster
-            if current_slot > 0 && state.active[current_slot]
-                state.clusters[current_slot] = remove_loc(state.clusters[current_slot], lp_i)
-                if state.clusters[current_slot].n == 0
-                    _deactivate_cluster!(state, current_slot)
-                end
-            end
-            state.clusters[new_slot] = add_loc(state.clusters[new_slot], lp_i)
-            state.assignments[i] = Int16(new_slot)
-            log_q_forward += log(prob_move)
-        else
-            log_q_forward += log(1 - prob_move)
-        end
-    end
-
-    new_log_post = _collapsed_log_posterior(state, N, μ, shape, λ_K, β)
-
-    # Compute reverse proposal probability (block death of new cluster)
-    K_new = state.n_active
-    log_q_reverse = -log(Float64(K_new))
-
-    log_acceptance = (new_log_post - old_log_post) + (log_q_reverse - log_q_forward)
-
-    if log(rand()) < log_acceptance
-        return true
+    # Execute heuristic split or merge
+    move_type = K_new > K ? :split : :merge
+    if K_new > K
+        _add_clusters!(state, locs, K_new - K)
     else
+        _remove_clusters!(state, locs, K - K_new)
+    end
+
+    # Mini Gibbs relaxation: let the allocation settle spatially before
+    # evaluating the MH acceptance. Without this, the heuristic split/merge
+    # creates a random allocation that has terrible spatial LML, causing
+    # the MH to reject even correct K changes.
+    for _ in 1:5
+        gibbs_allocation_sweep!(state, locs, μ, shape, λ_K, β)
+    end
+
+    # Compute spatial LML after the move + relaxation
+    lml_after = _total_spatial_lml(state)
+
+    # Area-invariant spatial fit improvement:
+    # Cancel the -log(A) per cluster by adding ΔK × log(A)
+    ΔK = state.n_active - old_n_active
+    Δ_fit = (lml_after - lml_before) + ΔK * state.log_area
+
+    # MH acceptance on spatial correction (count terms already in proposal)
+    if Δ_fit >= 0 || rand() < exp(Δ_fit)
+        return true, move_type
+    else
+        # Reject: restore state
         _restore_rollback!(state, old_n_active, old_len)
-        return false
+        return false, move_type
     end
 end
 
-# ============================================================================
-# Block death move
-# ============================================================================
-
 """
-    propose_block_death!(state, locs, μ, shape, λ_K, β) -> Bool
+    _add_clusters!(state, locs, n_add)
 
-Block death: pick a random active cluster (K > 1), redistribute its locs
-to remaining clusters via predictive. MH accept/reject.
+Add n_add clusters by repeatedly splitting the largest active cluster.
+Each split takes half the locs (by random selection) into a new cluster.
 """
-function propose_block_death!(state::CollapsedState,
-                               locs::Vector{<:SMLMData.AbstractEmitter},
-                               μ::Float64, shape::Float64, λ_K::Float64,
-                               β::Float64)
-    K = state.n_active
-    K <= 1 && return false
-
-    N = length(locs)
+function _add_clusters!(state::CollapsedState,
+                         locs::Vector{<:SMLMData.AbstractEmitter},
+                         n_add::Int)
     loc_precs = state._loc_precs
+    N = length(locs)
 
-    # Save state for rollback (into pre-allocated buffers)
-    old_len = length(state.clusters)
-    old_n_active = state.n_active
-    _save_rollback!(state)
-
-    old_log_post = _collapsed_log_posterior(state, N, μ, shape, λ_K, β)
-
-    # Pick random active cluster to kill (use workspace to avoid findall)
-    active_slots = state._active_slots
-    n_active = 0
-    @inbounds for j in eachindex(state.active)
-        if state.active[j]
-            n_active += 1
-            active_slots[n_active] = j
-        end
-    end
-    kill_slot = active_slots[rand(1:K)]
-
-    # Forward proposal: choosing this cluster to kill (1/K)
-    log_q_forward = -log(Float64(K))
-
-    # Deactivate the cluster
-    _deactivate_cluster!(state, kill_slot)
-
-    # Collect remaining active slots into workspace
-    K_remaining = state.n_active
-    n_remaining = 0
-    @inbounds for j in eachindex(state.active)
-        if state.active[j]
-            n_remaining += 1
-            active_slots[n_remaining] = j
-        end
-    end
-
-    # Redistribute locs in killed cluster via predictive (DM weights)
-    log_q_redistribute = 0.0
-    log_probs = state._log_probs
-    α_dm_remaining = β / K_remaining  # DM concentration for remaining clusters
-
-    @inbounds for loc_idx in 1:N
-        state._rollback_assignments[loc_idx] == kill_slot || continue
-        lp_i = loc_precs[loc_idx]
-
-        # Compute predictive for each remaining cluster (in-place, DM weights)
-        for i in 1:n_remaining
-            slot = active_slots[i]
-            log_probs[i] = log_predictive(state.clusters[slot], lp_i, state.log_area) +
-                           log(Float64(state.clusters[slot].n) + α_dm_remaining)
-        end
-
-        # In-place log-sum-exp → probabilities
-        max_lp = log_probs[1]
-        for i in 2:n_remaining
-            if log_probs[i] > max_lp
-                max_lp = log_probs[i]
+    for _ in 1:n_add
+        # Find the largest active cluster
+        best_slot = 0
+        best_n = 0
+        @inbounds for j in eachindex(state.active)
+            if state.active[j] && state.clusters[j].n > best_n
+                best_n = Int(state.clusters[j].n)
+                best_slot = j
             end
         end
-        total = 0.0
-        for i in 1:n_remaining
-            v = exp(log_probs[i] - max_lp)
-            log_probs[i] = v
-            total += v
-        end
-        inv_total = 1.0 / total
+        best_n < 2 && break  # Can't split a cluster with fewer than 2 locs
 
-        # Sample from categorical
-        u = rand()
-        cumsum_p = 0.0
-        chosen = n_remaining
-        for i in 1:n_remaining
-            cumsum_p += log_probs[i] * inv_total
-            if u < cumsum_p
-                chosen = i
-                break
+        # Collect loc indices in this cluster
+        new_slot = _find_inactive_slot(state)
+        new_cs = ClusterStats()
+        n_moved = 0
+        target = best_n ÷ 2
+
+        # Move approximately half the locs to the new cluster (random selection)
+        @inbounds for loc_idx in 1:N
+            state.assignments[loc_idx] == best_slot || continue
+            if n_moved < target && rand() < 0.5
+                lp = loc_precs[loc_idx]
+                state.clusters[best_slot] = remove_loc(state.clusters[best_slot], lp)
+                new_cs = add_loc(new_cs, lp)
+                state.assignments[loc_idx] = Int16(new_slot)
+                n_moved += 1
             end
         end
 
-        target_slot = active_slots[chosen]
-        state.clusters[target_slot] = add_loc(state.clusters[target_slot], lp_i)
-        state.assignments[loc_idx] = Int16(target_slot)
-        log_q_redistribute += log(log_probs[chosen] * inv_total)
+        # Ensure we moved at least 1 loc
+        if n_moved == 0
+            @inbounds for loc_idx in 1:N
+                if state.assignments[loc_idx] == best_slot
+                    lp = loc_precs[loc_idx]
+                    state.clusters[best_slot] = remove_loc(state.clusters[best_slot], lp)
+                    new_cs = add_loc(new_cs, lp)
+                    state.assignments[loc_idx] = Int16(new_slot)
+                    break
+                end
+            end
+        end
+
+        _activate_cluster!(state, new_slot, new_cs)
     end
+end
 
-    new_log_post = _collapsed_log_posterior(state, N, μ, shape, λ_K, β)
+"""
+    _remove_clusters!(state, locs, n_remove)
 
-    log_acceptance = (new_log_post - old_log_post) + (log_q_forward - log_q_redistribute)
+Remove n_remove clusters by merging the smallest active cluster into its
+nearest neighbor (by posterior mean distance).
+"""
+function _remove_clusters!(state::CollapsedState,
+                            locs::Vector{<:SMLMData.AbstractEmitter},
+                            n_remove::Int)
+    loc_precs = state._loc_precs
+    N = length(locs)
 
-    if log(rand()) < log_acceptance
-        return true
-    else
-        _restore_rollback!(state, old_n_active, old_len)
-        return false
+    for _ in 1:n_remove
+        state.n_active <= 1 && break
+
+        # Find the smallest active cluster
+        small_slot = 0
+        small_n = typemax(Int)
+        @inbounds for j in eachindex(state.active)
+            if state.active[j] && state.clusters[j].n < small_n
+                small_n = Int(state.clusters[j].n)
+                small_slot = j
+            end
+        end
+
+        # Find the nearest other active cluster (by posterior mean)
+        sx, sy = if small_n > 0
+            posterior_mean(state.clusters[small_slot])
+        else
+            0.0, 0.0
+        end
+
+        merge_slot = 0
+        min_dist = Inf
+        @inbounds for j in eachindex(state.active)
+            j == small_slot && continue
+            state.active[j] || continue
+            mx, my = posterior_mean(state.clusters[j])
+            d = (mx - sx)^2 + (my - sy)^2
+            if d < min_dist
+                min_dist = d
+                merge_slot = j
+            end
+        end
+
+        # Move all locs from small_slot to merge_slot
+        @inbounds for loc_idx in 1:N
+            if state.assignments[loc_idx] == small_slot
+                lp = loc_precs[loc_idx]
+                state.clusters[small_slot] = remove_loc(state.clusters[small_slot], lp)
+                state.clusters[merge_slot] = add_loc(state.clusters[merge_slot], lp)
+                state.assignments[loc_idx] = Int16(merge_slot)
+            end
+        end
+        _deactivate_cluster!(state, small_slot)
     end
 end
 

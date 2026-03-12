@@ -160,6 +160,7 @@ function _run_bagol_collapsed(
 
     # Global μ, shape (shared across partitions)
     μ = μ_prior_shape * μ_prior_scale
+    μ₀ = μ  # Fixed μ for split-merge acceptance (decouples K from μ adaptation)
     current_shape = shape
 
     # Initialize archive if requested
@@ -176,8 +177,7 @@ function _run_bagol_collapsed(
     # Per-partition acceptance tracking
     _zero() = (0, 0)
     partition_acceptance = [Dict{Symbol, Tuple{Int, Int}}(
-        :gibbs_sweep => _zero(), :block_birth => _zero(),
-        :block_death => _zero(), :split => _zero(), :merge => _zero()
+        :gibbs_sweep => _zero(), :split => _zero(), :merge => _zero()
     ) for _ in 1:n_partitions]
 
     β = dm_concentration
@@ -188,7 +188,7 @@ function _run_bagol_collapsed(
                 states[i], partitions[i].locs, sync_interval,
                 μ, current_shape, λ_K_i, β,
                 partition_accumulators[i], burn_in, iter_counters[i];
-                acceptance=partition_acceptance[i]
+                acceptance=partition_acceptance[i], μ₀=μ₀
             )
         end
 
@@ -221,7 +221,7 @@ function _run_bagol_collapsed(
                 states[i], partitions[i].locs, remaining,
                 μ, current_shape, λ_K_i, β,
                 partition_accumulators[i], burn_in, iter_counters[i];
-                acceptance=partition_acceptance[i]
+                acceptance=partition_acceptance[i], μ₀=μ₀
             )
         end
     end
