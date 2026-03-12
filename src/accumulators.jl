@@ -316,3 +316,91 @@ accumulator_result(acc::PartitionSamples) = acc.samples
 function accumulator_merge!(target::PartitionSamples, source::PartitionSamples)
     # Partition samples from different partitions can't be merged
 end
+
+# ============================================================================
+# PSMAccumulator — Posterior Similarity Matrix for partition estimation
+# ============================================================================
+
+"""
+    PSMAccumulator
+
+Accumulates the Posterior Similarity Matrix (PSM) during the MCMC chain.
+C[i,j] = fraction of post-burn-in iterations where locs i and j are
+co-assigned to the same cluster.
+
+Uses cluster-based iteration for efficiency: O(Σ n_k²) per iteration
+rather than O(N²), since only locs in the same cluster contribute.
+
+Result: (psm=Matrix{Float64}, n_samples=Int)
+"""
+mutable struct PSMAccumulator <: AbstractAccumulator
+    counts::Matrix{UInt32}   # Upper-triangular co-assignment counts
+    n_samples::Int           # Number of iterations accumulated
+    n_locs::Int              # Set on first update
+    _members::Vector{Int}    # Workspace: cluster member indices
+end
+
+PSMAccumulator() = PSMAccumulator(zeros(UInt32, 0, 0), 0, 0, Int[])
+
+function accumulator_update!(acc::PSMAccumulator, state::CollapsedState,
+                             locs::Vector{<:SMLMData.AbstractEmitter},
+                             μ::Float64, shape::Float64, iter::Int)
+    n = length(locs)
+
+    # Initialize on first call
+    if acc.n_locs == 0
+        acc.n_locs = n
+        acc.counts = zeros(UInt32, n, n)
+        sizehint!(acc._members, n)
+    end
+
+    # Iterate active clusters, collect members, increment pairs
+    @inbounds for (j, cs) in enumerate(state.clusters)
+        state.active[j] || continue
+        cs.n == 0 && continue
+
+        # Collect member indices for this cluster
+        empty!(acc._members)
+        for i in 1:n
+            if state.assignments[i] == j
+                push!(acc._members, i)
+            end
+        end
+
+        # Increment co-assignment counts for all pairs in this cluster
+        nm = length(acc._members)
+        for a in 1:nm
+            ia = acc._members[a]
+            acc.counts[ia, ia] += UInt32(1)  # diagonal
+            for b in (a+1):nm
+                ib = acc._members[b]
+                acc.counts[ia, ib] += UInt32(1)
+            end
+        end
+    end
+
+    acc.n_samples += 1
+end
+
+function accumulator_result(acc::PSMAccumulator)
+    n = acc.n_locs
+    if n == 0 || acc.n_samples == 0
+        return (psm=zeros(0, 0), n_samples=0)
+    end
+    # Build symmetric normalized PSM from upper triangle
+    psm = zeros(Float64, n, n)
+    inv_t = 1.0 / acc.n_samples
+    @inbounds for i in 1:n
+        psm[i, i] = 1.0
+        for j in (i+1):n
+            v = Float64(acc.counts[i, j]) * inv_t
+            psm[i, j] = v
+            psm[j, i] = v
+        end
+    end
+    return (psm=psm, n_samples=acc.n_samples)
+end
+
+function accumulator_merge!(target::PSMAccumulator, source::PSMAccumulator)
+    # PSM from different partitions can't be merged (different loc sets)
+end
