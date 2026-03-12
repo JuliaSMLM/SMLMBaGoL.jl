@@ -66,8 +66,8 @@ Run the collapsed Gibbs sampler on a set of localizations.
 
 # Move distribution
 - 50%: Allocation Gibbs sweep (full sweep per iteration)
-- 25%: Block birth
-- 25%: Block death
+- 25%: Split (K → K+1, restricted Gibbs scan)
+- 25%: Merge (K → K-1, uniform pair selection)
 """
 function run_collapsed_chain(
     locs::Vector{<:SMLMData.AbstractEmitter};
@@ -97,6 +97,7 @@ function run_collapsed_chain(
     state = initialize_collapsed_state(locs, spatial_prior)
 
     μ = μ_prior_shape * μ_prior_scale  # Initial μ from prior mean
+    μ₀ = μ  # Fixed μ for split-merge acceptance (decouples K from μ adaptation)
     if isnan(λ_K)
         λ_K = Float64(N) / μ
     end
@@ -104,8 +105,8 @@ function run_collapsed_chain(
 
     acceptance = Dict{Symbol, Tuple{Int, Int}}(
         :gibbs_sweep => (0, 0),
-        :block_birth => (0, 0),
-        :block_death => (0, 0),
+        :split => (0, 0),
+        :merge => (0, 0),
     )
 
     config_nt = (
@@ -124,16 +125,11 @@ function run_collapsed_chain(
             gibbs_allocation_sweep!(state, locs, μ, current_shape, λ_K, β)
             prev = acceptance[:gibbs_sweep]
             acceptance[:gibbs_sweep] = (prev[1] + 1, prev[2] + 1)
-        elseif r < 0.75
-            # Block birth
-            accepted = propose_block_birth!(state, locs, μ, current_shape, λ_K, β)
-            prev = acceptance[:block_birth]
-            acceptance[:block_birth] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
         else
-            # Block death
-            accepted = propose_block_death!(state, locs, μ, current_shape, λ_K, β)
-            prev = acceptance[:block_death]
-            acceptance[:block_death] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
+            # Jain-Neal split-merge — use fixed μ₀ to prevent μ-K feedback loop
+            accepted, move_type = propose_split_merge!(state, locs, μ₀, current_shape, λ_K, β)
+            prev = acceptance[move_type]
+            acceptance[move_type] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
         end
 
         # Hierarchical updates
@@ -196,7 +192,8 @@ function run_collapsed_iterations!(
     accumulators::Vector{<:AbstractAccumulator},
     burn_in::Int,
     current_iter::Int;
-    acceptance::Union{Dict{Symbol, Tuple{Int, Int}}, Nothing}=nothing
+    acceptance::Union{Dict{Symbol, Tuple{Int, Int}}, Nothing}=nothing,
+    μ₀::Float64=μ  # Fixed μ for split-merge (default: same as adaptive μ)
 )
     for _ in 1:n
         current_iter += 1
@@ -208,17 +205,11 @@ function run_collapsed_iterations!(
                 prev = acceptance[:gibbs_sweep]
                 acceptance[:gibbs_sweep] = (prev[1] + 1, prev[2] + 1)
             end
-        elseif r < 0.75
-            accepted = propose_block_birth!(state, locs, μ, shape, λ_K, β)
-            if acceptance !== nothing
-                prev = acceptance[:block_birth]
-                acceptance[:block_birth] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
-            end
         else
-            accepted = propose_block_death!(state, locs, μ, shape, λ_K, β)
+            accepted, move_type = propose_split_merge!(state, locs, μ₀, shape, λ_K, β)
             if acceptance !== nothing
-                prev = acceptance[:block_death]
-                acceptance[:block_death] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
+                prev = acceptance[move_type]
+                acceptance[move_type] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
             end
         end
 

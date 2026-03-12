@@ -85,7 +85,7 @@ precision (Fazel et al. 2022).
 | rho | Emitter spatial intensity (emitters per unit area) |
 | |R| | Scalar area of the spatial prior region R (rectangular) |
 | mu | Mean localizations per emitter |
-| alpha | Gamma shape parameter for count distribution |
+| alpha | NegBin shape parameter for count distribution |
 
 **Notation convention:** R denotes the spatial prior region (a rectangle), and
 |R| denotes its scalar area. When we write "area A" informally, we mean |R|.
@@ -117,70 +117,76 @@ For K emitters (i.i.d.):
 
     P(theta_{1:K} | R) = |R|^{-K}
 
-### 2.3 Count Prior (Gamma)
+### 2.3 Count Model (Negative Binomial)
 
-The total number of localizations N, given K emitters, follows a Gamma distribution
-(Fazel et al. 2022):
+**NegBin parameterization:** We use the (r, p) parameterization where:
 
-    N | K, mu, alpha ~ Gamma(K * alpha, mu / alpha)
+    NegBin(n; r, p) = Gamma(n + r) / (Gamma(r) * n!) * p^r * (1-p)^n
+
+with E[n] = r(1-p)/p and Var[n] = r(1-p)/p^2.
+
+Each emitter independently generates a random number of localizations. The
+physical model:
+
+    lambda_k ~ Gamma(alpha, mu/alpha)      (latent blinking intensity)
+    n_k | lambda_k ~ Poisson(lambda_k)     (observed count)
+
+Marginalizing over lambda_k gives:
+
+    n_k | mu, alpha ~ NegBin(alpha, p)     where p = alpha / (alpha + mu)
+
+with:
+- E[n_k] = mu
+- Var[n_k] = mu * (1 + mu/alpha)
+- alpha = 1: geometric (dSTORM)
+- alpha > 1: peaked (DNA-PAINT)
+- alpha -> infinity: Poisson(mu)
+
+The total count N = sum_k n_k follows NegBin(K*alpha, p), since independent
+NegBin random variables with the same p have a NegBin sum.
+
+### 2.4 Model Factorization: Decoupled K and Z
+
+The sampler uses a **decoupled** factorization that separates emitter counting
+(K) from spatial assignment (Z|K):
+
+    P(K, Z | D) propto P(K) * P(N | K) * P(Z | K) * prod_k P(D_k | R)
 
 where:
-- E[N] = K * mu
-- Var[N] = K * mu^2 / alpha
-- alpha = 1: exponential (dSTORM)
-- alpha > 1: peaked (DNA-PAINT)
-- alpha -> infinity: delta function at K * mu
+- **P(K)**: Poisson prior (Section 2.1)
+- **P(N | K)**: Total count model NegBin(N; K*alpha, p) — determines K
+- **P(Z | K)**: Flat allocation prior — all Z with K non-empty groups equally likely
+- **P(D_k | R)**: Spatial marginal likelihood (Section 3) — determines Z given K
 
-### 2.4 Allocation Prior (Dirichlet-Multinomial)
+**Why decoupled?** A fully coupled model would include per-emitter count factors
+c(n_k) = NegBin(n_k; alpha, p) in the Gibbs conditional for Z. However, this
+creates a count-ratio weight R(n) = c(n+1)/c(n) = (n+alpha)/(n+1) * mu/(alpha+mu)
+that interacts problematically with the spatial likelihood:
 
-The allocation vector Z assigns N localizations to K components (where K is
-controlled by the Poisson prior in Section 2.1). Conditional on K, we place a
-symmetric Dirichlet-Multinomial (DM) prior on the allocations:
+- For **separated emitters**: spatial evidence already separates clusters correctly;
+  the count ratio adds little information but introduces bias.
+- For **co-located emitters**: the count ratio is the only signal (spatial evidence
+  is identical across clusters). But the count ratio is only weakly informative
+  (modest O(1) differences between clusters), while the Occam factor from the
+  spatial marginal likelihood creates a ~10.6 nat penalty per split that dominates.
 
-    pi | K, beta ~ Dirichlet(beta/K, ..., beta/K)   (K-dimensional)
-    z_i | pi     ~ Categorical(pi)
+The decoupled approach resolves this by letting the count model operate at the
+K level (where it has full N to work with) and letting the spatial model operate
+at the Z level (where it has positional information). The two are connected
+through the split/merge mechanism that adjusts both K and Z simultaneously.
 
-Integrating out the mixing weights pi gives the collapsed DM:
+**Flat allocation prior:** With P(Z|K) flat, the Gibbs conditional is purely
+spatial:
 
-    P(Z | K, beta) = Gamma(beta) / Gamma(N + beta)
-                     * prod_k Gamma(n_k + beta/K) / Gamma(beta/K)^K
+    P(z_i = k | Z_{-i}, K, D) propto P(d_i | D_k^{-i})
 
-or equivalently:
+This is the spatial predictive probability — how well localization i fits the
+spatial cluster k. No count weights appear in the sweep.
 
-    log P(Z | K, beta) = logGamma(beta) - K * logGamma(beta/K)
-                        + sum_k logGamma(n_k + beta/K) - logGamma(N + beta)
-
-where n_k = |{i : z_i = k}| is the number of localizations in cluster k.
-
-**Why DM, not CRP:** The CRP is a prior over partitions that induces its own
-implicit prior on K (the number of occupied tables). This conflicts with
-the explicit Poisson prior on K (Section 2.1) and the Gamma count prior
-(Section 2.3), creating an incoherent model with two competing priors on K.
-The DM cleanly separates roles:
-- P(K): Poisson prior controls how many emitters
-- P(Z|K,beta): DM controls allocation balance given K
-- P(N|K,mu,alpha): count prior controls blinking statistics
-
-**Gibbs conditional (DM predictive rule):** When reassigning localization i
-(removed from its current cluster), K is held fixed and the conditional is:
-
-    P(z_i = k | Z_{-i}, K) propto (n_k^{-i} + beta/K) * P(d_i | D_k^{-i})
-
-for k = 1, ..., K (all K components, including any that are currently empty).
-Unlike the CRP, there is no "new cluster" option — K changes only through
-birth/death moves (Section 5).
-
-**Default beta = 1:** With beta = 1, the per-component concentration is 1/K.
-This gives mild preference for balanced allocations without strongly constraining
-cluster sizes. The DM smoothing term beta/K decreases as K grows, naturally
-discouraging proliferation of near-empty components.
-
-**Empty clusters during Gibbs sweep:** An empty cluster (n_k = 0) has allocation
-weight beta/K in the DM conditional. Its predictive likelihood is the prior
-predictive (uniform over R). This makes it unlikely but not impossible for locs
-to be assigned to an empty cluster. After each Gibbs sweep, any clusters that
-remain empty are deactivated (K decreases), so empty clusters are transient
-artifacts that birth/death moves resolve.
+**Consistency:** The marginal P(N|K) = NegBin(N; K*alpha, p) is the correct
+total count distribution. It provides counting information at the K level
+without imposing per-cluster count preferences that would conflict with the
+spatial evidence.
 
 ---
 
@@ -240,17 +246,23 @@ clusters where data is interior to the partition.
 
 ### 3.2 Full Collapsed Log Posterior
 
+Under the decoupled factorization (Section 2.4):
+
     log P(K, Z | data) = log P(K | rho, |R|)              ... Poisson prior on K
-                        + log P(Z | K, beta)                ... Dirichlet-Multinomial allocation
-                        + log P(N | K, mu, alpha)            ... Gamma count prior
-                        + sum_{k=1}^{K} log P(D_k | R)      ... marginal likelihoods
+                        + log P(N | K, mu, alpha)           ... total count model
+                        + sum_{k=1}^{K} log P(D_k | R)     ... spatial marginal likelihoods
+                        + const                             ... terms independent of K, Z
 
-The DM allocation prior contributes:
+where P(N | K) = NegBin(N; K*alpha, p) with p = alpha/(alpha+mu).
 
-    log P(Z | K, beta) = logGamma(beta) - K * logGamma(beta/K)
-                        + sum_k logGamma(n_k + beta/K) - logGamma(N + beta)
+**Key difference from per-emitter formulation:** The per-emitter model would
+include sum_k log c(n_k) instead of log P(N|K). These are related:
 
-This term depends on the partition sizes {n_k} and K but is independent of |R|.
+    sum_k log c(n_k) = log P(N|K) + log [N! / prod_k n_k!] + log [P(N|K)^{-1} * prod_k c(n_k)]
+
+The per-emitter form carries more information (it distinguishes partitions of N),
+but it creates the problems described in Section 2.4 when used in the Gibbs sweep.
+The total count model retains the K-dependence while being partition-invariant.
 
 Expanding the |R|-dependent terms from the Poisson prior and marginal likelihoods:
 
@@ -261,8 +273,6 @@ Expanding the |R|-dependent terms from the Poisson prior and marginal likelihood
 The remaining |R|-dependent term is `-rho * |R|` from the Poisson normalizer.
 This is independent of K and does not affect model selection between different
 K values (see Section 4).
-
-**Implementation:** `_collapsed_log_posterior(state, N, mu, shape, lambda_K, beta)` in `src/collapsed_moves.jl`
 
 ---
 
@@ -338,26 +348,33 @@ for BaGoL's primary output (MAP-N).
 
 ---
 
-## 5. Collapsed Gibbs Moves
+## 5. MCMC Moves
 
-### 5.1 Gibbs Allocation Sweep
+The sampler alternates between two move types: Gibbs allocation sweeps (which
+adjust Z at fixed K) and direct K sampling (which changes K using the count model).
+
+### 5.1 Gibbs Allocation Sweep (K fixed)
 
 For each localization i (random order), remove from current cluster, then sample
-new assignment from the Dirichlet-Multinomial conditional (K held fixed):
+new assignment from the spatial predictive:
 
-    P(z_i = k | Z_{-i}, K, data) propto (n_k^{-i} + beta/K) * P(d_i | D_k^{-i})
+    P(z_i = k | Z_{-i}, K, data) propto P(d_i | D_k^{-i})
 
-for k = 1, ..., K (all K active components, including any that are empty).
+for k = 1, ..., K (all K active components).
 
 where:
 - n_k^{-i} = size of cluster k after removing loc i
-- beta/K = DM smoothing term (per-component concentration)
 - P(d_i | D_k^{-i}) = predictive probability for loc i given cluster k's data
 
-There is no "new cluster" option — K changes only through block birth/death moves.
-If a cluster empties during the sweep, it persists with allocation weight beta/K
-and prior predictive likelihood. After the sweep completes, any empty clusters
-are deactivated (K decreases).
+**No count weights in the Gibbs sweep.** Under the decoupled model (Section 2.4),
+the allocation prior P(Z|K) is flat, so the conditional depends only on the
+spatial predictive. The count model affects K (via direct K sampling) but not
+the within-K allocation.
+
+**Sole occupants are skipped** to maintain K during the sweep. If loc i is the
+only member of its cluster, removing it would reduce K. Since K changes are
+handled by the direct K sampling move, the sweep preserves K by skipping sole
+occupants.
 
 **Predictive probability:**
 
@@ -371,43 +388,95 @@ P(d_i | empty) = 1/|R| (single-loc marginal likelihood under uniform prior).
 
 **Implementation:** `gibbs_allocation_sweep!()` in `src/collapsed_moves.jl`
 
-### 5.2 Block Birth
+### 5.2 Direct K Sampling with Spatial MH Correction (trans-dimensional)
 
-1. Pick random seed localization
-2. Create new cluster with seed
-3. Recruit nearby locs (within 5*sigma) via predictive comparison
-4. Accept/reject via MH:
+K proposals are drawn from the count-model posterior:
 
-    log alpha = [log P(K', Z' | data) - log P(K, Z | data)]
-                + [log q_reverse - log q_forward]
+    pi_count(K) propto P(K) * P(N | K, mu_0, alpha)
 
-where q_forward is the product of individual recruitment decisions (each loc's
-probability of moving or staying), and q_reverse = 1/K' (probability of selecting
-the new cluster for death).
+where P(K) = Poisson(K; lambda_K) and P(N|K) = NegBin(N; K*alpha, p) with
+p = alpha/(alpha+mu_0). A spatial Metropolis-Hastings correction then
+accepts or rejects based on the spatial fit improvement.
 
-**Implementation:** `propose_block_birth!()` in `src/collapsed_moves.jl`
+**Algorithm:**
+1. Evaluate log pi_count(K) for K = 1, ..., K_max
+2. Sample K_new from this distribution
+3. If K_new = K_current: no change
+4. Execute heuristic split/merge to adjust the allocation
+5. Run 5 Gibbs allocation sweeps (mini relaxation)
+6. Compute area-invariant spatial MH acceptance (see below)
+7. Accept or reject (rollback on rejection)
 
-### 5.3 Block Death
+**Splitting (adding clusters):** The largest active cluster is split by randomly
+assigning ~half its locs to a new cluster.
 
-1. Pick random active cluster uniformly (requires K > 1)
-2. Redistribute all its locs to remaining clusters via predictive
-3. Accept/reject via MH:
+**Merging (removing clusters):** The smallest active cluster is merged into its
+nearest neighbor (by posterior mean distance).
 
-    log alpha = [log P(K', Z' | data) - log P(K, Z | data)]
-                + [log q_forward - log q_redistribute]
+**Mini Gibbs relaxation (step 5):** The heuristic split creates a random spatial
+allocation with poor spatial LML. Running 5 Gibbs sweeps before the MH
+evaluation lets locs migrate to spatially correct clusters. Without this, the
+MH step would reject even correct splits because the proposal allocation is
+spatially random. The sweeps do not change K.
 
-where q_forward = 1/K (uniform cluster selection) and q_redistribute is the
-product of individual reassignment probabilities.
+**Area-invariant spatial MH correction (step 6):**
 
-**Implementation:** `propose_block_death!()` in `src/collapsed_moves.jl`
+The spatial marginal likelihood per cluster includes a -log(A) term from the
+uniform position prior. Under a spatial Poisson process prior on emitter
+positions, P(K) propto (lambda_spatial * A)^K / K!, the +K*log(A) in the
+K prior exactly cancels the -K*log(A) from the position integrals, making
+the formulation area-invariant (see Section 5.2.1).
 
-### 5.4 Move Distribution
+The MH acceptance ratio is:
+
+    log alpha = Delta_fit = [sum log ML(new) - sum log ML(old)] + DeltaK * log(A)
+
+where DeltaK = K_new - K_old and +DeltaK*log(A) is the area cancellation.
+
+**Properties of Delta_fit:**
+- Co-located emitters (d=0): Delta_fit ~ 0 (neutral). K inference is purely
+  count-driven, equivalent to Q-PAINT. The spatial term neither helps nor
+  penalizes splits.
+- Separated emitters (d >> sigma): Delta_fit > 0 for correct splits. Spatial
+  structure provides genuine evidence beyond count data, beating Q-PAINT.
+- The spatial MH can only improve K inference relative to count-only: it never
+  penalizes splits that Q-PAINT would accept (because the spatial term is
+  non-negative for well-separated emitters and neutral for co-located ones).
+
+### 5.2.1 Why Area Cancellation Is Necessary
+
+Each cluster's marginal likelihood includes -log(A) from the uniform position
+prior (integrating out the emitter position over area A):
+
+    log ML(cluster) = -log(A) + log integral prod_i N(d_i; theta, Sigma_i) d(theta)
+
+For a split (K -> K+1), the raw spatial ML difference is:
+
+    Delta_spatial = -log(A) + fit_improvement
+
+The -log(A) is a prior volume artifact, not spatial evidence: doubling the FOV
+would add -log(2) nats to every split, but the data hasn't changed. For
+co-located emitters (d=0), fit_improvement ~ 0, so the raw Delta_spatial
+would penalize every split by -log(A) regardless of the count evidence.
+
+The spatial Poisson process prior contributes +log(A) per new emitter,
+exactly canceling this artifact. What remains (fit_improvement) is the genuine
+spatial signal: zero for co-located emitters, positive for separated ones.
+
+**Fixed mu_0:** The count-model posterior uses a fixed mu_0 = mu_prior_shape *
+mu_prior_scale, NOT the adaptive mu that is updated during MCMC. This prevents
+a positive feedback loop where adaptive mu tracks K (mu ~ N/K), making the
+count model non-informative for K changes. With fixed mu_0, the count model
+provides a stable signal for K.
+
+**Implementation:** `propose_split_merge!()` in `src/collapsed_moves.jl`
+
+### 5.3 Move Distribution
 
 | Move | Probability | Type |
 |------|-------------|------|
 | Gibbs sweep | 50% | Exact (intra-model) |
-| Block birth | 25% | MH (trans-dimensional) |
-| Block death | 25% | MH (trans-dimensional) |
+| K sampling + spatial MH | 50% | Count proposal + spatial correction |
 
 ---
 
@@ -460,6 +529,10 @@ Acceptance ratio:
                 + [log Gamma(mu; alpha_prop, mu'/alpha_prop) - log Gamma(mu'; alpha_prop, mu/alpha_prop)]
 
 where the last line is the proposal ratio (asymmetric Gamma proposal).
+
+**Note:** The hierarchical update modifies the adaptive mu used in the count
+model for hierarchical estimation, but the direct K sampling uses the fixed
+mu_0. This decouples K mixing from mu adaptation.
 
 ### 7.2 Shape Parameter (alpha)
 
@@ -521,13 +594,80 @@ via Hungarian matching based on position proximity.
 
 ---
 
+## 10. Theoretical MAP-N Accuracy Limits
+
+### 10.1 Count-Model Limit for Co-Located Emitters
+
+When all K emitters share the same position, the spatial marginal likelihood
+provides no information about K — only the total count N is informative.
+The MAP-K estimate is:
+
+    MAP-K = argmax_k P(K=k) * P(N | K=k)
+
+The accuracy P(MAP-K = K_true) is limited by the NegBin count variance:
+
+    sigma_N = sqrt(K * mu * (mu + alpha) / alpha)
+
+For alpha=5, mu=20, the theoretical maximum MAP-N accuracy is:
+- K=1: ~84%
+- K=2: ~53%
+- K=4: ~39%
+- K=8: ~28%
+
+**No algorithm can exceed these limits** for co-located emitters using count
+information alone. The Q-PAINT validation (dev/validate_qpaint.jl) tests
+that the sampler achieves >= 80% of these theoretical limits.
+
+### 10.2 Why Accuracy Decreases with K
+
+The total count N ~ NegBin(K*alpha, p) has variance that grows linearly with K.
+The posterior P(K|N) becomes broader as K increases, making it harder to
+distinguish K from K+/-1. This is a fundamental property of the count model,
+not a sampler limitation.
+
+---
+
 ## Appendix A: Approximations and Their Validity
 
 | Approximation | Where | Condition for validity |
 |---------------|-------|-----------------------|
 | Phi_R ≈ 1 (truncation) | Section 3.1 | Posterior mean interior to R by several sigma |
-| Continuous Gamma for integer N | Section 2.3 | N > 5 (good for typical BaGoL data) |
-| DM with beta=1 | Section 2.4 | Mild preference for balanced allocations |
+| Flat allocation prior | Section 2.4 | Count model operates at K level, not per-cluster |
+| Heuristic split/merge for Z | Section 5.2 | 5-sweep Gibbs relaxation + spatial MH correction |
+| Fixed mu_0 for K sampling | Section 5.2 | Prevents mu-K positive feedback loop |
+
+## Appendix B: Alternative Formulations Considered
+
+### B.1 Per-Emitter Count Ratio in Gibbs Sweep
+
+An alternative formulation uses per-emitter count factors in the Gibbs conditional:
+
+    P(z_i = k | Z_{-i}, K) propto R(n_k^{-i}) * P(d_i | D_k^{-i})
+
+where R(n) = c(n+1)/c(n) = (n+alpha)/(n+1) * mu/(alpha+mu) is the NegBin
+count ratio. This is the correct Gibbs conditional for an occupancy-based
+model with prior P(n_1,...,n_K | K) = prod_k c(n_k).
+
+**Note on labeled allocations:** A sampler that updates individual z_i operates
+on labeled allocations, not occupancy vectors. The correct full conditional for
+labeled Z includes a multinomial factor, giving weight (n_k^{-i} + 1) * R(n_k^{-i})
+= (n_k^{-i} + alpha) * mu/(alpha+mu), which is increasing in n — a rich-get-richer
+dynamic incompatible with the self-regulating behavior intended.
+
+This approach was rejected because the spatial Occam factor (-1/2 log|Lambda_post|)
+dominated the count ratio, preventing K changes. This Occam factor is actually
+a prior volume artifact from the uniform position prior (-log(A) per cluster),
+not genuine spatial evidence against co-location. It is resolved by the
+area-invariant formulation (Section 5.2.1), but the decoupled K/Z model
+(Section 2.4) with count-only K proposal + spatial MH correction is cleaner.
+
+### B.2 Jain-Neal Split-Merge
+
+Standard Jain-Neal split-merge selects random localization pairs and proposes
+splits (if same cluster) or merges (if different clusters). At high K, random
+pairs are overwhelmingly from different clusters, so merges are proposed ~K
+times more often than splits. This asymmetry prevents the chain from reaching
+or sustaining high K values.
 
 ---
 

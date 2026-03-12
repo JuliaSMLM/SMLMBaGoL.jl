@@ -190,25 +190,26 @@ using Statistics
         Random.seed!(42)
 
         σ = 0.005
+        n_per = 10
         locs = SMLMData.Emitter2DFit[]
 
-        # Emitter 1 at (0.1, 0.1) — 5 locs
-        for i in 1:5
+        # Emitter 1 at (0.1, 0.1)
+        for i in 1:n_per
             x = 0.1 + randn() * σ
             y = 0.1 + randn() * σ
             push!(locs, SMLMData.Emitter2DFit(x, y, 1000.0, 10.0, σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, i))
         end
-        # Emitter 2 at (0.2, 0.2) — 5 locs
-        for i in 1:5
+        # Emitter 2 at (0.2, 0.2)
+        for i in 1:n_per
             x = 0.2 + randn() * σ
             y = 0.2 + randn() * σ
-            push!(locs, SMLMData.Emitter2DFit(x, y, 1000.0, 10.0, σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, i+5))
+            push!(locs, SMLMData.Emitter2DFit(x, y, 1000.0, 10.0, σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, i+n_per))
         end
 
         # Run with PartitionSamples accumulator
         ps_acc = PartitionSamples(thin=5)
         result = run_collapsed_chain(locs;
-            n_iterations=3000, burn_in=500,
+            n_iterations=5000, burn_in=1000,
             accumulators=AbstractAccumulator[ps_acc],
             verbose=false)
 

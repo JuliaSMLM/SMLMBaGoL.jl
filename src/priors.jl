@@ -81,47 +81,37 @@ function log_prior_k(k::Int, λ_K::Float64)
 end
 
 """
-Log prior on count for a single emitter using Gamma(shape, scale=μ/shape).
+Log NegBin PMF for a single emitter's count.
 
-Model: n_j ~ Gamma(shape, μ/shape)
-  - E[n_j] = μ
-  - Var[n_j] = μ²/shape
-  - CV[n_j] = 1/√shape
+Model: n_k ~ NegBin(α, p) where p = α/(α+μ)
+  - E[n_k] = μ
+  - Var[n_k] = μ(1 + μ/α)
+  - α=1: geometric (dSTORM)
+  - α>1: peaked (DNA-PAINT)
+  - α→∞: Poisson(μ)
 
-Physical interpretation:
-  - shape=1: Exponential (dSTORM - blink until bleach)
-  - shape>1: Peaked distribution (DNA-PAINT-like)
-  - shape→∞: Delta function at μ
-
-Note: Treating integer counts as continuous. Valid approximation for n > 5.
+Using Distributions.jl NegativeBinomial(r, p) parameterization:
+  r = α, p = α/(α+μ)
 """
-function log_prior_count(n::Int, μ::Float64, shape::Float64)
-    if n < 1  # Require at least 1 localization per emitter
+function log_negbin_pmf(n::Int, μ::Float64, α::Float64)
+    if n < 0
         return -Inf
     end
-    # Gamma(shape, scale) where scale = μ/shape
-    scale = μ / shape
-    dist = Gamma(shape, scale)
-    return logpdf(dist, Float64(n))
+    p = α / (α + μ)
+    return logpdf(NegativeBinomial(α, p), n)
 end
 
 """
-Log Dirichlet-Multinomial partition prior P(Z | K, β).
+Log count ratio R(n) = c(n+1)/c(n) for NegBin(α, p).
 
-For K components with symmetric Dirichlet(β/K, ..., β/K):
-    log P(Z|K,β) = logΓ(β) - K*logΓ(β/K) + Σ_k logΓ(n_k + β/K) - logΓ(N + β)
+    R(n) = (n + α) / (n + 1) × μ / (α + μ)
 
-This replaces the CRP partition prior. Unlike CRP, the DM does not induce its
-own prior on K — it only describes how N items are allocated among K given slots.
-K is controlled separately by the Poisson prior.
+Used in the Gibbs allocation sweep: P(z_i=k) ∝ R(n_k) × predictive_k.
+This replaces the DM weight (n_k + β/K) with a physically motivated weight
+that pushes cluster sizes toward μ.
 """
-function log_dm_partition(cluster_sizes, K::Int, N::Int, β::Float64)
-    α = β / K  # per-component concentration
-    lp = loggamma(β) - K * loggamma(α) - loggamma(N + β)
-    for n_k in cluster_sizes
-        lp += loggamma(n_k + α)
-    end
-    return lp
+function log_count_ratio(n::Int, μ::Float64, α::Float64)
+    return log((n + α) / (n + 1)) + log(μ / (α + μ))
 end
 
 """
@@ -130,8 +120,7 @@ Log prior on TOTAL count N given K emitters, using marginal distribution.
 From Fazel et al. (2022): P(K|ξ) ∝ Gamma(N; K*shape, μ/shape)
 
 The sum of K independent Gamma(shape, scale) variables is Gamma(K*shape, scale).
-This is the CORRECT prior that avoids the normalization bias from using
-individual count priors.
+This is a continuous approximation to the NegBin(K*α, p) total count.
 
 Model: N ~ Gamma(K*shape, μ/shape)
   - E[N] = K*μ
@@ -144,7 +133,6 @@ function log_prior_total_count(N::Int, K::Int, μ::Float64, shape::Float64)
     if K <= 0
         return -Inf
     end
-    # Sum of K Gamma(shape, scale) is Gamma(K*shape, scale)
     total_shape = K * shape
     scale = μ / shape
     dist = Gamma(total_shape, scale)
