@@ -11,6 +11,8 @@ examples/.vscode/
 dev/
 examples/output/
 
+.nfs*
+**/.nfs*
 **/.claude/settings.local.json
 .claude/code_review/
 .claude/local_memory/
