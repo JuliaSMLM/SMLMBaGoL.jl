@@ -29,7 +29,6 @@ n_j ~ Gamma(shape, μ/shape) where:
 - `burn_in=2000`: Burn-in iterations before recording
 - `shape=2.0`: Initial Gamma shape (1=exponential, higher=more peaked)
 - `learn_shape=true`: Whether to update shape during MCMC
-- `dm_concentration=1.0`: Dirichlet-Multinomial concentration parameter
 - `verbose=true`: Print progress
 
 # Posterior Image
@@ -62,12 +61,11 @@ function run_bagol(
     verbose::Bool = true,
     kwargs...
 )
-    dm_concentration = get(kwargs, :dm_concentration, 1.0)
     return _run_bagol_collapsed(smld;
         nsigma, min_partition_size, max_partition_size, skip_partition_size,
         sync_interval, n_iterations, burn_in, shape, learn_shape,
         posterior_pixel_size, posterior_xlim, posterior_ylim,
-        archive_path, dm_concentration, verbose, kwargs...)
+        archive_path, verbose, kwargs...)
 end
 
 # ============================================================================
@@ -89,7 +87,6 @@ function _run_bagol_collapsed(
     posterior_xlim::Union{Nothing, Tuple{Float64, Float64}} = nothing,
     posterior_ylim::Union{Nothing, Tuple{Float64, Float64}} = nothing,
     archive_path::Union{Nothing, String} = nothing,
-    dm_concentration::Float64 = 1.0,
     verbose::Bool = true,
     kwargs...
 )
@@ -185,13 +182,12 @@ function _run_bagol_collapsed(
         :gibbs_sweep => _zero(), :split => _zero(), :merge => _zero()
     ) for _ in 1:n_partitions]
 
-    β = dm_concentration
     for outer in 1:n_outer
         Threads.@threads for i in 1:n_partitions
             λ_K_i = get(kwargs, :λ_K, Float64(length(partitions[i].locs)) / μ)
             iter_counters[i] = run_collapsed_iterations!(
                 states[i], partitions[i].locs, sync_interval,
-                μ, current_shape, λ_K_i, β,
+                μ, current_shape, λ_K_i,
                 partition_accumulators[i], burn_in, iter_counters[i];
                 acceptance=partition_acceptance[i], μ₀=μ₀
             )
@@ -224,7 +220,7 @@ function _run_bagol_collapsed(
             λ_K_i = get(kwargs, :λ_K, Float64(length(partitions[i].locs)) / μ)
             iter_counters[i] = run_collapsed_iterations!(
                 states[i], partitions[i].locs, remaining,
-                μ, current_shape, λ_K_i, β,
+                μ, current_shape, λ_K_i,
                 partition_accumulators[i], burn_in, iter_counters[i];
                 acceptance=partition_acceptance[i], μ₀=μ₀
             )

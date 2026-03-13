@@ -59,7 +59,6 @@ Run the collapsed Gibbs sampler on a set of localizations.
 - `λ_K`: Prior mean for emitter count (default: N/μ)
 - `hierarchical_interval=100`: Iterations between μ/shape MH updates
 - `accumulators=AbstractAccumulator[]`: List of accumulators to update after burn-in
-- `dm_concentration=1.0`: Dirichlet-Multinomial concentration β
 - `verbose=false`: Print progress
 - `callback`: Optional callback `(iter, state, μ, shape) -> nothing`
 - `callback_interval=1`: How often to call callback
@@ -80,7 +79,6 @@ function run_collapsed_chain(
     λ_K::Float64 = NaN,  # default: N/μ (computed below)
     shape_prior_shape::Float64 = 2.0,
     shape_prior_scale::Float64 = 1.0,
-    dm_concentration::Float64 = 1.0,
     hierarchical_interval::Int = 100,
     accumulators::Vector{<:AbstractAccumulator} = AbstractAccumulator[],
     verbose::Bool = false,
@@ -116,18 +114,17 @@ function run_collapsed_chain(
         shape_prior_scale = shape_prior_scale,
     )
 
-    β = dm_concentration
     for iter in 1:n_iterations
         r = rand()
 
         if r < 0.50
             # Gibbs allocation sweep (always "accepts" — it's exact Gibbs)
-            gibbs_allocation_sweep!(state, locs, μ, current_shape, λ_K, β)
+            gibbs_allocation_sweep!(state, locs, μ, current_shape, λ_K)
             prev = acceptance[:gibbs_sweep]
             acceptance[:gibbs_sweep] = (prev[1] + 1, prev[2] + 1)
         else
             # Jain-Neal split-merge — use fixed μ₀ to prevent μ-K feedback loop
-            accepted, move_type = propose_split_merge!(state, locs, μ₀, current_shape, λ_K, β)
+            accepted, move_type = propose_split_merge!(state, locs, μ₀, current_shape, λ_K)
             prev = acceptance[move_type]
             acceptance[move_type] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
         end
@@ -175,7 +172,7 @@ function run_collapsed_chain(
 end
 
 """
-    run_collapsed_iterations!(state, locs, n, μ, shape, λ_K, β, accumulators, burn_in, current_iter;
+    run_collapsed_iterations!(state, locs, n, μ, shape, λ_K, accumulators, burn_in, current_iter;
                               acceptance=nothing)
 
 Run n iterations on an existing collapsed state. Used for synchronized partitioned execution.
@@ -188,7 +185,6 @@ function run_collapsed_iterations!(
     μ::Float64,
     shape::Float64,
     λ_K::Float64,
-    β::Float64,
     accumulators::Vector{<:AbstractAccumulator},
     burn_in::Int,
     current_iter::Int;
@@ -200,13 +196,13 @@ function run_collapsed_iterations!(
 
         r = rand()
         if r < 0.50
-            gibbs_allocation_sweep!(state, locs, μ, shape, λ_K, β)
+            gibbs_allocation_sweep!(state, locs, μ, shape, λ_K)
             if acceptance !== nothing
                 prev = acceptance[:gibbs_sweep]
                 acceptance[:gibbs_sweep] = (prev[1] + 1, prev[2] + 1)
             end
         else
-            accepted, move_type = propose_split_merge!(state, locs, μ₀, shape, λ_K, β)
+            accepted, move_type = propose_split_merge!(state, locs, μ₀, shape, λ_K)
             if acceptance !== nothing
                 prev = acceptance[move_type]
                 acceptance[move_type] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)

@@ -46,9 +46,9 @@ src/
 ├── types.jl               # Types: BaGoLDiagnostics, CollapsedState, BaGoLResult, CollapsedChainResult
 ├── priors.jl              # UniformSpatialPrior, log_prior_k, log_prior_total_count
 ├── hierarchical.jl        # Hierarchical Bayes MH updates for μ and shape
-├── mapn.jl                # estimate_mapn_collapsed() - Hungarian matching for label switching
+├── mapn.jl                # MAP-N estimation: Dahl, PSM, VI-greedy, Hungarian matching
 ├── accumulators.jl        # Accumulator interface + EmitterCountHist, PosteriorImage, NNDistHist
-├── collapsed_moves.jl     # Gibbs sweep, block birth/death moves
+├── collapsed_moves.jl     # Gibbs sweep, split/merge moves
 ├── collapsed_sampler.jl   # run_collapsed_chain() - collapsed Gibbs sampler
 ├── partition.jl           # Precision-weighted DBSCAN clustering
 ├── partitioned.jl         # Boundary emitter deduplication
@@ -64,16 +64,16 @@ src/
 **Other directories:**
 - `examples/` — Complete workflow scripts (separate project environment)
 - `dev/` — Debug and analysis scripts (not part of package)
-- `test/` — All tests in `runtests.jl` (single file, all testsets inline)
+- `test/` — All tests in `runtests.jl` (single file, all testsets inline). See `test/CLAUDE.md` for testing guidelines.
 
 ### Collapsed Gibbs Sampler
 
 - State = allocation vector only (which locs belong to which cluster)
 - Emitter positions integrated out analytically via ClusterStats
-- Moves: Gibbs allocation sweep (70%), block birth (15%), block death (15%)
+- Moves: Gibbs allocation sweep (50%), split (25%), merge (25%)
+- K proposed from count-model posterior, spatial MH correction with area-invariant formulation
 - Rao-Blackwellized posterior image (Gaussian blobs, not point deltas)
-- MAP-N estimation via `estimate_mapn_collapsed` on stored assignment samples
-- Partition prior: Dirichlet-Multinomial with concentration parameter `dm_concentration`
+- MAP-N estimation via Dahl+Hungarian matching on stored assignment samples
 
 ### Core Types
 
@@ -99,7 +99,6 @@ result_smld, diagnostics = run_bagol(locs; camera=camera, n_iterations=10000)
 #   shape=2.0                     # Gamma shape (1=exponential, >1=peaked)
 #   learn_shape=true              # Update shape during MCMC
 #   sync_interval=500             # Iterations between global μ/shape updates
-#   dm_concentration=1.0          # Dirichlet-Multinomial concentration
 #   posterior_pixel_size=0.001    # Enable Rao-Blackwellized posterior image
 #   archive_path="path/"          # Enable mmap chain archive
 
@@ -118,16 +117,18 @@ Accumulators collect statistics from the chain without storing full samples:
 - `PosteriorImage` - Rao-Blackwellized posterior image (Gaussian blobs per cluster)
 - `NNDistHist` - Nearest-neighbor distance histogram between emitter positions
 - `PartitionSamples` - Stores thinned assignment vectors for MAP-N estimation
+- `PSMAccumulator` - Posterior similarity matrix (co-assignment frequencies) for Dahl/PSM/VI estimators
 
 ### MAP-N Estimation
 
-`estimate_mapn_collapsed(samples, locs)` extracts emitters from assignment samples:
+Multiple estimation methods available, all using stored assignment samples:
 
-1. Build histogram of K across post-burn-in samples
-2. Find MAP-N = mode of K distribution
-3. Filter to samples with K = MAP-N
-4. Iterative Hungarian matching to solve label switching
-5. Median positions (robust to outliers) + ClusterStats posterior covariances
+- `estimate_mapn_collapsed(samples, locs)` — histogram-mode K + Hungarian matching for label switching. Median positions + posterior covariances.
+- `estimate_dahl(samples, locs, psm)` — Dahl consensus partition (sample closest to PSM). Preferred default.
+- `estimate_mapn_psm(samples, locs, psm)` — PSM thresholding with Hungarian refinement.
+- `estimate_vi_greedy(samples, locs, psm)` — Variational inference greedy approximation.
+
+PSM-based methods require `PSMAccumulator` in the accumulator list to build the co-assignment matrix.
 
 **Fallback:** `extract_emitters(state, locs)` — final chain state only (single sample).
 

@@ -102,19 +102,6 @@ function log_negbin_pmf(n::Int, μ::Float64, α::Float64)
 end
 
 """
-Log count ratio R(n) = c(n+1)/c(n) for NegBin(α, p).
-
-    R(n) = (n + α) / (n + 1) × μ / (α + μ)
-
-Used in the Gibbs allocation sweep: P(z_i=k) ∝ R(n_k) × predictive_k.
-This replaces the DM weight (n_k + β/K) with a physically motivated weight
-that pushes cluster sizes toward μ.
-"""
-function log_count_ratio(n::Int, μ::Float64, α::Float64)
-    return log((n + α) / (n + 1)) + log(μ / (α + μ))
-end
-
-"""
 Log prior on TOTAL count N given K emitters, using marginal distribution.
 
 From Fazel et al. (2022): P(K|ξ) ∝ Gamma(N; K*shape, μ/shape)
