@@ -3,6 +3,7 @@ using SMLMBaGoL
 using SMLMData
 using Random
 using Statistics
+using Distributions
 
 @testset "SMLMBaGoL.jl Tests" begin
     # ================================================================
@@ -421,5 +422,94 @@ using Statistics
         @test length(μs) == archive.sample_counts[1]
         @test all(isfinite, μs)
         @test all(isfinite, shapes)
+    end
+
+    # ================================================================
+    # Count-Model Optimality with Hierarchical Learning
+    # ================================================================
+    # Spatially separated emitters with hierarchical μ/shape learning.
+    # Hier must learn (μ, α) from cluster counts during the chain.
+    # Spatial separation resolves K; hier calibrates the count model.
+    # Pass: observed MAP-K accuracy ≥ 80% of oracle (known μ, α).
+    @testset "Count-Model Optimality (Hierarchical)" begin
+        Random.seed!(2024)
+
+        μ_true = 20.0
+        α_true = 5.0
+        σ = 0.005  # Localization precision (μm)
+        separation = 0.05  # 10σ between emitters — well resolved
+
+        # Oracle MAP-K accuracy with known (μ, α) and same λ_K as sampler
+        μ_prior_mean = 10.0  # 2.0 × 5.0 (default prior)
+        function oracle_accuracy(K_true; n_mc=20000)
+            p = α_true / (α_true + μ_true)
+            dist_N = NegativeBinomial(K_true * α_true, p)
+            n_correct = 0
+            n_valid = 0
+            K_max = max(3 * K_true, 15)
+            for _ in 1:n_mc
+                N = rand(dist_N)
+                N < K_true && continue
+                n_valid += 1
+                λ_K = N / μ_prior_mean
+                best_K = 1
+                best_lp = -Inf
+                for k in 1:K_max
+                    lp = SMLMBaGoL._log_count_posterior(k, N, α_true, μ_true, λ_K)
+                    if lp > best_lp
+                        best_lp = lp
+                        best_K = k
+                    end
+                end
+                n_correct += (best_K == K_true)
+            end
+            return n_correct / n_valid
+        end
+
+        for K_true in [1, 2, 4]
+            @testset "K=$K_true separated, hier on" begin
+                p_theory = oracle_accuracy(K_true)
+
+                n_trials = 25
+                n_correct = 0
+
+                for _ in 1:n_trials
+                    # Generate well-separated emitters on a line
+                    locs = SMLMData.Emitter2DFit[]
+                    p = α_true / (α_true + μ_true)
+                    id = 0
+                    for k in 1:K_true
+                        cx = 0.1 + (k - 1) * separation
+                        cy = 0.1
+                        n_k = max(rand(NegativeBinomial(α_true, p)), 1)
+                        for _ in 1:n_k
+                            id += 1
+                            x = cx + randn() * σ
+                            y = cy + randn() * σ
+                            push!(locs, SMLMData.Emitter2DFit(
+                                x, y, 1000.0, 10.0, σ, σ,
+                                0.0, 0.0, 0.0, 1, 1, 0, id))
+                        end
+                    end
+
+                    ps_acc = PartitionSamples(thin=5)
+                    result = run_collapsed_chain(locs;
+                        n_iterations=4000, burn_in=800,
+                        shape=2.0, learn_shape=true,
+                        accumulators=AbstractAccumulator[ps_acc],
+                        verbose=false)
+
+                    samples = SMLMBaGoL.accumulator_result(ps_acc)
+                    emitters, _ = estimate_mapn_collapsed(samples, locs)
+                    n_correct += (length(emitters) == K_true)
+                end
+
+                observed = n_correct / n_trials
+                threshold = 0.80 * p_theory
+                @test observed >= threshold
+                println("  K=$K_true: $(n_correct)/$(n_trials) = $(round(observed*100, digits=1))% " *
+                        "(theory=$(round(p_theory*100, digits=1))%, threshold=$(round(threshold*100, digits=1))%)")
+            end
+        end
     end
 end

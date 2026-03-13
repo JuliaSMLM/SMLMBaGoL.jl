@@ -80,7 +80,7 @@ end
 # ============================================================================
 
 """
-    gibbs_allocation_sweep!(state, locs, μ, shape, λ_K, β)
+    gibbs_allocation_sweep!(state, locs, μ, shape, λ_K)
 
 Full Gibbs sweep: for each loc (random order), reassign among the K active
 clusters with weight proportional to the collapsed spatial predictive.
@@ -96,8 +96,7 @@ Uses precomputed LocPrecision data for zero-allocation inner loop.
 """
 function gibbs_allocation_sweep!(state::CollapsedState,
                                   locs::Vector{<:SMLMData.AbstractEmitter},
-                                  μ::Float64, shape::Float64, λ_K::Float64,
-                                  β::Float64)
+                                  μ::Float64, shape::Float64, λ_K::Float64)
     N = length(locs)
     loc_precs = state._loc_precs
     K = state.n_active  # Fixed for this sweep
@@ -237,7 +236,7 @@ function _total_spatial_lml(state::CollapsedState)
 end
 
 """
-    propose_split_merge!(state, locs, μ, shape, λ_K, β) -> (Bool, Symbol)
+    propose_split_merge!(state, locs, μ, shape, λ_K) -> (Bool, Symbol)
 
 K sampling from count-model posterior with spatial MH correction.
 
@@ -256,8 +255,7 @@ Returns (accepted, move_type) where move_type is :split or :merge.
 """
 function propose_split_merge!(state::CollapsedState,
                                locs::Vector{<:SMLMData.AbstractEmitter},
-                               μ::Float64, shape::Float64, λ_K::Float64,
-                               β::Float64)
+                               μ::Float64, shape::Float64, λ_K::Float64)
     N = length(locs)
     N < 2 && return false, :split
     K = state.n_active
@@ -317,7 +315,7 @@ function propose_split_merge!(state::CollapsedState,
     # creates a random allocation that has terrible spatial LML, causing
     # the MH to reject even correct K changes.
     for _ in 1:5
-        gibbs_allocation_sweep!(state, locs, μ, shape, λ_K, β)
+        gibbs_allocation_sweep!(state, locs, μ, shape, λ_K)
     end
 
     # Compute spatial LML after the move + relaxation
