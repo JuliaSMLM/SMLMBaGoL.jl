@@ -238,6 +238,102 @@ using Distributions
         end
     end
 
+    @testset "overlap_hungarian" begin
+        # Identity match: same assignments
+        ref = Int16[1, 1, 2, 2, 3, 3]
+        sample = Int16[1, 1, 2, 2, 3, 3]
+        ref_labels = Int16[1, 2, 3]
+        sample_labels = Int16[1, 2, 3]
+        assignment, total = SMLMBaGoL.overlap_hungarian(ref, sample, ref_labels, sample_labels)
+        @test total == 6
+        # Each ref cluster should map to itself
+        @test assignment == [1, 2, 3]
+
+        # Permuted labels: ref 1↔sample 3, ref 2↔sample 1, ref 3↔sample 2
+        sample_perm = Int16[3, 3, 1, 1, 2, 2]
+        sample_labels_perm = Int16[1, 2, 3]
+        assignment_p, total_p = SMLMBaGoL.overlap_hungarian(ref, sample_perm, ref_labels, sample_labels_perm)
+        @test total_p == 6
+        # ref cluster 1 (indices 1,2 which have sample label 3) → sample cluster 3
+        @test assignment_p[1] == 3
+        @test assignment_p[2] == 1
+        @test assignment_p[3] == 2
+
+        # K=1 short-circuit
+        ref1 = Int16[1, 1, 1]
+        sample1 = Int16[1, 1, 1]
+        a1, t1 = SMLMBaGoL.overlap_hungarian(ref1, sample1, Int16[1], Int16[1])
+        @test a1 == [1]
+        @test t1 == 3
+    end
+
+    @testset "Overlap-Based MAP-N" begin
+        Random.seed!(42)
+
+        σ = 0.005
+        n_per = 10
+        locs = SMLMData.Emitter2DFit[]
+
+        # Emitter 1 at (0.1, 0.1)
+        for i in 1:n_per
+            x = 0.1 + randn() * σ
+            y = 0.1 + randn() * σ
+            push!(locs, SMLMData.Emitter2DFit(x, y, 1000.0, 10.0, σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, i))
+        end
+        # Emitter 2 at (0.2, 0.2)
+        for i in 1:n_per
+            x = 0.2 + randn() * σ
+            y = 0.2 + randn() * σ
+            push!(locs, SMLMData.Emitter2DFit(x, y, 1000.0, 10.0, σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, i+n_per))
+        end
+
+        # Run chain with both PartitionSamples and PSMAccumulator
+        ps_acc = PartitionSamples(thin=5)
+        psm_acc = PSMAccumulator()
+        result = run_collapsed_chain(locs;
+            n_iterations=5000, burn_in=1000,
+            accumulators=AbstractAccumulator[ps_acc, psm_acc],
+            verbose=false)
+
+        samples = SMLMBaGoL.accumulator_result(ps_acc)
+        psm = SMLMBaGoL.accumulator_result(psm_acc).psm
+        @test length(samples) > 0
+
+        # Get Dahl assignments
+        _, _, _, dahl_assignments = estimate_dahl(samples, locs, psm)
+
+        # Overlap-based MAP-N
+        emitters_overlap, posterior_k = estimate_mapn_overlap(samples, locs, dahl_assignments)
+
+        # Should find 2 emitters
+        @test length(emitters_overlap) == 2
+
+        # Positions should be near true emitter locations
+        positions = sort([(e.x, e.y) for e in emitters_overlap])
+        @test abs(positions[1][1] - 0.1) < 0.01
+        @test abs(positions[2][1] - 0.2) < 0.01
+
+        # Uncertainties should be positive
+        for e in emitters_overlap
+            @test e.σ_x > 0
+            @test e.σ_y > 0
+        end
+
+        # Compare with estimate_mapn_collapsed — positions should agree closely
+        k_dahl = length(unique(dahl_assignments))
+        emitters_old, _ = estimate_mapn_collapsed(samples, locs; k_override=k_dahl)
+        @test length(emitters_old) == length(emitters_overlap)
+
+        if length(emitters_old) == length(emitters_overlap)
+            pos_old = sort([(e.x, e.y) for e in emitters_old])
+            pos_new = sort([(e.x, e.y) for e in emitters_overlap])
+            for i in eachindex(pos_old)
+                @test abs(pos_old[i][1] - pos_new[i][1]) < 0.005
+                @test abs(pos_old[i][2] - pos_new[i][2]) < 0.005
+            end
+        end
+    end
+
     @testset "Spatial Utilities" begin
         loc = SMLMData.Emitter2DFit(0.1, 0.2, 1000.0, 10.0, 0.005, 0.006, 0.0, 0.0, 0.0, 1, 1, 0, 1)
         coords = SMLMBaGoL.get_coords(loc)

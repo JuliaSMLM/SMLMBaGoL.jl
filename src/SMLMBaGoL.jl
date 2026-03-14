@@ -14,7 +14,7 @@ using Statistics
 # Export main API
 export run_bagol
 export run_collapsed_chain
-export estimate_mapn_collapsed, estimate_mapn_psm, estimate_dahl, estimate_vi_greedy
+export estimate_mapn_collapsed, estimate_mapn_overlap, estimate_mapn_psm, estimate_dahl, estimate_vi_greedy
 export save_posterior_png
 export BaGoLDiagnostics
 
