@@ -26,7 +26,10 @@ end
 """
     deduplicate_boundary_emitters(emitters, partition_ids, is_near_boundary, margin)
 
-Use Hungarian matching to identify and merge duplicate emitters near partition boundaries.
+Use spatial indexing + Hungarian matching to identify and merge duplicate emitters
+near partition boundaries. Only compares emitters from different partitions that
+are within `margin` distance of each other.
+
 Returns a new vector of Emitter2DFit with duplicates merged.
 """
 function deduplicate_boundary_emitters(
@@ -37,61 +40,106 @@ function deduplicate_boundary_emitters(
 )
     n = length(emitters)
     keep = trues(n)
-    # Make mutable copies for merging
     result = copy(emitters)
 
-    unique_pids = unique(partition_ids)
+    # Collect boundary emitter indices
+    boundary_idx = findall(is_near_boundary)
+    isempty(boundary_idx) && return result
 
-    for i in 1:length(unique_pids)
-        for j in (i+1):length(unique_pids)
-            pid_i, pid_j = unique_pids[i], unique_pids[j]
+    # Build KDTree on boundary emitter positions
+    coords = hcat([[emitters[i].x, emitters[i].y] for i in boundary_idx]...)
+    tree = NearestNeighbors.KDTree(coords)
 
-            idx_i = findall(k -> partition_ids[k] == pid_i && is_near_boundary[k] && keep[k], 1:n)
-            idx_j = findall(k -> partition_ids[k] == pid_j && is_near_boundary[k] && keep[k], 1:n)
+    # Find all pairs within margin distance
+    # Group by (pid_i, pid_j) pair to do Hungarian per partition pair
+    pair_map = Dict{Tuple{Int,Int}, Vector{Tuple{Int,Int}}}()
 
-            (isempty(idx_i) || isempty(idx_j)) && continue
+    for (bi, gi) in enumerate(boundary_idx)
+        keep[gi] || continue
+        pid_i = partition_ids[gi]
 
-            # Build cost matrix
-            cost = zeros(length(idx_i), length(idx_j))
-            for (ii, ki) in enumerate(idx_i)
-                for (jj, kj) in enumerate(idx_j)
-                    e_i, e_j = result[ki], result[kj]
-                    cost[ii, jj] = sqrt((e_i.x - e_j.x)^2 + (e_i.y - e_j.y)^2)
-                end
+        # Find neighbors within margin
+        neighbors = NearestNeighbors.inrange(tree, coords[:, bi], margin)
+
+        for bj in neighbors
+            gj = boundary_idx[bj]
+            gj <= gi && continue  # avoid duplicates and self
+            keep[gj] || continue
+            pid_j = partition_ids[gj]
+            pid_i == pid_j && continue  # same partition, skip
+
+            # Canonical order
+            key = pid_i < pid_j ? (pid_i, pid_j) : (pid_j, pid_i)
+            if !haskey(pair_map, key)
+                pair_map[key] = Tuple{Int,Int}[]
             end
+            push!(pair_map[key], (gi, gj))
+        end
+    end
 
-            assignment, _ = Hungarian.hungarian(cost)
+    # For each partition pair with nearby boundary emitters, run Hungarian
+    for ((pid_a, pid_b), pairs) in pair_map
+        # Collect unique emitter indices per partition
+        idx_a_set = Set{Int}()
+        idx_b_set = Set{Int}()
+        for (gi, gj) in pairs
+            pa, pb = partition_ids[gi], partition_ids[gj]
+            if pa == pid_a
+                push!(idx_a_set, gi)
+                push!(idx_b_set, gj)
+            else
+                push!(idx_a_set, gj)
+                push!(idx_b_set, gi)
+            end
+        end
 
-            for (ii, jj) in enumerate(assignment)
-                jj == 0 && continue
-                ki, kj = idx_i[ii], idx_j[jj]
+        idx_a = sort!(collect(idx_a_set))
+        idx_b = sort!(collect(idx_b_set))
+
+        # Filter to still-kept emitters
+        filter!(i -> keep[i], idx_a)
+        filter!(i -> keep[i], idx_b)
+        (isempty(idx_a) || isempty(idx_b)) && continue
+
+        # Build cost matrix
+        cost = zeros(length(idx_a), length(idx_b))
+        for (ii, ki) in enumerate(idx_a)
+            for (jj, kj) in enumerate(idx_b)
                 e_i, e_j = result[ki], result[kj]
+                cost[ii, jj] = sqrt((e_i.x - e_j.x)^2 + (e_i.y - e_j.y)^2)
+            end
+        end
 
-                # Merge threshold: distance must be within combined uncertainties
-                σ_combined = sqrt(e_i.σ_x^2 + e_i.σ_y^2 + e_j.σ_x^2 + e_j.σ_y^2)
-                threshold = 2.0 * σ_combined  # 2σ test
-                if cost[ii, jj] < threshold
-                    # Precision-weighted merge using covariance determinant
-                    det_i = e_i.σ_x^2 * e_i.σ_y^2 - e_i.σ_xy^2
-                    det_j = e_j.σ_x^2 * e_j.σ_y^2 - e_j.σ_xy^2
-                    w_i = 1.0 / (det_i + 1e-10)
-                    w_j = 1.0 / (det_j + 1e-10)
-                    w_total = w_i + w_j
+        assignment, _ = Hungarian.hungarian(cost)
 
-                    new_x = (w_i * e_i.x + w_j * e_j.x) / w_total
-                    new_y = (w_i * e_i.y + w_j * e_j.y) / w_total
-                    new_σ_x = sqrt(1.0 / (1.0/e_i.σ_x^2 + 1.0/e_j.σ_x^2 + 1e-10))
-                    new_σ_y = sqrt(1.0 / (1.0/e_i.σ_y^2 + 1.0/e_j.σ_y^2 + 1e-10))
-                    new_σ_xy = (w_i * e_i.σ_xy + w_j * e_j.σ_xy) / w_total
+        for (ii, jj) in enumerate(assignment)
+            jj == 0 && continue
+            ki, kj = idx_a[ii], idx_b[jj]
+            e_i, e_j = result[ki], result[kj]
 
-                    # Create merged emitter (sum photons from both)
-                    result[ki] = SMLMData.Emitter2DFit(
-                        new_x, new_y, e_i.photons + e_j.photons, 0.0,
-                        new_σ_x, new_σ_y, new_σ_xy,
-                        0.0, 0.0, 1, 1, 0, e_i.id
-                    )
-                    keep[kj] = false
-                end
+            # Merge threshold: distance must be within combined uncertainties
+            σ_combined = sqrt(e_i.σ_x^2 + e_i.σ_y^2 + e_j.σ_x^2 + e_j.σ_y^2)
+            threshold = 2.0 * σ_combined  # 2σ test
+            if cost[ii, jj] < threshold
+                # Precision-weighted merge
+                det_i = e_i.σ_x^2 * e_i.σ_y^2 - e_i.σ_xy^2
+                det_j = e_j.σ_x^2 * e_j.σ_y^2 - e_j.σ_xy^2
+                w_i = 1.0 / (det_i + 1e-10)
+                w_j = 1.0 / (det_j + 1e-10)
+                w_total = w_i + w_j
+
+                new_x = (w_i * e_i.x + w_j * e_j.x) / w_total
+                new_y = (w_i * e_i.y + w_j * e_j.y) / w_total
+                new_σ_x = sqrt(1.0 / (1.0/e_i.σ_x^2 + 1.0/e_j.σ_x^2 + 1e-10))
+                new_σ_y = sqrt(1.0 / (1.0/e_i.σ_y^2 + 1.0/e_j.σ_y^2 + 1e-10))
+                new_σ_xy = (w_i * e_i.σ_xy + w_j * e_j.σ_xy) / w_total
+
+                result[ki] = SMLMData.Emitter2DFit(
+                    new_x, new_y, e_i.photons + e_j.photons, 0.0,
+                    new_σ_x, new_σ_y, new_σ_xy,
+                    0.0, 0.0, 1, 1, 0, e_i.id
+                )
+                keep[kj] = false
             end
         end
     end
