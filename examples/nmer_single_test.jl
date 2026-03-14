@@ -202,12 +202,11 @@ result = run_collapsed_chain(
     verbose = true
 )
 
-# Extract emitters via Dahl+MAP-N (Dahl's K + Hungarian matching positions)
+# Extract emitters via Dahl+overlap MAP-N (Dahl consensus + overlap Hungarian)
 samples = accumulator_result(ps_acc)
 psm = accumulator_result(psm_acc).psm
-dahl_emitters, _, _ = estimate_dahl(samples, locs, psm)
-k_dahl = length(dahl_emitters)
-emitters, _ = estimate_mapn_collapsed(samples, locs; k_override=k_dahl)
+_, _, _, dahl_assignments = estimate_dahl(samples, locs, psm)
+emitters, _ = estimate_mapn_overlap(samples, locs, dahl_assignments)
 
 # Build posterior_k from EmitterCountHist
 posterior_k = result.accumulators[1]  # EmitterCountHist result = Vector{Int}

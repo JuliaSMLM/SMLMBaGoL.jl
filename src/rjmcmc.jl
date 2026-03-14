@@ -58,6 +58,7 @@ function run_bagol(
     posterior_xlim::Union{Nothing, Tuple{Float64, Float64}} = nothing,
     posterior_ylim::Union{Nothing, Tuple{Float64, Float64}} = nothing,
     archive_path::Union{Nothing, String} = nothing,
+    progress_file::Union{Nothing, String} = nothing,
     verbose::Bool = true,
     kwargs...
 )
@@ -65,7 +66,7 @@ function run_bagol(
         nsigma, min_partition_size, max_partition_size, skip_partition_size,
         sync_interval, n_iterations, burn_in, shape, learn_shape,
         posterior_pixel_size, posterior_xlim, posterior_ylim,
-        archive_path, verbose, kwargs...)
+        archive_path, progress_file, verbose, kwargs...)
 end
 
 # ============================================================================
@@ -87,26 +88,35 @@ function _run_bagol_collapsed(
     posterior_xlim::Union{Nothing, Tuple{Float64, Float64}} = nothing,
     posterior_ylim::Union{Nothing, Tuple{Float64, Float64}} = nothing,
     archive_path::Union{Nothing, String} = nothing,
+    progress_file::Union{Nothing, String} = nothing,
     verbose::Bool = true,
     kwargs...
 )
     locs = smld.emitters
     camera = smld.camera
 
-    if verbose
-        println("Partitioning $(length(locs)) localizations (nsigma=$nsigma)...")
+    # Progress logging: write directly to file (bypasses stdout buffering)
+    _t_start = time()
+    function _log_progress(msg::String)
+        if progress_file !== nothing
+            open(progress_file, "a") do io
+                elapsed = round(time() - _t_start, digits=1)
+                println(io, "[$(elapsed)s] $msg")
+            end
+        end
+        verbose && println(msg)
     end
+
+    _log_progress("Partitioning $(length(locs)) localizations (nsigma=$nsigma)...")
 
     partitions, skipped = partition_locs(locs; nsigma, min_size=min_partition_size,
                                           max_size=max_partition_size,
                                           skip_size=skip_partition_size)
 
-    if verbose
-        println("  Created $(length(partitions)) partitions")
-        if !isempty(skipped)
-            n_skipped = sum(length(p.locs) for p in skipped)
-            println("  Skipped $(length(skipped)) oversized clusters ($n_skipped locs)")
-        end
+    _log_progress("  Created $(length(partitions)) partitions")
+    if !isempty(skipped)
+        n_skipped = sum(length(p.locs) for p in skipped)
+        _log_progress("  Skipped $(length(skipped)) oversized clusters ($n_skipped locs)")
     end
 
     if isempty(partitions)
@@ -133,31 +143,34 @@ function _run_bagol_collapsed(
     partition_samples = Vector{PartitionSamples}(undef, n_partitions)
     partition_psms = Vector{PSMAccumulator}(undef, n_partitions)
 
-    Threads.@threads for i in 1:n_partitions
-        p_locs = partitions[i].locs
-        spatial_prior = UniformSpatialPrior(p_locs)
-        states[i] = initialize_collapsed_state(p_locs, spatial_prior)
+    @sync for i in 1:n_partitions
+        Threads.@spawn begin
+            p_locs = partitions[i].locs
+            spatial_prior = UniformSpatialPrior(p_locs)
+            states[i] = initialize_collapsed_state(p_locs, spatial_prior)
 
-        # Per-partition accumulators
-        accs = AbstractAccumulator[]
-        count_hist = EmitterCountHist()
-        push!(accs, count_hist)
-        count_hists[i] = count_hist
+            # Per-partition accumulators
+            accs = AbstractAccumulator[]
+            count_hist = EmitterCountHist()
+            push!(accs, count_hist)
+            count_hists[i] = count_hist
 
-        ps_acc = PartitionSamples(thin=5)
-        push!(accs, ps_acc)
-        partition_samples[i] = ps_acc
+            ps_acc = PartitionSamples(thin=5)
+            push!(accs, ps_acc)
+            partition_samples[i] = ps_acc
 
-        psm_acc = PSMAccumulator()
-        push!(accs, psm_acc)
-        partition_psms[i] = psm_acc
+            psm_acc = PSMAccumulator()
+            push!(accs, psm_acc)
+            partition_psms[i] = psm_acc
 
-        if posterior_pixel_size > 0.0
-            push!(accs, PosteriorImage(pixel_size=posterior_pixel_size,
-                                        xlim=posterior_xlim, ylim=posterior_ylim))
+            if posterior_pixel_size > 0.0
+                # Each partition gets a local posterior image (auto-sized from its locs).
+                # These are merged into a full-field image after sampling.
+                push!(accs, PosteriorImage(pixel_size=posterior_pixel_size))
+            end
+
+            partition_accumulators[i] = accs
         end
-
-        partition_accumulators[i] = accs
     end
 
     # Global μ, shape (shared across partitions)
@@ -183,14 +196,16 @@ function _run_bagol_collapsed(
     ) for _ in 1:n_partitions]
 
     for outer in 1:n_outer
-        Threads.@threads for i in 1:n_partitions
-            λ_K_i = get(kwargs, :λ_K, Float64(length(partitions[i].locs)) / μ)
-            iter_counters[i] = run_collapsed_iterations!(
-                states[i], partitions[i].locs, sync_interval,
-                μ, current_shape, λ_K_i,
-                partition_accumulators[i], burn_in, iter_counters[i];
-                acceptance=partition_acceptance[i], μ₀=μ₀
-            )
+        @sync for i in 1:n_partitions
+            Threads.@spawn begin
+                λ_K_i = get(kwargs, :λ_K, Float64(length(partitions[i].locs)) / μ)
+                iter_counters[i] = run_collapsed_iterations!(
+                    states[i], partitions[i].locs, sync_interval,
+                    μ, current_shape, λ_K_i,
+                    partition_accumulators[i], burn_in, iter_counters[i];
+                    acceptance=partition_acceptance[i], μ₀=μ₀
+                )
+            end
         end
 
         # Write archive samples if past burn-in
@@ -206,62 +221,94 @@ function _run_bagol_collapsed(
             current_shape = _update_shape_collapsed_global!(states, μ, current_shape, config_nt)
         end
 
-        if verbose && outer % max(1, n_outer ÷ 5) == 0
-            total_K = sum(s.n_active for s in states)
-            shape_str = learn_shape ? ", shape=$(round(current_shape, digits=2))" : ""
-            println("Sync $outer/$n_outer: total K=$total_K, μ=$(round(μ, digits=2))$shape_str")
-        end
+        total_K = sum(s.n_active for s in states)
+        shape_str = learn_shape ? ", shape=$(round(current_shape, digits=2))" : ""
+        iter_done = outer * sync_interval
+        _log_progress("Sync $outer/$n_outer (iter $iter_done): K=$total_K, μ=$(round(μ, digits=2))$shape_str")
     end
 
     # Run remaining iterations
     remaining = n_iterations - n_outer * sync_interval
     if remaining > 0
-        Threads.@threads for i in 1:n_partitions
-            λ_K_i = get(kwargs, :λ_K, Float64(length(partitions[i].locs)) / μ)
-            iter_counters[i] = run_collapsed_iterations!(
-                states[i], partitions[i].locs, remaining,
-                μ, current_shape, λ_K_i,
-                partition_accumulators[i], burn_in, iter_counters[i];
-                acceptance=partition_acceptance[i], μ₀=μ₀
-            )
+        @sync for i in 1:n_partitions
+            Threads.@spawn begin
+                λ_K_i = get(kwargs, :λ_K, Float64(length(partitions[i].locs)) / μ)
+                iter_counters[i] = run_collapsed_iterations!(
+                    states[i], partitions[i].locs, remaining,
+                    μ, current_shape, λ_K_i,
+                    partition_accumulators[i], burn_in, iter_counters[i];
+                    acceptance=partition_acceptance[i], μ₀=μ₀
+                )
+            end
         end
     end
 
-    if verbose
-        println("\nMerging partition results...")
-    end
+    _log_progress("MCMC complete. Extracting MAP-N emitters ($n_partitions partitions, threaded)...")
 
-    # Extract emitters via MAP-N from stored assignment samples
-    all_emitters = SMLMData.Emitter2DFit[]
-    partition_ids = Int[]
-    is_near_boundary = Bool[]
-
+    # Extract emitters via MAP-N from stored assignment samples (threaded)
     sigmas = [mean_sigma(loc) for loc in locs]
     # Scale margin with nsigma: partition gap ≈ nsigma*(σ_i+σ_j), so emitters
     # can only be duplicates if within ~nsigma*σ of boundary
     boundary_margin = nsigma * median(sigmas)
 
-    for (pid, (partition, ps_acc, psm_acc)) in enumerate(zip(partitions, partition_samples, partition_psms))
-        samples = accumulator_result(ps_acc)
-        if isempty(samples)
-            error("Partition $pid ($(length(partition.locs)) locs): no assignment samples collected. " *
-                  "Check burn_in ($burn_in) < n_iterations ($n_iterations).")
+    # Per-partition results (filled in parallel, largest-first for load balance)
+    partition_emitters = Vector{Vector{SMLMData.Emitter2DFit}}(undef, n_partitions)
+    partition_boundary = Vector{Vector{Bool}}(undef, n_partitions)
+
+    # Sort by partition size descending so large (expensive) partitions start first.
+    # Use @spawn (dynamic scheduling) for better load balance across heavy-tailed sizes.
+    pid_order = sortperm([length(p.locs) for p in partitions], rev=true)
+
+    mapn_done = Threads.Atomic{Int}(0)
+    mapn_log_interval = max(1, n_partitions ÷ 20)  # ~20 log lines total
+    mapn_t0 = time()
+
+    @sync for pid in pid_order
+        Threads.@spawn begin
+            partition = partitions[pid]
+            ps_acc = partition_samples[pid]
+            psm_acc = partition_psms[pid]
+            samples = accumulator_result(ps_acc)
+            if isempty(samples)
+                error("Partition $pid ($(length(partition.locs)) locs): no assignment samples collected. " *
+                      "Check burn_in ($burn_in) < n_iterations ($n_iterations).")
+            end
+            # Dahl+overlap MAP-N: Dahl consensus partition + overlap Hungarian matching
+            psm_result = accumulator_result(psm_acc)
+            psm = psm_result.psm
+            _, _, _, dahl_assignments = estimate_dahl(samples, partition.locs, psm)
+            emitters_i, _ = estimate_mapn_overlap(samples, partition.locs, dahl_assignments)
+            if isempty(emitters_i)
+                k_dahl = length(unique(dahl_assignments))
+                error("Partition $pid ($(length(partition.locs)) locs): estimate_mapn_overlap returned " *
+                      "0 emitters from $(length(samples)) samples (k_dahl=$k_dahl).")
+            end
+            bflags = [emitter_near_boundary(e, partition, boundary_margin) for e in emitters_i]
+            partition_emitters[pid] = emitters_i
+            partition_boundary[pid] = bflags
+            # Free sample/PSM memory after extraction (large for big partitions)
+            partition_samples[pid] = PartitionSamples(thin=typemax(Int))
+            partition_psms[pid] = PSMAccumulator()
+
+            # Progress logging for MAP-N extraction
+            n_done = Threads.atomic_add!(mapn_done, 1) + 1
+            if n_done % mapn_log_interval == 0 || n_done == n_partitions
+                pct = round(100 * n_done / n_partitions, digits=0)
+                dt = round(time() - mapn_t0, digits=1)
+                _log_progress("  MAP-N: $n_done/$n_partitions ($(Int(pct))%) in $(dt)s [pid=$pid, N=$(length(partition.locs))]")
+            end
         end
-        # Dahl+MAP-N: use Dahl's K (unbiased) with MAP-N position pipeline
-        psm_result = accumulator_result(psm_acc)
-        psm = psm_result.psm
-        dahl_emitters, _, _ = estimate_dahl(samples, partition.locs, psm)
-        k_dahl = length(dahl_emitters)
-        emitters, _ = estimate_mapn_collapsed(samples, partition.locs; k_override=k_dahl)
-        if isempty(emitters)
-            error("Partition $pid ($(length(partition.locs)) locs): estimate_mapn_collapsed returned " *
-                  "0 emitters from $(length(samples)) samples (k_dahl=$k_dahl).")
-        end
-        for emitter in emitters
+    end
+
+    # Flatten results (preserving partition order)
+    all_emitters = SMLMData.Emitter2DFit[]
+    partition_ids = Int[]
+    is_near_boundary = Bool[]
+    for pid in 1:n_partitions
+        for (j, emitter) in enumerate(partition_emitters[pid])
             push!(all_emitters, emitter)
             push!(partition_ids, pid)
-            near_boundary = emitter_near_boundary(emitter, partition, boundary_margin)
-            push!(is_near_boundary, near_boundary)
+            push!(is_near_boundary, partition_boundary[pid][j])
         end
     end
     # Deduplicate boundary emitters
@@ -274,11 +321,8 @@ function _run_bagol_collapsed(
     else
         merged_emitters = SMLMData.Emitter2DFit[]
     end
-    if verbose
-        n_deduped = n_pre_dedup - length(merged_emitters)
-        println("  Pre-dedup: $n_pre_dedup emitters ($n_boundary near boundary), " *
-                "removed $n_deduped duplicates")
-    end
+    n_deduped = n_pre_dedup - length(merged_emitters)
+    _log_progress("  Dedup: $n_pre_dedup → $(length(merged_emitters)) emitters ($n_deduped removed, $n_boundary near boundary)")
 
     # Merge count histograms for posterior_k
     merged_count_hist = EmitterCountHist()
@@ -290,25 +334,31 @@ function _run_bagol_collapsed(
     # Merge posterior images if requested
     post_img = nothing
     if posterior_pixel_size > 0.0
-        merged_post = nothing
+        # Create full-field target image from user-specified or data-derived bounds
+        xlim_final = posterior_xlim
+        ylim_final = posterior_ylim
+        if xlim_final === nothing || ylim_final === nothing
+            all_x = [loc.x for loc in locs]
+            all_y = [loc.y for loc in locs]
+            pad = 3 * median([mean_sigma(loc) for loc in locs])
+            xlim_final = (minimum(all_x) - pad, maximum(all_x) + pad)
+            ylim_final = (minimum(all_y) - pad, maximum(all_y) + pad)
+        end
+        merged_post = PosteriorImage(pixel_size=posterior_pixel_size,
+                                      xlim=xlim_final, ylim=ylim_final)
         for accs in partition_accumulators
             for acc in accs
                 if acc isa PosteriorImage
-                    if merged_post === nothing
-                        merged_post = acc
-                    else
-                        accumulator_merge!(merged_post, acc)
-                    end
+                    accumulator_merge!(merged_post, acc)
                 end
             end
         end
-        if merged_post !== nothing
-            pi_result = accumulator_result(merged_post)
-            # Convert to integer counts for backward compat
-            int_image = round.(Int, pi_result.image)
-            post_img = (image=int_image, edges_x=pi_result.edges_x,
-                       edges_y=pi_result.edges_y, pixel_size=pi_result.pixel_size)
-        end
+        pi_result = accumulator_result(merged_post)
+        # Convert to integer counts for backward compat
+        int_image = round.(Int, pi_result.image)
+        post_img = (image=int_image, edges_x=pi_result.edges_x,
+                   edges_y=pi_result.edges_y, pixel_size=pi_result.pixel_size)
+        _log_progress("  Posterior image merged ($(size(int_image,1))×$(size(int_image,2)) px)")
     end
 
     # Aggregate acceptance rates across all partitions
@@ -340,9 +390,7 @@ function _run_bagol_collapsed(
     )
     result_smld = SMLMData.BasicSMLD(merged_emitters, camera, 1, 1)
 
-    if verbose
-        println("Result: $(length(merged_emitters)) emitters")
-    end
+    _log_progress("Done: $(length(merged_emitters)) emitters from $(length(locs)) localizations")
 
     # Close archive
     if archive !== nothing

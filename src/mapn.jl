@@ -91,6 +91,62 @@ function position_hungarian(
     return assignment
 end
 
+"""
+Overlap-based Hungarian matching via contingency matrix.
+
+Builds K_ref × K_sample contingency matrix C[i,j] = |{locs in ref cluster i ∩ sample cluster j}|
+in O(N), then runs Hungarian to maximize total overlap.
+
+Returns (assignment, total_overlap) where assignment[i] = j means ref cluster i matches sample cluster j.
+"""
+function overlap_hungarian(
+    ref_assignments::Vector{Int16},
+    sample_assignments::Vector{Int16},
+    ref_labels::Vector{Int16},
+    sample_labels::Vector{Int16}
+)
+    K_ref = length(ref_labels)
+    K_sample = length(sample_labels)
+
+    if K_ref == 1 && K_sample == 1
+        return [1], Int(count(==(ref_labels[1]), ref_assignments))
+    end
+
+    # Map labels to contiguous indices
+    ref_idx = Dict{Int16, Int}()
+    for (i, lab) in enumerate(ref_labels)
+        ref_idx[lab] = i
+    end
+    sample_idx = Dict{Int16, Int}()
+    for (i, lab) in enumerate(sample_labels)
+        sample_idx[lab] = i
+    end
+
+    # Build contingency matrix in O(N)
+    K = max(K_ref, K_sample)
+    C = zeros(Int, K, K)
+    @inbounds for i in eachindex(ref_assignments)
+        ri = get(ref_idx, ref_assignments[i], 0)
+        si = get(sample_idx, sample_assignments[i], 0)
+        if ri > 0 && si > 0
+            C[ri, si] += 1
+        end
+    end
+
+    # Maximize overlap via Hungarian on negated cost
+    assignment, _ = Hungarian.hungarian(-C)
+
+    total_overlap = 0
+    @inbounds for i in 1:K_ref
+        j = assignment[i]
+        if j <= K_sample
+            total_overlap += C[i, j]
+        end
+    end
+
+    return assignment[1:K_ref], total_overlap
+end
+
 # ============================================================================
 # MAP-N estimation from collapsed chain assignment samples
 # ============================================================================
@@ -297,6 +353,154 @@ function estimate_mapn_collapsed(
             Float64(n_locs_cluster), 0.0,  # photons = n_locs in cluster
             σ_x, σ_y, σ_xy,
             0.0, 0.0, 1, 1, 0, id
+        ))
+    end
+
+    return result_emitters, posterior_k
+end
+
+# ============================================================================
+# Overlap-based MAP-N: Dahl template + overlap Hungarian matching
+# ============================================================================
+
+"""
+    estimate_mapn_overlap(samples, locs, dahl_assignments; min_overlap_frac=0.5)
+        -> (Vector{Emitter2DFit}, Vector{Int})
+
+Fast MAP-N extraction using the Dahl partition as reference template.
+Matches each MCMC sample to the Dahl partition via overlap (contingency matrix)
+Hungarian matching, requiring only ONE O(K³) call per sample instead of 11
+iterative position-based rounds.
+
+# Algorithm
+1. K from Dahl assignments
+2. Filter samples to K = K_dahl
+3. For each matching sample: overlap Hungarian → matched ClusterStats
+4. Average positions across matched samples (mean of posterior means)
+5. Uncertainty: Dahl ClusterStats posterior covariance (analytic)
+6. Fallback: if no samples match, use Dahl assignments directly
+
+# Returns
+- `emitters`: Vector of Emitter2DFit with positions and uncertainties
+- `posterior_k`: Histogram of K values (index k+1 = count of K=k)
+"""
+function estimate_mapn_overlap(
+    samples::Vector{Vector{Int16}},
+    locs::Vector{<:SMLMData.AbstractEmitter},
+    dahl_assignments::Vector{Int16};
+    min_overlap_frac::Float64 = 0.5
+)
+    isempty(samples) && error("No assignment samples")
+
+    # Dahl K and labels
+    dahl_labels = sort!(unique(dahl_assignments))
+    K_dahl = length(dahl_labels)
+
+    # Build K histogram
+    ks = [length(unique(s)) for s in samples]
+    k_max = maximum(ks)
+    posterior_k = zeros(Int, k_max + 1)
+    for k in ks
+        posterior_k[k + 1] += 1
+    end
+
+    if K_dahl == 0
+        return SMLMData.Emitter2DFit[], posterior_k
+    end
+
+    # Build Dahl ClusterStats for uncertainty baseline
+    N = length(locs)
+    dahl_cs = Dict{Int16, ClusterStats}()
+    for lab in dahl_labels
+        cs = ClusterStats()
+        for i in eachindex(dahl_assignments)
+            if dahl_assignments[i] == lab
+                cs = add_loc(cs, locs[i])
+            end
+        end
+        dahl_cs[lab] = cs
+    end
+
+    # Filter to samples with K = K_dahl
+    map_indices = findall(k -> k == K_dahl, ks)
+    if isempty(map_indices)
+        # Fallback: no samples with K_dahl, use Dahl directly
+        return _emitters_from_assignments(dahl_assignments, locs), posterior_k
+    end
+
+    # Match each sample to Dahl via overlap Hungarian
+    min_overlap = max(1, round(Int, min_overlap_frac * N / K_dahl))
+    matched_positions = [Vector{Tuple{Float64, Float64}}() for _ in 1:K_dahl]
+    n_used = 0
+
+    for idx in map_indices
+        s = samples[idx]
+        sample_labels = sort!(unique(s))
+
+        assignment, total_overlap = overlap_hungarian(
+            dahl_assignments, s, dahl_labels, sample_labels
+        )
+
+        # Skip if overlap is too low
+        total_overlap < min_overlap && continue
+        n_used += 1
+
+        # Build sample ClusterStats per cluster and record matched positions
+        sample_cs = Dict{Int16, ClusterStats}()
+        for lab in sample_labels
+            cs = ClusterStats()
+            for i in eachindex(s)
+                if s[i] == lab
+                    cs = add_loc(cs, locs[i])
+                end
+            end
+            sample_cs[lab] = cs
+        end
+
+        for (ki, j) in enumerate(assignment)
+            j > length(sample_labels) && continue
+            slab = sample_labels[j]
+            if haskey(sample_cs, slab) && sample_cs[slab].n > 0
+                push!(matched_positions[ki], posterior_mean(sample_cs[slab]))
+            end
+        end
+    end
+
+    # Fallback: no samples passed overlap filter
+    if n_used == 0
+        return _emitters_from_assignments(dahl_assignments, locs), posterior_k
+    end
+
+    # Build emitters: mean positions across matched samples, Dahl covariance
+    result_emitters = SMLMData.Emitter2DFit[]
+    for (ki, lab) in enumerate(dahl_labels)
+        positions = matched_positions[ki]
+        cs = dahl_cs[lab]
+        cs.n == 0 && continue
+
+        if isempty(positions)
+            # No matches for this cluster, use Dahl directly
+            mx, my = posterior_mean(cs)
+        else
+            xs = [p[1] for p in positions]
+            ys = [p[2] for p in positions]
+            mx = mean(xs)
+            my = mean(ys)
+        end
+
+        Σ_xx, Σ_xy, Σ_yy = posterior_cov(cs)
+        # Also check empirical spread — use max of analytic and empirical
+        if length(positions) >= 3
+            emp_var_x = var([p[1] for p in positions])
+            emp_var_y = var([p[2] for p in positions])
+            Σ_xx = max(Σ_xx, emp_var_x)
+            Σ_yy = max(Σ_yy, emp_var_y)
+        end
+
+        push!(result_emitters, SMLMData.Emitter2DFit(
+            mx, my, Float64(cs.n), 0.0,
+            sqrt(max(Σ_xx, 0.0)), sqrt(max(Σ_yy, 0.0)), Σ_xy,
+            0.0, 0.0, 1, 1, 0, ki
         ))
     end
 
@@ -621,7 +825,7 @@ function estimate_dahl(
     best_assignments = samples[best_idx]
     emitters = _emitters_from_assignments(best_assignments, locs)
     stability = _cluster_stability(best_assignments, psm)
-    return emitters, posterior_k, stability
+    return emitters, posterior_k, stability, best_assignments
 end
 
 """
