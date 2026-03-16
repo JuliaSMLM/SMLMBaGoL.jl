@@ -98,7 +98,7 @@ function generate_localizations(positions, blink_dist, photon_dist)
     locs = SMLMData.Emitter2DFit[]
     blink_counts = Int[]
     loc_id = 1
-    for (ex, ey) in positions
+    for (emitter_idx, (ex, ey)) in enumerate(positions)
         n_blinks = max(1, rand(blink_dist))
         actual_blinks = 0
         for _ in 1:n_blinks
@@ -111,7 +111,7 @@ function generate_localizations(positions, blink_dist, photon_dist)
                 x, y, N, 10.0,
                 σ, σ, 0.0,
                 sqrt(N), 1.0,
-                loc_id, 1, 0, loc_id
+                loc_id, 1, emitter_idx, loc_id
             ))
             loc_id += 1
             actual_blinks += 1

@@ -97,7 +97,9 @@ Overlap-based Hungarian matching via contingency matrix.
 Builds K_ref × K_sample contingency matrix C[i,j] = |{locs in ref cluster i ∩ sample cluster j}|
 in O(N), then runs Hungarian to maximize total overlap.
 
-Returns (assignment, total_overlap) where assignment[i] = j means ref cluster i matches sample cluster j.
+Returns (assignment, total_overlap, cluster_overlaps) where assignment[i] = j means
+ref cluster i matches sample cluster j, and cluster_overlaps[i] is the number of
+shared localizations for that specific match.
 """
 function overlap_hungarian(
     ref_assignments::Vector{Int16},
@@ -109,7 +111,8 @@ function overlap_hungarian(
     K_sample = length(sample_labels)
 
     if K_ref == 1 && K_sample == 1
-        return [1], Int(count(==(ref_labels[1]), ref_assignments))
+        n = Int(count(==(ref_labels[1]), ref_assignments))
+        return [1], n, [n]
     end
 
     # Map labels to contiguous indices
@@ -137,14 +140,16 @@ function overlap_hungarian(
     assignment, _ = Hungarian.hungarian(-C)
 
     total_overlap = 0
+    cluster_overlaps = zeros(Int, K_ref)
     @inbounds for i in 1:K_ref
         j = assignment[i]
         if j <= K_sample
-            total_overlap += C[i, j]
+            cluster_overlaps[i] = C[i, j]
+            total_overlap += cluster_overlaps[i]
         end
     end
 
-    return assignment[1:K_ref], total_overlap
+    return assignment[1:K_ref], total_overlap, cluster_overlaps
 end
 
 # ============================================================================
@@ -375,10 +380,15 @@ iterative position-based rounds.
 # Algorithm
 1. K from Dahl assignments
 2. Filter samples to K = K_dahl
-3. For each matching sample: overlap Hungarian → matched ClusterStats
-4. Average positions across matched samples (mean of posterior means)
-5. Uncertainty: Dahl ClusterStats posterior covariance (analytic)
-6. Fallback: if no samples match, use Dahl assignments directly
+3. For each matching sample: overlap Hungarian → per-cluster overlap filter
+4. Only include a sample's posterior mean for cluster i if its per-cluster
+   overlap fraction >= min_overlap_frac (rejects label-switching mismatches)
+5. Position: mean of well-matched posterior means
+6. Uncertainty: Term 1 (Dahl analytic covariance) + Term 2 (allocation variance
+   from well-matched samples only). This is the law of total variance applied
+   to the collapsed posterior, equivalent to the marginal posterior variance
+   an RJMCMC sampler would produce.
+7. Fallback: if no samples match, use Dahl assignments directly
 
 # Returns
 - `emitters`: Vector of Emitter2DFit with positions and uncertainties
@@ -408,10 +418,11 @@ function estimate_mapn_overlap(
         return SMLMData.Emitter2DFit[], posterior_k
     end
 
-    # Build Dahl ClusterStats for uncertainty baseline
+    # Build Dahl ClusterStats and cluster sizes
     N = length(locs)
     dahl_cs = Dict{Int16, ClusterStats}()
-    for lab in dahl_labels
+    dahl_cluster_sizes = zeros(Int, K_dahl)
+    for (ki, lab) in enumerate(dahl_labels)
         cs = ClusterStats()
         for i in eachindex(dahl_assignments)
             if dahl_assignments[i] == lab
@@ -419,6 +430,7 @@ function estimate_mapn_overlap(
             end
         end
         dahl_cs[lab] = cs
+        dahl_cluster_sizes[ki] = Int(cs.n)
     end
 
     # Filter to samples with K = K_dahl
@@ -428,8 +440,7 @@ function estimate_mapn_overlap(
         return _emitters_from_assignments(dahl_assignments, locs), posterior_k
     end
 
-    # Match each sample to Dahl via overlap Hungarian
-    min_overlap = max(1, round(Int, min_overlap_frac * N / K_dahl))
+    # Match each sample to Dahl via overlap Hungarian with per-cluster filtering
     matched_positions = [Vector{Tuple{Float64, Float64}}() for _ in 1:K_dahl]
     n_used = 0
 
@@ -437,15 +448,15 @@ function estimate_mapn_overlap(
         s = samples[idx]
         sample_labels = sort!(unique(s))
 
-        assignment, total_overlap = overlap_hungarian(
+        assignment, total_overlap, cluster_overlaps = overlap_hungarian(
             dahl_assignments, s, dahl_labels, sample_labels
         )
 
-        # Skip if overlap is too low
-        total_overlap < min_overlap && continue
+        # Skip entire sample if total overlap is very low
+        total_overlap < div(N, 2) && continue
         n_used += 1
 
-        # Build sample ClusterStats per cluster and record matched positions
+        # Build sample ClusterStats per cluster
         sample_cs = Dict{Int16, ClusterStats}()
         for lab in sample_labels
             cs = ClusterStats()
@@ -457,8 +468,14 @@ function estimate_mapn_overlap(
             sample_cs[lab] = cs
         end
 
+        # Per-cluster overlap gate: only include well-matched clusters
         for (ki, j) in enumerate(assignment)
             j > length(sample_labels) && continue
+            # Check per-cluster overlap fraction
+            dahl_cluster_sizes[ki] == 0 && continue
+            overlap_frac = cluster_overlaps[ki] / dahl_cluster_sizes[ki]
+            overlap_frac < min_overlap_frac && continue
+
             slab = sample_labels[j]
             if haskey(sample_cs, slab) && sample_cs[slab].n > 0
                 push!(matched_positions[ki], posterior_mean(sample_cs[slab]))
@@ -471,7 +488,7 @@ function estimate_mapn_overlap(
         return _emitters_from_assignments(dahl_assignments, locs), posterior_k
     end
 
-    # Build emitters: mean positions across matched samples, Dahl covariance
+    # Build emitters: mean positions, total variance = analytic + allocation
     result_emitters = SMLMData.Emitter2DFit[]
     for (ki, lab) in enumerate(dahl_labels)
         positions = matched_positions[ki]
@@ -479,7 +496,7 @@ function estimate_mapn_overlap(
         cs.n == 0 && continue
 
         if isempty(positions)
-            # No matches for this cluster, use Dahl directly
+            # No well-matched samples for this cluster, use Dahl directly
             mx, my = posterior_mean(cs)
         else
             xs = [p[1] for p in positions]
@@ -488,13 +505,14 @@ function estimate_mapn_overlap(
             my = mean(ys)
         end
 
+        # Term 1: E[Var(θ|Z)] — analytic posterior covariance (Dahl)
         Σ_xx, Σ_xy, Σ_yy = posterior_cov(cs)
-        # Also check empirical spread — use max of analytic and empirical
+
+        # Term 2: Var[E(θ|Z)] — allocation variance from well-matched samples
+        # Bad matches excluded by per-cluster overlap gate, so var() is clean
         if length(positions) >= 3
-            emp_var_x = var([p[1] for p in positions])
-            emp_var_y = var([p[2] for p in positions])
-            Σ_xx = max(Σ_xx, emp_var_x)
-            Σ_yy = max(Σ_yy, emp_var_y)
+            Σ_xx += var([p[1] for p in positions])
+            Σ_yy += var([p[2] for p in positions])
         end
 
         push!(result_emitters, SMLMData.Emitter2DFit(

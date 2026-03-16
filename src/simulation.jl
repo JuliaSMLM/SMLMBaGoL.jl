@@ -138,7 +138,7 @@ function simulate_smlm(
                 sqrt(photons),  # σ_photons (Poisson approx)
                 sqrt(background), # σ_bg
                 frame, 1,       # frame, dataset
-                0, loc_id       # track_id, id
+                emitter_idx, loc_id  # track_id = parent emitter, id
             ))
             loc_id += 1
         end

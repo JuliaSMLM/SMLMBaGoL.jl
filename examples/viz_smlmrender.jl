@@ -89,6 +89,18 @@ function positions_to_smld(
 end
 
 """
+    oracle_mapn(locs) -> Vector{Emitter2DFit}
+
+Compute oracle MAP-N emitters using the known true clustering stored in `track_id`.
+Each localization's `track_id` field must contain the parent emitter index (set during simulation).
+Groups locs by `track_id`, computes ClusterStats posterior for each group.
+"""
+function oracle_mapn(locs::Vector{<:SMLMData.AbstractEmitter})
+    assignments = Int16[loc.track_id for loc in locs]
+    return SMLMBaGoL._emitters_from_assignments(assignments, locs)
+end
+
+"""
 Render complete BaGoL visualization suite.
 
 Calculates render bounds from localizations (2x extent of 1σ circles),
@@ -107,7 +119,7 @@ then renders all outputs at 1nm pixel size using consistent bounds.
 - `{prefix}_mapn_gaussian.png`: Gaussian render of BaGoL MAP-N result
 - `{prefix}_sr_gaussian.png`: Gaussian SR render of input localizations
 - `{prefix}_circles.png`: Circle overlay (locs gray + BaGoL red)
-- `{prefix}_comparison.png`: Three-channel (locs gray + BaGoL red + GT blue)
+- `{prefix}_comparison.png`: Multi-channel (locs gray + BaGoL red + GT blue + oracle green)
 
 # Returns
 - `Image2DTarget`: The render target for consistency with other renders
@@ -168,15 +180,42 @@ function render_bagol_suite(
     save_image(circles_path, combined)
     println("Saved: $circles_path")
 
-    # 4. Three-channel comparison if GT provided
+    # 4. Comparison with GT and oracle MAP-N if GT provided
+    #    Layer order (bottom to top): locs (gray) → GT (blue) → oracle (green) → found (red)
     if !isempty(true_positions)
-        gt_smld = positions_to_smld(true_positions, locs_smld.camera)
         comparison_path = joinpath(output_dir, "$(prefix)_comparison.png")
+
+        # Start with locs (gray) as base
+        (base_img, _) = render(locs_smld;
+            strategy = CircleRender(), color = :gray,
+            target = target, clip_percentile = nothing)
+
+        # GT true positions (blue)
+        gt_smld = positions_to_smld(true_positions, locs_smld.camera)
         (gt_img, _) = render(gt_smld;
             strategy = CircleRender(), color = :blue,
             target = target, clip_percentile = nothing)
-        combined3 = compose(combined, gt_img; blend=:replace)
-        save_image(comparison_path, combined3)
+        comp = compose(base_img, gt_img; blend=:replace)
+
+        # Oracle MAP-N (green) if track_id info is available
+        has_oracle = any(e.track_id != 0 for e in locs_smld.emitters)
+        if has_oracle
+            oracle_emitters = oracle_mapn(locs_smld.emitters)
+            oracle_smld = SMLMData.BasicSMLD(oracle_emitters, locs_smld.camera, 1, 1)
+            (oracle_img, _) = render(oracle_smld;
+                strategy = CircleRender(), color = :green,
+                target = target, clip_percentile = nothing)
+            comp = compose(comp, oracle_img; blend=:replace)
+            println("  Oracle MAP-N: $(length(oracle_emitters)) emitters (green)")
+        end
+
+        # Found MAP-N (red) on top
+        (found_img, _) = render(bagol_smld;
+            strategy = CircleRender(), color = :red,
+            target = target, clip_percentile = nothing)
+        comp = compose(comp, found_img; blend=:replace)
+
+        save_image(comparison_path, comp)
         println("Saved: $comparison_path")
     end
 

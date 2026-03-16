@@ -221,6 +221,131 @@ function compute_all_metrics(
     )
 end
 
+# =============================================================================
+# Partition comparison: Variation of Information + Expected Posterior Loss
+# =============================================================================
+
+"""
+    variation_of_information(z1, z2) -> (vi, overseg, underseg)
+
+Variation of Information between two partitions.
+
+Returns total VI and its decomposition:
+- `overseg` = H(z1|z2): extra clusters in z1 not in z2 (splitting)
+- `underseg` = H(z2|z1): clusters in z2 lost in z1 (merging)
+
+Reference: Meilă (2007), "Comparing clusterings—an information based distance"
+"""
+function variation_of_information(z1::Vector{Int16}, z2::Vector{Int16})
+    N = length(z1)
+    @assert length(z2) == N
+
+    # Build contingency table
+    labels1 = sort!(unique(z1))
+    labels2 = sort!(unique(z2))
+    K1 = length(labels1)
+    K2 = length(labels2)
+    lab1_map = Dict(l => i for (i, l) in enumerate(labels1))
+    lab2_map = Dict(l => i for (i, l) in enumerate(labels2))
+
+    C = zeros(Int, K1, K2)
+    for i in 1:N
+        C[lab1_map[z1[i]], lab2_map[z2[i]]] += 1
+    end
+
+    n1 = vec(sum(C, dims=2))  # row sums (cluster sizes in z1)
+    n2 = vec(sum(C, dims=1))  # col sums (cluster sizes in z2)
+
+    # H(z1|z2) = -Σ_{k,l} (C[k,l]/N) log(C[k,l] / n2[l])
+    # H(z2|z1) = -Σ_{k,l} (C[k,l]/N) log(C[k,l] / n1[k])
+    h1g2 = 0.0  # H(z1|z2) = over-segmentation
+    h2g1 = 0.0  # H(z2|z1) = under-segmentation
+    logN = log(N)
+    for k in 1:K1, l in 1:K2
+        c = C[k, l]
+        c == 0 && continue
+        logc = log(c)
+        h1g2 += c * (log(n2[l]) - logc)
+        h2g1 += c * (log(n1[k]) - logc)
+    end
+    h1g2 /= N
+    h2g1 /= N
+
+    return h1g2 + h2g1, h1g2, h2g1
+end
+
+"""
+    expected_posterior_loss(candidate, samples; loss=variation_of_information)
+
+Expected posterior loss of a candidate partition under VI loss,
+estimated from stored MCMC samples.
+
+EPL(a) = (1/T) Σ_t L(a, Z^(t))
+"""
+function expected_posterior_loss(
+    candidate::Vector{Int16},
+    samples::Vector{Vector{Int16}};
+    loss::Function = (a, b) -> variation_of_information(a, b)[1]
+)
+    T = length(samples)
+    T == 0 && return NaN
+    total = 0.0
+    for s in samples
+        total += loss(candidate, s)
+    end
+    return total / T
+end
+
+"""
+    partition_diagnostics(dahl_z, oracle_z, samples) -> NamedTuple
+
+Comprehensive partition comparison diagnostics.
+
+Returns VI decomposition, EPL for Dahl/oracle/best-sample,
+and posterior regret.
+"""
+function partition_diagnostics(
+    dahl_z::Vector{Int16},
+    oracle_z::Vector{Int16},
+    samples::Vector{Vector{Int16}}
+)
+    # VI between Dahl and oracle
+    vi_total, overseg, underseg = variation_of_information(dahl_z, oracle_z)
+
+    # EPL for Dahl and oracle
+    loss_fn = (a, b) -> variation_of_information(a, b)[1]
+    epl_dahl = expected_posterior_loss(dahl_z, samples; loss=loss_fn)
+    epl_oracle = expected_posterior_loss(oracle_z, samples; loss=loss_fn)
+
+    # Best sample (lowest EPL among stored samples)
+    epl_best = Inf
+    best_idx = 0
+    for (i, s) in enumerate(samples)
+        e = expected_posterior_loss(s, samples; loss=loss_fn)
+        if e < epl_best
+            epl_best = e
+            best_idx = i
+        end
+    end
+
+    K_dahl = length(unique(dahl_z))
+    K_oracle = length(unique(oracle_z))
+
+    return (
+        vi_total = vi_total,
+        overseg = overseg,
+        underseg = underseg,
+        epl_dahl = epl_dahl,
+        epl_oracle = epl_oracle,
+        epl_best = epl_best,
+        best_sample_idx = best_idx,
+        K_dahl = K_dahl,
+        K_oracle = K_oracle,
+        regret_dahl = epl_dahl - epl_best,
+        regret_oracle = epl_oracle - epl_best
+    )
+end
+
 """
 Print a summary of all metrics.
 """
