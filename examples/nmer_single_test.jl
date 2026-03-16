@@ -97,7 +97,7 @@ function generate_localizations(positions, blink_dist, photon_dist)
     locs = SMLMData.Emitter2DFit[]
     blink_counts = Int[]
     loc_id = 1
-    for (ex, ey) in positions
+    for (emitter_idx, (ex, ey)) in enumerate(positions)
         n_blinks = max(1, rand(blink_dist))
         actual_blinks = 0
         for _ in 1:n_blinks
@@ -110,7 +110,7 @@ function generate_localizations(positions, blink_dist, photon_dist)
                 x, y, N, 10.0,
                 σ, σ, 0.0,
                 sqrt(N), 1.0,
-                loc_id, 1, 0, loc_id
+                loc_id, 1, emitter_idx, loc_id
             ))
             loc_id += 1
             actual_blinks += 1
@@ -226,6 +226,33 @@ println("  Mean σ: $(round(mean(σ_values)*1000, digits=2)) nm")
 println("\n" * "-"^60)
 println("Evaluation Metrics:")
 metrics = print_metrics(emitters, true_positions; threshold=0.020)
+
+# =============================================================================
+# PARTITION DIAGNOSTICS: Dahl vs Oracle
+# =============================================================================
+
+println("\n" * "-"^60)
+println("Partition diagnostics (Dahl vs Oracle):")
+
+oracle_z = Int16[loc.track_id for loc in locs]
+pd = partition_diagnostics(dahl_assignments, oracle_z, samples)
+
+println("  VI(Dahl, Oracle) = $(round(pd.vi_total, digits=3)) nats")
+println("    Over-segmentation  H(Dahl|Oracle) = $(round(pd.overseg, digits=3))")
+println("    Under-segmentation H(Oracle|Dahl) = $(round(pd.underseg, digits=3))")
+println("  K: Dahl=$(pd.K_dahl), Oracle=$(pd.K_oracle)")
+println("  Expected Posterior Loss (VI):")
+println("    EPL(Dahl)   = $(round(pd.epl_dahl, digits=3))")
+println("    EPL(Oracle) = $(round(pd.epl_oracle, digits=3))")
+println("    EPL(Best)   = $(round(pd.epl_best, digits=3))  (sample #$(pd.best_sample_idx))")
+println("  Regret:")
+println("    Dahl regret   = $(round(pd.regret_dahl, digits=3))")
+println("    Oracle regret = $(round(pd.regret_oracle, digits=3))")
+if pd.epl_dahl <= pd.epl_oracle
+    println("  → Dahl is a better posterior summary than oracle")
+else
+    println("  → Oracle is a better posterior summary (sampler may be missing modes)")
+end
 
 # =============================================================================
 # GENERATE VISUALIZATIONS
@@ -389,12 +416,46 @@ barplot!(ax5, 1:length(move_names), rates, color=:steelblue)
 ax5.xticks = (1:length(move_names), move_names)
 save(joinpath(OUTPUT_DIR, "acceptance_rates.png"), fig5)
 
-# 6. Posterior image (raw PNG)
-println("  [6/7] Posterior image PNG (alt method via save_posterior_png)...")
+# 6. Partition diagnostics figure
+println("  [6/9] Partition diagnostics...")
+fig6 = Figure(size=(900, 350))
+
+# Panel 1: EPL comparison (bar chart)
+ax6a = Axis(fig6[1, 1], title="Expected Posterior Loss (VI)",
+    ylabel="EPL (nats)", xticks=(1:3, ["Dahl", "Oracle", "Best\nsample"]))
+barplot!(ax6a, [1, 2, 3], [pd.epl_dahl, pd.epl_oracle, pd.epl_best],
+    color=[:red, :green, :steelblue])
+
+# Panel 2: VI decomposition (stacked bar)
+ax6b = Axis(fig6[1, 2], title="VI(Dahl, Oracle) = $(round(pd.vi_total, digits=2))",
+    ylabel="nats", xticks=(1:2, ["Over-seg\n(splitting)", "Under-seg\n(merging)"]))
+barplot!(ax6b, [1, 2], [pd.overseg, pd.underseg],
+    color=[:orange, :purple])
+
+# Panel 3: P(K|data) with markers
+ax6c = Axis(fig6[1, 3], title="Posterior P(K|data)",
+    xlabel="K", ylabel="Frequency")
+k_hist = posterior_k
+if !isempty(k_hist)
+    k_min, k_max = extrema(k_hist)
+    k_range = k_min:k_max
+    counts = [count(==(k), k_hist) for k in k_range]
+    barplot!(ax6c, collect(k_range), counts, color=:gray70)
+    vlines!(ax6c, [pd.K_dahl], color=:red, linewidth=2, label="Dahl K=$(pd.K_dahl)")
+    vlines!(ax6c, [pd.K_oracle], color=:green, linewidth=2, linestyle=:dash,
+        label="Oracle K=$(pd.K_oracle)")
+    axislegend(ax6c, position=:rt, framevisible=false, labelsize=10)
+end
+
+save(joinpath(OUTPUT_DIR, "partition_diagnostics.png"), fig6)
+println("Saved: partition_diagnostics.png")
+
+# 7. Posterior image (raw PNG)
+println("  [7/9] Posterior image PNG (alt method via save_posterior_png)...")
 # Already saved above
 
-# 7. SMLMRender suite
-println("  [7/7] SMLMRender suite...")
+# 8. SMLMRender suite
+println("  [8/9] SMLMRender suite...")
 bagol_smld = SMLMData.BasicSMLD(emitters, camera, 1, 1)
 render_bagol_suite(locs_smld, bagol_smld;
     true_positions = true_positions,
@@ -402,8 +463,8 @@ render_bagol_suite(locs_smld, bagol_smld;
     output_dir = OUTPUT_DIR,
     pixel_size = 1.0)
 
-# 8. Chain animation (collapsed Gibbs)
-println("  [8/8] Chain animation...")
+# 9. Chain animation (collapsed Gibbs)
+println("  [9/9] Chain animation...")
 
 const PALETTE = [
     colorant"#e41a1c", colorant"#377eb8", colorant"#4daf4a",

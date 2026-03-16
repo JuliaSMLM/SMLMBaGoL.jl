@@ -103,7 +103,7 @@ function generate_localizations(positions; psf_sigma=PSF_SIGMA,
     blink_dist = Poisson(blink_mean)
     photon_dist = Exponential(photon_mean)
 
-    for (ex, ey) in positions
+    for (emitter_idx, (ex, ey)) in enumerate(positions)
         n_blinks = max(1, rand(blink_dist))
         actual_blinks = 0
         for _ in 1:n_blinks
@@ -113,7 +113,7 @@ function generate_localizations(positions; psf_sigma=PSF_SIGMA,
             x = ex + σ * randn()
             y = ey + σ * randn()
             push!(locs, SMLMData.Emitter2DFit(
-                x, y, N, 10.0, σ, σ, 0.0, sqrt(N), 1.0, loc_id, 1, 0, loc_id
+                x, y, N, 10.0, σ, σ, 0.0, sqrt(N), 1.0, loc_id, 1, emitter_idx, loc_id
             ))
             loc_id += 1
             actual_blinks += 1
