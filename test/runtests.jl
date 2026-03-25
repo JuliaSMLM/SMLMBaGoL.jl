@@ -538,8 +538,7 @@ using Distributions
         σ = 0.005  # Localization precision (μm)
         separation = 0.05  # 10σ between emitters — well resolved
 
-        # Oracle MAP-K accuracy with known (μ, α) and same λ_K as sampler
-        μ_prior_mean = 10.0  # 2.0 × 5.0 (default prior)
+        # Oracle MAP-K accuracy with known (μ, α) — pure count model, no K prior
         function oracle_accuracy(K_true; n_mc=20000)
             p = α_true / (α_true + μ_true)
             dist_N = NegativeBinomial(K_true * α_true, p)
@@ -550,11 +549,10 @@ using Distributions
                 N = rand(dist_N)
                 N < K_true && continue
                 n_valid += 1
-                λ_K = N / μ_prior_mean
                 best_K = 1
                 best_lp = -Inf
                 for k in 1:K_max
-                    lp = SMLMBaGoL._log_count_posterior(k, N, α_true, μ_true, λ_K)
+                    lp = SMLMBaGoL._log_count_posterior(k, N, α_true, μ_true)
                     if lp > best_lp
                         best_lp = lp
                         best_K = k

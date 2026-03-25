@@ -56,12 +56,12 @@ Run the collapsed Gibbs sampler on a set of localizations.
 - `burn_in=2000`: Burn-in iterations before accumulating
 - `shape=2.0`: Initial Gamma shape for count distribution
 - `learn_shape=true`: Update shape during MCMC
-- `λ_K`: Prior mean for emitter count (default: N/μ)
 - `hierarchical_interval=100`: Iterations between μ/shape MH updates
 - `accumulators=AbstractAccumulator[]`: List of accumulators to update after burn-in
 - `verbose=false`: Print progress
 - `callback`: Optional callback `(iter, state, μ, shape) -> nothing`
 - `callback_interval=1`: How often to call callback
+- `use_locmix_prior=false`: Use localization mixture prior instead of uniform
 
 # Move distribution
 - 50%: Allocation Gibbs sweep (full sweep per iteration)
@@ -76,7 +76,6 @@ function run_collapsed_chain(
     learn_shape::Bool = true,
     μ_prior_shape::Float64 = 2.0,
     μ_prior_scale::Float64 = 5.0,
-    λ_K::Float64 = NaN,  # default: N/μ (computed below)
     shape_prior_shape::Float64 = 2.0,
     shape_prior_scale::Float64 = 1.0,
     hierarchical_interval::Int = 100,
@@ -98,9 +97,6 @@ function run_collapsed_chain(
 
     μ = μ_prior_shape * μ_prior_scale  # Initial μ from prior mean
     μ₀ = μ  # Fixed μ for split-merge acceptance (decouples K from μ adaptation)
-    if isnan(λ_K)
-        λ_K = Float64(N) / μ
-    end
     current_shape = shape
 
     acceptance = Dict{Symbol, Tuple{Int, Int}}(
@@ -121,12 +117,12 @@ function run_collapsed_chain(
 
         if r < 0.50
             # Gibbs allocation sweep (always "accepts" — it's exact Gibbs)
-            gibbs_allocation_sweep!(state, locs, μ, current_shape, λ_K)
+            gibbs_allocation_sweep!(state, locs, μ, current_shape)
             prev = acceptance[:gibbs_sweep]
             acceptance[:gibbs_sweep] = (prev[1] + 1, prev[2] + 1)
         else
-            # Jain-Neal split-merge — use fixed μ₀ to prevent μ-K feedback loop
-            accepted, move_type = propose_split_merge!(state, locs, μ₀, current_shape, λ_K)
+            # Split-merge — use fixed μ₀ to prevent μ-K feedback loop
+            accepted, move_type = propose_split_merge!(state, locs, μ₀, current_shape)
             prev = acceptance[move_type]
             acceptance[move_type] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
         end
@@ -174,7 +170,7 @@ function run_collapsed_chain(
 end
 
 """
-    run_collapsed_iterations!(state, locs, n, μ, shape, λ_K, accumulators, burn_in, current_iter;
+    run_collapsed_iterations!(state, locs, n, μ, shape, accumulators, burn_in, current_iter;
                               acceptance=nothing)
 
 Run n iterations on an existing collapsed state. Used for synchronized partitioned execution.
@@ -186,7 +182,6 @@ function run_collapsed_iterations!(
     n::Int,
     μ::Float64,
     shape::Float64,
-    λ_K::Float64,
     accumulators::Vector{<:AbstractAccumulator},
     burn_in::Int,
     current_iter::Int;
@@ -198,13 +193,13 @@ function run_collapsed_iterations!(
 
         r = rand()
         if r < 0.50
-            gibbs_allocation_sweep!(state, locs, μ, shape, λ_K)
+            gibbs_allocation_sweep!(state, locs, μ, shape)
             if acceptance !== nothing
                 prev = acceptance[:gibbs_sweep]
                 acceptance[:gibbs_sweep] = (prev[1] + 1, prev[2] + 1)
             end
         else
-            accepted, move_type = propose_split_merge!(state, locs, μ₀, shape, λ_K)
+            accepted, move_type = propose_split_merge!(state, locs, μ₀, shape)
             if acceptance !== nothing
                 prev = acceptance[move_type]
                 acceptance[move_type] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
