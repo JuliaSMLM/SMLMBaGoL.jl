@@ -305,3 +305,98 @@ function build_cluster_stats(locs::Vector{<:SMLMData.AbstractEmitter}, indices)
     end
     return cs
 end
+
+# ============================================================================
+# Localization mixture prior functions
+#
+# Instead of P(θ) = 1/A (uniform), use P(θ) = (1/N) Σⱼ N(θ; dⱼ, Σⱼ).
+# This concentrates prior mass near the data, dramatically reducing the
+# Occam penalty that penalizes splitting co-located emitters.
+#
+# The marginal likelihood becomes:
+#   ML_k = (1/N) Σⱼ ML_flat(cluster_k ∪ {virtual_loc_j})
+# where ML_flat is the marginal likelihood under a flat (improper) prior.
+# Each term is a Gaussian integral computable via ClusterStats.
+# ============================================================================
+
+"""
+    log_ml_flat(cs::ClusterStats) -> Float64
+
+Log marginal likelihood with flat (improper) position prior.
+Same as `log_marginal_likelihood` but WITHOUT the `-log(A)` term.
+
+Used as a building block for the localization mixture prior, where
+the Gaussian prior components replace the uniform 1/A factor.
+"""
+@inline function log_ml_flat(cs::ClusterStats)
+    n = Int(cs.n)
+    if n == 0
+        return 0.0
+    end
+
+    det_Λ, S_xx, S_xy, S_yy = _posterior_precision_inv(cs)
+    if det_Λ <= 0
+        return -Inf
+    end
+
+    eta_Sinv_eta = S_xx * cs.η_x^2 + 2 * S_xy * cs.η_x * cs.η_y + S_yy * cs.η_y^2
+
+    return (1 - n) * log(2π) -
+           0.5 * cs.log_det_sum -
+           0.5 * (cs.quad - eta_Sinv_eta) -
+           0.5 * log(det_Λ)
+end
+
+"""
+    log_ml_locmix(cs::ClusterStats, loc_precs::Vector{LocPrecision}) -> Float64
+
+Log marginal likelihood under the localization mixture prior:
+  P(θ) = (1/N) Σⱼ N(θ; dⱼ, Σⱼ)
+
+Computed as: -log(N) + logsumexp_j[ log_ml_flat(cs + virtual_j) ]
+
+Each term adds virtual localization j to the cluster and computes
+the flat-prior ML. Cost: O(N) per cluster (vs O(1) for uniform prior).
+"""
+function log_ml_locmix(cs::ClusterStats, loc_precs::Vector{LocPrecision})
+    N = length(loc_precs)
+    N == 0 && return 0.0
+
+    # Compute log ML_flat for each virtual loc added to the cluster
+    max_val = -Inf
+    @inbounds for j in 1:N
+        cs_aug = add_loc(cs, loc_precs[j])
+        val = log_ml_flat(cs_aug)
+        if val > max_val
+            max_val = val
+        end
+    end
+
+    if max_val == -Inf
+        return -Inf
+    end
+
+    # Stable logsumexp
+    total = 0.0
+    @inbounds for j in 1:N
+        cs_aug = add_loc(cs, loc_precs[j])
+        total += exp(log_ml_flat(cs_aug) - max_val)
+    end
+
+    return -log(N) + max_val + log(total)
+end
+
+"""
+    log_predictive_locmix(cs, lp::LocPrecision, loc_precs::Vector{LocPrecision}) -> Float64
+
+Predictive probability under localization mixture prior.
+Ratio of locmix marginal likelihoods with and without loc.
+
+For empty cluster: returns log[(1/N) Σⱼ N(dᵢ; dⱼ, Σᵢ + Σⱼ)],
+which concentrates mass near existing localizations.
+"""
+@inline function log_predictive_locmix(cs::ClusterStats, lp::LocPrecision,
+                                        loc_precs::Vector{LocPrecision})
+    cs_new = add_loc(cs, lp)
+    return log_ml_locmix(cs_new, loc_precs) - log_ml_locmix(cs, loc_precs)
+end
