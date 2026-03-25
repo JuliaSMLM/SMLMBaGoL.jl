@@ -198,10 +198,9 @@ function _run_bagol_collapsed(
     for outer in 1:n_outer
         @sync for i in 1:n_partitions
             Threads.@spawn begin
-                λ_K_i = get(kwargs, :λ_K, Float64(length(partitions[i].locs)) / μ)
                 iter_counters[i] = run_collapsed_iterations!(
                     states[i], partitions[i].locs, sync_interval,
-                    μ, current_shape, λ_K_i,
+                    μ, current_shape,
                     partition_accumulators[i], burn_in, iter_counters[i];
                     acceptance=partition_acceptance[i], μ₀=μ₀
                 )
@@ -232,10 +231,9 @@ function _run_bagol_collapsed(
     if remaining > 0
         @sync for i in 1:n_partitions
             Threads.@spawn begin
-                λ_K_i = get(kwargs, :λ_K, Float64(length(partitions[i].locs)) / μ)
                 iter_counters[i] = run_collapsed_iterations!(
                     states[i], partitions[i].locs, remaining,
-                    μ, current_shape, λ_K_i,
+                    μ, current_shape,
                     partition_accumulators[i], burn_in, iter_counters[i];
                     acceptance=partition_acceptance[i], μ₀=μ₀
                 )

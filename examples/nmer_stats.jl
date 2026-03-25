@@ -89,15 +89,15 @@ function generate_localizations(positions)
 end
 
 """
-Count-model MAP K: argmax_K P(N|K,μ,shape) × P(K|λ).
+Count-model MAP K: argmax_K P(N|K,μ,shape).
+Pure NegBin likelihood — no prior on K.
 This is the best K estimate from counting alone (Q-PAINT limit).
 """
-function count_model_map_k(N::Int, μ::Float64, shape::Float64, λ_K::Float64; K_max::Int=20)
+function count_model_map_k(N::Int, μ::Float64, shape::Float64; K_max::Int=20)
     best_k = 1
     best_lp = -Inf
     for K in 1:K_max
-        lp = SMLMBaGoL.log_prior_total_count(N, K, μ, shape) +
-             SMLMBaGoL.log_prior_k(K, λ_K)
+        lp = SMLMBaGoL.log_prior_total_count(N, K, μ, shape)
         if lp > best_lp
             best_lp = lp
             best_k = K
@@ -126,7 +126,7 @@ function run_single_trial(true_positions)
     # Here we compute the effective μ from the filter acceptance rate.
     filter_rate = N / N_pre
     μ_calibrated = BLINK_MEAN * filter_rate
-    K_count = count_model_map_k(N, μ_calibrated, TRUE_SHAPE, Float64(N_EMITTERS))
+    K_count = count_model_map_k(N, μ_calibrated, TRUE_SHAPE)
 
     # Run chain
     ps_acc = PartitionSamples(thin=5)
@@ -135,7 +135,6 @@ function run_single_trial(true_positions)
 
     result = run_collapsed_chain(
         locs;
-        λ_K = Float64(N_EMITTERS),
         n_iterations = N_ITERATIONS,
         burn_in = BURN_IN,
         μ_prior_shape = μ,
