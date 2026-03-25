@@ -136,10 +136,18 @@ function gibbs_allocation_sweep!(state::CollapsedState,
         end
 
         # Compute spatial predictive for each active cluster
-        for i in 1:K
-            slot = active_slots[i]
-            cs = state.clusters[slot]
-            log_probs[i] = log_predictive(cs, lp, state.log_area)
+        if state.use_locmix_prior
+            for i in 1:K
+                slot = active_slots[i]
+                cs = state.clusters[slot]
+                log_probs[i] = log_predictive_locmix(cs, lp, loc_precs)
+            end
+        else
+            for i in 1:K
+                slot = active_slots[i]
+                cs = state.clusters[slot]
+                log_probs[i] = log_predictive(cs, lp, state.log_area)
+            end
         end
 
         # In-place log-sum-exp normalization → probabilities in log_probs[1:K]
@@ -227,9 +235,17 @@ Sum of log marginal likelihoods across all active clusters.
 """
 function _total_spatial_lml(state::CollapsedState)
     total = 0.0
-    @inbounds for j in eachindex(state.active)
-        if state.active[j]
-            total += log_marginal_likelihood(state.clusters[j], state.log_area)
+    if state.use_locmix_prior
+        @inbounds for j in eachindex(state.active)
+            if state.active[j]
+                total += log_ml_locmix(state.clusters[j], state._loc_precs)
+            end
+        end
+    else
+        @inbounds for j in eachindex(state.active)
+            if state.active[j]
+                total += log_marginal_likelihood(state.clusters[j], state.log_area)
+            end
         end
     end
     return total
@@ -321,10 +337,15 @@ function propose_split_merge!(state::CollapsedState,
     # Compute spatial LML after the move + relaxation
     lml_after = _total_spatial_lml(state)
 
-    # Area-invariant spatial fit improvement:
-    # Cancel the -log(A) per cluster by adding ΔK × log(A)
-    ΔK = state.n_active - old_n_active
-    Δ_fit = (lml_after - lml_before) + ΔK * state.log_area
+    # Spatial fit improvement.
+    # For uniform prior: cancel -log(A) per cluster by adding ΔK × log(A).
+    # For locmix prior: no area term exists, Δ_fit is the raw ML difference.
+    if state.use_locmix_prior
+        Δ_fit = lml_after - lml_before
+    else
+        ΔK = state.n_active - old_n_active
+        Δ_fit = (lml_after - lml_before) + ΔK * state.log_area
+    end
 
     # MH acceptance on spatial correction (count terms already in proposal)
     if Δ_fit >= 0 || rand() < exp(Δ_fit)

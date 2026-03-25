@@ -40,7 +40,7 @@ function initialize_collapsed_state(locs::Vector{<:SMLMData.AbstractEmitter},
     _rollback_clusters = similar(clusters)
     _rollback_active = similar(active)
 
-    return CollapsedState(assignments, clusters, active, n_active, log_area,
+    return CollapsedState(assignments, clusters, active, n_active, log_area, false,
                           _loc_precs, _perm, _active_slots, _log_probs,
                           _rollback_assignments, _rollback_clusters, _rollback_active)
 end
@@ -83,7 +83,8 @@ function run_collapsed_chain(
     accumulators::Vector{<:AbstractAccumulator} = AbstractAccumulator[],
     verbose::Bool = false,
     callback::Union{Function, Nothing} = nothing,
-    callback_interval::Int = 1
+    callback_interval::Int = 1,
+    use_locmix_prior::Bool = false
 )
     N = length(locs)
     if N == 0
@@ -93,6 +94,7 @@ function run_collapsed_chain(
     # Initialize
     spatial_prior = UniformSpatialPrior(locs)
     state = initialize_collapsed_state(locs, spatial_prior)
+    state.use_locmix_prior = use_locmix_prior
 
     μ = μ_prior_shape * μ_prior_scale  # Initial μ from prior mean
     μ₀ = μ  # Fixed μ for split-merge acceptance (decouples K from μ adaptation)

@@ -229,5 +229,11 @@ function _reconstruct_state(assignments::Vector{Int16},
     end
 
     n_active = count(active)
-    return CollapsedState(assignments, clusters, active, n_active, log_area)
+    N = length(assignments)
+    _loc_precs = precompute_loc_precisions(locs)
+    max_K = max(N, 16)
+    return CollapsedState(assignments, clusters, active, n_active, log_area, false,
+                          _loc_precs, collect(1:N), Vector{Int}(undef, max_K),
+                          Vector{Float64}(undef, max_K + 1),
+                          similar(assignments), similar(clusters), similar(active))
 end
