@@ -96,7 +96,6 @@ function run_collapsed_chain(
     state.use_locmix_prior = use_locmix_prior
 
     μ = μ_prior_shape * μ_prior_scale  # Initial μ from prior mean
-    μ₀ = μ  # Fixed μ for split-merge acceptance (decouples K from μ adaptation)
     current_shape = shape
 
     acceptance = Dict{Symbol, Tuple{Int, Int}}(
@@ -121,8 +120,8 @@ function run_collapsed_chain(
             prev = acceptance[:gibbs_sweep]
             acceptance[:gibbs_sweep] = (prev[1] + 1, prev[2] + 1)
         else
-            # Split-merge — use fixed μ₀ to prevent μ-K feedback loop
-            accepted, move_type = propose_split_merge!(state, locs, μ₀, current_shape)
+            # Split-merge — use current μ (no fixed μ₀ hack)
+            accepted, move_type = propose_split_merge!(state, locs, μ, current_shape)
             prev = acceptance[move_type]
             acceptance[move_type] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
         end
@@ -185,8 +184,7 @@ function run_collapsed_iterations!(
     accumulators::Vector{<:AbstractAccumulator},
     burn_in::Int,
     current_iter::Int;
-    acceptance::Union{Dict{Symbol, Tuple{Int, Int}}, Nothing}=nothing,
-    μ₀::Float64=μ  # Fixed μ for split-merge (default: same as adaptive μ)
+    acceptance::Union{Dict{Symbol, Tuple{Int, Int}}, Nothing}=nothing
 )
     for _ in 1:n
         current_iter += 1
@@ -199,7 +197,7 @@ function run_collapsed_iterations!(
                 acceptance[:gibbs_sweep] = (prev[1] + 1, prev[2] + 1)
             end
         else
-            accepted, move_type = propose_split_merge!(state, locs, μ₀, shape)
+            accepted, move_type = propose_split_merge!(state, locs, μ, shape)
             if acceptance !== nothing
                 prev = acceptance[move_type]
                 acceptance[move_type] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
