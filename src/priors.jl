@@ -102,16 +102,18 @@ function log_negbin_pmf(n::Int, μ::Float64, α::Float64)
 end
 
 """
-Log prior on TOTAL count N given K emitters, using marginal distribution.
+Log probability of total count N given K emitters.
 
-From Fazel et al. (2022): P(K|ξ) ∝ Gamma(N; K*shape, μ/shape)
+Each emitter produces n_k ~ NegBin(α, p) localizations independently,
+where p = α/(α+μ), E[n_k] = μ, Var[n_k] = μ(1+μ/α).
 
-The sum of K independent Gamma(shape, scale) variables is Gamma(K*shape, scale).
-This is a continuous approximation to the NegBin(K*α, p) total count.
+The sum N = Σ n_k ~ NegBin(K*α, p) exactly (NegBin is closed under
+summation with shared p). No continuous approximation needed.
 
-Model: N ~ Gamma(K*shape, μ/shape)
-  - E[N] = K*μ
-  - Var[N] = K*μ²/shape
+  - α = shape parameter (called `shape` throughout the codebase)
+  - α = 1: geometric/exponential (dSTORM)
+  - α > 1: peaked (DNA-PAINT)
+  - α → ∞: Poisson
 """
 function log_prior_total_count(N::Int, K::Int, μ::Float64, shape::Float64)
     if N < K  # Need at least 1 loc per emitter
@@ -120,8 +122,6 @@ function log_prior_total_count(N::Int, K::Int, μ::Float64, shape::Float64)
     if K <= 0
         return -Inf
     end
-    total_shape = K * shape
-    scale = μ / shape
-    dist = Gamma(total_shape, scale)
-    return logpdf(dist, Float64(N))
+    p = shape / (shape + μ)
+    return logpdf(NegativeBinomial(K * shape, p), N)
 end
