@@ -508,11 +508,15 @@ function estimate_mapn_overlap(
         # Term 1: E[Var(θ|Z)] — analytic posterior covariance (Dahl)
         Σ_xx, Σ_xy, Σ_yy = posterior_cov(cs)
 
-        # Term 2: Var[E(θ|Z)] — allocation variance from well-matched samples
-        # Bad matches excluded by per-cluster overlap gate, so var() is clean
+        # Term 2: Cov[E(θ|Z)] — allocation covariance from well-matched samples
+        # Bad matches excluded by per-cluster overlap gate, so var/cov is clean
+        # Full 2×2 covariance (not just diagonal) for coordinate-system invariance
         if length(positions) >= 3
-            Σ_xx += var([p[1] for p in positions])
-            Σ_yy += var([p[2] for p in positions])
+            xs = [p[1] for p in positions]
+            ys = [p[2] for p in positions]
+            Σ_xx += var(xs)
+            Σ_yy += var(ys)
+            Σ_xy += cov(xs, ys)
         end
 
         push!(result_emitters, SMLMData.Emitter2DFit(
