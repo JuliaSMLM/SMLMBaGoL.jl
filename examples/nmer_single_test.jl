@@ -193,7 +193,6 @@ psm_acc = PSMAccumulator()
 
 result = run_collapsed_chain(
     locs;
-    λ_K = Float64(N_EMITTERS),
     n_iterations = N_ITERATIONS,
     burn_in = BURN_IN,
     accumulators = AbstractAccumulator[count_hist, post_img, nn_hist, ps_acc, psm_acc],

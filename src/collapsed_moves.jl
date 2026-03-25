@@ -50,29 +50,24 @@ function _deactivate_cluster!(state::CollapsedState, slot::Integer)
 end
 
 """
-    _log_count_posterior(K, N, shape, μ, λ_K) -> Float64
+    _log_count_posterior(K, N, shape, μ) -> Float64
 
-Count-model log posterior for K emitters.
+Count-model posterior for K emitters (Fazel et al. 2022).
 
-  π(K) ∝ P(K) × P(N|K)
+  P(K|N) ∝ P(N|K, μ, α) = NegBin(N; K×α, α/(α+μ))
 
-where P(N|K) = NegBin(N; K×α, α/(α+μ)) is the total count model.
-
-The theoretical MAP-N accuracy is limited by the count model's variance:
-  σ_N = √(K × μ(μ+α)/α)
-For K=8, μ=20, α=5: σ_N ≈ 28, giving ~28% theoretical maximum accuracy.
-This is a fundamental property of the count model, not a sampler limitation.
+No separate prior on K — the NegBin likelihood regularizes K through its
+shape parameter Kα. Under the localization mixture prior there is no spatial
+Poisson process, so no Poisson(λA) prior on K exists.
 
 Uses fixed μ₀ (prior mean) rather than adaptive μ to prevent the μ-K
 positive feedback loop where adaptive μ tracks K, making the count model
 non-informative for K changes.
 """
 function _log_count_posterior(K::Int, N::Int,
-                              shape::Float64, μ::Float64, λ_K::Float64)
-    lp = log_prior_k(K, λ_K)
+                              shape::Float64, μ::Float64)
     p = shape / (shape + μ)
-    lp += logpdf(NegativeBinomial(K * shape, p), N)
-    return lp
+    return logpdf(NegativeBinomial(K * shape, p), N)
 end
 
 # ============================================================================
@@ -80,7 +75,7 @@ end
 # ============================================================================
 
 """
-    gibbs_allocation_sweep!(state, locs, μ, shape, λ_K)
+    gibbs_allocation_sweep!(state, locs, μ, shape)
 
 Full Gibbs sweep: for each loc (random order), reassign among the K active
 clusters with weight proportional to the collapsed spatial predictive.
@@ -96,7 +91,7 @@ Uses precomputed LocPrecision data for zero-allocation inner loop.
 """
 function gibbs_allocation_sweep!(state::CollapsedState,
                                   locs::Vector{<:SMLMData.AbstractEmitter},
-                                  μ::Float64, shape::Float64, λ_K::Float64)
+                                  μ::Float64, shape::Float64)
     N = length(locs)
     loc_precs = state._loc_precs
     K = state.n_active  # Fixed for this sweep
@@ -252,7 +247,7 @@ function _total_spatial_lml(state::CollapsedState)
 end
 
 """
-    propose_split_merge!(state, locs, μ, shape, λ_K) -> (Bool, Symbol)
+    propose_split_merge!(state, locs, μ, shape) -> (Bool, Symbol)
 
 K sampling from count-model posterior with spatial MH correction.
 
@@ -271,7 +266,7 @@ Returns (accepted, move_type) where move_type is :split or :merge.
 """
 function propose_split_merge!(state::CollapsedState,
                                locs::Vector{<:SMLMData.AbstractEmitter},
-                               μ::Float64, shape::Float64, λ_K::Float64)
+                               μ::Float64, shape::Float64)
     N = length(locs)
     N < 2 && return false, :split
     K = state.n_active
@@ -280,7 +275,7 @@ function propose_split_merge!(state::CollapsedState,
     K_max = max(2 * K, min(N, 30))
     log_posts = state._log_probs  # reuse workspace
     @inbounds for k in 1:K_max
-        log_posts[k] = _log_count_posterior(k, N, shape, μ, λ_K)
+        log_posts[k] = _log_count_posterior(k, N, shape, μ)
     end
 
     # Sample from normalized distribution (in-place log-sum-exp)
@@ -331,7 +326,7 @@ function propose_split_merge!(state::CollapsedState,
     # creates a random allocation that has terrible spatial LML, causing
     # the MH to reject even correct K changes.
     for _ in 1:5
-        gibbs_allocation_sweep!(state, locs, μ, shape, λ_K)
+        gibbs_allocation_sweep!(state, locs, μ, shape)
     end
 
     # Compute spatial LML after the move + relaxation
