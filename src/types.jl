@@ -39,6 +39,7 @@ mutable struct CollapsedState
     active::BitVector               # Which slots are in use
     n_active::Int                   # Number of active clusters
     log_area::Float64               # log(area) for spatial prior
+    use_locmix_prior::Bool          # Use localization mixture prior instead of uniform
 
     # Precomputed loc precisions (computed once, locs don't change)
     _loc_precs::Vector{LocPrecision}
