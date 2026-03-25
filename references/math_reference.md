@@ -1,5 +1,8 @@
 # Collapsed Gibbs Sampler — Mathematical Reference
 
+*Updated for the `loc-mixture-prior` branch: localization mixture prior,
+exact NegBin count model, no Poisson K prior.*
+
 ## 0. Problem Context
 
 ### The Physical Problem
@@ -94,18 +97,19 @@ precision (Fazel et al. 2022).
 
 ## 2. Prior Structure
 
-### 2.1 Spatial Poisson Process Prior on K
+### 2.1 Prior on K
 
-The number of emitters follows a Poisson distribution with rate proportional to area:
+**No explicit prior on K.** The count-model likelihood P(N|K) = NegBin(N; K*alpha, p)
+serves as the sole regularizer on K. It has a well-defined mode near K = N/mu and
+falls off on both sides (too few emitters can't produce N locs; too many emitters
+each producing few locs is unlikely).
 
-    K | rho, |R| ~ Poisson(rho * |R|)
+**Historical note:** Earlier versions used a Poisson(rho * |R|) prior on K from the
+spatial Poisson process. This was removed because: (a) under the localization mixture
+prior (Section 2.2b) there is no spatial Poisson process, and (b) the lambda_K
+parameter had no clean calibration source (was set to N/mu, which is circular).
 
-    log P(K | rho, |R|) = K * log(rho * |R|) - rho * |R| - log(K!)
-
-**Key property:** The rate lambda_K = rho * |R| scales with area. This is essential
-for the area cancellation in Section 4.
-
-### 2.2 Uniform Spatial Prior on Positions
+### 2.2a Uniform Spatial Prior on Positions
 
 Each emitter position is drawn uniformly over the prior region R:
 
@@ -116,6 +120,39 @@ Each emitter position is drawn uniformly over the prior region R:
 For K emitters (i.i.d.):
 
     P(theta_{1:K} | R) = |R|^{-K}
+
+**Implementation:** `UniformSpatialPrior` in `src/priors.jl`, used when
+`use_locmix_prior=false`.
+
+### 2.2b Localization Mixture Prior on Positions (experimental)
+
+Replace the uniform prior with a data-driven mixture of Gaussians:
+
+    P(theta_k) = (1/N) * sum_{j=1}^{N} N(theta_k; d_j, Sigma_j)
+
+Each localization contributes a Gaussian component centered at its measured
+position with its measurement covariance. This concentrates prior mass near
+the data rather than spreading it uniformly over the ROI area |R|.
+
+**Key properties:**
+- No area dependence — the -log|R| penalty that hurts splitting is gone
+- Automatic scale — for co-located emitters the prior concentrates at sigma-scale
+- Split-neutral at d=0 — both sub-clusters see the same concentrated prior mass
+- Split-positive at d>0 — each cluster's prior peaks near its own data
+
+**Marginal likelihood under locmix prior:**
+
+    ML_k = (1/N) * sum_{j=1}^{N} ML_flat(cluster_k ∪ {virtual_j})
+
+where ML_flat is the marginal likelihood under a flat (improper) prior (same as
+log_marginal_likelihood but without -log|R|). Each term treats localization j as
+a "virtual observation" added to the cluster.
+
+**Implementation:** `log_ml_flat`, `log_ml_locmix`, `log_predictive_locmix` in
+`src/cluster_stats.jl`. Enabled via `use_locmix_prior=true`.
+
+**Cost:** O(N) per cluster per evaluation (vs O(1) for uniform). Uses stable
+logsumexp with two passes over the virtual localization array.
 
 ### 2.3 Count Model (Negative Binomial)
 
@@ -142,18 +179,22 @@ with:
 - alpha > 1: peaked (DNA-PAINT)
 - alpha -> infinity: Poisson(mu)
 
-The total count N = sum_k n_k follows NegBin(K*alpha, p), since independent
-NegBin random variables with the same p have a NegBin sum.
+The total count N = sum_k n_k follows NegBin(K*alpha, p) exactly, since
+independent NegBin random variables with the same p have a NegBin sum.
+No continuous (Gamma) approximation is needed or used.
+
+**Implementation:** `log_prior_total_count(N, K, mu, shape)` in `src/priors.jl`
+and `_log_count_posterior(K, N, shape, mu)` in `src/collapsed_moves.jl` both
+evaluate the exact discrete NegBin.
 
 ### 2.4 Model Factorization: Decoupled K and Z
 
 The sampler uses a **decoupled** factorization that separates emitter counting
 (K) from spatial assignment (Z|K):
 
-    P(K, Z | D) propto P(K) * P(N | K) * P(Z | K) * prod_k P(D_k | R)
+    P(K, Z | D) propto P(N | K) * P(Z | K) * prod_k P(D_k)
 
 where:
-- **P(K)**: Poisson prior (Section 2.1)
 - **P(N | K)**: Total count model NegBin(N; K*alpha, p) — determines K
 - **P(Z | K)**: Flat allocation prior — all Z with K non-empty groups equally likely
 - **P(D_k | R)**: Spatial marginal likelihood (Section 3) — determines Z given K
@@ -248,10 +289,12 @@ clusters where data is interior to the partition.
 
 Under the decoupled factorization (Section 2.4):
 
-    log P(K, Z | data) = log P(K | rho, |R|)              ... Poisson prior on K
-                        + log P(N | K, mu, alpha)           ... total count model
-                        + sum_{k=1}^{K} log P(D_k | R)     ... spatial marginal likelihoods
+    log P(K, Z | data) = log P(N | K, mu, alpha)           ... total count model
+                        + sum_{k=1}^{K} log P(D_k)          ... spatial marginal likelihoods
                         + const                             ... terms independent of K, Z
+
+For uniform prior, P(D_k) = P(D_k | R) includes -log|R| per cluster.
+For locmix prior, P(D_k) = ML_locmix_k with no area dependence.
 
 where P(N | K) = NegBin(N; K*alpha, p) with p = alpha/(alpha+mu).
 
@@ -378,25 +421,31 @@ occupants.
 
 **Predictive probability:**
 
+For uniform prior:
+
     log P(d_i | D_k^{-i}) = log P(D_k^{-i} union {d_i} | R) - log P(D_k^{-i} | R)
 
-This is computed as the difference of marginal likelihoods. The `-log|R|` terms
-cancel in the difference (both marginals have exactly one `-log|R|`).
+The `-log|R|` terms cancel in the difference. For empty cluster: P(d_i | empty) = 1/|R|.
 
-For an empty cluster (n_k^{-i} = 0), the predictive is the prior predictive:
-P(d_i | empty) = 1/|R| (single-loc marginal likelihood under uniform prior).
+For locmix prior:
 
-**Implementation:** `gibbs_allocation_sweep!()` in `src/collapsed_moves.jl`
+    log P(d_i | D_k^{-i}) = log ML_locmix(D_k^{-i} union {d_i}) - log ML_locmix(D_k^{-i})
+
+No area terms. For empty cluster: log[(1/N) Σⱼ N(d_i; d_j, Σ_i + Σ_j)].
+
+**Implementation:** `gibbs_allocation_sweep!()` in `src/collapsed_moves.jl`.
+Dispatches on `state.use_locmix_prior` between `log_predictive` and
+`log_predictive_locmix`.
 
 ### 5.2 Direct K Sampling with Spatial MH Correction (trans-dimensional)
 
 K proposals are drawn from the count-model posterior:
 
-    pi_count(K) propto P(K) * P(N | K, mu_0, alpha)
+    pi_count(K) propto P(N | K, mu_0, alpha) = NegBin(N; K*alpha, p)
 
-where P(K) = Poisson(K; lambda_K) and P(N|K) = NegBin(N; K*alpha, p) with
-p = alpha/(alpha+mu_0). A spatial Metropolis-Hastings correction then
-accepts or rejects based on the spatial fit improvement.
+with p = alpha/(alpha+mu_0). No prior on K — the NegBin likelihood alone
+regularizes K. A spatial Metropolis-Hastings correction then accepts or
+rejects based on the spatial fit improvement.
 
 **Algorithm:**
 1. Evaluate log pi_count(K) for K = 1, ..., K_max
@@ -419,19 +468,20 @@ evaluation lets locs migrate to spatially correct clusters. Without this, the
 MH step would reject even correct splits because the proposal allocation is
 spatially random. The sweeps do not change K.
 
-**Area-invariant spatial MH correction (step 6):**
+**Spatial MH correction (step 6):**
 
-The spatial marginal likelihood per cluster includes a -log(A) term from the
-uniform position prior. Under a spatial Poisson process prior on emitter
-positions, P(K) propto (lambda_spatial * A)^K / K!, the +K*log(A) in the
-K prior exactly cancels the -K*log(A) from the position integrals, making
-the formulation area-invariant (see Section 5.2.1).
+The MH acceptance ratio depends on the spatial prior:
 
-The MH acceptance ratio is:
+For **uniform prior**: the marginal likelihood includes -log|R| per cluster.
+Area cancellation is needed:
 
-    log alpha = Delta_fit = [sum log ML(new) - sum log ML(old)] + DeltaK * log(A)
+    log alpha = [sum log ML(new) - sum log ML(old)] + DeltaK * log|R|
 
-where DeltaK = K_new - K_old and +DeltaK*log(A) is the area cancellation.
+where +DeltaK*log|R| cancels the -log|R| per cluster from the uniform prior.
+
+For **locmix prior**: no area term exists in the marginal likelihood, so:
+
+    log alpha = sum log ML_locmix(new) - sum log ML_locmix(old)
 
 **Properties of Delta_fit:**
 - Co-located emitters (d=0): Delta_fit ~ 0 (neutral). K inference is purely
