@@ -43,8 +43,9 @@ mutable struct CollapsedState
     # Precomputed loc precisions (computed once, locs don't change)
     _loc_precs::Vector{LocPrecision}
 
-    # Neighbor-filtered locmix acceleration
-    _anchor_neighbors::Vector{Vector{Int32}}  # Per-loc neighbor lists for anchor filtering
+    # KD-tree anchor acceleration for locmix prior
+    _anchor_tree::AnchorTree                  # KD-tree over loc positions (built once)
+    _anchor_buf::Vector{Int32}                # Reusable buffer for inrange results
     _cached_cluster_lml::Vector{Float64}      # Cached log_ml_locmix per cluster slot
     _cluster_lml_dirty::BitVector             # Which cached values need recomputation
 
