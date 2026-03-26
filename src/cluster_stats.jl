@@ -402,183 +402,215 @@ which concentrates mass near existing localizations.
 end
 
 # ============================================================================
-# Neighbor-filtered locmix via KD-tree (O(|A|) instead of O(N))
+# Grid-based locmix prior (O(1) per cluster evaluation)
 #
-# The full locmix sums over all N localizations as virtual anchors, but
-# distant anchors contribute exp(-d²/2σ²) ≈ 0 to the logsumexp. By
-# building a KDTree once and doing inrange queries per cluster, we reduce
-# the per-cluster cost from O(N) to O(|A|) ≈ 20-50.
+# Precompute the localization mixture density P(θ) = (1/N) Σⱼ N(θ; dⱼ, Σⱼ)
+# on a spatial grid once before sampling. During MCMC, evaluate the prior at
+# a cluster's posterior mean via bilinear interpolation — O(1) per cluster.
 #
-# The -log(N) normalization is preserved: we are approximating the same
-# probability, just dropping terms that are below floating-point precision.
-#
-# Key design: one inrange query per cluster per sweep (O(K) allocations),
-# NOT per loc×cluster (O(N×K)). Results go into a preallocated Int32 buffer.
+# This replaces -log(A) in log_marginal_likelihood with log_prior_grid(μ),
+# giving the locmix's spatial adaptivity at uniform-prior speed.
 # ============================================================================
 
 """
-    AnchorTree
+    LocmixGrid
 
-KD-tree over localization positions for fast spatial neighbor queries
-in the locmix prior. Built once from `loc_precs` at chain initialization.
+Precomputed log-density of the localization mixture prior on a 2D grid.
+
+The prior is P(θ) = (1/N) Σⱼ N(θ; dⱼ, Σⱼ), evaluated at each grid point
+and stored as log values for direct use in log_marginal_likelihood.
 
 Fields:
-- `tree`: KDTree for inrange queries
-- `coords`: 2×N matrix of localization positions (kept for queries)
-- `max_σ`: maximum combined σ across all localizations
-- `nsigma`: number of σ for the truncation radius
+- `log_density`: ny × nx matrix of log P(θ) values
+- `x0, y0`: lower-left corner of the grid
+- `dx, dy`: pixel spacing
+- `nx, ny`: grid dimensions
 """
-struct AnchorTree
-    tree::KDTree{SVector{2, Float64}, Euclidean, Float64, SVector{2, Float64}}
-    coords::Matrix{Float64}  # 2×N, kept for range queries
-    max_σ::Float64
-    nsigma::Float64
+struct LocmixGrid
+    log_density::Matrix{Float64}  # ny × nx
+    x0::Float64
+    y0::Float64
+    dx::Float64
+    dy::Float64
+    nx::Int
+    ny::Int
 end
 
 """
-    build_anchor_tree(loc_precs; nsigma=5.0) -> AnchorTree
+    build_locmix_grid(loc_precs; margin_sigma=3.0, pixel_per_sigma=2.0) -> LocmixGrid
 
-Build a KD-tree from localization positions for anchor-filtered locmix queries.
+Precompute the locmix prior density on a spatial grid.
 
-The tree supports `inrange` queries that replace the old per-loc neighbor lists.
-Each query uses radius `nsigma × (cluster_σ + max_σ)`, where `cluster_σ` comes
-from the cluster's posterior covariance at query time.
+The grid covers the bounding box of all localizations plus `margin_sigma × max_σ`
+margin on each side. Resolution is `max_σ / pixel_per_sigma` — fine enough to
+resolve the narrowest Gaussian components.
 
-Default nsigma=5 gives truncation error < exp(-12.5) ≈ 4×10⁻⁶ per term,
-which is negligible in the logsumexp (typically 20-50 terms).
+Cost: O(N × nx × ny), run once per partition at initialization.
 """
-function build_anchor_tree(loc_precs::Vector{LocPrecision}; nsigma::Float64=5.0)
+function build_locmix_grid(loc_precs::Vector{LocPrecision};
+                            margin_sigma::Float64=3.0,
+                            pixel_per_sigma::Float64=2.0)
     N = length(loc_precs)
-    coords = Matrix{Float64}(undef, 2, N)
-    @inbounds for i in 1:N
-        coords[1, i] = loc_precs[i].x
-        coords[2, i] = loc_precs[i].y
+    if N == 0
+        return LocmixGrid(fill(-Inf, 1, 1), 0.0, 0.0, 1.0, 1.0, 1, 1)
     end
 
-    max_σ = N > 0 ? maximum(lp.σ for lp in loc_precs) : 0.0
-    tree = KDTree(coords)
+    # Bounding box with margin
+    max_σ = maximum(lp.σ for lp in loc_precs)
+    margin = margin_sigma * max_σ
+    xmin = minimum(lp.x for lp in loc_precs) - margin
+    xmax = maximum(lp.x for lp in loc_precs) + margin
+    ymin = minimum(lp.y for lp in loc_precs) - margin
+    ymax = maximum(lp.y for lp in loc_precs) + margin
 
-    return AnchorTree(tree, coords, max_σ, nsigma)
-end
+    # Grid resolution: resolve the typical Gaussian width
+    dx = max_σ / pixel_per_sigma
+    dy = dx
+    nx = max(ceil(Int, (xmax - xmin) / dx) + 1, 2)
+    ny = max(ceil(Int, (ymax - ymin) / dy) + 1, 2)
 
-"""
-    query_anchors!(buffer::Vector{Int32}, anchor_tree::AnchorTree,
-                    cs::ClusterStats, loc_precs::Vector{LocPrecision}) -> Int
+    # Evaluate log P(θ) = log( (1/N) Σⱼ N(θ; dⱼ, Σⱼ) ) at each grid point
+    # Use logsumexp for numerical stability
+    log_density = Matrix{Float64}(undef, ny, nx)
 
-Query the anchor tree for localizations near a cluster's posterior mean.
+    @inbounds for ix in 1:nx
+        gx = xmin + (ix - 1) * dx
+        for iy in 1:ny
+            gy = ymin + (iy - 1) * dy
 
-Returns the number of valid entries written to `buffer`. The buffer is
-indexed as `buffer[1:n_anchors]` by downstream functions.
+            # Compute log of each Gaussian component, then logsumexp
+            max_val = -Inf
+            for j in 1:N
+                lp = loc_precs[j]
+                # N(θ; dⱼ, Σⱼ) where Σⱼ is the localization covariance
+                # For diagonal cov: log N = -log(2π) - log(σ_x σ_y) - ½((x-μx)²/σx² + (y-μy)²/σy²)
+                # We use the full precision from LocPrecision
+                ddx = gx - lp.x
+                ddy = gy - lp.y
+                # Mahalanobis: d^T Λ d = λ_xx dx² + 2 λ_xy dx dy + λ_yy dy²
+                maha = lp.λ_xx * ddx^2 + 2 * lp.λ_xy * ddx * ddy + lp.λ_yy * ddy^2
+                # log N(θ; dⱼ, Σⱼ) = -log(2π) + ½ log|Λⱼ| - ½ d^T Λⱼ d
+                #                   = -log(2π) - ½ log|Σⱼ| - ½ maha
+                log_comp = -log(2π) - 0.5 * lp.log_det - 0.5 * maha
+                if log_comp > max_val
+                    max_val = log_comp
+                end
+            end
 
-The query radius is `nsigma × (cluster_σ + max_σ)` where `cluster_σ` is
-`sqrt(Σ_xx + Σ_yy)` (square root of the posterior covariance trace).
+            if max_val == -Inf
+                log_density[iy, ix] = -Inf
+                continue
+            end
 
-For clusters with n>0, this captures all localizations whose Gaussian
-prior component overlaps significantly with the cluster posterior.
+            total = 0.0
+            for j in 1:N
+                lp = loc_precs[j]
+                ddx = gx - lp.x
+                ddy = gy - lp.y
+                maha = lp.λ_xx * ddx^2 + 2 * lp.λ_xy * ddx * ddy + lp.λ_yy * ddy^2
+                log_comp = -log(2π) - 0.5 * lp.log_det - 0.5 * maha
+                total += exp(log_comp - max_val)
+            end
 
-Allocates one `Vector{Int}` via `inrange` per call — acceptable because
-this is called O(K) per sweep, not O(N×K).
-"""
-function query_anchors!(buffer::Vector{Int32}, anchor_tree::AnchorTree,
-                         cs::ClusterStats, loc_precs::Vector{LocPrecision})
-    cs.n == 0 && return Int(0)
-
-    μ_x, μ_y = posterior_mean(cs)
-    Σ_xx, _, Σ_yy = posterior_cov(cs)
-    cluster_σ = sqrt(max(Σ_xx + Σ_yy, 0.0))
-    radius = anchor_tree.nsigma * (cluster_σ + anchor_tree.max_σ)
-
-    point = SVector(μ_x, μ_y)
-    idxs = inrange(anchor_tree.tree, point, radius)
-
-    n_found = length(idxs)
-
-    # Grow buffer if needed (rare — only on first few calls or unusual clusters)
-    if n_found > length(buffer)
-        resize!(buffer, n_found)
-    end
-
-    @inbounds for i in 1:n_found
-        buffer[i] = Int32(idxs[i])
-    end
-
-    return n_found
-end
-
-"""
-    log_ml_locmix_filtered(cs::ClusterStats, loc_precs::Vector{LocPrecision},
-                            anchors::Vector{Int32}, n_anchors::Int) -> Float64
-
-Neighbor-filtered locmix: same as `log_ml_locmix` but sums only over
-`anchors[1:n_anchors]` instead of all N localizations.
-
-Normalization uses full N (length of loc_precs) to preserve proper probability.
-Truncation error is bounded by N_dropped × exp(-Δ_min) where Δ_min is the
-minimum dropped quadratic penalty — negligible for nsigma ≥ 5.
-
-Concrete types only — no AbstractVector, no view allocations.
-"""
-function log_ml_locmix_filtered(cs::ClusterStats, loc_precs::Vector{LocPrecision},
-                                 anchors::Vector{Int32}, n_anchors::Int)
-    N_total = length(loc_precs)
-    N_total == 0 && return 0.0
-    n_anchors == 0 && return -Inf  # No nearby anchors → negligible probability
-
-    # Pass 1: find max for numerical stability
-    max_val = -Inf
-    @inbounds for idx in 1:n_anchors
-        j = anchors[idx]
-        cs_aug = add_loc(cs, loc_precs[j])
-        val = log_ml_flat(cs_aug)
-        if val > max_val
-            max_val = val
+            log_density[iy, ix] = -log(N) + max_val + log(total)
         end
     end
 
-    if max_val == -Inf
-        return -Inf
-    end
-
-    # Pass 2: stable logsumexp over anchors only
-    total = 0.0
-    @inbounds for idx in 1:n_anchors
-        j = anchors[idx]
-        cs_aug = add_loc(cs, loc_precs[j])
-        total += exp(log_ml_flat(cs_aug) - max_val)
-    end
-
-    # Normalization: -log(N_total), not -log(n_anchors)
-    return -log(N_total) + max_val + log(total)
+    return LocmixGrid(log_density, xmin, ymin, dx, dy, nx, ny)
 end
 
 """
-    log_predictive_locmix_filtered(cs, lp, loc_precs, anchors, n_anchors,
-                                    cached_lml) -> Float64
+    log_prior_locmix(grid::LocmixGrid, μ_x::Float64, μ_y::Float64) -> Float64
 
-Neighbor-filtered predictive reusing cached anchor set.
+Evaluate the locmix prior at position (μ_x, μ_y) via bilinear interpolation.
+O(1) — just index arithmetic and 4 multiplies.
 
-Adding one loc to a cluster barely shifts the posterior mean, so the same
-anchor set computed for the "without" cluster is valid for the "with" case.
-This eliminates the per-loc KD-tree query (the main allocation source).
-
-The "without" LML is always cached (computed once per cluster per sweep).
-Zero-allocation hot path.
-
-# Arguments
-- `cs`: cluster stats WITHOUT the candidate loc
-- `lp`: candidate localization precision data
-- `loc_precs`: all localization precisions
-- `anchors`: precomputed anchor buffer for this cluster (from query_anchors!)
-- `n_anchors`: number of valid entries in anchors
-- `cached_lml`: precomputed `log_ml_locmix_filtered(cs, ...)` — always valid
+Returns log P(θ) where P(θ) = (1/N) Σⱼ N(θ; dⱼ, Σⱼ).
 """
-@inline function log_predictive_locmix_filtered(
-    cs::ClusterStats, lp::LocPrecision,
-    loc_precs::Vector{LocPrecision},
-    anchors::Vector{Int32}, n_anchors::Int,
-    cached_lml::Float64
-)
+@inline function log_prior_locmix(grid::LocmixGrid, μ_x::Float64, μ_y::Float64)
+    # Continuous grid coordinates
+    fx = (μ_x - grid.x0) / grid.dx + 1.0  # 1-based
+    fy = (μ_y - grid.y0) / grid.dy + 1.0
+
+    # Clamp to grid bounds
+    fx = clamp(fx, 1.0, Float64(grid.nx))
+    fy = clamp(fy, 1.0, Float64(grid.ny))
+
+    # Integer indices and fractional parts
+    ix = min(floor(Int, fx), grid.nx - 1)
+    iy = min(floor(Int, fy), grid.ny - 1)
+    ix = max(ix, 1)
+    iy = max(iy, 1)
+    sx = fx - ix
+    sy = fy - iy
+
+    # Bilinear interpolation in log-space
+    @inbounds begin
+        v00 = grid.log_density[iy, ix]
+        v10 = grid.log_density[iy, ix + 1]
+        v01 = grid.log_density[iy + 1, ix]
+        v11 = grid.log_density[iy + 1, ix + 1]
+    end
+
+    return (1 - sx) * (1 - sy) * v00 +
+           sx * (1 - sy) * v10 +
+           (1 - sx) * sy * v01 +
+           sx * sy * v11
+end
+
+"""
+    log_marginal_likelihood_locmix(cs::ClusterStats, grid::LocmixGrid) -> Float64
+
+Log marginal likelihood using the grid-based locmix prior.
+
+Same as `log_marginal_likelihood` but replaces `-log(A)` with the
+locmix log-prior evaluated at the cluster's posterior mean.
+
+This is the saddle-point approximation to the full locmix integral.
+For clusters with tight posteriors (n ≥ 2), the approximation is excellent.
+"""
+@inline function log_marginal_likelihood_locmix(cs::ClusterStats, grid::LocmixGrid)
+    n = Int(cs.n)
+    if n == 0
+        return 0.0
+    end
+
+    det_Λ, S_xx, S_xy, S_yy = _posterior_precision_inv(cs)
+    if det_Λ <= 0
+        return -Inf
+    end
+
+    eta_Sinv_eta = S_xx * cs.η_x^2 + 2 * S_xy * cs.η_x * cs.η_y + S_yy * cs.η_y^2
+
+    # Evaluate locmix prior at posterior mean
+    μ_x = S_xx * cs.η_x + S_xy * cs.η_y
+    μ_y = S_xy * cs.η_x + S_yy * cs.η_y
+    log_prior = log_prior_locmix(grid, μ_x, μ_y)
+
+    # log p = (1-n)log(2π) - ½ log_det_sum - ½(quad - η^T Σ η) - ½ log|Λ| + log_prior
+    # Note: +log_prior replaces -log(A). The prior density is P(θ), not 1/A.
+    lml = (1 - n) * log(2π) -
+          0.5 * cs.log_det_sum -
+          0.5 * (cs.quad - eta_Sinv_eta) -
+          0.5 * log(det_Λ) +
+          log_prior
+
+    return lml
+end
+
+"""
+    log_predictive_locmix(cs, lp::LocPrecision, grid::LocmixGrid) -> Float64
+
+Predictive probability under the grid-based locmix prior.
+O(1) — just two marginal likelihood evaluations with grid lookups.
+"""
+@inline function log_predictive_locmix(cs::ClusterStats, lp::LocPrecision,
+                                        grid::LocmixGrid)
+    if cs.n == 0
+        # New cluster: evaluate locmix prior at the loc's position
+        return log_prior_locmix(grid, lp.x, lp.y)
+    end
     cs_new = add_loc(cs, lp)
-    lml_with = log_ml_locmix_filtered(cs_new, loc_precs, anchors, n_anchors)
-    return lml_with - cached_lml
+    return log_marginal_likelihood_locmix(cs_new, grid) -
+           log_marginal_likelihood_locmix(cs, grid)
 end

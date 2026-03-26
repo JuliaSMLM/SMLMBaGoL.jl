@@ -94,8 +94,7 @@ function gibbs_allocation_sweep!(state::CollapsedState,
                                   μ::Float64, shape::Float64)
     N = length(locs)
     loc_precs = state._loc_precs
-    anchor_tree = state._anchor_tree
-    anchor_buf = state._anchor_buf
+    grid = state._locmix_grid
     K = state.n_active  # Fixed for this sweep
 
     # In-place Fisher-Yates shuffle of workspace permutation buffer
@@ -117,27 +116,6 @@ function gibbs_allocation_sweep!(state::CollapsedState,
         end
     end
 
-    # Ensure LML cache is large enough
-    _ensure_lml_cache!(state)
-
-    # Pre-cache anchor sets for all active clusters (K allocations per sweep).
-    # Each cluster gets its own anchor Vector{Int32} queried from the KD-tree.
-    # These are reused for ALL locs during the sweep — adding/removing one loc
-    # barely shifts the posterior mean, so the same anchor set is valid.
-    cluster_anchors = Vector{Vector{Int32}}(undef, K)
-    cluster_n_anchors = Vector{Int}(undef, K)
-    for i in 1:K
-        slot = active_slots[i]
-        n_a = query_anchors!(anchor_buf, anchor_tree, state.clusters[slot], loc_precs)
-        cluster_anchors[i] = anchor_buf[1:n_a]  # copy once per cluster
-        cluster_n_anchors[i] = n_a
-        if state._cluster_lml_dirty[slot]
-            state._cached_cluster_lml[slot] = log_ml_locmix_filtered(
-                state.clusters[slot], loc_precs, cluster_anchors[i], n_a)
-            state._cluster_lml_dirty[slot] = false
-        end
-    end
-
     @inbounds for loc_pos in 1:N
         loc_idx = perm[loc_pos]
         lp = loc_precs[loc_idx]
@@ -148,29 +126,16 @@ function gibbs_allocation_sweep!(state::CollapsedState,
             continue
         end
 
-        # Remove loc from current cluster and invalidate its cache
+        # Remove loc from current cluster
         if old_cluster > 0 && state.active[old_cluster]
             state.clusters[old_cluster] = remove_loc(state.clusters[old_cluster], lp)
-            state._cluster_lml_dirty[old_cluster] = true
         end
 
-        # Compute spatial predictive for each active cluster (zero-alloc inner loop)
+        # Compute spatial predictive for each active cluster (grid locmix, O(1) each)
         for i in 1:K
             slot = active_slots[i]
             cs = state.clusters[slot]
-
-            # Refresh "without" LML if dirty (reuse cached anchor set)
-            if state._cluster_lml_dirty[slot]
-                state._cached_cluster_lml[slot] = log_ml_locmix_filtered(
-                    cs, loc_precs, cluster_anchors[i], cluster_n_anchors[i])
-                state._cluster_lml_dirty[slot] = false
-            end
-
-            # Predictive: reuse cluster's anchor set for "with" too
-            log_probs[i] = log_predictive_locmix_filtered(
-                cs, lp, loc_precs,
-                cluster_anchors[i], cluster_n_anchors[i],
-                state._cached_cluster_lml[slot])
+            log_probs[i] = log_predictive_locmix(cs, lp, grid)
         end
 
         # In-place log-sum-exp normalization → probabilities in log_probs[1:K]
@@ -200,26 +165,10 @@ function gibbs_allocation_sweep!(state::CollapsedState,
             end
         end
 
-        # Assign to chosen cluster and invalidate its cache
+        # Assign to chosen cluster
         slot = active_slots[chosen]
         state.clusters[slot] = add_loc(state.clusters[slot], lp)
         state.assignments[loc_idx] = Int16(slot)
-        state._cluster_lml_dirty[slot] = true
-    end
-end
-
-"""
-    _ensure_lml_cache!(state)
-
-Grow LML cache vectors if cluster array has grown (rare).
-"""
-function _ensure_lml_cache!(state::CollapsedState)
-    n = length(state.clusters)
-    if length(state._cached_cluster_lml) < n
-        resize!(state._cached_cluster_lml, n)
-        old_len = length(state._cluster_lml_dirty)
-        resize!(state._cluster_lml_dirty, n)
-        state._cluster_lml_dirty[(old_len+1):n] .= true
     end
 end
 
@@ -250,7 +199,7 @@ end
 """
     _restore_rollback!(state, old_n_active, old_len)
 
-Restore state from rollback buffers. Invalidates all LML caches.
+Restore state from rollback buffers.
 """
 function _restore_rollback!(state::CollapsedState, old_n_active::Int, old_len::Int)
     copyto!(state.assignments, state._rollback_assignments)
@@ -261,9 +210,6 @@ function _restore_rollback!(state::CollapsedState, old_n_active::Int, old_len::I
         state.active[i] = state._rollback_active[i]
     end
     state.n_active = old_n_active
-    # Invalidate all LML caches after rollback
-    _ensure_lml_cache!(state)
-    state._cluster_lml_dirty .= true
 end
 
 # ============================================================================
@@ -277,14 +223,11 @@ Sum of log marginal likelihoods across all active clusters.
 Uses neighbor-filtered locmix for O(K×|A|) instead of O(K×N).
 """
 function _total_spatial_lml(state::CollapsedState)
-    anchor_tree = state._anchor_tree
-    anchor_buf = state._anchor_buf
-    loc_precs = state._loc_precs
+    grid = state._locmix_grid
     total = 0.0
     @inbounds for j in eachindex(state.active)
         if state.active[j]
-            n_a = query_anchors!(anchor_buf, anchor_tree, state.clusters[j], loc_precs)
-            total += log_ml_locmix_filtered(state.clusters[j], loc_precs, anchor_buf, n_a)
+            total += log_marginal_likelihood_locmix(state.clusters[j], grid)
         end
     end
     return total
