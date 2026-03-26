@@ -94,6 +94,7 @@ function gibbs_allocation_sweep!(state::CollapsedState,
                                   μ::Float64, shape::Float64)
     N = length(locs)
     loc_precs = state._loc_precs
+    neighbors = state._anchor_neighbors
     K = state.n_active  # Fixed for this sweep
 
     # In-place Fisher-Yates shuffle of workspace permutation buffer
@@ -115,6 +116,22 @@ function gibbs_allocation_sweep!(state::CollapsedState,
         end
     end
 
+    # Ensure LML cache is large enough
+    _ensure_lml_cache!(state)
+
+    # Precompute anchor sets and cached LML for each active cluster
+    # Anchor sets are rebuilt per sweep (clusters may have changed)
+    cluster_anchors = Vector{Vector{Int32}}(undef, K)
+    for i in 1:K
+        slot = active_slots[i]
+        cluster_anchors[i] = cluster_anchor_set(state.assignments, Int16(slot), neighbors, N)
+        if state._cluster_lml_dirty[slot]
+            state._cached_cluster_lml[slot] = log_ml_locmix_filtered(
+                state.clusters[slot], loc_precs, cluster_anchors[i])
+            state._cluster_lml_dirty[slot] = false
+        end
+    end
+
     @inbounds for loc_pos in 1:N
         loc_idx = perm[loc_pos]
         lp = loc_precs[loc_idx]
@@ -125,16 +142,39 @@ function gibbs_allocation_sweep!(state::CollapsedState,
             continue
         end
 
-        # Remove loc from current cluster
+        # Remove loc from current cluster and invalidate its cache
         if old_cluster > 0 && state.active[old_cluster]
             state.clusters[old_cluster] = remove_loc(state.clusters[old_cluster], lp)
+            state._cluster_lml_dirty[old_cluster] = true
         end
 
-        # Compute spatial predictive for each active cluster (locmix prior)
+        # Neighbor set for loc i (used to extend cluster anchor sets)
+        loc_neighbors = neighbors[loc_idx]
+
+        # Compute spatial predictive for each active cluster (filtered locmix)
         for i in 1:K
             slot = active_slots[i]
             cs = state.clusters[slot]
-            log_probs[i] = log_predictive_locmix(cs, lp, loc_precs)
+
+            # Anchor set for "without" (cluster as-is)
+            anchors_without = cluster_anchors[i]
+
+            # Anchor set for "with" = anchors_without ∪ neighbors[loc_idx]
+            # (adding loc_idx to cluster brings its neighbors into scope)
+            anchors_with = _union_anchors(anchors_without, loc_neighbors)
+
+            # Use cached LML for "without" if clean
+            cached = state._cluster_lml_dirty[slot] ? nothing : state._cached_cluster_lml[slot]
+
+            log_probs[i] = log_predictive_locmix_filtered(
+                cs, lp, loc_precs, anchors_without, anchors_with, cached)
+
+            # Update cache if it was dirty
+            if cached === nothing
+                state._cached_cluster_lml[slot] = log_ml_locmix_filtered(
+                    cs, loc_precs, anchors_without)
+                state._cluster_lml_dirty[slot] = false
+            end
         end
 
         # In-place log-sum-exp normalization → probabilities in log_probs[1:K]
@@ -164,10 +204,56 @@ function gibbs_allocation_sweep!(state::CollapsedState,
             end
         end
 
-        # Assign to chosen cluster
+        # Assign to chosen cluster and invalidate its cache
         slot = active_slots[chosen]
         state.clusters[slot] = add_loc(state.clusters[slot], lp)
         state.assignments[loc_idx] = Int16(slot)
+        state._cluster_lml_dirty[slot] = true
+
+        # Rebuild anchor set for the modified cluster (loc_idx added its neighbors)
+        for i in 1:K
+            if active_slots[i] == slot
+                cluster_anchors[i] = _union_anchors(cluster_anchors[i], loc_neighbors)
+                break
+            end
+        end
+    end
+end
+
+"""
+    _union_anchors(base, extra) -> Vector{Int32}
+
+Union of two sorted/unsorted anchor index vectors. Allocates a new vector.
+For small vectors (typical case), linear scan with a BitSet would be faster,
+but this simple approach is already O(|base| + |extra|) expected time.
+"""
+function _union_anchors(base::Vector{Int32}, extra::Vector{Int32})
+    isempty(extra) && return base
+    isempty(base) && return copy(extra)
+
+    result = copy(base)
+    seen = Set{Int32}(base)
+    for j in extra
+        if j ∉ seen
+            push!(result, j)
+            push!(seen, j)
+        end
+    end
+    return result
+end
+
+"""
+    _ensure_lml_cache!(state)
+
+Grow LML cache vectors if cluster array has grown (rare).
+"""
+function _ensure_lml_cache!(state::CollapsedState)
+    n = length(state.clusters)
+    if length(state._cached_cluster_lml) < n
+        resize!(state._cached_cluster_lml, n)
+        old_len = length(state._cluster_lml_dirty)
+        resize!(state._cluster_lml_dirty, n)
+        state._cluster_lml_dirty[(old_len+1):n] .= true
     end
 end
 
@@ -198,7 +284,7 @@ end
 """
     _restore_rollback!(state, old_n_active, old_len)
 
-Restore state from rollback buffers.
+Restore state from rollback buffers. Invalidates all LML caches.
 """
 function _restore_rollback!(state::CollapsedState, old_n_active::Int, old_len::Int)
     copyto!(state.assignments, state._rollback_assignments)
@@ -209,6 +295,9 @@ function _restore_rollback!(state::CollapsedState, old_n_active::Int, old_len::I
         state.active[i] = state._rollback_active[i]
     end
     state.n_active = old_n_active
+    # Invalidate all LML caches after rollback
+    _ensure_lml_cache!(state)
+    state._cluster_lml_dirty .= true
 end
 
 # ============================================================================
@@ -219,12 +308,16 @@ end
     _total_spatial_lml(state) -> Float64
 
 Sum of log marginal likelihoods across all active clusters.
+Uses neighbor-filtered locmix for O(K×|A|) instead of O(K×N).
 """
 function _total_spatial_lml(state::CollapsedState)
+    N = length(state._loc_precs)
+    neighbors = state._anchor_neighbors
     total = 0.0
     @inbounds for j in eachindex(state.active)
         if state.active[j]
-            total += log_ml_locmix(state.clusters[j], state._loc_precs)
+            anchors = cluster_anchor_set(state.assignments, Int16(j), neighbors, N)
+            total += log_ml_locmix_filtered(state.clusters[j], state._loc_precs, anchors)
         end
     end
     return total

@@ -43,6 +43,11 @@ mutable struct CollapsedState
     # Precomputed loc precisions (computed once, locs don't change)
     _loc_precs::Vector{LocPrecision}
 
+    # Neighbor-filtered locmix acceleration
+    _anchor_neighbors::Vector{Vector{Int32}}  # Per-loc neighbor lists for anchor filtering
+    _cached_cluster_lml::Vector{Float64}      # Cached log_ml_locmix per cluster slot
+    _cluster_lml_dirty::BitVector             # Which cached values need recomputation
+
     # Workspace buffers (pre-allocated, reused across iterations)
     _perm::Vector{Int}              # Permutation for Gibbs sweep
     _active_slots::Vector{Int}      # Active cluster indices
