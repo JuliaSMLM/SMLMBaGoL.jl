@@ -31,9 +31,8 @@ function initialize_collapsed_state(locs::Vector{<:SMLMData.AbstractEmitter},
     # Precompute loc precisions (locs never change during chain)
     _loc_precs = precompute_loc_precisions(locs)
 
-    # Build KD-tree for anchor-filtered locmix (O(N log N) once)
-    _anchor_tree = build_anchor_tree(_loc_precs)
-    _anchor_buf = Vector{Int32}(undef, min(N, 256))  # Preallocated, grows if needed
+    # Build grid-based locmix prior (O(N × grid_size) once)
+    _locmix_grid = build_locmix_grid(_loc_precs)
 
     # Pre-allocate workspace buffers
     max_K = max(N, 16)  # Upper bound on cluster count
@@ -44,13 +43,8 @@ function initialize_collapsed_state(locs::Vector{<:SMLMData.AbstractEmitter},
     _rollback_clusters = similar(clusters)
     _rollback_active = similar(active)
 
-    # LML cache: one entry per cluster slot, all dirty initially
-    _cached_cluster_lml = fill(-Inf, length(clusters))
-    _cluster_lml_dirty = trues(length(clusters))
-
     return CollapsedState(assignments, clusters, active, n_active, log_area,
-                          _loc_precs, _anchor_tree, _anchor_buf,
-                          _cached_cluster_lml, _cluster_lml_dirty,
+                          _loc_precs, _locmix_grid,
                           _perm, _active_slots, _log_probs,
                           _rollback_assignments, _rollback_clusters, _rollback_active)
 end
