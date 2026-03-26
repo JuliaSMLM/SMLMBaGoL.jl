@@ -171,10 +171,10 @@ function render_bagol_suite(
     # 3. Circle overlay: localizations (gray) + BaGoL (red) via compose
     circles_path = joinpath(output_dir, "$(prefix)_circles.png")
     (bg_img, _) = render(locs_smld;
-        strategy = CircleRender(), color = :gray,
+        strategy = EllipseRender(), color = :gray,
         target = target, clip_percentile = nothing)
     (fg_img, _) = render(bagol_smld;
-        strategy = CircleRender(), color = :red,
+        strategy = EllipseRender(), color = :red,
         target = target, clip_percentile = nothing)
     combined = compose(bg_img, fg_img; blend=:replace)
     save_image(circles_path, combined)
@@ -187,13 +187,13 @@ function render_bagol_suite(
 
         # Start with locs (gray) as base
         (base_img, _) = render(locs_smld;
-            strategy = CircleRender(), color = :gray,
+            strategy = EllipseRender(), color = :gray,
             target = target, clip_percentile = nothing)
 
         # GT true positions (blue)
         gt_smld = positions_to_smld(true_positions, locs_smld.camera)
         (gt_img, _) = render(gt_smld;
-            strategy = CircleRender(), color = :blue,
+            strategy = EllipseRender(), color = :blue,
             target = target, clip_percentile = nothing)
         comp = compose(base_img, gt_img; blend=:replace)
 
@@ -203,7 +203,7 @@ function render_bagol_suite(
             oracle_emitters = oracle_mapn(locs_smld.emitters)
             oracle_smld = SMLMData.BasicSMLD(oracle_emitters, locs_smld.camera, 1, 1)
             (oracle_img, _) = render(oracle_smld;
-                strategy = CircleRender(), color = :green,
+                strategy = EllipseRender(), color = :green,
                 target = target, clip_percentile = nothing)
             comp = compose(comp, oracle_img; blend=:replace)
             println("  Oracle MAP-N: $(length(oracle_emitters)) emitters (green)")
@@ -211,7 +211,7 @@ function render_bagol_suite(
 
         # Found MAP-N (red) on top
         (found_img, _) = render(bagol_smld;
-            strategy = CircleRender(), color = :red,
+            strategy = EllipseRender(), color = :red,
             target = target, clip_percentile = nothing)
         comp = compose(comp, found_img; blend=:replace)
 
