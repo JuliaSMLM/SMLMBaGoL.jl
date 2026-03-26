@@ -40,7 +40,7 @@ function initialize_collapsed_state(locs::Vector{<:SMLMData.AbstractEmitter},
     _rollback_clusters = similar(clusters)
     _rollback_active = similar(active)
 
-    return CollapsedState(assignments, clusters, active, n_active, log_area, false,
+    return CollapsedState(assignments, clusters, active, n_active, log_area,
                           _loc_precs, _perm, _active_slots, _log_probs,
                           _rollback_assignments, _rollback_clusters, _rollback_active)
 end
@@ -61,8 +61,6 @@ Run the collapsed Gibbs sampler on a set of localizations.
 - `verbose=false`: Print progress
 - `callback`: Optional callback `(iter, state, μ, shape) -> nothing`
 - `callback_interval=1`: How often to call callback
-- `use_locmix_prior=false`: Use localization mixture prior instead of uniform
-
 # Move distribution
 - 50%: Allocation Gibbs sweep (full sweep per iteration)
 - 25%: Split (K → K+1, restricted Gibbs scan)
@@ -82,8 +80,7 @@ function run_collapsed_chain(
     accumulators::Vector{<:AbstractAccumulator} = AbstractAccumulator[],
     verbose::Bool = false,
     callback::Union{Function, Nothing} = nothing,
-    callback_interval::Int = 1,
-    use_locmix_prior::Bool = false
+    callback_interval::Int = 1
 )
     N = length(locs)
     if N == 0
@@ -93,7 +90,6 @@ function run_collapsed_chain(
     # Initialize
     spatial_prior = UniformSpatialPrior(locs)
     state = initialize_collapsed_state(locs, spatial_prior)
-    state.use_locmix_prior = use_locmix_prior
 
     μ = μ_prior_shape * μ_prior_scale  # Initial μ from prior mean
     current_shape = shape

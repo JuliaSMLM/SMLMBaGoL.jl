@@ -5,7 +5,7 @@
 
 using SMLMBaGoL
 using SMLMBaGoL: accumulator_result, _emitters_from_assignments,
-    log_prior_total_count, log_prior_k
+    log_prior_total_count
 using SMLMData
 using CairoMakie
 using Statistics
@@ -90,16 +90,14 @@ for (di, d_over_σ) in enumerate(D_OVER_SIGMA)
         count_K[trial, di] = map_k
         push!(count_posterior[di], posterior)
 
-        # Layer 2: Nohier (with locmix prior)
+        # Layer 2: Nohier
         μ_fix = Float64(N) / K_TRUE
         push!(nohier_results[di], run_sampler_trial(locs, true_pos;
-            μ_fix=μ_fix, shape_fix=TRUE_ALPHA, hierarchical=false, K_true=K_TRUE,
-            use_locmix_prior=true))
+            μ_fix=μ_fix, shape_fix=TRUE_ALPHA, hierarchical=false, K_true=K_TRUE))
 
-        # Layer 3: Hier (with locmix prior)
+        # Layer 3: Hier
         push!(hier_results[di], run_sampler_trial(locs, true_pos;
-            μ_fix=μ_fix, shape_fix=TRUE_ALPHA, hierarchical=true, K_true=K_TRUE,
-            use_locmix_prior=true))
+            μ_fix=μ_fix, shape_fix=TRUE_ALPHA, hierarchical=true, K_true=K_TRUE))
 
         if trial % 10 == 0
             elapsed = time() - t_start

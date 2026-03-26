@@ -52,15 +52,14 @@ function simulate_locs(positions::Vector{Tuple{Float64,Float64}};
 end
 
 """
-Count-model MAP K and full posterior: argmax_K P(N|K,μ,shape) × P(K|λ).
+Count-model MAP K and full posterior: argmax_K P(N|K,μ,shape).
+Pure NegBin likelihood — no prior on K (removed with locmix branch).
 Returns (map_k, posterior_vector) where posterior_vector[k] = P(K=k|N).
 """
 function count_model_posterior(N::Int, μ::Float64, shape::Float64; K_max::Int=20)
-    λ_K = max(N / μ, 1.0)  # Prior mean for K: expected number of emitters
     log_probs = Float64[]
     for K in 1:K_max
-        lp = log_prior_total_count(N, K, μ, shape) +
-             log_prior_k(K, λ_K)
+        lp = log_prior_total_count(N, K, μ, shape)
         push!(log_probs, lp)
     end
     # Normalize
@@ -126,8 +125,7 @@ end
 """Run sampler on single cluster with given parameters. Returns NamedTuple or nothing."""
 function run_sampler_trial(locs, true_positions;
                            μ_fix::Float64, shape_fix::Float64,
-                           hierarchical::Bool, K_true::Int,
-                           use_locmix_prior::Bool=false)
+                           hierarchical::Bool, K_true::Int)
     N = length(locs)
     N < 2 && return nothing
 
@@ -142,7 +140,7 @@ function run_sampler_trial(locs, true_positions;
             μ_prior_shape=2.0, μ_prior_scale=5.0,
             hierarchical_interval=100,
             accumulators=AbstractAccumulator[count_hist, ps_acc, psm_acc],
-            verbose=false, use_locmix_prior=use_locmix_prior)
+            verbose=false)
     else
         result = run_collapsed_chain(locs;
             n_iterations=N_ITERATIONS, burn_in=BURN_IN,
@@ -150,7 +148,7 @@ function run_sampler_trial(locs, true_positions;
             μ_prior_shape=μ_fix, μ_prior_scale=1.0,
             hierarchical_interval=N_ITERATIONS + 1,
             accumulators=AbstractAccumulator[count_hist, ps_acc, psm_acc],
-            verbose=false, use_locmix_prior=use_locmix_prior)
+            verbose=false)
     end
 
     samples = accumulator_result(ps_acc)
