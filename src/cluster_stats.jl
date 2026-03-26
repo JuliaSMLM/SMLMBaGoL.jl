@@ -402,94 +402,126 @@ which concentrates mass near existing localizations.
 end
 
 # ============================================================================
-# Neighbor-filtered locmix (O(|A|) instead of O(N))
+# Neighbor-filtered locmix via KD-tree (O(|A|) instead of O(N))
 #
 # The full locmix sums over all N localizations as virtual anchors, but
 # distant anchors contribute exp(-d²/2σ²) ≈ 0 to the logsumexp. By
-# precomputing a spatial neighbor list and summing only over nearby anchors,
-# we reduce the per-cluster cost from O(N) to O(|A|) ≈ 20-50.
+# building a KDTree once and doing inrange queries per cluster, we reduce
+# the per-cluster cost from O(N) to O(|A|) ≈ 20-50.
 #
 # The -log(N) normalization is preserved: we are approximating the same
 # probability, just dropping terms that are below floating-point precision.
+#
+# Key design: one inrange query per cluster per sweep (O(K) allocations),
+# NOT per loc×cluster (O(N×K)). Results go into a preallocated Int32 buffer.
 # ============================================================================
 
 """
-    build_anchor_neighbors(loc_precs; nsigma=10.0) -> Vector{Vector{Int32}}
+    AnchorTree
 
-Build static neighbor lists for locmix anchor filtering.
+KD-tree over localization positions for fast spatial neighbor queries
+in the locmix prior. Built once from `loc_precs` at chain initialization.
 
-For each localization i, neighbors[i] contains indices j such that
-virtual anchor j could contribute non-negligibly to the locmix sum
-of any cluster containing i.
-
-Uses a KDTree with a conservative radius: nsigma × (σ_i + max_σ).
-Default nsigma=10 gives truncation error < exp(-50) ≈ 10⁻²² per term.
+Fields:
+- `tree`: KDTree for inrange queries
+- `coords`: 2×N matrix of localization positions (kept for queries)
+- `max_σ`: maximum combined σ across all localizations
+- `nsigma`: number of σ for the truncation radius
 """
-function build_anchor_neighbors(loc_precs::Vector{LocPrecision};
-                                 nsigma::Float64=10.0)
-    N = length(loc_precs)
-    N == 0 && return Vector{Int32}[]
+struct AnchorTree
+    tree::KDTree{SVector{2, Float64}, Euclidean, Float64, SVector{2, Float64}}
+    coords::Matrix{Float64}  # 2×N, kept for range queries
+    max_σ::Float64
+    nsigma::Float64
+end
 
-    # Build KDTree from localization positions
+"""
+    build_anchor_tree(loc_precs; nsigma=5.0) -> AnchorTree
+
+Build a KD-tree from localization positions for anchor-filtered locmix queries.
+
+The tree supports `inrange` queries that replace the old per-loc neighbor lists.
+Each query uses radius `nsigma × (cluster_σ + max_σ)`, where `cluster_σ` comes
+from the cluster's posterior covariance at query time.
+
+Default nsigma=5 gives truncation error < exp(-12.5) ≈ 4×10⁻⁶ per term,
+which is negligible in the logsumexp (typically 20-50 terms).
+"""
+function build_anchor_tree(loc_precs::Vector{LocPrecision}; nsigma::Float64=5.0)
+    N = length(loc_precs)
     coords = Matrix{Float64}(undef, 2, N)
     @inbounds for i in 1:N
         coords[1, i] = loc_precs[i].x
         coords[2, i] = loc_precs[i].y
     end
+
+    max_σ = N > 0 ? maximum(lp.σ for lp in loc_precs) : 0.0
     tree = KDTree(coords)
 
-    max_σ = maximum(lp.σ for lp in loc_precs)
-
-    neighbors = Vector{Vector{Int32}}(undef, N)
-    @inbounds for i in 1:N
-        # Conservative radius: anchor j matters if ||d_i - d_j|| < nsigma × (σ_i + σ_j)
-        # Upper bound using max_σ for σ_j
-        radius = nsigma * (loc_precs[i].σ + max_σ)
-        idxs = inrange(tree, view(coords, :, i), radius)
-        neighbors[i] = Int32.(idxs)
-    end
-
-    return neighbors
+    return AnchorTree(tree, coords, max_σ, nsigma)
 end
 
 """
-    cluster_anchor_set(assignments, slot, neighbors, N) -> Vector{Int32}
+    query_anchors!(buffer::Vector{Int32}, anchor_tree::AnchorTree,
+                    cs::ClusterStats, loc_precs::Vector{LocPrecision}) -> Int
 
-Compute the anchor set A(k) = ∪_{i ∈ C_k} neighbors[i] for cluster k.
+Query the anchor tree for localizations near a cluster's posterior mean.
 
-For small clusters (typical case), this is O(n × |N(i)|) ≈ O(200).
+Returns the number of valid entries written to `buffer`. The buffer is
+indexed as `buffer[1:n_anchors]` by downstream functions.
+
+The query radius is `nsigma × (cluster_σ + max_σ)` where `cluster_σ` is
+`sqrt(Σ_xx + Σ_yy)` (square root of the posterior covariance trace).
+
+For clusters with n>0, this captures all localizations whose Gaussian
+prior component overlaps significantly with the cluster posterior.
+
+Allocates one `Vector{Int}` via `inrange` per call — acceptable because
+this is called O(K) per sweep, not O(N×K).
 """
-function cluster_anchor_set(assignments::Vector{Int16}, slot::Int16,
-                             neighbors::Vector{Vector{Int32}}, N::Int)
-    seen = falses(N)
-    anchors = Int32[]
-    @inbounds for i in 1:N
-        assignments[i] == slot || continue
-        for j in neighbors[i]
-            if !seen[j]
-                seen[j] = true
-                push!(anchors, j)
-            end
-        end
+function query_anchors!(buffer::Vector{Int32}, anchor_tree::AnchorTree,
+                         cs::ClusterStats, loc_precs::Vector{LocPrecision})
+    cs.n == 0 && return Int(0)
+
+    μ_x, μ_y = posterior_mean(cs)
+    Σ_xx, _, Σ_yy = posterior_cov(cs)
+    cluster_σ = sqrt(max(Σ_xx + Σ_yy, 0.0))
+    radius = anchor_tree.nsigma * (cluster_σ + anchor_tree.max_σ)
+
+    point = SVector(μ_x, μ_y)
+    idxs = inrange(anchor_tree.tree, point, radius)
+
+    n_found = length(idxs)
+
+    # Grow buffer if needed (rare — only on first few calls or unusual clusters)
+    if n_found > length(buffer)
+        resize!(buffer, n_found)
     end
-    return anchors
+
+    @inbounds for i in 1:n_found
+        buffer[i] = Int32(idxs[i])
+    end
+
+    return n_found
 end
 
 """
     log_ml_locmix_filtered(cs::ClusterStats, loc_precs::Vector{LocPrecision},
-                            anchors::AbstractVector{<:Integer}) -> Float64
+                            anchors::Vector{Int32}, n_anchors::Int) -> Float64
 
-Neighbor-filtered locmix: same as log_ml_locmix but sums only over anchor indices.
+Neighbor-filtered locmix: same as `log_ml_locmix` but sums only over
+`anchors[1:n_anchors]` instead of all N localizations.
 
 Normalization uses full N (length of loc_precs) to preserve proper probability.
 Truncation error is bounded by N_dropped × exp(-Δ_min) where Δ_min is the
-minimum dropped quadratic penalty — negligible for nsigma ≥ 8.
+minimum dropped quadratic penalty — negligible for nsigma ≥ 5.
+
+Concrete types only — no AbstractVector, no view allocations.
 """
 function log_ml_locmix_filtered(cs::ClusterStats, loc_precs::Vector{LocPrecision},
-                                 anchors::AbstractVector{<:Integer})
+                                 anchors::Vector{Int32}, n_anchors::Int)
     N_total = length(loc_precs)
     N_total == 0 && return 0.0
-    n_anchors = length(anchors)
     n_anchors == 0 && return -Inf  # No nearby anchors → negligible probability
 
     # Pass 1: find max for numerical stability
@@ -520,26 +552,33 @@ function log_ml_locmix_filtered(cs::ClusterStats, loc_precs::Vector{LocPrecision
 end
 
 """
-    log_predictive_locmix_filtered(cs, lp, loc_precs, anchors_without,
-                                    anchors_with, cached_lml) -> Float64
+    log_predictive_locmix_filtered(cs, lp, loc_precs, anchors, n_anchors,
+                                    cached_lml) -> Float64
 
-Neighbor-filtered predictive with cached "without" term.
+Neighbor-filtered predictive reusing cached anchor set.
 
-- `anchors_without`: anchor set for the cluster without loc i
-- `anchors_with`: anchor set for the cluster with loc i (= anchors_without ∪ neighbors[i])
-- `cached_lml`: precomputed log_ml_locmix_filtered(cs, loc_precs, anchors_without)
-                 Pass nothing to compute fresh.
+Adding one loc to a cluster barely shifts the posterior mean, so the same
+anchor set computed for the "without" cluster is valid for the "with" case.
+This eliminates the per-loc KD-tree query (the main allocation source).
+
+The "without" LML is always cached (computed once per cluster per sweep).
+Zero-allocation hot path.
+
+# Arguments
+- `cs`: cluster stats WITHOUT the candidate loc
+- `lp`: candidate localization precision data
+- `loc_precs`: all localization precisions
+- `anchors`: precomputed anchor buffer for this cluster (from query_anchors!)
+- `n_anchors`: number of valid entries in anchors
+- `cached_lml`: precomputed `log_ml_locmix_filtered(cs, ...)` — always valid
 """
 @inline function log_predictive_locmix_filtered(
     cs::ClusterStats, lp::LocPrecision,
     loc_precs::Vector{LocPrecision},
-    anchors_without::AbstractVector{<:Integer},
-    anchors_with::AbstractVector{<:Integer},
-    cached_lml::Union{Float64, Nothing}=nothing
+    anchors::Vector{Int32}, n_anchors::Int,
+    cached_lml::Float64
 )
     cs_new = add_loc(cs, lp)
-    lml_with = log_ml_locmix_filtered(cs_new, loc_precs, anchors_with)
-    lml_without = cached_lml !== nothing ? cached_lml :
-                  log_ml_locmix_filtered(cs, loc_precs, anchors_without)
-    return lml_with - lml_without
+    lml_with = log_ml_locmix_filtered(cs_new, loc_precs, anchors, n_anchors)
+    return lml_with - cached_lml
 end
