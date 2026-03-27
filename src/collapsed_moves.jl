@@ -213,14 +213,22 @@ function _restore_rollback!(state::CollapsedState, old_n_active::Int, old_len::I
 end
 
 # ============================================================================
-# Direct K sampling with count-model posterior
+# K±1 split/merge with matched proposals
+#
+# Standard MH on partitions (not RJMCMC — positions integrated out).
+# Split and merge are exact reverses of each other:
+#   split(C → A,B) ↔ merge(A,B → C)
+#
+# Acceptance ratio:
+#   log α = [log π(z') - log π(z)] + [log q(z|z') - log q(z'|z)]
+#
+# where π = spatial_LML × count_model and q = selection × SMC_assignment.
 # ============================================================================
 
 """
     _total_spatial_lml(state) -> Float64
 
 Sum of log marginal likelihoods across all active clusters.
-Uses neighbor-filtered locmix for O(K×|A|) instead of O(K×N).
 """
 function _total_spatial_lml(state::CollapsedState)
     grid = state._locmix_grid
@@ -236,20 +244,18 @@ end
 """
     propose_split_merge!(state, locs, μ, shape) -> (Bool, Symbol)
 
-K sampling from count-model posterior with spatial MH correction.
+K±1 split/merge with matched SMC proposals and full MH acceptance.
 
-1. Propose K_new from π_count(K) ∝ P(K) × P(N|K)  (count-only posterior)
-2. Execute heuristic split/merge to adjust allocation
-3. Accept/reject with spatial fit improvement (area-invariant):
+Coin flip: split (K→K+1) or merge (K→K-1).
 
-   log α = Δ_fit = [Σ log ML(new) - Σ log ML(old)] + ΔK × log(A)
+Acceptance ratio includes:
+1. Spatial LML change: Σ log ML(z') - Σ log ML(z)
+2. Count model change: log P(N|K') - log P(N|K)
+3. Proposal ratio: log q(z|z') - log q(z'|z)
+   where q = cluster_selection × SMC_assignment
 
-The +ΔK×log(A) cancels the -log(A) per cluster in log_marginal_likelihood,
-implementing the spatial Poisson process prior. This makes the acceptance:
-- Neutral (~0) for co-located emitters (pure Q-PAINT behavior)
-- Positive for splits that align with spatial structure (beats Q-PAINT)
-
-Returns (accepted, move_type) where move_type is :split or :merge.
+At d=0 the spatial LML penalty and SMC proposal density cancel,
+leaving only the count model — matching qPAINT exactly.
 """
 function propose_split_merge!(state::CollapsedState,
                                locs::Vector{<:SMLMData.AbstractEmitter},
@@ -258,197 +264,240 @@ function propose_split_merge!(state::CollapsedState,
     N < 2 && return false, :split
     K = state.n_active
 
-    # Compute count-model posterior for K = 1..K_max
-    K_max = max(2 * K, min(N, 30))
-    log_posts = state._log_probs  # reuse workspace
-    if K_max > length(log_posts)
-        K_max = length(log_posts)
+    # Coin flip: split or merge
+    do_split = rand() < 0.5
+    if do_split && K >= N
+        return false, :split  # Can't have more clusters than locs
     end
-    @inbounds for k in 1:K_max
-        log_posts[k] = _log_count_posterior(k, N, shape, μ)
+    if !do_split && K <= 1
+        return false, :merge  # Can't merge with only 1 cluster
     end
-
-    # Sample from normalized distribution (in-place log-sum-exp)
-    max_lp = log_posts[1]
-    @inbounds for k in 2:K_max
-        if log_posts[k] > max_lp
-            max_lp = log_posts[k]
-        end
-    end
-    total = 0.0
-    @inbounds for k in 1:K_max
-        v = exp(log_posts[k] - max_lp)
-        log_posts[k] = v
-        total += v
-    end
-
-    u = rand() * total
-    K_new = K_max
-    cumsum_p = 0.0
-    @inbounds for k in 1:K_max
-        cumsum_p += log_posts[k]
-        if u < cumsum_p
-            K_new = k
-            break
-        end
-    end
-
-    K_new == K && return false, :split
 
     # Save state for potential rollback
     _save_rollback!(state)
-    old_n_active = K
+    old_K = K
     old_len = length(state.clusters)
 
-    # Compute spatial LML before the move
+    # Compute spatial LML before
     lml_before = _total_spatial_lml(state)
 
-    # Execute heuristic split or merge
-    move_type = K_new > K ? :split : :merge
-    if K_new > K
-        _add_clusters!(state, locs, K_new - K)
+    move_type = do_split ? :split : :merge
+    log_q_fwd = 0.0
+    log_q_rev = 0.0
+
+    if do_split
+        log_q_fwd, log_q_rev = _smc_split!(state, locs)
     else
-        _remove_clusters!(state, locs, K - K_new)
+        log_q_fwd, log_q_rev = _smc_merge!(state, locs)
     end
 
-    # Mini Gibbs relaxation: let the allocation settle spatially before
-    # evaluating the MH acceptance. Without this, the heuristic split/merge
-    # creates a random allocation that has terrible spatial LML, causing
-    # the MH to reject even correct K changes.
-    for _ in 1:5
-        gibbs_allocation_sweep!(state, locs, μ, shape)
-    end
+    K_new = state.n_active
 
-    # Compute spatial LML after the move + relaxation
+    # Compute spatial LML after
     lml_after = _total_spatial_lml(state)
 
-    # Spatial fit improvement (locmix prior: no area term, raw ML difference)
-    Δ_fit = lml_after - lml_before
+    # Full MH acceptance:
+    # log α = Δ_target + Δ_proposal
+    #
+    # Δ_target = [spatial LML change] + [count model change]
+    # Δ_proposal = log q(z|z') - log q(z'|z)
+    Δ_spatial = lml_after - lml_before
+    Δ_count = _log_count_posterior(K_new, N, shape, μ) -
+              _log_count_posterior(old_K, N, shape, μ)
+    Δ_proposal = log_q_rev - log_q_fwd
 
-    # MH acceptance on spatial correction (count terms already in proposal)
-    if Δ_fit >= 0 || rand() < exp(Δ_fit)
+    Δ = Δ_spatial + Δ_count + Δ_proposal
+
+    if Δ >= 0 || rand() < exp(Δ)
         return true, move_type
     else
-        # Reject: restore state
-        _restore_rollback!(state, old_n_active, old_len)
+        _restore_rollback!(state, old_K, old_len)
         return false, move_type
     end
 end
 
 """
-    _add_clusters!(state, locs, n_add)
+    _smc_split!(state, locs) -> (log_q_fwd, log_q_rev)
 
-Add n_add clusters by repeatedly splitting the largest active cluster.
-Each split takes half the locs (by random selection) into a new cluster.
+Split: pick a cluster uniformly, SMC-assign its locs to two sub-clusters.
+
+Forward proposal: q_fwd = (1/K) × Π_i p(assignment_i)
+Reverse proposal: q_rev = 1/(K+1 choose 2) = 2/((K+1)K)
+  (uniform pair selection for the reverse merge)
 """
-function _add_clusters!(state::CollapsedState,
-                         locs::Vector{<:SMLMData.AbstractEmitter},
-                         n_add::Int)
+function _smc_split!(state::CollapsedState,
+                      locs::Vector{<:SMLMData.AbstractEmitter})
     loc_precs = state._loc_precs
+    grid = state._locmix_grid
     N = length(locs)
+    K = state.n_active
 
-    for _ in 1:n_add
-        # Find the largest active cluster
-        best_slot = 0
-        best_n = 0
-        @inbounds for j in eachindex(state.active)
-            if state.active[j] && state.clusters[j].n > best_n
-                best_n = Int(state.clusters[j].n)
-                best_slot = j
-            end
-        end
-        best_n < 2 && break  # Can't split a cluster with fewer than 2 locs
-
-        # Collect loc indices in this cluster
-        new_slot = _find_inactive_slot(state)
-        new_cs = ClusterStats()
-        n_moved = 0
-        target = best_n ÷ 2
-
-        # Move approximately half the locs to the new cluster (random selection)
-        @inbounds for loc_idx in 1:N
-            state.assignments[loc_idx] == best_slot || continue
-            if n_moved < target && rand() < 0.5
-                lp = loc_precs[loc_idx]
-                state.clusters[best_slot] = remove_loc(state.clusters[best_slot], lp)
-                new_cs = add_loc(new_cs, lp)
-                state.assignments[loc_idx] = Int16(new_slot)
-                n_moved += 1
-            end
-        end
-
-        # Ensure we moved at least 1 loc
-        if n_moved == 0
-            @inbounds for loc_idx in 1:N
-                if state.assignments[loc_idx] == best_slot
-                    lp = loc_precs[loc_idx]
-                    state.clusters[best_slot] = remove_loc(state.clusters[best_slot], lp)
-                    new_cs = add_loc(new_cs, lp)
-                    state.assignments[loc_idx] = Int16(new_slot)
-                    break
-                end
-            end
-        end
-
-        _activate_cluster!(state, new_slot, new_cs)
+    # Select cluster to split: uniform over K active clusters
+    active_slots = Int[]
+    @inbounds for j in eachindex(state.active)
+        state.active[j] && push!(active_slots, j)
     end
+    split_idx = rand(1:K)
+    split_slot = active_slots[split_idx]
+    n_members = Int(state.clusters[split_slot].n)
+    n_members < 2 && return 0.0, 0.0
+
+    # Collect member indices (deterministic order for reversibility)
+    member_indices = Int[]
+    @inbounds for i in 1:N
+        state.assignments[i] == split_slot && push!(member_indices, i)
+    end
+    m = length(member_indices)
+
+    # New cluster slot
+    new_slot = _find_inactive_slot(state)
+
+    # Seed both sub-clusters
+    cs_a = add_loc(ClusterStats(), loc_precs[member_indices[1]])
+    cs_b = add_loc(ClusterStats(), loc_precs[member_indices[2]])
+    state.assignments[member_indices[2]] = Int16(new_slot)
+
+    # SMC sequential assignment
+    log_q_assign = 0.0
+    for idx in 3:m
+        loc_idx = member_indices[idx]
+        lp = loc_precs[loc_idx]
+
+        log_pred_a = log_marginal_likelihood_locmix(add_loc(cs_a, lp), grid) -
+                     log_marginal_likelihood_locmix(cs_a, grid)
+        log_pred_b = log_marginal_likelihood_locmix(add_loc(cs_b, lp), grid) -
+                     log_marginal_likelihood_locmix(cs_b, grid)
+
+        max_lp = max(log_pred_a, log_pred_b)
+        p_a = exp(log_pred_a - max_lp)
+        p_b = exp(log_pred_b - max_lp)
+        prob_b = p_b / (p_a + p_b)
+
+        if rand() < prob_b
+            cs_b = add_loc(cs_b, lp)
+            state.assignments[loc_idx] = Int16(new_slot)
+            log_q_assign += log(prob_b)
+        else
+            cs_a = add_loc(cs_a, lp)
+            log_q_assign += log(1.0 - prob_b)
+        end
+    end
+
+    # Update state
+    state.clusters[split_slot] = cs_a
+    _activate_cluster!(state, new_slot, cs_b)
+
+    # Forward proposal: select cluster (1/K) × SMC assignment
+    log_q_fwd = -log(K) + log_q_assign
+
+    # Reverse proposal: select pair to merge = uniform over (K+1 choose 2) pairs
+    K_new = K + 1
+    log_q_rev = -log(K_new * (K_new - 1) / 2)
+
+    return log_q_fwd, log_q_rev
 end
 
 """
-    _remove_clusters!(state, locs, n_remove)
+    _smc_merge!(state, locs) -> (log_q_fwd, log_q_rev)
 
-Remove n_remove clusters by merging the smallest active cluster into its
-nearest neighbor (by posterior mean distance).
+Merge: pick a pair of clusters uniformly, combine them.
+
+Forward proposal: q_fwd = 1/(K choose 2) = 2/(K(K-1))
+Reverse proposal: q_rev = (1/(K-1)) × Π_i p(reverse_assignment_i)
+  (uniform cluster selection × SMC split of the merged cluster)
 """
-function _remove_clusters!(state::CollapsedState,
-                            locs::Vector{<:SMLMData.AbstractEmitter},
-                            n_remove::Int)
+function _smc_merge!(state::CollapsedState,
+                      locs::Vector{<:SMLMData.AbstractEmitter})
     loc_precs = state._loc_precs
+    grid = state._locmix_grid
     N = length(locs)
+    K = state.n_active
 
-    for _ in 1:n_remove
-        state.n_active <= 1 && break
+    K <= 1 && return 0.0, 0.0
 
-        # Find the smallest active cluster
-        small_slot = 0
-        small_n = typemax(Int)
-        @inbounds for j in eachindex(state.active)
-            if state.active[j] && state.clusters[j].n < small_n
-                small_n = Int(state.clusters[j].n)
-                small_slot = j
-            end
-        end
-
-        # Find the nearest other active cluster (by posterior mean)
-        sx, sy = if small_n > 0
-            posterior_mean(state.clusters[small_slot])
-        else
-            0.0, 0.0
-        end
-
-        merge_slot = 0
-        min_dist = Inf
-        @inbounds for j in eachindex(state.active)
-            j == small_slot && continue
-            state.active[j] || continue
-            mx, my = posterior_mean(state.clusters[j])
-            d = (mx - sx)^2 + (my - sy)^2
-            if d < min_dist
-                min_dist = d
-                merge_slot = j
-            end
-        end
-
-        # Move all locs from small_slot to merge_slot
-        @inbounds for loc_idx in 1:N
-            if state.assignments[loc_idx] == small_slot
-                lp = loc_precs[loc_idx]
-                state.clusters[small_slot] = remove_loc(state.clusters[small_slot], lp)
-                state.clusters[merge_slot] = add_loc(state.clusters[merge_slot], lp)
-                state.assignments[loc_idx] = Int16(merge_slot)
-            end
-        end
-        _deactivate_cluster!(state, small_slot)
+    # Select pair to merge: uniform over K(K-1)/2 pairs
+    active_slots = Int[]
+    @inbounds for j in eachindex(state.active)
+        state.active[j] && push!(active_slots, j)
     end
+
+    # Pick two distinct active clusters uniformly
+    idx1 = rand(1:K)
+    idx2 = rand(1:K-1)
+    idx2 >= idx1 && (idx2 += 1)
+    slot_a = active_slots[idx1]  # survives
+    slot_b = active_slots[idx2]  # gets absorbed
+
+    # Collect all members in index order (must match split's deterministic ordering)
+    all_members = Int[]
+    @inbounds for i in 1:N
+        if state.assignments[i] == slot_a || state.assignments[i] == slot_b
+            push!(all_members, i)
+        end
+    end
+    m = length(all_members)
+
+    # Determine which slot is "B" (the one containing the second-lowest-index loc).
+    # The split always seeds A with all_members[1], B with all_members[2].
+    # So "B" is whichever slot contains all_members[2].
+    b_slot = m >= 2 ? state.assignments[all_members[2]] : slot_b
+    is_b = Set{Int}()
+    @inbounds for i in all_members
+        state.assignments[i] == b_slot && push!(is_b, i)
+    end
+    log_q_assign_rev = 0.0
+
+    if m >= 2
+        # Shuffle all_members the same way the reverse split would
+        # (we use a deterministic order: A members first, then B)
+        cs_ra = add_loc(ClusterStats(), loc_precs[all_members[1]])
+        cs_rb = add_loc(ClusterStats(), loc_precs[all_members[2]])
+
+        for idx in 3:m
+            loc_idx = all_members[idx]
+            lp = loc_precs[loc_idx]
+            goes_to_b = loc_idx ∈ is_b
+
+            log_pred_a = log_marginal_likelihood_locmix(add_loc(cs_ra, lp), grid) -
+                         log_marginal_likelihood_locmix(cs_ra, grid)
+            log_pred_b = log_marginal_likelihood_locmix(add_loc(cs_rb, lp), grid) -
+                         log_marginal_likelihood_locmix(cs_rb, grid)
+
+            max_lp = max(log_pred_a, log_pred_b)
+            p_a = exp(log_pred_a - max_lp)
+            p_b = exp(log_pred_b - max_lp)
+            prob_b = p_b / (p_a + p_b)
+
+            if goes_to_b
+                cs_rb = add_loc(cs_rb, lp)
+                log_q_assign_rev += log(max(prob_b, 1e-300))
+            else
+                cs_ra = add_loc(cs_ra, lp)
+                log_q_assign_rev += log(max(1.0 - prob_b, 1e-300))
+            end
+        end
+    end
+
+    # Execute the merge: move all locs from slot_b into slot_a
+    # (slot_a and slot_b are the randomly selected pair — we merge slot_b into slot_a)
+    a_slot = b_slot == slot_b ? slot_a : slot_b  # the one that survives
+    @inbounds for loc_idx in all_members
+        if state.assignments[loc_idx] == b_slot
+            lp = loc_precs[loc_idx]
+            state.clusters[b_slot] = remove_loc(state.clusters[b_slot], lp)
+            state.clusters[a_slot] = add_loc(state.clusters[a_slot], lp)
+            state.assignments[loc_idx] = Int16(a_slot)
+        end
+    end
+    _deactivate_cluster!(state, b_slot)
+
+    # Forward proposal: select pair = uniform over K(K-1)/2
+    log_q_fwd = -log(K * (K - 1) / 2)
+
+    # Reverse proposal: select merged cluster (1/(K-1)) × SMC assignment
+    K_new = K - 1
+    log_q_rev = -log(K_new) + log_q_assign_rev
+
+    return log_q_fwd, log_q_rev
 end
 
