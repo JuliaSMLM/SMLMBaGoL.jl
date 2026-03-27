@@ -561,13 +561,20 @@ end
 """
     log_marginal_likelihood_locmix(cs::ClusterStats, grid::LocmixGrid) -> Float64
 
-Log marginal likelihood using the grid-based locmix prior.
+Collapsed marginal likelihood with product partition prior g(S) = |Λ_S|^{1/2}.
 
-Same as `log_marginal_likelihood` but replaces `-log(A)` with the
-locmix log-prior evaluated at the cluster's posterior mean.
+The partition prior cancels the -½ log|Λ| determinant term from the standard
+collapsed marginal likelihood, eliminating the splitting bias at d=0.
 
-This is the saddle-point approximation to the full locmix integral.
-For clusters with tight posteriors (n ≥ 2), the approximation is excellent.
+What remains is purely the data-fit term:
+  log p = (1-n)log(2π) - ½ log_det_sum - ½(quad - η^T Λ^{-1} η)
+
+At d=0 (co-located emitters), the quadratic separation terms vanish and
+the posterior on K reduces to the count model alone (qPAINT behavior).
+At d>0, the quadratic terms reward true spatial separation.
+
+Reference: Product partition models (Müller, Quintana, Rosner 2011).
+The grid argument is retained for API compatibility but not used.
 """
 @inline function log_marginal_likelihood_locmix(cs::ClusterStats, grid::LocmixGrid)
     n = Int(cs.n)
@@ -582,18 +589,12 @@ For clusters with tight posteriors (n ≥ 2), the approximation is excellent.
 
     eta_Sinv_eta = S_xx * cs.η_x^2 + 2 * S_xy * cs.η_x * cs.η_y + S_yy * cs.η_y^2
 
-    # Evaluate locmix prior at posterior mean
-    μ_x = S_xx * cs.η_x + S_xy * cs.η_y
-    μ_y = S_xy * cs.η_x + S_yy * cs.η_y
-    log_prior = log_prior_locmix(grid, μ_x, μ_y)
-
-    # log p = (1-n)log(2π) - ½ log_det_sum - ½(quad - η^T Σ η) - ½ log|Λ| + log_prior
-    # Note: +log_prior replaces -log(A). The prior density is P(θ), not 1/A.
+    # Collapsed ML with partition prior g(S) = |Λ|^{1/2}:
+    # The +½ log|Λ| from g(S) cancels the -½ log|Λ| from the marginal likelihood.
+    # Only the quadratic data-fit term remains.
     lml = (1 - n) * log(2π) -
           0.5 * cs.log_det_sum -
-          0.5 * (cs.quad - eta_Sinv_eta) -
-          0.5 * log(det_Λ) +
-          log_prior
+          0.5 * (cs.quad - eta_Sinv_eta)
 
     return lml
 end
@@ -601,15 +602,12 @@ end
 """
     log_predictive_locmix(cs, lp::LocPrecision, grid::LocmixGrid) -> Float64
 
-Predictive probability under the grid-based locmix prior.
-O(1) — just two marginal likelihood evaluations with grid lookups.
+Predictive probability under the PPM partition prior.
+O(1) — two marginal likelihood evaluations.
+For empty cluster: singleton self-evidence (spatially uniform).
 """
 @inline function log_predictive_locmix(cs::ClusterStats, lp::LocPrecision,
                                         grid::LocmixGrid)
-    if cs.n == 0
-        # New cluster: evaluate locmix prior at the loc's position
-        return log_prior_locmix(grid, lp.x, lp.y)
-    end
     cs_new = add_loc(cs, lp)
     return log_marginal_likelihood_locmix(cs_new, grid) -
            log_marginal_likelihood_locmix(cs, grid)
