@@ -147,7 +147,8 @@ function _run_bagol_collapsed(
         Threads.@spawn begin
             p_locs = partitions[i].locs
             spatial_prior = UniformSpatialPrior(p_locs)
-            states[i] = initialize_collapsed_state(p_locs, spatial_prior)
+            fp = get(kwargs, :flat_prior, false)::Bool
+            states[i] = initialize_collapsed_state(p_locs, spatial_prior; flat_prior=fp)
 
             # Per-partition accumulators
             accs = AbstractAccumulator[]

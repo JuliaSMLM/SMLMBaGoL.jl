@@ -125,3 +125,50 @@ function log_prior_total_count(N::Int, K::Int, μ::Float64, shape::Float64)
     p = shape / (shape + μ)
     return logpdf(NegativeBinomial(K * shape, p), N)
 end
+
+# ============================================================================
+# MFM (Mixture of Finite Mixtures) partition prior
+#
+# Miller & Harrison (2018): given K clusters and symmetric Dirichlet(γ)
+# mixing weights, the marginal partition probability is:
+#
+#   P(z | K) = V_N(K) × ∏_k Γ(n_k + γ) / Γ(γ)^K
+#
+# where V_N(K) = K! × Γ(Kγ) / Γ(N + Kγ).
+#
+# For BaGoL, γ = α = shape (the NegBin shape parameter from the blinking
+# model). No new free parameters — the Dirichlet concentration is exactly
+# the per-emitter count shape.
+# ============================================================================
+
+"""
+    log_mfm_partition_ratio(n_a, n_b, n_c, K, N, γ) -> Float64
+
+Log partition prior ratio for a split of cluster C (size n_c) into
+A (size n_a) and B (size n_b), going from K to K+1 labeled clusters.
+
+Returns Δ_partition = log P(z'|K+1) - log P(z|K) where
+
+  P(z|K) = Γ(Kγ) / [Γ(γ)^K × Γ(N+Kγ)] × ∏_k Γ(n_k + γ)
+
+is the Dirichlet-Multinomial partition prior for labeled clusters
+(no K! — that belongs to the EPPF for unlabeled partitions).
+
+Components:
+1. Cluster sizes: log Γ(n_a+γ) + log Γ(n_b+γ) - log Γ(n_c+γ) - log Γ(γ)
+2. Normalization: log Γ((K+1)γ) - log Γ(Kγ) + log Γ(N+Kγ) - log Γ(N+(K+1)γ)
+
+For a merge (reverse), negate the result.
+"""
+function log_mfm_partition_ratio(n_a::Int, n_b::Int, n_c::Int,
+                                  K::Int, N::Int, γ::Float64)
+    # Cluster size term: Γ(n_a+γ)Γ(n_b+γ) / [Γ(n_c+γ) × Γ(γ)]
+    # The extra Γ(γ) in denominator comes from one more cluster in ∏ Γ(n_k+γ)/Γ(γ)
+    Δ_sizes = loggamma(n_a + γ) + loggamma(n_b + γ) - loggamma(n_c + γ) - loggamma(γ)
+
+    # Normalization ratio: [Γ((K+1)γ)/Γ(N+(K+1)γ)] / [Γ(Kγ)/Γ(N+Kγ)]
+    Δ_norm = loggamma((K + 1) * γ) - loggamma(K * γ) +
+             loggamma(N + K * γ) - loggamma(N + (K + 1) * γ)
+
+    return Δ_sizes + Δ_norm
+end

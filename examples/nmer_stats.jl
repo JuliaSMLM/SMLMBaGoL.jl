@@ -71,10 +71,15 @@ function generate_localizations(positions)
     photon_dist = Exponential(PHOTON_MEAN)
     loc_id = 1
     for (emitter_idx, (ex, ey)) in enumerate(positions)
-        n_blinks = max(1, rand(blink_dist))
-        for _ in 1:n_blinks
+        n_target = max(1, rand(blink_dist))
+        # Draw photons until we have n_target survivors above PHOTON_MIN.
+        # This ensures exactly Poisson(BLINK_MEAN) locs per emitter after
+        # filtering, so μ = BLINK_MEAN with no calibration uncertainty.
+        n_accepted = 0
+        while n_accepted < n_target
             N = rand(photon_dist)
             N < PHOTON_MIN && continue
+            n_accepted += 1
             σ = PSF_SIGMA / sqrt(N)
             x = ex + σ * randn()
             y = ey + σ * randn()
@@ -107,26 +112,20 @@ function count_model_map_k(N::Int, μ::Float64, shape::Float64; K_max::Int=20)
 end
 
 function run_single_trial(true_positions)
-    # Generate and filter localizations
-    all_locs = generate_localizations(true_positions)
-    N_pre = length(all_locs)
-    locs = filter(loc -> max(loc.σ_x, loc.σ_y) <= PRECISION_MAX, all_locs)
+    # Generate localizations (rejection sampling ensures exactly Poisson(μ)
+    # survivors per emitter — no post-hoc filter needed)
+    locs = generate_localizations(true_positions)
     N = length(locs)
 
     if N < 2
         return nothing  # Skip degenerate trials
     end
 
-    # Fixed μ from data (no hierarchical) — used for the chain
-    μ = Float64(N) / N_EMITTERS
+    # μ is exactly BLINK_MEAN by construction (no filter bias)
+    μ = BLINK_MEAN
 
-    # Count-model MAP K: Q-PAINT scenario with calibrated μ.
-    # In Q-PAINT, μ is calibrated on single-emitter references through the
-    # same pipeline (including precision filter), so it reflects the post-filter rate.
-    # Here we compute the effective μ from the filter acceptance rate.
-    filter_rate = N / N_pre
-    μ_calibrated = BLINK_MEAN * filter_rate
-    K_count = count_model_map_k(N, μ_calibrated, TRUE_SHAPE)
+    # Count-model MAP K with known μ — unbiased Q-PAINT baseline
+    K_count = count_model_map_k(N, μ, TRUE_SHAPE)
 
     # Run chain
     ps_acc = PartitionSamples(thin=5)
