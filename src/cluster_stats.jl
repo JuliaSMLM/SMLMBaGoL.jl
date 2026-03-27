@@ -449,7 +449,8 @@ Cost: O(N × nx × ny), run once per partition at initialization.
 """
 function build_locmix_grid(loc_precs::Vector{LocPrecision};
                             margin_sigma::Float64=3.0,
-                            pixel_per_sigma::Float64=2.0)
+                            pixel_per_sigma::Float64=2.0,
+                            flat::Bool=false)
     N = length(loc_precs)
     if N == 0
         return LocmixGrid(fill(-Inf, 1, 1), 0.0, 0.0, 1.0, 1.0, 1, 1)
@@ -468,6 +469,13 @@ function build_locmix_grid(loc_precs::Vector{LocPrecision};
     dy = dx
     nx = max(ceil(Int, (xmax - xmin) / dx) + 1, 2)
     ny = max(ceil(Int, (ymax - ymin) / dy) + 1, 2)
+
+    # Flat prior: uniform -log(A) over the bounding box
+    if flat
+        area = (xmax - xmin) * (ymax - ymin)
+        log_density = fill(-log(area), ny, nx)
+        return LocmixGrid(log_density, xmin, ymin, dx, dy, nx, ny)
+    end
 
     # Evaluate log P(θ) = log( (1/N) Σⱼ N(θ; dⱼ, Σⱼ) ) at each grid point
     # Use logsumexp for numerical stability
@@ -561,20 +569,13 @@ end
 """
     log_marginal_likelihood_locmix(cs::ClusterStats, grid::LocmixGrid) -> Float64
 
-Collapsed marginal likelihood with product partition prior g(S) = |Λ_S|^{1/2}.
+Collapsed marginal likelihood with localization mixture spatial prior.
 
-The partition prior cancels the -½ log|Λ| determinant term from the standard
-collapsed marginal likelihood, eliminating the splitting bias at d=0.
+log p = (1-n)log(2π) - ½ log_det_sum - ½(quad - η^T Λ^{-1} η)
+        - ½ log|Λ| + log P_locmix(μ_post)
 
-What remains is purely the data-fit term:
-  log p = (1-n)log(2π) - ½ log_det_sum - ½(quad - η^T Λ^{-1} η)
-
-At d=0 (co-located emitters), the quadratic separation terms vanish and
-the posterior on K reduces to the count model alone (qPAINT behavior).
-At d>0, the quadratic terms reward true spatial separation.
-
-Reference: Product partition models (Müller, Quintana, Rosner 2011).
-The grid argument is retained for API compatibility but not used.
+Replaces the uniform -log(A) term with the grid-interpolated locmix prior
+evaluated at the cluster's posterior mean position.
 """
 @inline function log_marginal_likelihood_locmix(cs::ClusterStats, grid::LocmixGrid)
     n = Int(cs.n)
@@ -589,12 +590,16 @@ The grid argument is retained for API compatibility but not used.
 
     eta_Sinv_eta = S_xx * cs.η_x^2 + 2 * S_xy * cs.η_x * cs.η_y + S_yy * cs.η_y^2
 
-    # Collapsed ML with partition prior g(S) = |Λ|^{1/2}:
-    # The +½ log|Λ| from g(S) cancels the -½ log|Λ| from the marginal likelihood.
-    # Only the quadratic data-fit term remains.
+    # Posterior mean: μ = Λ^{-1} η
+    μ_x = S_xx * cs.η_x + S_xy * cs.η_y
+    μ_y = S_xy * cs.η_x + S_yy * cs.η_y
+
+    # Collapsed ML with locmix spatial prior
     lml = (1 - n) * log(2π) -
           0.5 * cs.log_det_sum -
-          0.5 * (cs.quad - eta_Sinv_eta)
+          0.5 * (cs.quad - eta_Sinv_eta) -
+          0.5 * log(det_Λ) +
+          log_prior_locmix(grid, μ_x, μ_y)
 
     return lml
 end
@@ -602,13 +607,70 @@ end
 """
     log_predictive_locmix(cs, lp::LocPrecision, grid::LocmixGrid) -> Float64
 
-Predictive probability under the PPM partition prior.
+Predictive probability under the locmix spatial prior.
 O(1) — two marginal likelihood evaluations.
-For empty cluster: singleton self-evidence (spatially uniform).
+For empty cluster: singleton self-evidence.
 """
 @inline function log_predictive_locmix(cs::ClusterStats, lp::LocPrecision,
                                         grid::LocmixGrid)
     cs_new = add_loc(cs, lp)
     return log_marginal_likelihood_locmix(cs_new, grid) -
            log_marginal_likelihood_locmix(cs, grid)
+end
+
+# ============================================================================
+# PPM-corrected marginal likelihood (Product Partition Model)
+#
+# The collapsed ML includes -½ log|Λ| (Occam penalty from integrating out
+# positions). This penalizes splitting even for co-located emitters where
+# the spatial term should be neutral.
+#
+# The PPM correction adds +½ log|Λ| to cancel this penalty:
+#   ML_ppm = ML_locmix + ½ log|Λ|
+#          = (1-n)log(2π) - ½ log_det_sum - ½(Q - η^T Λ^{-1} η) + log P_locmix(μ)
+#
+# This makes the spatial contribution purely about data fit + position prior,
+# without the Occam penalty that biases toward fewer clusters.
+#
+# At d=0: ML_ppm predictive ≈ constant (truly neutral)
+# At d>0: spatial separation still drives correct clustering
+# ============================================================================
+
+"""
+    log_ml_ppm(cs::ClusterStats, grid::LocmixGrid) -> Float64
+
+PPM-corrected marginal likelihood: cancels the Occam penalty.
+"""
+@inline function log_ml_ppm(cs::ClusterStats, grid::LocmixGrid)
+    n = Int(cs.n)
+    if n == 0
+        return 0.0
+    end
+
+    det_Λ, S_xx, S_xy, S_yy = _posterior_precision_inv(cs)
+    if det_Λ <= 0
+        return -Inf
+    end
+
+    eta_Sinv_eta = S_xx * cs.η_x^2 + 2 * S_xy * cs.η_x * cs.η_y + S_yy * cs.η_y^2
+
+    μ_x = S_xx * cs.η_x + S_xy * cs.η_y
+    μ_y = S_xy * cs.η_x + S_yy * cs.η_y
+
+    # ML_locmix + ½ log|Λ| = data fit + locmix prior (no Occam penalty)
+    return (1 - n) * log(2π) -
+           0.5 * cs.log_det_sum -
+           0.5 * (cs.quad - eta_Sinv_eta) +
+           log_prior_locmix(grid, μ_x, μ_y)
+end
+
+"""
+    log_predictive_ppm(cs, lp::LocPrecision, grid::LocmixGrid) -> Float64
+
+PPM-corrected predictive: spatial fit + locmix prior, no Occam penalty.
+"""
+@inline function log_predictive_ppm(cs::ClusterStats, lp::LocPrecision,
+                                     grid::LocmixGrid)
+    cs_new = add_loc(cs, lp)
+    return log_ml_ppm(cs_new, grid) - log_ml_ppm(cs, grid)
 end

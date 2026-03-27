@@ -13,7 +13,8 @@
 Initialize collapsed state: all locs in one cluster.
 """
 function initialize_collapsed_state(locs::Vector{<:SMLMData.AbstractEmitter},
-                                     spatial_prior::UniformSpatialPrior)
+                                     spatial_prior::UniformSpatialPrior;
+                                     flat_prior::Bool=false)
     N = length(locs)
     log_area = log(area(spatial_prior))
 
@@ -32,7 +33,7 @@ function initialize_collapsed_state(locs::Vector{<:SMLMData.AbstractEmitter},
     _loc_precs = precompute_loc_precisions(locs)
 
     # Build grid-based locmix prior (O(N × grid_size) once)
-    _locmix_grid = build_locmix_grid(_loc_precs)
+    _locmix_grid = build_locmix_grid(_loc_precs; flat=flat_prior)
 
     # Pre-allocate workspace buffers
     max_K = max(N, 16)  # Upper bound on cluster count
@@ -84,7 +85,8 @@ function run_collapsed_chain(
     accumulators::Vector{<:AbstractAccumulator} = AbstractAccumulator[],
     verbose::Bool = false,
     callback::Union{Function, Nothing} = nothing,
-    callback_interval::Int = 1
+    callback_interval::Int = 1,
+    flat_prior::Bool = false
 )
     N = length(locs)
     if N == 0
@@ -93,7 +95,7 @@ function run_collapsed_chain(
 
     # Initialize
     spatial_prior = UniformSpatialPrior(locs)
-    state = initialize_collapsed_state(locs, spatial_prior)
+    state = initialize_collapsed_state(locs, spatial_prior; flat_prior)
 
     μ = μ_prior_shape * μ_prior_scale  # Initial μ from prior mean
     current_shape = shape

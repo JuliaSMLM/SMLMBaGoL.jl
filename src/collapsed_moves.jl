@@ -131,11 +131,13 @@ function gibbs_allocation_sweep!(state::CollapsedState,
             state.clusters[old_cluster] = remove_loc(state.clusters[old_cluster], lp)
         end
 
-        # Compute spatial predictive for each active cluster (grid locmix, O(1) each)
+        # MFM-weighted predictive for each active cluster:
+        #   P(z_i = k | rest) ∝ (n_{k,-i} + γ) × predictive(d_i | cluster_k)
+        # where γ = shape (NegBin shape = Dirichlet concentration)
         for i in 1:K
             slot = active_slots[i]
             cs = state.clusters[slot]
-            log_probs[i] = log_predictive_locmix(cs, lp, grid)
+            log_probs[i] = log(Float64(cs.n) + shape) + log_predictive_locmix(cs, lp, grid)
         end
 
         # In-place log-sum-exp normalization → probabilities in log_probs[1:K]
@@ -284,29 +286,43 @@ function propose_split_merge!(state::CollapsedState,
     move_type = do_split ? :split : :merge
     log_q_fwd = 0.0
     log_q_rev = 0.0
+    n_parent = 0
+    n_child_a = 0
+    n_child_b = 0
 
     if do_split
-        log_q_fwd, log_q_rev = _smc_split!(state, locs)
+        log_q_fwd, log_q_rev, n_parent, n_child_a, n_child_b = _smc_split!(state, locs, shape)
     else
-        log_q_fwd, log_q_rev = _smc_merge!(state, locs)
+        log_q_fwd, log_q_rev, n_parent, n_child_a, n_child_b = _smc_merge!(state, locs, shape)
     end
 
     K_new = state.n_active
 
+    # No-op: split/merge returned without changing state
+    if K_new == old_K
+        _restore_rollback!(state, old_K, old_len)
+        return false, move_type
+    end
+
     # Compute spatial LML after
     lml_after = _total_spatial_lml(state)
 
-    # Full MH acceptance:
-    # log α = Δ_target + Δ_proposal
-    #
-    # Δ_target = [spatial LML change] + [count model change]
-    # Δ_proposal = log q(z|z') - log q(z'|z)
+    # Full MH acceptance with MFM partition prior
     Δ_spatial = lml_after - lml_before
     Δ_count = _log_count_posterior(K_new, N, shape, μ) -
               _log_count_posterior(old_K, N, shape, μ)
     Δ_proposal = log_q_rev - log_q_fwd
 
-    Δ = Δ_spatial + Δ_count + Δ_proposal
+    # MFM partition prior ratio (γ = shape)
+    if do_split
+        Δ_partition = log_mfm_partition_ratio(n_child_a, n_child_b, n_parent,
+                                               old_K, N, shape)
+    else
+        Δ_partition = -log_mfm_partition_ratio(n_child_a, n_child_b, n_parent,
+                                                K_new, N, shape)
+    end
+
+    Δ = Δ_spatial + Δ_count + Δ_partition + Δ_proposal
 
     if Δ >= 0 || rand() < exp(Δ)
         return true, move_type
@@ -317,20 +333,18 @@ function propose_split_merge!(state::CollapsedState,
 end
 
 """
-    _smc_split!(state, locs) -> (log_q_fwd, log_q_rev)
+    _smc_split!(state, locs, shape) -> (log_q_fwd, log_q_rev, n_parent, n_child_a, n_child_b)
 
-Split: pick a cluster uniformly, SMC-assign its locs to two sub-clusters.
-
-Forward proposal: q_fwd = (1/K) × Π_i p(assignment_i)
-Reverse proposal: q_rev = 1/(K+1 choose 2) = 2/((K+1)K)
-  (uniform pair selection for the reverse merge)
+Split: pick a cluster uniformly, MFM-weighted SMC-assign its locs to two sub-clusters.
 """
 function _smc_split!(state::CollapsedState,
-                      locs::Vector{<:SMLMData.AbstractEmitter})
+                      locs::Vector{<:SMLMData.AbstractEmitter},
+                      shape::Float64)
     loc_precs = state._loc_precs
     grid = state._locmix_grid
     N = length(locs)
     K = state.n_active
+    γ = shape
 
     # Select cluster to split: uniform over K active clusters
     active_slots = Int[]
@@ -340,7 +354,7 @@ function _smc_split!(state::CollapsedState,
     split_idx = rand(1:K)
     split_slot = active_slots[split_idx]
     n_members = Int(state.clusters[split_slot].n)
-    n_members < 2 && return 0.0, 0.0
+    n_members < 2 && return 0.0, 0.0, 0, 0, 0
 
     # Collect member indices (deterministic order for reversibility)
     member_indices = Int[]
@@ -368,10 +382,12 @@ function _smc_split!(state::CollapsedState,
         log_pred_b = log_marginal_likelihood_locmix(add_loc(cs_b, lp), grid) -
                      log_marginal_likelihood_locmix(cs_b, grid)
 
-        max_lp = max(log_pred_a, log_pred_b)
-        p_a = exp(log_pred_a - max_lp)
-        p_b = exp(log_pred_b - max_lp)
-        prob_b = p_b / (p_a + p_b)
+        # MFM weight: (n_k + γ) × predictive
+        log_w_a = log(Float64(cs_a.n) + γ) + log_pred_a
+        log_w_b = log(Float64(cs_b.n) + γ) + log_pred_b
+        max_lw = max(log_w_a, log_w_b)
+        prob_b = exp(log_w_b - max_lw) / (exp(log_w_a - max_lw) + exp(log_w_b - max_lw))
+        prob_b = clamp(prob_b, 1e-300, 1.0 - 1e-300)
 
         if rand() < prob_b
             cs_b = add_loc(cs_b, lp)
@@ -387,6 +403,9 @@ function _smc_split!(state::CollapsedState,
     state.clusters[split_slot] = cs_a
     _activate_cluster!(state, new_slot, cs_b)
 
+    n_a = Int(cs_a.n)
+    n_b = Int(cs_b.n)
+
     # Forward proposal: select cluster (1/K) × SMC assignment
     log_q_fwd = -log(K) + log_q_assign
 
@@ -394,26 +413,24 @@ function _smc_split!(state::CollapsedState,
     K_new = K + 1
     log_q_rev = -log(K_new * (K_new - 1) / 2)
 
-    return log_q_fwd, log_q_rev
+    return log_q_fwd, log_q_rev, n_members, n_a, n_b
 end
 
 """
-    _smc_merge!(state, locs) -> (log_q_fwd, log_q_rev)
+    _smc_merge!(state, locs, shape) -> (log_q_fwd, log_q_rev, n_parent, n_child_a, n_child_b)
 
 Merge: pick a pair of clusters uniformly, combine them.
-
-Forward proposal: q_fwd = 1/(K choose 2) = 2/(K(K-1))
-Reverse proposal: q_rev = (1/(K-1)) × Π_i p(reverse_assignment_i)
-  (uniform cluster selection × SMC split of the merged cluster)
 """
 function _smc_merge!(state::CollapsedState,
-                      locs::Vector{<:SMLMData.AbstractEmitter})
+                      locs::Vector{<:SMLMData.AbstractEmitter},
+                      shape::Float64)
     loc_precs = state._loc_precs
     grid = state._locmix_grid
     N = length(locs)
     K = state.n_active
+    γ = shape
 
-    K <= 1 && return 0.0, 0.0
+    K <= 1 && return 0.0, 0.0, 0, 0, 0
 
     # Select pair to merge: uniform over K(K-1)/2 pairs
     active_slots = Int[]
@@ -463,24 +480,29 @@ function _smc_merge!(state::CollapsedState,
             log_pred_b = log_marginal_likelihood_locmix(add_loc(cs_rb, lp), grid) -
                          log_marginal_likelihood_locmix(cs_rb, grid)
 
-            max_lp = max(log_pred_a, log_pred_b)
-            p_a = exp(log_pred_a - max_lp)
-            p_b = exp(log_pred_b - max_lp)
-            prob_b = p_b / (p_a + p_b)
+            # MFM-weighted proposal (must match forward split)
+            log_w_a = log(Float64(cs_ra.n) + γ) + log_pred_a
+            log_w_b = log(Float64(cs_rb.n) + γ) + log_pred_b
+            max_lw = max(log_w_a, log_w_b)
+            prob_b = exp(log_w_b - max_lw) / (exp(log_w_a - max_lw) + exp(log_w_b - max_lw))
+            prob_b = clamp(prob_b, 1e-300, 1.0 - 1e-300)
 
             if goes_to_b
                 cs_rb = add_loc(cs_rb, lp)
-                log_q_assign_rev += log(max(prob_b, 1e-300))
+                log_q_assign_rev += log(prob_b)
             else
                 cs_ra = add_loc(cs_ra, lp)
-                log_q_assign_rev += log(max(1.0 - prob_b, 1e-300))
+                log_q_assign_rev += log(1.0 - prob_b)
             end
         end
     end
 
-    # Execute the merge: move all locs from slot_b into slot_a
-    # (slot_a and slot_b are the randomly selected pair — we merge slot_b into slot_a)
-    a_slot = b_slot == slot_b ? slot_a : slot_b  # the one that survives
+    # Record child sizes before merge (for MFM partition prior)
+    n_child_a_size = Int(state.clusters[slot_a].n)
+    n_child_b_size = Int(state.clusters[slot_b].n)
+
+    # Execute the merge
+    a_slot = b_slot == slot_b ? slot_a : slot_b
     @inbounds for loc_idx in all_members
         if state.assignments[loc_idx] == b_slot
             lp = loc_precs[loc_idx]
@@ -491,6 +513,8 @@ function _smc_merge!(state::CollapsedState,
     end
     _deactivate_cluster!(state, b_slot)
 
+    n_parent_size = n_child_a_size + n_child_b_size
+
     # Forward proposal: select pair = uniform over K(K-1)/2
     log_q_fwd = -log(K * (K - 1) / 2)
 
@@ -498,6 +522,6 @@ function _smc_merge!(state::CollapsedState,
     K_new = K - 1
     log_q_rev = -log(K_new) + log_q_assign_rev
 
-    return log_q_fwd, log_q_rev
+    return log_q_fwd, log_q_rev, n_parent_size, n_child_a_size, n_child_b_size
 end
 
