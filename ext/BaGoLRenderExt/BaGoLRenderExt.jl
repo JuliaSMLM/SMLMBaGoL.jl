@@ -1,0 +1,143 @@
+module BaGoLRenderExt
+
+using SMLMBaGoL
+using SMLMData
+using SMLMRender
+
+# ============================================================================
+# render_report — SMLMRender visualization suite
+# ============================================================================
+
+"""
+    render_report(locs_smld, bagol_smld; output_dir="output", true_positions=[], pixel_size=1.0, prefix="render")
+
+Render standard visualization suite using SMLMRender.
+
+Always creates:
+- `{prefix}_sr_gaussian.png` — Gaussian SR render of input localizations
+- `{prefix}_mapn_gaussian.png` — Gaussian render of BaGoL MAP-N result
+- `{prefix}_circles.png` — Circle overlay (gray locs + red BaGoL emitters)
+
+With ground truth:
+- `{prefix}_comparison.png` — Multi-layer (gray locs + blue GT + green oracle + red found)
+"""
+function SMLMBaGoL.render_report(
+    locs_smld::SMLMData.SMLD,
+    bagol_smld::SMLMData.SMLD;
+    output_dir::String = "output",
+    true_positions::Vector{Tuple{Float64, Float64}} = Tuple{Float64, Float64}[],
+    pixel_size::Real = 1.0,
+    prefix::String = "render",
+    expand_factor::Real = 2.0,
+    fov::Union{Nothing, Tuple{Float64, Float64, Float64, Float64}} = nothing
+)
+    mkpath(output_dir)
+
+    # Calculate bounds
+    if fov !== nothing
+        x_min, x_max, y_min, y_max = fov
+    else
+        x_min, x_max, y_min, y_max = _calculate_render_bounds(locs_smld; expand_factor)
+    end
+
+    target = _create_target(x_min, x_max, y_min, y_max; pixel_size)
+
+    println("  Render bounds: x=[$(round(x_min*1000, digits=1)), $(round(x_max*1000, digits=1))] nm, " *
+            "y=[$(round(y_min*1000, digits=1)), $(round(y_max*1000, digits=1))] nm")
+    println("  Image size: $(target.width) x $(target.height) pixels at $(pixel_size) nm/pixel")
+
+    # 1. Gaussian render of BaGoL MAP-N result
+    mapn_path = joinpath(output_dir, "$(prefix)_mapn_gaussian.png")
+    render(bagol_smld; strategy=GaussianRender(), target=target,
+           colormap=:inferno, filename=mapn_path)
+    println("Saved: $mapn_path")
+
+    # 2. Gaussian SR render of input localizations
+    sr_path = joinpath(output_dir, "$(prefix)_sr_gaussian.png")
+    render(locs_smld; strategy=GaussianRender(), target=target,
+           colormap=:inferno, filename=sr_path)
+    println("Saved: $sr_path")
+
+    # 3. Circle overlay: localizations (gray) + BaGoL (red)
+    circles_path = joinpath(output_dir, "$(prefix)_circles.png")
+    (bg_img, _) = render(locs_smld; strategy=EllipseRender(), color=:gray,
+                         target=target, clip_percentile=nothing)
+    (fg_img, _) = render(bagol_smld; strategy=EllipseRender(), color=:red,
+                         target=target, clip_percentile=nothing)
+    combined = compose(bg_img, fg_img; blend=:replace)
+    save_image(circles_path, combined)
+    println("Saved: $circles_path")
+
+    # 4. Comparison with GT and oracle if available
+    if !isempty(true_positions)
+        comparison_path = joinpath(output_dir, "$(prefix)_comparison.png")
+
+        (base_img, _) = render(locs_smld; strategy=EllipseRender(), color=:gray,
+                               target=target, clip_percentile=nothing)
+
+        # GT (blue)
+        gt_smld = _positions_to_smld(true_positions, locs_smld.camera)
+        (gt_img, _) = render(gt_smld; strategy=EllipseRender(), color=:blue,
+                             target=target, clip_percentile=nothing)
+        comp = compose(base_img, gt_img; blend=:replace)
+
+        # Oracle MAP-N (green) if track_id available
+        has_oracle = any(e.track_id != 0 for e in locs_smld.emitters)
+        if has_oracle
+            oracle_assignments = Int16[loc.track_id for loc in locs_smld.emitters]
+            oracle_emitters = SMLMBaGoL._emitters_from_assignments(
+                oracle_assignments, locs_smld.emitters)
+            oracle_smld = SMLMData.BasicSMLD(oracle_emitters, locs_smld.camera, 1, 1)
+            (oracle_img, _) = render(oracle_smld; strategy=EllipseRender(), color=:green,
+                                     target=target, clip_percentile=nothing)
+            comp = compose(comp, oracle_img; blend=:replace)
+        end
+
+        # Found MAP-N (red)
+        (found_img, _) = render(bagol_smld; strategy=EllipseRender(), color=:red,
+                                target=target, clip_percentile=nothing)
+        comp = compose(comp, found_img; blend=:replace)
+
+        save_image(comparison_path, comp)
+        println("Saved: $comparison_path")
+    end
+
+    return target
+end
+
+# ============================================================================
+# Helpers
+# ============================================================================
+
+function _calculate_render_bounds(locs_smld::SMLMData.SMLD; expand_factor::Real=2.0)
+    emitters = locs_smld.emitters
+    x_min = minimum(e.x - e.σ_x for e in emitters)
+    x_max = maximum(e.x + e.σ_x for e in emitters)
+    y_min = minimum(e.y - e.σ_y for e in emitters)
+    y_max = maximum(e.y + e.σ_y for e in emitters)
+
+    x_center = (x_min + x_max) / 2
+    y_center = (y_min + y_max) / 2
+    x_span = max((x_max - x_min) * expand_factor, 0.020)
+    y_span = max((y_max - y_min) * expand_factor, 0.020)
+
+    return (x_center - x_span/2, x_center + x_span/2,
+            y_center - y_span/2, y_center + y_span/2)
+end
+
+function _create_target(x_min, x_max, y_min, y_max; pixel_size::Real=1.0)
+    width = max(10, ceil(Int, (x_max - x_min) * 1000 / pixel_size))
+    height = max(10, ceil(Int, (y_max - y_min) * 1000 / pixel_size))
+    return SMLMRender.Image2DTarget(width, height, Float64(pixel_size),
+                                     (x_min, x_max), (y_min, y_max))
+end
+
+function _positions_to_smld(positions::Vector{Tuple{Float64, Float64}},
+                             camera::SMLMData.AbstractCamera; σ::Float64=0.005)
+    emitters = [SMLMData.Emitter2DFit(
+        pos[1], pos[2], 1000.0, 0.0, σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, i
+    ) for (i, pos) in enumerate(positions)]
+    return SMLMData.BasicSMLD(emitters, camera, 1, 1)
+end
+
+end # module

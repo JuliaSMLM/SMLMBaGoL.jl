@@ -82,22 +82,9 @@ using Distributions
     @testset "Collapsed Sampler - 2 Emitters" begin
         Random.seed!(42)
 
-        locs = SMLMData.Emitter2DFit[]
-        σ = 0.005
-
-        # Emitter 1 at (0.1, 0.1) — 5 locs
-        for i in 1:5
-            x = 0.1 + randn() * σ
-            y = 0.1 + randn() * σ
-            push!(locs, SMLMData.Emitter2DFit(x, y, 1000.0, 10.0, σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, i))
-        end
-
-        # Emitter 2 at (0.2, 0.2) — 5 locs
-        for i in 1:5
-            x = 0.2 + randn() * σ
-            y = 0.2 + randn() * σ
-            push!(locs, SMLMData.Emitter2DFit(x, y, 1000.0, 10.0, σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, i+5))
-        end
+        sim = simulate_localizations([(0.1, 0.1), (0.2, 0.2)];
+            fixed_sigma=0.005, mean_count=5.0, count_model=:fixed)
+        locs = sim.smld.emitters
 
         # Run collapsed chain directly
         count_hist = EmitterCountHist()
@@ -133,25 +120,10 @@ using Distributions
     @testset "run_bagol Integration" begin
         Random.seed!(123)
 
-        locs = SMLMData.Emitter2DFit[]
-        σ = 0.005
-
-        # Emitter 1 at (0.1, 0.1)
-        for i in 1:5
-            x = 0.1 + randn() * σ
-            y = 0.1 + randn() * σ
-            push!(locs, SMLMData.Emitter2DFit(x, y, 1000.0, 10.0, σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, i))
-        end
-
-        # Emitter 2 at (0.2, 0.2)
-        for i in 1:5
-            x = 0.2 + randn() * σ
-            y = 0.2 + randn() * σ
-            push!(locs, SMLMData.Emitter2DFit(x, y, 1000.0, 10.0, σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, i+5))
-        end
-
-        camera = SMLMData.IdealCamera(64, 64, 0.1)
-        smld = SMLMData.BasicSMLD(locs, camera, 100, 1)
+        sim = simulate_localizations([(0.1, 0.1), (0.2, 0.2)];
+            fixed_sigma=0.005, mean_count=5.0, count_model=:fixed,
+            field_size=6.4, pixel_size=0.1)
+        smld = sim.smld
 
         result_smld, diagnostics = run_bagol(smld;
             n_iterations=1000,
@@ -190,22 +162,9 @@ using Distributions
     @testset "Collapsed MAP-N" begin
         Random.seed!(42)
 
-        σ = 0.005
-        n_per = 10
-        locs = SMLMData.Emitter2DFit[]
-
-        # Emitter 1 at (0.1, 0.1)
-        for i in 1:n_per
-            x = 0.1 + randn() * σ
-            y = 0.1 + randn() * σ
-            push!(locs, SMLMData.Emitter2DFit(x, y, 1000.0, 10.0, σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, i))
-        end
-        # Emitter 2 at (0.2, 0.2)
-        for i in 1:n_per
-            x = 0.2 + randn() * σ
-            y = 0.2 + randn() * σ
-            push!(locs, SMLMData.Emitter2DFit(x, y, 1000.0, 10.0, σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, i+n_per))
-        end
+        sim = simulate_localizations([(0.1, 0.1), (0.2, 0.2)];
+            fixed_sigma=0.005, mean_count=10.0, count_model=:fixed)
+        locs = sim.smld.emitters
 
         # Run with PartitionSamples accumulator
         ps_acc = PartitionSamples(thin=5)
@@ -273,22 +232,9 @@ using Distributions
     @testset "Overlap-Based MAP-N" begin
         Random.seed!(42)
 
-        σ = 0.005
-        n_per = 10
-        locs = SMLMData.Emitter2DFit[]
-
-        # Emitter 1 at (0.1, 0.1)
-        for i in 1:n_per
-            x = 0.1 + randn() * σ
-            y = 0.1 + randn() * σ
-            push!(locs, SMLMData.Emitter2DFit(x, y, 1000.0, 10.0, σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, i))
-        end
-        # Emitter 2 at (0.2, 0.2)
-        for i in 1:n_per
-            x = 0.2 + randn() * σ
-            y = 0.2 + randn() * σ
-            push!(locs, SMLMData.Emitter2DFit(x, y, 1000.0, 10.0, σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, i+n_per))
-        end
+        sim = simulate_localizations([(0.1, 0.1), (0.2, 0.2)];
+            fixed_sigma=0.005, mean_count=10.0, count_model=:fixed)
+        locs = sim.smld.emitters
 
         # Run chain with both PartitionSamples and PSMAccumulator
         ps_acc = PartitionSamples(thin=5)
@@ -358,20 +304,11 @@ using Distributions
     @testset "Partitioning" begin
         Random.seed!(456)
 
-        locs = SMLMData.Emitter2DFit[]
-        σ = 0.005
-
-        for i in 1:20
-            x = 0.1 + randn() * σ
-            y = 0.1 + randn() * σ
-            push!(locs, SMLMData.Emitter2DFit(x, y, 1000.0, 10.0, σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, i))
-        end
-
-        for i in 1:15
-            x = 0.5 + randn() * σ
-            y = 0.5 + randn() * σ
-            push!(locs, SMLMData.Emitter2DFit(x, y, 1000.0, 10.0, σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, i+20))
-        end
+        sim1 = simulate_localizations([(0.1, 0.1)];
+            fixed_sigma=0.005, mean_count=20.0, count_model=:fixed)
+        sim2 = simulate_localizations([(0.5, 0.5)];
+            fixed_sigma=0.005, mean_count=15.0, count_model=:fixed)
+        locs = vcat(sim1.smld.emitters, sim2.smld.emitters)
 
         partitions, skipped = partition_locs(locs; nsigma=4.0, min_size=5, max_size=100)
 
@@ -420,16 +357,10 @@ using Distributions
     @testset "Posterior Image (Collapsed)" begin
         Random.seed!(555)
 
-        locs = SMLMData.Emitter2DFit[]
-        σ = 0.005
-        for i in 1:10
-            x = 0.1 + randn() * σ
-            y = 0.1 + randn() * σ
-            push!(locs, SMLMData.Emitter2DFit(x, y, 1000.0, 10.0, σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, i))
-        end
-
-        camera = SMLMData.IdealCamera(64, 64, 0.1)
-        smld = SMLMData.BasicSMLD(locs, camera, 100, 1)
+        sim = simulate_localizations([(0.1, 0.1)];
+            fixed_sigma=0.005, mean_count=10.0, count_model=:fixed,
+            field_size=6.4, pixel_size=0.1)
+        smld = sim.smld
 
         result_smld, diagnostics = run_bagol(smld;
             n_iterations=1000, burn_in=200, verbose=false,
@@ -447,24 +378,10 @@ using Distributions
     @testset "Partitioned BaGoL" begin
         Random.seed!(321)
 
-        locs = SMLMData.Emitter2DFit[]
-        σ = 0.005
-
-        # Cluster 1
-        for i in 1:5
-            push!(locs, SMLMData.Emitter2DFit(0.1 + randn()*σ, 0.1 + randn()*σ, 1000.0, 10.0, σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, i))
-        end
-        for i in 1:5
-            push!(locs, SMLMData.Emitter2DFit(0.12 + randn()*σ, 0.1 + randn()*σ, 1000.0, 10.0, σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, i+5))
-        end
-
-        # Cluster 2
-        for i in 1:5
-            push!(locs, SMLMData.Emitter2DFit(0.5 + randn()*σ, 0.5 + randn()*σ, 1000.0, 10.0, σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, i+10))
-        end
-
-        camera = SMLMData.IdealCamera(64, 64, 0.1)
-        smld = SMLMData.BasicSMLD(locs, camera, 100, 1)
+        sim = simulate_localizations([(0.1, 0.1), (0.12, 0.1), (0.5, 0.5)];
+            fixed_sigma=0.005, mean_count=5.0, count_model=:fixed,
+            field_size=6.4, pixel_size=0.1)
+        smld = sim.smld
 
         result_smld, diagnostics = run_bagol(smld;
             nsigma=4.0,
@@ -488,18 +405,12 @@ using Distributions
     @testset "Archive Write/Read" begin
         Random.seed!(999)
 
-        locs = SMLMData.Emitter2DFit[]
-        σ = 0.005
-        for i in 1:10
-            x = 0.1 + randn() * σ
-            y = 0.1 + randn() * σ
-            push!(locs, SMLMData.Emitter2DFit(x, y, 1000.0, 10.0, σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, i))
-        end
+        sim = simulate_localizations([(0.1, 0.1)];
+            fixed_sigma=0.005, mean_count=10.0, count_model=:fixed,
+            field_size=6.4, pixel_size=0.1)
+        smld = sim.smld
 
         archive_dir = mktempdir()
-
-        camera = SMLMData.IdealCamera(64, 64, 0.1)
-        smld = SMLMData.BasicSMLD(locs, camera, 100, 1)
 
         # Run with archive
         result_smld, diagnostics = run_bagol(smld;

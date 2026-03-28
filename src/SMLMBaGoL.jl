@@ -36,8 +36,18 @@ export BaGoLArchive
 
 # Export simulation
 export SimulationResult
-export simulate_smlm, simulate_grid, simulate_nmers
-export print_simulation_summary, crlb_precision
+export nmer_positions, nmer_grid_positions, nmer_random_positions
+export simulate_localizations, simulate_nmer, simulate_nmer_grid
+export make_camera, print_simulation_summary
+
+# Export reports
+export compute_report, write_report, match_positions
+export plot_report, render_report  # extension stubs
+
+# Export optimality
+export run_optimality_sweep, run_speed_test, count_model_map_k
+export write_sweep, write_speed
+export plot_sweep, plot_speed  # extension stubs
 
 # Include source files
 include("spatial.jl")      # Must come before cluster_stats (provides get_cov_xy)
@@ -55,5 +65,7 @@ include("rjmcmc.jl")
 include("posterior_image.jl")
 include("archive.jl")       # Mmap chain archive
 include("simulation.jl")
+include("reports.jl")       # Standard report computation + write
+include("optimality.jl")    # Optimality sweep + speed test
 
 end # module
