@@ -47,6 +47,8 @@ true_positions = [(e.x, e.y) for e in true_emitters]
 TRUE_MU = length(smld_sim.emitters) / length(true_positions)
 println("True μ = $(round(TRUE_MU, digits=2))")
 
+fov = compute_fov(smld_sim)
+
 # =============================================================================
 # Run BaGoL (fixed parameters)
 # =============================================================================
@@ -56,7 +58,9 @@ result_smld, diagnostics = run_bagol(smld_sim;
     shape=TRUE_SHAPE, learn_shape=false,
     sync_interval=N_ITERATIONS + 1,
     μ_prior_shape=TRUE_MU,
-    posterior_pixel_size=0.002
+    posterior_pixel_size=0.002,
+    posterior_xlim=(fov[1], fov[2]),
+    posterior_ylim=(fov[3], fov[4])
 )
 
 # =============================================================================
@@ -71,6 +75,6 @@ report = compute_report(result_smld, diagnostics;
 write_report(report; output_dir)
 plot_report(report; output_dir)
 render_report(smld_sim, result_smld;
-    output_dir, true_positions=true_positions)
+    output_dir, true_positions=true_positions, fov=fov)
 
 println("\nResults in $output_dir")

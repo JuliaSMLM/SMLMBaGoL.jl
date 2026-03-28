@@ -37,6 +37,9 @@ sim = simulate_nmer(;
 )
 print_simulation_summary(sim)
 
+# Compute FOV once — used for both posterior image and renders
+fov = compute_fov(sim.smld)
+
 # =============================================================================
 # Run BaGoL
 # =============================================================================
@@ -44,7 +47,9 @@ print_simulation_summary(sim)
 result_smld, diagnostics = run_bagol(sim.smld;
     n_iterations=N_ITERATIONS, burn_in=BURN_IN,
     nsigma=Inf,  # single cluster, no partitioning
-    posterior_pixel_size=0.001
+    posterior_pixel_size=0.001,
+    posterior_xlim=(fov[1], fov[2]),
+    posterior_ylim=(fov[3], fov[4])
 )
 
 # =============================================================================
@@ -59,6 +64,6 @@ report = compute_report(result_smld, diagnostics;
 write_report(report; output_dir)
 plot_report(report; output_dir)
 render_report(sim.smld, result_smld;
-    output_dir, true_positions=sim.true_positions)
+    output_dir, true_positions=sim.true_positions, fov=fov)
 
 println("\nResults in $output_dir")

@@ -37,7 +37,7 @@ function SMLMBaGoL.render_report(
     if fov !== nothing
         x_min, x_max, y_min, y_max = fov
     else
-        x_min, x_max, y_min, y_max = _calculate_render_bounds(locs_smld; expand_factor)
+        x_min, x_max, y_min, y_max = SMLMBaGoL.compute_fov(locs_smld; expand_factor)
     end
 
     target = _create_target(x_min, x_max, y_min, y_max; pixel_size)
@@ -108,22 +108,6 @@ end
 # ============================================================================
 # Helpers
 # ============================================================================
-
-function _calculate_render_bounds(locs_smld::SMLMData.SMLD; expand_factor::Real=2.0)
-    emitters = locs_smld.emitters
-    x_min = minimum(e.x - e.σ_x for e in emitters)
-    x_max = maximum(e.x + e.σ_x for e in emitters)
-    y_min = minimum(e.y - e.σ_y for e in emitters)
-    y_max = maximum(e.y + e.σ_y for e in emitters)
-
-    x_center = (x_min + x_max) / 2
-    y_center = (y_min + y_max) / 2
-    x_span = max((x_max - x_min) * expand_factor, 0.020)
-    y_span = max((y_max - y_min) * expand_factor, 0.020)
-
-    return (x_center - x_span/2, x_center + x_span/2,
-            y_center - y_span/2, y_center + y_span/2)
-end
 
 function _create_target(x_min, x_max, y_min, y_max; pixel_size::Real=1.0)
     width = max(10, ceil(Int, (x_max - x_min) * 1000 / pixel_size))
