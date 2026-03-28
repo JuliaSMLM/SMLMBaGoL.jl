@@ -41,4 +41,5 @@ julia --project=. -e "using Random; Random.seed!(123); using Pkg; Pkg.test()"
 
 - MCMC tests use `Random.seed!()` for reproducibility but are statistical — if a test flakes, check whether the seed still produces the expected clustering
 - Use `julia --threads=auto` when testing parallel partitioned functionality
-- Tests create `Emitter2DFit` manually with 13-arg constructor: `(x, y, photons, bg, σ_x, σ_y, Δx, Δy, Δz, frame, dataset, channel, id)`
+- Most tests use `simulate_localizations()` from `src/simulation.jl` with `fixed_sigma` and `count_model=:fixed` for reproducible test data
+- `Emitter2DFit` 13-arg constructor: `(x, y, photons, bg, σ_x, σ_y, σ_xy, σ_photons, σ_bg, frame, dataset, track_id, id)`

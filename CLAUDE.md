@@ -55,15 +55,24 @@ src/
 ├── rjmcmc.jl              # run_bagol() main entry point
 ├── posterior_image.jl     # Posterior image histogram + PNG writer
 ├── archive.jl             # Mmap-based binary chain archive
-└── simulation.jl          # simulate_smlm, simulate_grid, simulate_nmers
+├── simulation.jl          # simulate_localizations, nmer_positions, simulate_nmer, simulate_nmer_grid
+├── reports.jl             # compute_report, write_report, match_positions (standard outputs)
+└── optimality.jl          # run_optimality_sweep, run_speed_test (Cat 3)
+
+ext/
+├── BaGoLMakieExt/         # CairoMakie extension: plot_report, plot_sweep, plot_speed
+└── BaGoLRenderExt/        # SMLMRender extension: render_report
 ```
 
 **Include order matters:** Files are included in dependency order in `SMLMBaGoL.jl`.
 `spatial.jl` before `cluster_stats.jl`, `partition.jl` and `partitioned.jl` before `rjmcmc.jl`.
 
+**Package extensions:** CairoMakie and SMLMRender are weak dependencies.
+Plotting/rendering functions activate when the user loads these packages.
+
 **Other directories:**
 - `examples/` — Complete workflow scripts (separate project environment)
-- `dev/` — Debug and analysis scripts (not part of package)
+- `dev/` — Validation scripts: brute-force enumeration, detailed balance, experimental data, high-density tests
 - `test/` — All tests in `runtests.jl` (single file, all testsets inline). See `test/CLAUDE.md` for testing guidelines.
 
 ### Collapsed Gibbs Sampler
@@ -102,7 +111,25 @@ result_smld, diagnostics = run_bagol(locs; camera=camera, n_iterations=10000)
 #   posterior_pixel_size=0.001    # Enable Rao-Blackwellized posterior image
 #   archive_path="path/"          # Enable mmap chain archive
 
-# 2. Direct chain access
+# 2. Standard report (compute metrics + write files + plot + render)
+report = compute_report(result_smld, diagnostics;
+    true_positions=sim.true_positions, locs_smld=sim.smld)
+write_report(report; output_dir="output")
+plot_report(report; output_dir="output")     # requires CairoMakie
+render_report(sim.smld, result_smld;          # requires SMLMRender
+    output_dir="output", true_positions=sim.true_positions)
+
+# 3. Optimality sweep (Category 3)
+sweep = run_optimality_sweep(; n_values=[2, 8], mu_values=[5.0, 10.0], n_trials=50)
+write_sweep(sweep; output_dir="output")
+plot_sweep(sweep; output_dir="output")        # requires CairoMakie
+
+# 4. Speed test
+speed = run_speed_test(; n_locs_range=[100, 1000, 10000])
+write_speed(speed; output_dir="output")
+plot_speed(speed; output_dir="output")        # requires CairoMakie
+
+# 5. Direct chain access
 result = run_collapsed_chain(locs;
     n_iterations=10000, burn_in=2000,
     accumulators=AbstractAccumulator[EmitterCountHist(), PosteriorImage(pixel_size=0.001)]
