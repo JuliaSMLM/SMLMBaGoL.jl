@@ -14,13 +14,13 @@ using SpecialFunctions: gamma
 
 Generate standard report figures using CairoMakie.
 
-Category 1 (always): posterior_k, acceptance_rates, cluster_sizes
-Category 2 (if has_gt): k_recovery, calibration, k_true_vs_k_found (requires per_partition)
+Category 1 (always): partition_k, acceptance_rates, cluster_sizes
+Category 2 (if has_gt): k_recovery, calibration
 """
 function SMLMBaGoL.plot_report(report; output_dir::String = "output")
     mkpath(output_dir)
 
-    _plot_posterior_k(report, output_dir)
+    _plot_partition_k(report, output_dir)
     _plot_acceptance_rates(report, output_dir)
     _plot_cluster_sizes(report, output_dir)
     if !isempty(report.nn_distances)
@@ -35,21 +35,18 @@ function SMLMBaGoL.plot_report(report; output_dir::String = "output")
     end
 end
 
-function _plot_posterior_k(report, output_dir)
-    pk = report.posterior_k
-    length(pk) < 2 && return
-    k_vals = 0:(length(pk)-1)
+function _plot_partition_k(report, output_dir)
+    pk = report.partition_k
+    isempty(pk) && return
     fig = Figure(size=(500, 350))
-    ax = Axis(fig[1, 1], xlabel="K (emitter count)", ylabel="Posterior frequency",
-              title="Posterior P(K | data)")
-    barplot!(ax, collect(k_vals), pk; color=:steelblue)
-    if report.has_gt
-        vlines!(ax, [report.k_true]; color=:red, linewidth=2, linestyle=:dash,
-                label="True K = $(report.k_true)")
-        axislegend(ax; position=:rt, framevisible=false)
-    end
-    save(joinpath(output_dir, "posterior_k.png"), fig, px_per_unit=2)
-    println("Saved: $(joinpath(output_dir, "posterior_k.png"))")
+    ax = Axis(fig[1, 1], xlabel="Emitters found per partition", ylabel="Count",
+              title="Per-partition K ($(length(pk)) partitions, $(sum(pk)) emitters total)")
+    hist!(ax, Float64.(pk); bins=max(1, maximum(pk) - minimum(pk) + 1), color=:steelblue)
+    vlines!(ax, [median(pk)]; color=:red, linewidth=2, linestyle=:dash,
+            label="Median = $(round(median(pk), digits=1))")
+    axislegend(ax; position=:rt, framevisible=false)
+    save(joinpath(output_dir, "partition_k.png"), fig, px_per_unit=2)
+    println("Saved: $(joinpath(output_dir, "partition_k.png"))")
 end
 
 function _plot_acceptance_rates(report, output_dir)
@@ -112,19 +109,25 @@ function _plot_nn_distances(report, output_dir)
 end
 
 function _plot_k_recovery(report, output_dir)
-    pk = report.posterior_k
-    length(pk) < 2 && return
-    k_vals = 0:(length(pk)-1)
-    map_k = argmax(pk) - 1
+    pk = report.partition_k
+    isempty(pk) && return
+    n_parts = length(pk)
+
+    # For n-mer grids: K_true per partition = total true / n_partitions
+    # (assumes equal-size clusters, one per partition)
+    k_true_per_part = n_parts > 0 ? report.k_true / n_parts : 0
+    n_correct = count(==(round(Int, k_true_per_part)), pk)
+    pct = round(100 * n_correct / n_parts, digits=0)
+
     fig = Figure(size=(500, 350))
-    ax = Axis(fig[1, 1], xlabel="K (emitter count)", ylabel="Posterior frequency",
-              title="K recovery: true=$(report.k_true), found=$(report.n_emitters)")
-    barplot!(ax, collect(k_vals), pk; color=:steelblue)
-    vlines!(ax, [report.k_true]; color=:red, linewidth=2, linestyle=:dash,
-            label="True K = $(report.k_true)")
-    vlines!(ax, [map_k]; color=:green, linewidth=2, linestyle=:dot,
-            label="MAP K = $map_k")
-    axislegend(ax; position=:rt, framevisible=false)
+    ax = Axis(fig[1, 1], xlabel="Emitters found per partition", ylabel="Count",
+              title="K recovery: $(Int(pct))% correct ($n_correct/$n_parts)")
+    hist!(ax, Float64.(pk); bins=max(1, maximum(pk) - minimum(pk) + 1), color=:steelblue)
+    if k_true_per_part > 0 && isinteger(k_true_per_part)
+        vlines!(ax, [k_true_per_part]; color=:red, linewidth=2, linestyle=:dash,
+                label="True K/partition = $(Int(k_true_per_part))")
+        axislegend(ax; position=:rt, framevisible=false)
+    end
     save(joinpath(output_dir, "k_recovery.png"), fig, px_per_unit=2)
     println("Saved: $(joinpath(output_dir, "k_recovery.png"))")
 end

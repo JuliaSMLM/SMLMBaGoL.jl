@@ -15,6 +15,7 @@ struct BaGoLDiagnostics
     final_shape::Float64
     n_partitions::Int  # 1 for non-partitioned runs
     cluster_sizes::Vector{Int}  # active cluster sizes from final state (what Gamma was fit to)
+    partition_k::Vector{Int}    # emitters found per partition (from MAP-N extraction)
     posterior_image::Union{Nothing, NamedTuple{(:image, :edges_x, :edges_y, :pixel_size), Tuple{Matrix{Int}, Vector{Float64}, Vector{Float64}, Float64}}}
 end
 
