@@ -5,6 +5,36 @@
 # Plotting is handled by extensions (BaGoLMakieExt, BaGoLRenderExt).
 
 # ============================================================================
+# FOV computation (shared by posterior image, renders, and reports)
+# ============================================================================
+
+"""
+    compute_fov(smld; expand_factor=2.0) -> (x_min, x_max, y_min, y_max)
+
+Compute standard field of view from localizations. Bounds cover all
+localization 1σ circles, expanded by `expand_factor`, with a minimum
+span of 20 nm.
+
+Use this to set consistent bounds for `run_bagol(; posterior_xlim, posterior_ylim)`
+and `render_report(; fov=...)`.
+"""
+function compute_fov(smld::SMLMData.SMLD; expand_factor::Real = 2.0)
+    emitters = smld.emitters
+    x_min = minimum(e.x - e.σ_x for e in emitters)
+    x_max = maximum(e.x + e.σ_x for e in emitters)
+    y_min = minimum(e.y - e.σ_y for e in emitters)
+    y_max = maximum(e.y + e.σ_y for e in emitters)
+
+    x_center = (x_min + x_max) / 2
+    y_center = (y_min + y_max) / 2
+    x_span = max((x_max - x_min) * expand_factor, 0.020)
+    y_span = max((y_max - y_min) * expand_factor, 0.020)
+
+    return (x_center - x_span / 2, x_center + x_span / 2,
+            y_center - y_span / 2, y_center + y_span / 2)
+end
+
+# ============================================================================
 # Extension stubs (implemented by BaGoLMakieExt / BaGoLRenderExt)
 # ============================================================================
 

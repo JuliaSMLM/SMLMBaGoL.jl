@@ -41,7 +41,7 @@ export simulate_localizations, simulate_nmer, simulate_nmer_grid
 export make_camera, print_simulation_summary
 
 # Export reports
-export compute_report, write_report, match_positions
+export compute_report, write_report, match_positions, compute_fov
 export plot_report, render_report  # extension stubs
 
 # Export optimality

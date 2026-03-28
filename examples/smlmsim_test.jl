@@ -48,13 +48,17 @@ true_positions = [(e.x, e.y) for e in true_emitters]
 println("  $(length(true_positions)) true emitter positions")
 println("  Mean σ: $(round(mean(SMLMBaGoL.mean_sigma(e) for e in smld_sim.emitters) * 1000, digits=1)) nm")
 
+fov = compute_fov(smld_sim)
+
 # =============================================================================
 # Run BaGoL
 # =============================================================================
 
 result_smld, diagnostics = run_bagol(smld_sim;
     n_iterations=N_ITERATIONS, burn_in=BURN_IN,
-    posterior_pixel_size=0.002
+    posterior_pixel_size=0.002,
+    posterior_xlim=(fov[1], fov[2]),
+    posterior_ylim=(fov[3], fov[4])
 )
 
 # =============================================================================
@@ -69,6 +73,6 @@ report = compute_report(result_smld, diagnostics;
 write_report(report; output_dir)
 plot_report(report; output_dir)
 render_report(smld_sim, result_smld;
-    output_dir, true_positions=true_positions)
+    output_dir, true_positions=true_positions, fov=fov)
 
 println("\nResults in $output_dir")
