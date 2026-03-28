@@ -238,6 +238,7 @@ function compute_report(
         n_partitions = diagnostics.n_partitions,
         acceptance_rates = diagnostics.acceptance_rates,
         posterior_k = diagnostics.posterior_k,
+        partition_k = diagnostics.partition_k,
         cluster_sizes = diagnostics.cluster_sizes,
         posterior_image = diagnostics.posterior_image,
         nn_distances = nn_dists,
@@ -320,6 +321,11 @@ function _write_summary(report, path)
             println(io, "Grouping ratio:   $(round(report.grouping_ratio, digits=1))")
         end
         println(io, "Partitions:       $(report.n_partitions)")
+        if !isempty(report.partition_k)
+            pk = report.partition_k
+            println(io, "  K/partition:    median=$(round(median(pk), digits=1)), " *
+                        "range=$(minimum(pk))-$(maximum(pk))")
+        end
         println(io)
         println(io, "Learned parameters:")
         println(io, "  μ (mean count):  $(round(report.final_mu, digits=2))")
