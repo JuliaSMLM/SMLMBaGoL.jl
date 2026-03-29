@@ -24,7 +24,6 @@ const PHOTON_MIN = 100.0
 const BLINK_MEAN = 10.0
 const N_ITERATIONS = 15000
 const BURN_IN = 3000
-const TRUE_SHAPE = 1000.0
 
 # =============================================================================
 # Simulate
@@ -39,21 +38,18 @@ sim = simulate_nmer_grid(;
     mean_photons=PHOTON_MEAN, min_photons=PHOTON_MIN, pixel_size=0.100
 )
 print_simulation_summary(sim)
-
-TRUE_MU = length(sim.smld.emitters) / (GRID_SIZE^2 * N_EMITTERS)
-println("True μ = $(round(TRUE_MU, digits=2))")
+println("Count params: μ=$(round(sim.count_params.μ, digits=2)), shape=$(round(sim.count_params.shape, digits=1))")
 
 fov = compute_fov(sim.smld)
 
 # =============================================================================
-# Run BaGoL (fixed parameters)
+# Run BaGoL (fixed parameters from simulation)
 # =============================================================================
 
 result_smld, diagnostics = run_bagol(sim.smld;
     n_iterations=N_ITERATIONS, burn_in=BURN_IN,
-    shape=TRUE_SHAPE, learn_shape=false,
+    μ=sim.count_params.μ, shape=sim.count_params.shape, learn_shape=false,
     sync_interval=N_ITERATIONS + 1,
-    μ=TRUE_MU,
     posterior_pixel_size=0.002,
     posterior_xlim=(fov[1], fov[2]),
     posterior_ylim=(fov[3], fov[4])

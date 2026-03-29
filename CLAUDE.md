@@ -102,14 +102,12 @@ result_smld, diagnostics = run_bagol(smld; n_iterations=10000, burn_in=2000)
 result_smld, diagnostics = run_bagol(locs; camera=camera, n_iterations=10000)
 
 # Key parameters:
-#   nsigma=3.0                    # DBSCAN threshold (Inf = no partitioning)
-#   min_partition_size=0          # Keep all clusters
-#   max_partition_size=1000       # Split partitions larger than this
-#   shape=2.0                     # Gamma shape (1=exponential, >1=peaked)
+#   μ=10.0                        # Mean locs per emitter
+#   shape=2.0                     # Count distribution shape (1=exp, >1=peaked)
 #   learn_shape=true              # Update shape during MCMC
+#   nsigma=3.0                    # DBSCAN threshold (Inf = no partitioning)
 #   sync_interval=500             # Iterations between global μ/shape updates
 #   posterior_pixel_size=0.001    # Enable Rao-Blackwellized posterior image
-#   archive_path="path/"          # Enable mmap chain archive
 
 # 2. Standard report (compute metrics + write files + plot + render)
 report = compute_report(result_smld, diagnostics;
