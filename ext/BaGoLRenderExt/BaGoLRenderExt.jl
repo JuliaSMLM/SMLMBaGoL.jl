@@ -28,7 +28,6 @@ function SMLMBaGoL.render_report(
     true_positions::Vector{Tuple{Float64, Float64}} = Tuple{Float64, Float64}[],
     pixel_size::Real = 1.0,
     prefix::String = "render",
-    expand_factor::Real = 2.0,
     fov::Union{Nothing, Tuple{Float64, Float64, Float64, Float64}} = nothing
 )
     mkpath(output_dir)
@@ -37,7 +36,7 @@ function SMLMBaGoL.render_report(
     if fov !== nothing
         x_min, x_max, y_min, y_max = fov
     else
-        x_min, x_max, y_min, y_max = SMLMBaGoL.compute_fov(locs_smld; expand_factor)
+        x_min, x_max, y_min, y_max = SMLMBaGoL.compute_fov(locs_smld)
     end
 
     target = _create_target(x_min, x_max, y_min, y_max; pixel_size)
