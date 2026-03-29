@@ -58,19 +58,19 @@ function SMLMBaGoL.render_report(
            colormap=:inferno, filename=sr_path)
     println("Saved: $sr_path")
 
-    # 3. Compose: white localizations + red MAP-N emitters
-    compose_path = joinpath(output_dir, "$(prefix)_compose.png")
+    # 3. Circles: white localizations + red MAP-N emitters
+    circles_path = joinpath(output_dir, "$(prefix)_circles.png")
     (bg_img, _) = render(locs_smld; strategy=EllipseRender(), color=:white,
                          target=target, clip_percentile=nothing)
     (fg_img, _) = render(bagol_smld; strategy=EllipseRender(), color=:red,
                          target=target, clip_percentile=nothing)
     combined = compose(bg_img, fg_img; blend=:replace)
-    save_image(compose_path, combined)
-    println("Saved: $compose_path")
+    save_image(circles_path, combined)
+    println("Saved: $circles_path")
 
-    # 4. Comparison with GT and oracle if available
+    # 4. Ground truth overlay: white locs + blue GT + green oracle + red found
     if !isempty(true_positions)
-        comparison_path = joinpath(output_dir, "$(prefix)_comparison.png")
+        gt_path = joinpath(output_dir, "$(prefix)_circles_groundtruth.png")
 
         (base_img, _) = render(locs_smld; strategy=EllipseRender(), color=:white,
                                target=target, clip_percentile=nothing)
@@ -98,8 +98,8 @@ function SMLMBaGoL.render_report(
                                 target=target, clip_percentile=nothing)
         comp = compose(comp, found_img; blend=:replace)
 
-        save_image(comparison_path, comp)
-        println("Saved: $comparison_path")
+        save_image(gt_path, comp)
+        println("Saved: $gt_path")
     end
 
     return target
