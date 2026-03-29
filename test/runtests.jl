@@ -521,4 +521,166 @@ using Distributions
             end
         end
     end
+
+    # ================================================================
+    # Diagnostics module tests
+    # ================================================================
+    @testset "Diagnostics" begin
+
+        @testset "Enumeration" begin
+            # Bell number B₃ = 5
+            parts_3 = enumerate_canonical_partitions(3, 3)
+            @test length(parts_3) == 5
+
+            # S(4,1) + S(4,2) = 1 + 7 = 8
+            parts_4_2 = enumerate_canonical_partitions(4, 2)
+            @test length(parts_4_2) == 8
+
+            # All partitions should be canonical (labels in first-appearance order)
+            for z in parts_3
+                @test z == canonicalize(z)
+            end
+
+            # Canonicalize tests
+            @test canonicalize([3, 3, 1, 1]) == [1, 1, 2, 2]
+            @test canonicalize([2, 1, 2, 1]) == [1, 2, 1, 2]
+            @test canonicalize([1, 1, 1]) == [1, 1, 1]
+            @test canonicalize([5, 5, 3, 3, 5]) == [1, 1, 2, 2, 1]
+        end
+
+        @testset "Partition Metrics" begin
+            # VI of identical partitions = 0
+            z = [1, 1, 2, 2, 3]
+            vi = variation_of_information(z, z)
+            @test vi.vi_total ≈ 0.0
+            @test vi.overseg ≈ 0.0
+            @test vi.underseg ≈ 0.0
+
+            # VI is positive for different partitions
+            z1 = [1, 1, 2, 2]
+            z2 = [1, 2, 1, 2]
+            vi = variation_of_information(z1, z2)
+            @test vi.vi_total > 0
+
+            # VI total is symmetric
+            vi_rev = variation_of_information(z2, z1)
+            @test vi.vi_total ≈ vi_rev.vi_total
+
+            # Overseg/underseg swap when arguments swap
+            @test vi.overseg ≈ vi_rev.underseg
+            @test vi.underseg ≈ vi_rev.overseg
+
+            # EPL with all-identical samples = 0
+            candidate = [1, 1, 2, 2]
+            samples = [candidate, candidate, candidate]
+            epl = expected_posterior_loss(candidate, samples)
+            @test epl ≈ 0.0
+        end
+
+        @testset "Chain Diagnostics" begin
+            # ESS of iid samples should be ≈ n
+            Random.seed!(42)
+            iid = randn(1000)
+            ess_iid = effective_sample_size(iid)
+            @test ess_iid > 500  # Should be close to 1000
+
+            # ESS of constant trace = effective 1
+            constant = fill(5.0, 100)
+            ess_const = effective_sample_size(constant)
+            @test ess_const ≤ 100  # Degenerate — var is 0
+
+            # Autocorrelation at lag 0 = 1.0
+            acf = autocorrelation(iid; max_lag=10)
+            @test acf[1] ≈ 1.0
+
+            # ACF of iid should be small at lag > 0
+            @test all(abs.(acf[2:end]) .< 0.1)
+
+            # R-hat of identical chains ≈ 1.0
+            chain1 = randn(500)
+            rhat_val = gelman_rubin([chain1, copy(chain1)])
+            @test rhat_val ≈ 1.0 atol=0.01
+
+            # R-hat of very different chains > 1
+            chain_a = randn(500)
+            chain_b = randn(500) .+ 10.0
+            rhat_diff = gelman_rubin([chain_a, chain_b])
+            @test rhat_diff > 1.5
+        end
+
+        @testset "Count Model" begin
+            # Posterior should sum to 1
+            ks, probs = count_model_posterior(20, 10.0, 2.0)
+            @test sum(probs) ≈ 1.0 atol=1e-10
+
+            # MAP should be near N/μ
+            map_idx = argmax(probs)
+            @test ks[map_idx] == 2  # 20 locs / 10 mean = 2
+
+            # Recovery rate for trivial case (K=1, lots of data) should be high
+            rate = qpaint_recovery_rate(1, 5.0, 2.0; n_mc=10_000)
+            @test rate > 0.5
+
+            # Confusion matrix rows should sum to 1
+            C = count_model_confusion_matrix(4, 10.0, 2.0; n_mc=10_000)
+            for k in 1:4
+                @test sum(C[k, :]) ≈ 1.0 atol=0.01
+            end
+
+            # Theoretical bound should be in [0, 1]
+            bound = theoretical_accuracy_bound(2, 10.0, 2.0)
+            @test 0.0 < bound < 1.0
+        end
+
+        @testset "Target Density" begin
+            σ = 0.005
+            locs = [
+                SMLMData.Emitter2DFit(0.1, 0.1, 1000.0, 10.0, σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, 1),
+                SMLMData.Emitter2DFit(0.12, 0.1, 1000.0, 10.0, σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, 2),
+                SMLMData.Emitter2DFit(0.1, 0.12, 1000.0, 10.0, σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, 3),
+                SMLMData.Emitter2DFit(0.12, 0.12, 1000.0, 10.0, σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, 4),
+            ]
+
+            z_all_one = [1, 1, 1, 1]
+            z_two = [1, 1, 2, 2]
+
+            # DecoupledTarget gives finite values
+            td = DecoupledTarget()
+            lt1 = evaluate_target(td, z_all_one, locs; μ=10.0, shape=2.0)
+            lt2 = evaluate_target(td, z_two, locs; μ=10.0, shape=2.0)
+            @test isfinite(lt1)
+            @test isfinite(lt2)
+
+            # MFMTarget gives finite values
+            td_mfm = MFMTarget()
+            lt1_mfm = evaluate_target(td_mfm, z_all_one, locs; μ=10.0, shape=2.0)
+            lt2_mfm = evaluate_target(td_mfm, z_two, locs; μ=10.0, shape=2.0)
+            @test isfinite(lt1_mfm)
+            @test isfinite(lt2_mfm)
+
+            # For K=1, MFM partition prior = log(1) = 0, so targets are equal
+            @test lt1_mfm ≈ lt1
+            # For K=2, MFM partition prior ≠ 0, so targets differ
+            @test lt2_mfm != lt2
+
+            # UniformPriorTarget gives finite values
+            td_unif = UniformPriorTarget(log(0.01))
+            lt1_unif = evaluate_target(td_unif, z_all_one, locs; μ=10.0, shape=2.0)
+            @test isfinite(lt1_unif)
+
+            # Relabeling should not change target density
+            z_a = [1, 2, 1, 2]
+            z_b = [2, 1, 2, 1]  # Same partition, different labels
+            lt_a = evaluate_target(td, canonicalize(z_a), locs; μ=10.0, shape=2.0)
+            lt_b = evaluate_target(td, canonicalize(z_b), locs; μ=10.0, shape=2.0)
+            @test lt_a ≈ lt_b atol=1e-10
+
+            # Exact posterior should sum to 1
+            parts = enumerate_canonical_partitions(4, 3)
+            probs, log_targets = exact_posterior(parts, locs, td; μ=10.0, shape=2.0)
+            @test sum(probs) ≈ 1.0 atol=1e-10
+            @test all(isfinite, log_targets)
+        end
+
+    end
 end

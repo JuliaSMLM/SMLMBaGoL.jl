@@ -49,6 +49,30 @@ export run_optimality_sweep, run_speed_test, count_model_map_k
 export write_sweep, write_speed
 export plot_sweep, plot_speed  # extension stubs
 
+# Export diagnostics — target density abstraction
+export AbstractTargetDensity, DecoupledTarget, MFMTarget, UniformPriorTarget
+export log_target, evaluate_target, log_mfm_partition_ratio
+
+# Export diagnostics — enumeration
+export enumerate_canonical_partitions, canonicalize
+export exact_posterior, compare_mcmc_to_exact, run_enumeration_test
+
+# Export diagnostics — detailed balance
+export DetailedBalanceResult
+export check_detailed_balance, run_detailed_balance_suite, print_db_summary
+
+# Export diagnostics — partition metrics
+export variation_of_information, expected_posterior_loss, partition_diagnostics
+
+# Export diagnostics — chain diagnostics
+export ChainDiagnosticAccumulator
+export effective_sample_size, autocorrelation, gelman_rubin
+export run_mixing_test, run_length_test
+
+# Export diagnostics — count model utilities
+export count_model_posterior, qpaint_recovery_rate
+export count_model_confusion_matrix, theoretical_accuracy_bound
+
 # Include source files
 include("spatial.jl")      # Must come before cluster_stats (provides get_cov_xy)
 include("cluster_stats.jl") # Must come before types.jl (CollapsedState uses ClusterStats)
@@ -67,5 +91,13 @@ include("archive.jl")       # Mmap chain archive
 include("simulation.jl")
 include("reports.jl")       # Standard report computation + write
 include("optimality.jl")    # Optimality sweep + speed test
+
+# Diagnostics module (algorithm-agnostic evaluation infrastructure)
+include("diagnostics/target.jl")            # Target density abstraction (must come first)
+include("diagnostics/count_model.jl")       # Count model analysis
+include("diagnostics/partition_metrics.jl")  # VI, EPL, partition comparison
+include("diagnostics/chain_diagnostics.jl") # ESS, R-hat, autocorrelation, mixing tests
+include("diagnostics/enumeration.jl")       # Brute-force partition enumeration
+include("diagnostics/detailed_balance.jl")  # Detailed balance verification
 
 end # module
