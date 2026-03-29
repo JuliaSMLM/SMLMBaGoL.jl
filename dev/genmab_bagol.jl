@@ -81,7 +81,7 @@ roi_ymin = roi_center_y - roi_half
 roi_ymax = roi_center_y + roi_half
 
 # Estimate μ from data: partition, count median locs/partition as proxy
-pre_partitions, _ = partition_locs(locs; nsigma=2.0, min_size=0, max_size=1000)
+pre_partitions, _ = partition_locs(locs; partition_sigma=2.0, min_size=0, max_size=1000)
 median_locs_per_partition = median(Float64[length(p.locs) for p in pre_partitions])
 # Rough estimate: assume ~5 emitters per partition → μ ≈ locs/5
 est_μ = median_locs_per_partition / 5.0
@@ -91,10 +91,10 @@ println("\nRunning BaGoL (collapsed Gibbs, hierarchical)...")
 result_smld, diag = run_bagol(smld;
     n_iterations=10_000,
     burn_in=2_000,
-    nsigma=2.0,
+    partition_sigma=2.0,
     μ=est_μ,
     shape=2.0,
-    learn_shape=true,
+    learn_distribution=true,
     sync_interval=500,
     posterior_pixel_size=0.002,  # 2 nm pixels
     posterior_xlim=(roi_xmin, roi_xmax),
@@ -113,7 +113,7 @@ println("Final shape: $(round(diag.final_shape, digits=2))")
 ## ── Partition visualization ──────────────────────────────────────────────────
 
 println("\nPartitioning for visualization...")
-partitions, skipped = partition_locs(locs; nsigma=2.0, min_size=0, max_size=1000)
+partitions, skipped = partition_locs(locs; partition_sigma=2.0, min_size=0, max_size=1000)
 println("  $(length(partitions)) partitions, $(length(skipped)) skipped")
 
 # Build loc → partition_id map

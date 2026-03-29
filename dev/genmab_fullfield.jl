@@ -69,7 +69,7 @@ println("\n── Pre-partitioning ──")
 flush(stdout)
 
 t_partition = @elapsed begin
-    pre_partitions, _ = partition_locs(locs; nsigma=2.0, min_size=0, max_size=1000)
+    pre_partitions, _ = partition_locs(locs; partition_sigma=2.0, min_size=0, max_size=1000)
 end
 partition_sizes = [length(p.locs) for p in pre_partitions]
 median_locs = median(Float64.(partition_sizes))
@@ -92,7 +92,7 @@ flush(stdout)
 ## ── Run BaGoL (full field) ───────────────────────────────────────────────────
 
 println("\n── Running BaGoL (full field) ──")
-println("  n_iterations=10000, burn_in=2000, nsigma=2.0")
+println("  n_iterations=10000, burn_in=2000, partition_sigma=2.0")
 println("  posterior_pixel_size=0.002")
 println("  START: $(Dates.now())")
 flush(stdout)
@@ -105,10 +105,10 @@ t_bagol = @elapsed begin
         run_bagol(smld;
             n_iterations=10_000,
             burn_in=2_000,
-            nsigma=2.0,
+            partition_sigma=2.0,
             μ=est_μ,
             shape=2.0,
-            learn_shape=true,
+            learn_distribution=true,
             sync_interval=500,
             posterior_pixel_size=0.002,
             posterior_xlim=(xmin, xmax),
@@ -154,7 +154,7 @@ open(joinpath(OUTPUT_DIR, "run_summary.txt"), "w") do io
     println(io, "Parameters")
     println(io, "  n_iterations: 10000")
     println(io, "  burn_in: 2000")
-    println(io, "  nsigma: 2.0")
+    println(io, "  partition_sigma: 2.0")
     println(io, "  posterior_pixel_size: 0.002")
     println(io, "")
     println(io, "Results")

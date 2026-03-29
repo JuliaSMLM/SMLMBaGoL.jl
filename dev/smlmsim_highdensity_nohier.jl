@@ -61,7 +61,7 @@ PRECISION_MAX = 0.015               # μm
 # BaGoL parameters
 N_ITERATIONS = 15_000
 BURN_IN = 3_000
-NSIGMA = 2.0                        # tighter partitioning for dense data
+PARTITION_SIGMA = 2.0                   # tighter partitioning for dense data
 
 n_patterns_est = round(Int, DENSITY * fov_size^2)
 n_emitters_est = n_patterns_est * PATTERN_N
@@ -159,12 +159,12 @@ println("  Count range: $(minimum(counts)) – $(maximum(counts)), std=$(round(s
 fov = compute_fov(smld_noisy)
 
 result_smld, diag = run_bagol(smld_noisy;
-    nsigma = NSIGMA,
+    partition_sigma = PARTITION_SIGMA,
     n_iterations = N_ITERATIONS,
     burn_in = BURN_IN,
     μ = TRUE_MU,
     shape = TRUE_SHAPE,
-    learn_shape = false,
+    learn_distribution = false,
     sync_interval = N_ITERATIONS + 1,  # Disable hierarchical updates
     posterior_pixel_size = 0.002,
     posterior_xlim = (fov[1], fov[2]),

@@ -71,7 +71,7 @@ PRECISION_MAX = 0.015               # μm
 # BaGoL parameters
 N_ITERATIONS = 15_000
 BURN_IN = 3_000
-NSIGMA = 2.0                        # tighter partitioning for dense data
+PARTITION_SIGMA = 2.0                   # tighter partitioning for dense data
 
 n_patterns_est = round(Int, DENSITY * fov_size^2)
 n_emitters_est = n_patterns_est * PATTERN_N
@@ -162,18 +162,18 @@ TRUE_MU = mean(counts)
 TRUE_SHAPE = TRUE_MU^2 / var(counts)  # MoM Gamma fit
 
 println("  True μ = $(round(TRUE_MU, digits=2)), shape = $(round(TRUE_SHAPE, digits=2)) (from $(length(counts)) emitters)")
-println("  Hierarchical: learn_shape=true, initial shape=2.0, μ prior = Gamma(2, $(round(TRUE_MU/2, digits=1)))")
+println("  Hierarchical: learn_distribution=true, initial shape=2.0, μ prior = Gamma(2, $(round(TRUE_MU/2, digits=1)))")
 
 fov = compute_fov(smld_noisy)
 
 t_bagol = @elapsed begin
     result_smld, diag = run_bagol(smld_noisy;
-        nsigma = NSIGMA,
+        partition_sigma = PARTITION_SIGMA,
         n_iterations = N_ITERATIONS,
         burn_in = BURN_IN,
         μ = TRUE_MU,
         shape = 2.0,
-        learn_shape = true,
+        learn_distribution = true,
         sync_interval = 500,
         posterior_pixel_size = GEN_PLOTS ? 0.002 : 0.0,
         posterior_xlim = (fov[1], fov[2]),
