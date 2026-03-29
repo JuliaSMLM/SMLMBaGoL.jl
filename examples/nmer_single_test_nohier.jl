@@ -24,7 +24,6 @@ const PHOTON_MIN = 100.0
 const BLINK_MEAN = 10.0
 const N_ITERATIONS = 20000
 const BURN_IN = 4000
-const TRUE_SHAPE = 1000.0         # large shape ≈ Poisson
 
 # =============================================================================
 # Simulate
@@ -39,22 +38,19 @@ sim = simulate_nmer(;
     pixel_size=0.100, field_size=25.6
 )
 print_simulation_summary(sim)
-
-TRUE_MU = length(sim.smld.emitters) / N_EMITTERS
-println("True μ = $(round(TRUE_MU, digits=2))")
+println("Count params: μ=$(round(sim.count_params.μ, digits=2)), shape=$(round(sim.count_params.shape, digits=1))")
 
 fov = compute_fov(sim.smld)
 
 # =============================================================================
-# Run BaGoL (fixed parameters)
+# Run BaGoL (fixed parameters from simulation)
 # =============================================================================
 
 result_smld, diagnostics = run_bagol(sim.smld;
     n_iterations=N_ITERATIONS, burn_in=BURN_IN,
     nsigma=Inf,
-    shape=TRUE_SHAPE, learn_shape=false,
+    μ=sim.count_params.μ, shape=sim.count_params.shape, learn_shape=false,
     sync_interval=N_ITERATIONS + 1,
-    μ=TRUE_MU,
     posterior_pixel_size=0.001,
     posterior_xlim=(fov[1], fov[2]),
     posterior_ylim=(fov[3], fov[4])

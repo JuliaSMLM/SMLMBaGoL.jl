@@ -46,7 +46,7 @@ function _run_sweep_trial(;
 
     sim = simulate_nmer(;
         n=n, diameter=diameter,
-        mean_count=mu, count_model=:negbin, count_shape=shape,
+        mean_count=mu, count_model=shape,
         fixed_sigma=fixed_sigma
     )
 
@@ -379,7 +379,7 @@ function run_speed_test(;
             sim = simulate_nmer_grid(;
                 n_per_cluster=n_per_cluster, cluster_diameter=cluster_diameter,
                 grid_nx=grid_side, grid_ny=grid_side, grid_spacing=1.0,
-                mean_count=mu, count_model=:negbin, count_shape=shape,
+                mean_count=mu, count_model=shape,
                 fixed_sigma=fixed_sigma
             )
             n_actual = length(sim.smld.emitters)

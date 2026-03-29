@@ -23,7 +23,6 @@ const NFRAMES = 1000
 const MIN_PHOTONS = 100
 const N_ITERATIONS = 15000
 const BURN_IN = 3000
-const TRUE_SHAPE = 1000.0
 
 # =============================================================================
 # Simulate with SMLMSim
@@ -44,8 +43,9 @@ println("SMLMSim: $(info.n_localizations) locs from $(info.n_emitters) emitters"
 true_emitters = info.smld_true.emitters
 true_positions = [(e.x, e.y) for e in true_emitters]
 
+# SMLMSim doesn't use our count model, so compute empirical μ
 TRUE_MU = length(smld_sim.emitters) / length(true_positions)
-println("True μ = $(round(TRUE_MU, digits=2))")
+println("Empirical μ = $(round(TRUE_MU, digits=2))")
 
 fov = compute_fov(smld_sim)
 
@@ -55,9 +55,8 @@ fov = compute_fov(smld_sim)
 
 result_smld, diagnostics = run_bagol(smld_sim;
     n_iterations=N_ITERATIONS, burn_in=BURN_IN,
-    shape=TRUE_SHAPE, learn_shape=false,
+    μ=TRUE_MU, shape=1000.0, learn_shape=false,
     sync_interval=N_ITERATIONS + 1,
-    μ=TRUE_MU,
     posterior_pixel_size=0.002,
     posterior_xlim=(fov[1], fov[2]),
     posterior_ylim=(fov[3], fov[4])

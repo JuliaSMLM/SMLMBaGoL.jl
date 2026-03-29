@@ -171,10 +171,9 @@ t_bagol = @elapsed begin
         nsigma = NSIGMA,
         n_iterations = N_ITERATIONS,
         burn_in = BURN_IN,
-        shape = 2.0,           # initial guess, not GT
+        μ = TRUE_MU,
+        shape = 2.0,
         learn_shape = true,
-        μ_prior_shape = 2.0,
-        μ_prior_scale = TRUE_MU / 2.0,  # prior mean = TRUE_MU
         sync_interval = 500,
         posterior_pixel_size = GEN_PLOTS ? 0.002 : 0.0,
         posterior_xlim = (fov[1], fov[2]),
