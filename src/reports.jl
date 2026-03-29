@@ -221,13 +221,26 @@ function compute_report(
     result_smld::SMLMData.SMLD,
     diagnostics::BaGoLDiagnostics;
     true_positions::Union{Nothing, Vector{Tuple{Float64, Float64}}} = nothing,
-    locs_smld::Union{Nothing, SMLMData.SMLD} = nothing
+    locs_smld::Union{Nothing, SMLMData.SMLD} = nothing,
+    count_params::Union{Nothing, NamedTuple} = nothing
 )
     emitters = result_smld.emitters
     n_emitters = diagnostics.n_emitters
     n_locs = locs_smld !== nothing ? length(locs_smld.emitters) : 0
 
     nn_dists = _nn_distances(emitters)
+
+    # Empirical locs/emitter from track_id (simulation GT)
+    empirical_counts = if locs_smld !== nothing && any(e.track_id != 0 for e in locs_smld.emitters)
+        counts = Dict{Int, Int}()
+        for e in locs_smld.emitters
+            e.track_id == 0 && continue
+            counts[e.track_id] = get(counts, e.track_id, 0) + 1
+        end
+        sort(collect(values(counts)))
+    else
+        Int[]
+    end
 
     base = (
         n_locs = n_locs,
@@ -240,8 +253,10 @@ function compute_report(
         posterior_k = diagnostics.posterior_k,
         partition_k = diagnostics.partition_k,
         cluster_sizes = diagnostics.cluster_sizes,
+        empirical_counts = empirical_counts,
         posterior_image = diagnostics.posterior_image,
         nn_distances = nn_dists,
+        true_count_params = count_params,
         emitters = emitters,
         has_gt = true_positions !== nothing,
     )
