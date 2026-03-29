@@ -57,8 +57,8 @@ function run_bagol(
     shape::Float64 = 2.0,
     learn_distribution::Union{Bool, Symbol} = true,
     posterior_pixel_size::Float64 = 0.002,
-    posterior_xlim::Union{Nothing, Tuple{Float64, Float64}} = nothing,
-    posterior_ylim::Union{Nothing, Tuple{Float64, Float64}} = nothing,
+    posterior_xlim::Union{Nothing, Tuple{<:Real, <:Real}} = nothing,
+    posterior_ylim::Union{Nothing, Tuple{<:Real, <:Real}} = nothing,
     archive_path::Union{Nothing, String} = nothing,
     progress_file::Union{Nothing, String} = nothing,
     verbose::Bool = true,
@@ -87,13 +87,17 @@ function _run_bagol_collapsed(
     shape::Float64 = 2.0,
     learn_distribution::Union{Bool, Symbol} = true,
     posterior_pixel_size::Float64 = 0.002,
-    posterior_xlim::Union{Nothing, Tuple{Float64, Float64}} = nothing,
-    posterior_ylim::Union{Nothing, Tuple{Float64, Float64}} = nothing,
+    posterior_xlim::Union{Nothing, Tuple{<:Real, <:Real}} = nothing,
+    posterior_ylim::Union{Nothing, Tuple{<:Real, <:Real}} = nothing,
     archive_path::Union{Nothing, String} = nothing,
     progress_file::Union{Nothing, String} = nothing,
     verbose::Bool = true,
     kwargs...
 )
+    # Convert bounds to Float64 (GPU fitters produce Float32 coordinates)
+    posterior_xlim = posterior_xlim === nothing ? nothing : (Float64(posterior_xlim[1]), Float64(posterior_xlim[2]))
+    posterior_ylim = posterior_ylim === nothing ? nothing : (Float64(posterior_ylim[1]), Float64(posterior_ylim[2]))
+
     # Validate learn_distribution
     if learn_distribution isa Symbol && learn_distribution ∉ (:mu, :shape)
         throw(ArgumentError("learn_distribution must be true, false, :mu, or :shape (got :$learn_distribution)"))
@@ -351,8 +355,8 @@ function _run_bagol_collapsed(
             all_x = [loc.x for loc in locs]
             all_y = [loc.y for loc in locs]
             pad = 3 * median([mean_sigma(loc) for loc in locs])
-            xlim_final = (minimum(all_x) - pad, maximum(all_x) + pad)
-            ylim_final = (minimum(all_y) - pad, maximum(all_y) + pad)
+            xlim_final = (Float64(minimum(all_x) - pad), Float64(maximum(all_x) + pad))
+            ylim_final = (Float64(minimum(all_y) - pad), Float64(maximum(all_y) + pad))
         end
         merged_post = PosteriorImage(pixel_size=posterior_pixel_size,
                                       xlim=xlim_final, ylim=ylim_final)
