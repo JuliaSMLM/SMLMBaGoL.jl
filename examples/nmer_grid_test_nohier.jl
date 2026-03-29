@@ -15,7 +15,7 @@ using Random
 
 const SEED = 42
 const GRID_SIZE = 4
-const GRID_SPACING = 1.0
+const GRID_SPACING = 0.250           # μm (250 nm)
 const N_EMITTERS = 8
 const CLUSTER_DIAMETER = 0.050
 const PSF_SIGMA = 0.130
@@ -40,7 +40,7 @@ sim = simulate_nmer_grid(;
 print_simulation_summary(sim)
 println("Count params: μ=$(round(sim.count_params.μ, digits=2)), shape=$(round(sim.count_params.shape, digits=1))")
 
-fov = compute_fov(sim.smld)
+fov = compute_fov(sim.smld; margin=GRID_SPACING / 2)
 
 # =============================================================================
 # Run BaGoL (fixed parameters from simulation)
