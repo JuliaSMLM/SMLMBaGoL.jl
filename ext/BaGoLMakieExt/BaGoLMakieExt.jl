@@ -3,7 +3,7 @@ module BaGoLMakieExt
 using SMLMBaGoL
 using CairoMakie
 using Statistics
-using SpecialFunctions: gamma
+using SpecialFunctions: gamma, loggamma
 
 # ============================================================================
 # plot_report — Category 1 & 2 figures
@@ -68,31 +68,56 @@ function _plot_acceptance_rates(report, output_dir)
 end
 
 function _plot_cluster_sizes(report, output_dir)
-    cs = report.cluster_sizes
+    # Use empirical counts (from track_id) if available, else BaGoL cluster sizes
+    has_empirical = !isempty(report.empirical_counts)
+    cs = has_empirical ? report.empirical_counts : report.cluster_sizes
     isempty(cs) && return
-    fig = Figure(size=(500, 350))
-    ax = Axis(fig[1, 1], xlabel="Localizations per emitter", ylabel="Count",
-              title="Cluster size distribution")
-    hist!(ax, Float64.(cs); bins=max(5, maximum(cs) - minimum(cs) + 1), color=:steelblue)
 
-    # Overlay learned Gamma distribution
-    if report.final_mu > 0 && report.final_shape > 0
-        x_max = maximum(cs) + 5
-        x_range = range(0.5, x_max, length=200)
-        μ = report.final_mu
-        α = report.final_shape
-        θ = μ / α
-        gamma_pdf = [α > 0 && θ > 0 ? x^(α-1) * exp(-x/θ) / (θ^α * gamma(α)) : 0.0
-                     for x in x_range]
-        # Scale to histogram
-        bin_width = max(1.0, (maximum(cs) - minimum(cs)) / max(5, maximum(cs) - minimum(cs) + 1))
-        gamma_scaled = gamma_pdf .* length(cs) .* bin_width
-        lines!(ax, collect(x_range), gamma_scaled; color=:red, linewidth=2,
-               label="Gamma(α=$(round(α, digits=1)), μ=$(round(μ, digits=1)))")
-        axislegend(ax; position=:rt, framevisible=false)
+    fig = Figure(size=(500, 350))
+    ax = Axis(fig[1, 1], xlabel="Localizations per emitter", ylabel="Probability",
+              title="Count distribution (locs/emitter)")
+
+    # Histogram (normalized to probability)
+    k_max = maximum(cs) + 5
+    k_range = 1:k_max
+    hist_data = zeros(k_max)
+    for c in cs
+        1 <= c <= k_max && (hist_data[c] += 1)
     end
-    save(joinpath(output_dir, "cluster_sizes.png"), fig, px_per_unit=2)
-    println("Saved: $(joinpath(output_dir, "cluster_sizes.png"))")
+    hist_data ./= sum(hist_data)
+    lbl = has_empirical ? "Data (track_id)" : "BaGoL clusters"
+    barplot!(ax, collect(k_range), hist_data; color=(:steelblue, 0.6), label=lbl)
+
+    # NegBin PMF: P(X=k) = Γ(k+α) / (k! Γ(α)) × p^α × (1-p)^k, k=0,1,2,...
+    # where p = α/(α+μ). Clamped to k≥1, renormalized.
+    function _negbin_pmf(μ_val, α_val, ks)
+        p = α_val / (α_val + μ_val)
+        raw = [exp(loggamma(k + α_val) - loggamma(k + 1.0) - loggamma(α_val) +
+                   α_val * log(p) + k * log(1 - p)) for k in Float64.(ks)]
+        total = sum(raw)
+        total > 0 ? raw ./ total : zeros(length(ks))
+    end
+
+    # True NegBin (known simulation params)
+    tcp = report.true_count_params
+    if tcp !== nothing && tcp.μ > 0 && tcp.shape > 0
+        negbin_true = _negbin_pmf(tcp.μ, tcp.shape, k_range)
+        lines!(ax, collect(k_range), negbin_true; color=:blue, linewidth=2,
+               label="Known: μ=$(round(tcp.μ, digits=1)), α=$(round(tcp.shape, digits=1))")
+    end
+
+    # Learned NegBin (found by BaGoL)
+    μ = report.final_mu
+    α = report.final_shape
+    if μ > 0 && α > 0
+        negbin_learned = _negbin_pmf(μ, α, k_range)
+        lines!(ax, collect(k_range), negbin_learned; color=:red, linewidth=2,
+               label="Found: μ=$(round(μ, digits=1)), α=$(round(α, digits=1))")
+    end
+
+    axislegend(ax; position=:rt, framevisible=false)
+    save(joinpath(output_dir, "count_distribution.png"), fig, px_per_unit=2)
+    println("Saved: $(joinpath(output_dir, "count_distribution.png"))")
 end
 
 function _plot_nn_distances(report, output_dir)

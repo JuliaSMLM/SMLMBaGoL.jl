@@ -63,7 +63,7 @@ result_smld, diagnostics = run_bagol(sim.smld;
 output_dir = joinpath(@__DIR__, "output", "nmer_single_nohier")
 
 report = compute_report(result_smld, diagnostics;
-    true_positions=sim.true_positions, locs_smld=sim.smld)
+    true_positions=sim.true_positions, locs_smld=sim.smld, count_params=sim.count_params)
 
 write_report(report; output_dir)
 plot_report(report; output_dir)
