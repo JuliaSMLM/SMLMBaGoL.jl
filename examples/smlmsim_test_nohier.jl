@@ -12,15 +12,22 @@ using Random
 using Statistics
 
 # =============================================================================
-# Parameters
+# Parameters (same as smlmsim_test.jl)
 # =============================================================================
 
 const SEED = 42
 const CAMERA_PIXELS = 64
 const PIXEL_SIZE = 0.100
 const DENSITY = 2.0
+const N_EMITTERS = 8
+const CLUSTER_DIAMETER = 0.050
+const PSF_SIGMA = 0.130
 const NFRAMES = 1000
+const FRAMERATE = 50.0
 const MIN_PHOTONS = 100
+const PHOTON_RATE = 50000.0
+const K_OFF = 50.0
+const K_ON = 0.5
 const N_ITERATIONS = 15000
 const BURN_IN = 3000
 
@@ -32,20 +39,25 @@ Random.seed!(SEED)
 
 camera = SMLMData.IdealCamera(CAMERA_PIXELS, CAMERA_PIXELS, PIXEL_SIZE)
 
-config = SMLMSim.StaticSMLMConfig(;
-    density=DENSITY, nframes=NFRAMES, framerate=50.0,
-    ndatasets=1, minphotons=MIN_PHOTONS
+params = SMLMSim.StaticSMLMConfig(;
+    density=DENSITY, nframes=NFRAMES, framerate=FRAMERATE,
+    ndatasets=1, σ_psf=PSF_SIGMA, minphotons=MIN_PHOTONS
 )
 
-smld_sim, info = SMLMSim.simulate(config; camera=camera)
-println("SMLMSim: $(info.n_localizations) locs from $(info.n_emitters) emitters")
+pattern = SMLMSim.Nmer2D(n=N_EMITTERS, d=CLUSTER_DIAMETER)
+fluor = SMLMSim.GenericFluor(photons=PHOTON_RATE, k_off=K_OFF, k_on=K_ON)
+
+smld_sim, info = SMLMSim.simulate(params;
+    pattern=pattern, molecule=fluor, camera=camera
+)
 
 true_emitters = info.smld_true.emitters
-true_positions = [(e.x, e.y) for e in true_emitters]
+true_positions = unique([(e.x, e.y) for e in true_emitters])
+n_locs = length(smld_sim.emitters)
 
-# SMLMSim doesn't use our count model, so compute empirical μ
-TRUE_MU = length(smld_sim.emitters) / length(true_positions)
-println("Empirical μ = $(round(TRUE_MU, digits=2))")
+# Empirical μ from SMLMSim (not from our count model)
+TRUE_MU = n_locs / length(true_positions)
+println("SMLMSim: $n_locs locs, $(length(true_positions)) true emitters, μ=$(round(TRUE_MU, digits=2))")
 
 fov = compute_fov(smld_sim)
 
