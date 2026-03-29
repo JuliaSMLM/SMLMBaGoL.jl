@@ -58,21 +58,21 @@ function SMLMBaGoL.render_report(
            colormap=:inferno, filename=sr_path)
     println("Saved: $sr_path")
 
-    # 3. Circle overlay: localizations (gray) + BaGoL (red)
-    circles_path = joinpath(output_dir, "$(prefix)_circles.png")
-    (bg_img, _) = render(locs_smld; strategy=EllipseRender(), color=:gray,
+    # 3. Compose: white localizations + red MAP-N emitters
+    compose_path = joinpath(output_dir, "$(prefix)_compose.png")
+    (bg_img, _) = render(locs_smld; strategy=EllipseRender(), color=:white,
                          target=target, clip_percentile=nothing)
     (fg_img, _) = render(bagol_smld; strategy=EllipseRender(), color=:red,
                          target=target, clip_percentile=nothing)
     combined = compose(bg_img, fg_img; blend=:replace)
-    save_image(circles_path, combined)
-    println("Saved: $circles_path")
+    save_image(compose_path, combined)
+    println("Saved: $compose_path")
 
     # 4. Comparison with GT and oracle if available
     if !isempty(true_positions)
         comparison_path = joinpath(output_dir, "$(prefix)_comparison.png")
 
-        (base_img, _) = render(locs_smld; strategy=EllipseRender(), color=:gray,
+        (base_img, _) = render(locs_smld; strategy=EllipseRender(), color=:white,
                                target=target, clip_percentile=nothing)
 
         # GT (blue)
