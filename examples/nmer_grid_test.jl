@@ -64,6 +64,6 @@ report = compute_report(result_smld, diagnostics;
 write_report(report; output_dir)
 plot_report(report; output_dir)
 render_report(sim.smld, result_smld;
-    output_dir, true_positions=sim.true_positions, fov=fov)
+    output_dir, true_positions=sim.true_positions, partition_ids=report.partition_ids, fov=fov)
 
 println("\nResults in $output_dir")
