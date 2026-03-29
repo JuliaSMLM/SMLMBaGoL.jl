@@ -67,7 +67,7 @@ fov = compute_fov(smld_sim)
 
 result_smld, diagnostics = run_bagol(smld_sim;
     n_iterations=N_ITERATIONS, burn_in=BURN_IN,
-    μ=TRUE_MU, shape=1000.0, learn_shape=false,
+    μ=TRUE_MU, shape=1000.0, learn_distribution=false,
     sync_interval=N_ITERATIONS + 1,
     posterior_pixel_size=0.002,
     posterior_xlim=(fov[1], fov[2]),

@@ -59,16 +59,16 @@ function _run_sweep_trial(;
     # Nohier: fixed μ, shape at true values, single partition
     result_nohier, diag_nohier = run_bagol(sim.smld;
         n_iterations=n_iterations, burn_in=burn_in,
-        shape=shape, learn_shape=false,
-        nsigma=Inf, sync_interval=n_iterations + 1,
+        shape=shape, learn_distribution=false,
+        partition_sigma=Inf, sync_interval=n_iterations + 1,
         μ=mu, verbose=false
     )
 
     # Hier: learn μ and shape
     result_hier, diag_hier = run_bagol(sim.smld;
         n_iterations=n_iterations, burn_in=burn_in,
-        shape=shape, learn_shape=true,
-        nsigma=Inf, verbose=false
+        shape=shape, learn_distribution=true,
+        partition_sigma=Inf, verbose=false
     )
 
     # Compute reports for both
