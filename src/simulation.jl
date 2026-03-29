@@ -19,6 +19,7 @@ struct SimulationResult
     true_positions::Vector{Tuple{Float64, Float64}}
     true_counts::Vector{Int}
     n_emitters::Int
+    count_params::NamedTuple{(:μ, :shape), Tuple{Float64, Float64}}
 end
 
 # ============================================================================
@@ -158,8 +159,9 @@ end
 Generate synthetic SMLM localizations from known emitter positions.
 
 # Count models (`count_model`)
-- `:poisson` (default) — `Poisson(mean_count)`, clamped to ≥ 1
-- `:negbin` — `NegativeBinomial(count_shape, p)` where `p = count_shape/(count_shape+mean_count)`
+- `:poisson` — NegBin with shape=1000 (≈ Poisson)
+- `:exp` — NegBin with shape=1 (geometric/exponential blinking)
+- `<number>` — NegBin with that shape (e.g., `5.0`)
 - `:fixed` — exactly `round(Int, mean_count)` per emitter
 
 # Photophysics modes
@@ -167,10 +169,13 @@ Generate synthetic SMLM localizations from known emitter positions.
   precision `σ = psf_sigma / √photons`
 - `fixed_sigma` mode: constant σ and photons, no photon sampling
 
+# Returns
+`SimulationResult` with `count_params = (μ=empirical_mean, shape=effective_shape)`.
+Use these directly in `run_bagol(; μ=sim.count_params.μ, shape=sim.count_params.shape)`.
+
 # Keywords
 - `mean_count=10.0`: mean localizations per emitter
-- `count_model=:poisson`: `:poisson`, `:negbin`, or `:fixed`
-- `count_shape=5.0`: NegBin shape parameter (only for `:negbin`)
+- `count_model=:poisson`: `:poisson`, `:exp`, `:fixed`, or numeric NegBin shape
 - `psf_sigma=0.130`: PSF standard deviation (μm)
 - `mean_photons=500.0`: mean photons per localization
 - `min_photons=100.0`: discard localizations below this
@@ -183,8 +188,7 @@ Generate synthetic SMLM localizations from known emitter positions.
 function simulate_localizations(
     true_positions::Vector{Tuple{Float64, Float64}};
     mean_count::Float64 = 10.0,
-    count_model::Symbol = :poisson,
-    count_shape::Float64 = 5.0,
+    count_model::Union{Symbol, Real} = :poisson,
     psf_sigma::Float64 = 0.130,
     mean_photons::Float64 = 500.0,
     min_photons::Float64 = 100.0,
@@ -192,33 +196,47 @@ function simulate_localizations(
     fixed_photons::Float64 = 1000.0,
     background::Float64 = 10.0,
     pixel_size::Float64 = 0.100,
-    field_size::Union{Nothing, Float64} = nothing
+    field_size::Union{Nothing, Float64} = nothing,
+    # Deprecated: count_shape kwarg (use numeric count_model instead)
+    count_shape::Float64 = NaN
 )
     n_emitters = length(true_positions)
 
-    # Count distribution
-    count_dist = if count_model == :poisson
-        Poisson(mean_count)
-    elseif count_model == :negbin
-        p = count_shape / (count_shape + mean_count)
-        NegativeBinomial(count_shape, p)
+    # Resolve count model to effective NegBin shape
+    effective_shape = if count_model == :poisson
+        1000.0  # large shape ≈ Poisson
+    elseif count_model == :exp
+        1.0     # geometric blinking
     elseif count_model == :fixed
-        nothing  # handled below
+        NaN     # not applicable
+    elseif count_model isa Real
+        Float64(count_model)
+    elseif count_model == :negbin
+        # Legacy: use count_shape kwarg
+        isnan(count_shape) ? 5.0 : count_shape
     else
-        error("Unknown count_model: $count_model. Use :poisson, :negbin, or :fixed.")
+        error("Unknown count_model: $count_model. Use :poisson, :exp, :fixed, or a numeric shape.")
+    end
+
+    # Build count distribution
+    is_fixed = (count_model == :fixed)
+    count_dist = if is_fixed
+        nothing
+    else
+        p = effective_shape / (effective_shape + mean_count)
+        NegativeBinomial(effective_shape, p)
     end
 
     # Photon distribution (only used when fixed_sigma is nothing)
-    use_fixed = fixed_sigma !== nothing
-    photon_dist = use_fixed ? nothing : Exponential(mean_photons)
+    use_fixed_sigma = fixed_sigma !== nothing
+    photon_dist = use_fixed_sigma ? nothing : Exponential(mean_photons)
 
     locs = SMLMData.Emitter2DFit[]
     true_counts = zeros(Int, n_emitters)
     loc_id = 1
 
     for (emitter_idx, (ex, ey)) in enumerate(true_positions)
-        # Sample count
-        n_j = if count_model == :fixed
+        n_j = if is_fixed
             round(Int, mean_count)
         else
             max(1, rand(count_dist))
@@ -226,7 +244,7 @@ function simulate_localizations(
 
         actual_count = 0
         for _ in 1:n_j
-            if use_fixed
+            if use_fixed_sigma
                 σ = fixed_sigma
                 photons = fixed_photons
             else
@@ -265,7 +283,11 @@ function simulate_localizations(
 
     smld = SMLMData.BasicSMLD(locs, camera, length(locs), 1)
 
-    return SimulationResult(smld, true_positions, true_counts, n_emitters)
+    # Empirical μ (actual locs per emitter after filtering)
+    empirical_μ = n_emitters > 0 ? length(locs) / n_emitters : 0.0
+    cp = (μ=empirical_μ, shape=is_fixed ? 1000.0 : effective_shape)
+
+    return SimulationResult(smld, true_positions, true_counts, n_emitters, cp)
 end
 
 # ============================================================================
@@ -319,6 +341,8 @@ function print_simulation_summary(result::SimulationResult)
     println("Simulation Summary:")
     println("  Emitters: $(result.n_emitters)")
     println("  Localizations: $n_locs")
+    cp = result.count_params
+    println("  Count params: μ=$(round(cp.μ, digits=1)), shape=$(round(cp.shape, digits=1))")
     println("  Mean count/emitter: $(round(mean(counts), digits=1))")
 
     if length(counts) > 1
