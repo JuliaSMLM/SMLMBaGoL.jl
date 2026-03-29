@@ -68,16 +68,14 @@ function _plot_acceptance_rates(report, output_dir)
 end
 
 function _plot_cluster_sizes(report, output_dir)
-    # Use empirical counts (from track_id) if available, else BaGoL cluster sizes
-    has_empirical = !isempty(report.empirical_counts)
-    cs = has_empirical ? report.empirical_counts : report.cluster_sizes
+    cs = report.cluster_sizes
     isempty(cs) && return
 
     fig = Figure(size=(500, 350))
     ax = Axis(fig[1, 1], xlabel="Localizations per emitter", ylabel="Probability",
               title="Count distribution (locs/emitter)")
 
-    # Histogram (normalized to probability)
+    # BaGoL's inferred cluster sizes (what the chain found)
     k_max = maximum(cs) + 5
     k_range = 1:k_max
     hist_data = zeros(k_max)
@@ -85,8 +83,7 @@ function _plot_cluster_sizes(report, output_dir)
         1 <= c <= k_max && (hist_data[c] += 1)
     end
     hist_data ./= sum(hist_data)
-    lbl = has_empirical ? "Data (track_id)" : "BaGoL clusters"
-    barplot!(ax, collect(k_range), hist_data; color=(:steelblue, 0.6), label=lbl)
+    barplot!(ax, collect(k_range), hist_data; color=(:steelblue, 0.6), label="Chain (inferred)")
 
     # NegBin PMF: P(X=k) = Γ(k+α) / (k! Γ(α)) × p^α × (1-p)^k, k=0,1,2,...
     # where p = α/(α+μ). Clamped to k≥1, renormalized.
