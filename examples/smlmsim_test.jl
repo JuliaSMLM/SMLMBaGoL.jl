@@ -1,6 +1,6 @@
 # SMLMSim Realistic Photophysics — Standard Report
 # ==================================================
-# BaGoL with realistic SMLMSim photophysics.
+# BaGoL with realistic SMLMSim photophysics (Nmer2D pattern + GenericFluor).
 #
 # Run with: julia --threads=auto --project=examples examples/smlmsim_test.jl
 
@@ -21,8 +21,18 @@ const SEED = 42
 const CAMERA_PIXELS = 64
 const PIXEL_SIZE = 0.100          # μm → 6.4×6.4 μm FOV
 const DENSITY = 2.0               # patterns per μm²
+const N_EMITTERS = 8              # 8-mer
+const CLUSTER_DIAMETER = 0.050    # 50 nm
+const PSF_SIGMA = 0.130           # 130 nm
 const NFRAMES = 1000
+const FRAMERATE = 50.0
 const MIN_PHOTONS = 100
+
+# Fluorophore: k_off=50Hz (τ_on=20ms), k_on=0.5Hz → ~10 blinks in 20s
+const PHOTON_RATE = 50000.0
+const K_OFF = 50.0
+const K_ON = 0.5
+
 const N_ITERATIONS = 15000
 const BURN_IN = 3000
 
@@ -34,18 +44,25 @@ Random.seed!(SEED)
 
 camera = SMLMData.IdealCamera(CAMERA_PIXELS, CAMERA_PIXELS, PIXEL_SIZE)
 
-config = SMLMSim.StaticSMLMConfig(;
-    density=DENSITY, nframes=NFRAMES, framerate=50.0,
-    ndatasets=1, minphotons=MIN_PHOTONS
+params = SMLMSim.StaticSMLMConfig(;
+    density=DENSITY, nframes=NFRAMES, framerate=FRAMERATE,
+    ndatasets=1, σ_psf=PSF_SIGMA, minphotons=MIN_PHOTONS
 )
 
-smld_sim, info = SMLMSim.simulate(config; camera=camera)
-println("SMLMSim: $(info.n_localizations) locs from $(info.n_emitters) emitters in $(info.n_patterns) patterns")
+pattern = SMLMSim.Nmer2D(n=N_EMITTERS, d=CLUSTER_DIAMETER)
+fluor = SMLMSim.GenericFluor(photons=PHOTON_RATE, k_off=K_OFF, k_on=K_ON)
 
-# Extract true positions from model SMLD
+smld_sim, info = SMLMSim.simulate(params;
+    pattern=pattern, molecule=fluor, camera=camera
+)
+
+# Extract true positions
 true_emitters = info.smld_true.emitters
-true_positions = [(e.x, e.y) for e in true_emitters]
-println("  $(length(true_positions)) true emitter positions")
+true_positions = unique([(e.x, e.y) for e in true_emitters])
+n_locs = length(smld_sim.emitters)
+println("SMLMSim: $n_locs locs from $(info.n_emitters) emitters in $(info.n_patterns) patterns")
+println("  $(length(true_positions)) unique true positions")
+println("  Mean locs/emitter: $(round(n_locs / length(true_positions), digits=1))")
 println("  Mean σ: $(round(mean(SMLMBaGoL.mean_sigma(e) for e in smld_sim.emitters) * 1000, digits=1)) nm")
 
 fov = compute_fov(smld_sim)
