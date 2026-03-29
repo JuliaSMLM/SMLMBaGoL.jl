@@ -254,6 +254,7 @@ function compute_report(
         acceptance_rates = diagnostics.acceptance_rates,
         posterior_k = diagnostics.posterior_k,
         partition_k = diagnostics.partition_k,
+        partition_ids = diagnostics.partition_ids,
         cluster_sizes = diagnostics.cluster_sizes,
         empirical_counts = empirical_counts,
         posterior_image = diagnostics.posterior_image,
