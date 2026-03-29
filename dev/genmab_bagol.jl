@@ -177,29 +177,6 @@ render([partition_smlds..., bagol_smld];
 )
 println("  Saved: partitions_with_bagol.png")
 
-## ── Compose: white locs + red MAP-N (:replace blend) ─────────────────────────
-
-println("\nCompose circles (white locs + red MAP-N)...")
-
-compose_target = create_target(roi_xmin, roi_xmax, roi_ymin, roi_ymax; pixel_size=1.0)
-
-# Layer 1: white circle localizations (background)
-(bg_img, _) = render(locs_smld;
-    strategy = EllipseRender(),
-    color = :white,
-    target = compose_target,
-    clip_percentile = nothing)
-
-# Layer 2: red circle MAP-N emitters (foreground)
-(fg_img, _) = render(bagol_smld;
-    strategy = EllipseRender(),
-    color = :red,
-    target = compose_target,
-    clip_percentile = nothing)
-
-# :replace — red overwrites white wherever BaGoL circle pixels are drawn
-combined = compose(bg_img, fg_img; blend=:replace)
-save_image(joinpath(OUTPUT_DIR, "genmab_circles.png"), combined)
-println("  Saved: genmab_circles.png (compose :replace, overwrites additive version)")
+## (compose now handled by render_report above)
 
 println("\nAll outputs saved to: $OUTPUT_DIR")

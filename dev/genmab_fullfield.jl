@@ -217,19 +217,7 @@ render_report(locs_smld, bagol_smld;
     output_dir=OUTPUT_DIR, prefix="genmab_ff", pixel_size=2.0, fov=fov)
 flush(stdout)
 
-# Compose: white locs + red MAP-N (full field at 2 nm/px)
-println("\nCompose circles...")
-flush(stdout)
-compose_target = create_target(xmin, xmax, ymin, ymax; pixel_size=2.0)
-(bg_img, _) = render(locs_smld;
-    strategy = CircleRender(), color = :white,
-    target = compose_target, clip_percentile = nothing)
-(fg_img, _) = render(bagol_smld;
-    strategy = CircleRender(), color = :red,
-    target = compose_target, clip_percentile = nothing)
-combined = compose(bg_img, fg_img; blend=:replace)
-save_image(joinpath(OUTPUT_DIR, "circles_compose.png"), combined)
-println("  Saved: circles_compose.png")
+# (compose now handled by render_report above)
 flush(stdout)
 
 # Zoomed ROI — densest 2×2 μm region (1 nm/px for detail)
