@@ -57,7 +57,7 @@ result_smld, diagnostics = run_bagol(smld_sim;
     n_iterations=N_ITERATIONS, burn_in=BURN_IN,
     shape=TRUE_SHAPE, learn_shape=false,
     sync_interval=N_ITERATIONS + 1,
-    μ_prior_shape=TRUE_MU,
+    μ=TRUE_MU,
     posterior_pixel_size=0.002,
     posterior_xlim=(fov[1], fov[2]),
     posterior_ylim=(fov[3], fov[4])

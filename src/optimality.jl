@@ -61,7 +61,7 @@ function _run_sweep_trial(;
         n_iterations=n_iterations, burn_in=burn_in,
         shape=shape, learn_shape=false,
         nsigma=Inf, sync_interval=n_iterations + 1,
-        μ_prior_shape=mu, verbose=false
+        μ=mu, verbose=false
     )
 
     # Hier: learn μ and shape

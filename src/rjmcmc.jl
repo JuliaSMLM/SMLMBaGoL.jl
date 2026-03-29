@@ -174,7 +174,9 @@ function _run_bagol_collapsed(
     end
 
     # Global μ, shape (shared across partitions)
-    μ = μ_prior_shape * μ_prior_scale
+    # Direct μ override takes precedence over hyperprior product
+    μ_init = get(kwargs, :μ, nothing)
+    μ = μ_init !== nothing ? Float64(μ_init) : μ_prior_shape * μ_prior_scale
     current_shape = shape
 
     # Initialize archive if requested
