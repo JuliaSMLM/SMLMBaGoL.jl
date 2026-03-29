@@ -37,7 +37,7 @@ Fixed-parameter (no hierarchical learning) scripts pass simulation's actual coun
 
 ```julia
 run_bagol(sim.smld; μ=sim.count_params.μ, shape=sim.count_params.shape,
-    learn_shape=false, sync_interval=N_ITERATIONS+1)
+    learn_distribution=false, sync_interval=N_ITERATIONS+1)
 ```
 
 For SMLMSim (which doesn't use our count model), compute empirical μ directly:
@@ -75,7 +75,7 @@ Without these kwargs SMLMSim uses defaults that produce very few localizations.
 
 | Script | Type | Clusters | Partitioned | Hierarchical |
 |--------|------|----------|-------------|--------------|
-| `nmer_single_test.jl` | Single 6-mer | 1 | No (nsigma=Inf) | Yes |
+| `nmer_single_test.jl` | Single 6-mer | 1 | No (partition_sigma=Inf) | Yes |
 | `nmer_single_test_nohier.jl` | Single 6-mer | 1 | No | No |
 | `nmer_grid_test.jl` | 4x4 grid of 8-mers | 16 | Yes | Yes |
 | `nmer_grid_test_nohier.jl` | 4x4 grid of 8-mers | 16 | Yes | No |

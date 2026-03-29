@@ -18,7 +18,7 @@ n_j ~ Gamma(shape, μ/shape) where:
 - shape = 1: exponential (dSTORM), shape > 1: peaked (DNA-PAINT)
 
 # Partitioning Arguments
-- `nsigma=3.0`: DBSCAN threshold in sigma units (Inf = no partitioning)
+- `partition_sigma=3.0`: DBSCAN threshold in sigma units (Inf = no partitioning)
 - `min_partition_size=0`: Minimum locs per partition (smaller clusters dropped as noise)
 - `max_partition_size=1000`: Split partitions larger than this
 - `skip_partition_size=typemax(Int)`: Skip partitions larger than this
@@ -28,11 +28,13 @@ n_j ~ Gamma(shape, μ/shape) where:
 - `n_iterations=10000`: Total MCMC iterations
 - `burn_in=2000`: Burn-in iterations before recording
 - `shape=2.0`: Initial Gamma shape (1=exponential, higher=more peaked)
-- `learn_shape=true`: Whether to update shape during MCMC
+- `learn_distribution=true`: Control count distribution learning.
+  `true`=learn both μ and shape, `false`=fix both,
+  `:mu`=learn μ only (fix shape), `:shape`=learn shape only (fix μ)
 - `verbose=true`: Print progress
 
 # Posterior Image
-- `posterior_pixel_size=0.0`: Enable Rao-Blackwellized posterior image (pixel size in μm)
+- `posterior_pixel_size=0.002`: Rao-Blackwellized posterior image pixel size in μm (0.0 to disable)
 - `posterior_xlim=nothing`: Override x bounds for posterior image
 - `posterior_ylim=nothing`: Override y bounds for posterior image
 
@@ -45,7 +47,7 @@ n_j ~ Gamma(shape, μ/shape) where:
 """
 function run_bagol(
     smld::SMLMData.SMLD;
-    nsigma::Float64 = 3.0,
+    partition_sigma::Float64 = 3.0,
     min_partition_size::Int = 0,
     max_partition_size::Int = 1000,
     skip_partition_size::Int = typemax(Int),
@@ -53,8 +55,8 @@ function run_bagol(
     n_iterations::Int = 10000,
     burn_in::Int = 2000,
     shape::Float64 = 2.0,
-    learn_shape::Bool = true,
-    posterior_pixel_size::Float64 = 0.0,
+    learn_distribution::Union{Bool, Symbol} = true,
+    posterior_pixel_size::Float64 = 0.002,
     posterior_xlim::Union{Nothing, Tuple{Float64, Float64}} = nothing,
     posterior_ylim::Union{Nothing, Tuple{Float64, Float64}} = nothing,
     archive_path::Union{Nothing, String} = nothing,
@@ -63,8 +65,8 @@ function run_bagol(
     kwargs...
 )
     return _run_bagol_collapsed(smld;
-        nsigma, min_partition_size, max_partition_size, skip_partition_size,
-        sync_interval, n_iterations, burn_in, shape, learn_shape,
+        partition_sigma, min_partition_size, max_partition_size, skip_partition_size,
+        sync_interval, n_iterations, burn_in, shape, learn_distribution,
         posterior_pixel_size, posterior_xlim, posterior_ylim,
         archive_path, progress_file, verbose, kwargs...)
 end
@@ -75,7 +77,7 @@ end
 
 function _run_bagol_collapsed(
     smld::SMLMData.SMLD;
-    nsigma::Float64 = 3.0,
+    partition_sigma::Float64 = 3.0,
     min_partition_size::Int = 0,
     max_partition_size::Int = 1000,
     skip_partition_size::Int = typemax(Int),
@@ -83,8 +85,8 @@ function _run_bagol_collapsed(
     n_iterations::Int = 10000,
     burn_in::Int = 2000,
     shape::Float64 = 2.0,
-    learn_shape::Bool = true,
-    posterior_pixel_size::Float64 = 0.0,
+    learn_distribution::Union{Bool, Symbol} = true,
+    posterior_pixel_size::Float64 = 0.002,
     posterior_xlim::Union{Nothing, Tuple{Float64, Float64}} = nothing,
     posterior_ylim::Union{Nothing, Tuple{Float64, Float64}} = nothing,
     archive_path::Union{Nothing, String} = nothing,
@@ -92,6 +94,13 @@ function _run_bagol_collapsed(
     verbose::Bool = true,
     kwargs...
 )
+    # Validate learn_distribution
+    if learn_distribution isa Symbol && learn_distribution ∉ (:mu, :shape)
+        throw(ArgumentError("learn_distribution must be true, false, :mu, or :shape (got :$learn_distribution)"))
+    end
+    _learn_mu = learn_distribution === true || learn_distribution === :mu
+    _learn_shape = learn_distribution === true || learn_distribution === :shape
+
     locs = smld.emitters
     camera = smld.camera
 
@@ -107,9 +116,9 @@ function _run_bagol_collapsed(
         verbose && println(msg)
     end
 
-    _log_progress("Partitioning $(length(locs)) localizations (nsigma=$nsigma)...")
+    _log_progress("Partitioning $(length(locs)) localizations (partition_sigma=$partition_sigma)...")
 
-    partitions, skipped = partition_locs(locs; nsigma, min_size=min_partition_size,
+    partitions, skipped = partition_locs(locs; partition_sigma, min_size=min_partition_size,
                                           max_size=max_partition_size,
                                           skip_size=skip_partition_size)
 
@@ -216,13 +225,15 @@ function _run_bagol_collapsed(
         end
 
         # Global hierarchical updates
-        μ = _update_mu_collapsed_global!(states, μ, current_shape, config_nt)
-        if learn_shape
+        if _learn_mu
+            μ = _update_mu_collapsed_global!(states, μ, current_shape, config_nt)
+        end
+        if _learn_shape
             current_shape = _update_shape_collapsed_global!(states, μ, current_shape, config_nt)
         end
 
         total_K = sum(s.n_active for s in states)
-        shape_str = learn_shape ? ", shape=$(round(current_shape, digits=2))" : ""
+        shape_str = _learn_shape ? ", shape=$(round(current_shape, digits=2))" : ""
         iter_done = outer * sync_interval
         _log_progress("Sync $outer/$n_outer (iter $iter_done): K=$total_K, μ=$(round(μ, digits=2))$shape_str")
     end
@@ -246,9 +257,9 @@ function _run_bagol_collapsed(
 
     # Extract emitters via MAP-N from stored assignment samples (threaded)
     sigmas = [mean_sigma(loc) for loc in locs]
-    # Scale margin with nsigma: partition gap ≈ nsigma*(σ_i+σ_j), so emitters
-    # can only be duplicates if within ~nsigma*σ of boundary
-    boundary_margin = nsigma * median(sigmas)
+    # Scale margin with partition_sigma: partition gap ≈ partition_sigma*(σ_i+σ_j), so emitters
+    # can only be duplicates if within ~partition_sigma*σ of boundary
+    boundary_margin = partition_sigma * median(sigmas)
 
     # Per-partition results (filled in parallel, largest-first for load balance)
     partition_emitters = Vector{Vector{SMLMData.Emitter2DFit}}(undef, n_partitions)

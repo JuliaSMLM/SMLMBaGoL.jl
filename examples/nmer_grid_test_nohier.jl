@@ -48,7 +48,7 @@ fov = compute_fov(sim.smld; margin=GRID_SPACING / 2)
 
 result_smld, diagnostics = run_bagol(sim.smld;
     n_iterations=N_ITERATIONS, burn_in=BURN_IN,
-    μ=sim.count_params.μ, shape=sim.count_params.shape, learn_shape=false,
+    μ=sim.count_params.μ, shape=sim.count_params.shape, learn_distribution=false,
     sync_interval=N_ITERATIONS + 1,
     posterior_pixel_size=0.002,
     posterior_xlim=(fov[1], fov[2]),
