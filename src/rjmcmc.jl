@@ -122,7 +122,7 @@ function _run_bagol_collapsed(
     if isempty(partitions)
         @warn "No valid partitions"
         empty_smld = SMLMData.BasicSMLD(SMLMData.Emitter2DFit[], camera, 1, 1)
-        empty_diag = BaGoLDiagnostics(0, Int[], Dict{Symbol,Float64}(), 0.0, shape, 0, Int[], Int[], nothing)
+        empty_diag = BaGoLDiagnostics(0, Int[], Dict{Symbol,Float64}(), 0.0, shape, 0, Int[], Int[], Int[], nothing)
         return empty_smld, empty_diag
     end
 
@@ -385,10 +385,19 @@ function _run_bagol_collapsed(
     # Per-partition emitter counts (from MAP-N extraction, before deduplication)
     partition_k = [length(partition_emitters[pid]) for pid in 1:n_partitions]
 
+    # Per-localization partition IDs (for partition-colored renders)
+    loc_partition_ids = zeros(Int, length(locs))
+    for pid in 1:n_partitions
+        for idx in partitions[pid].original_indices
+            loc_partition_ids[idx] = pid
+        end
+    end
+
     # Build diagnostics
     diagnostics = BaGoLDiagnostics(
         length(merged_emitters), posterior_k, acceptance_rates,
-        μ, current_shape, n_partitions, cluster_sizes, partition_k, post_img
+        μ, current_shape, n_partitions, cluster_sizes, partition_k,
+        loc_partition_ids, post_img
     )
     result_smld = SMLMData.BasicSMLD(merged_emitters, camera, 1, 1)
 

@@ -9,23 +9,25 @@ using SMLMRender
 # ============================================================================
 
 """
-    render_report(locs_smld, bagol_smld; output_dir="output", true_positions=[], pixel_size=1.0, prefix="render")
+    render_report(locs_smld, bagol_smld; output_dir, true_positions, partition_ids, ...)
 
 Render standard visualization suite using SMLMRender.
 
 Always creates:
 - `{prefix}_sr_gaussian.png` — Gaussian SR render of input localizations
 - `{prefix}_mapn_gaussian.png` — Gaussian render of BaGoL MAP-N result
-- `{prefix}_circles.png` — Circle overlay (gray locs + red BaGoL emitters)
+- `{prefix}_circles.png` — White locs + red MAP-N emitters
+- `{prefix}_partitions.png` — Partition-colored localizations
 
 With ground truth:
-- `{prefix}_comparison.png` — Multi-layer (gray locs + blue GT + green oracle + red found)
+- `{prefix}_circles_groundtruth.png` — White locs + blue GT + green oracle + red found
 """
 function SMLMBaGoL.render_report(
     locs_smld::SMLMData.SMLD,
     bagol_smld::SMLMData.SMLD;
     output_dir::String = "output",
     true_positions::Vector{Tuple{Float64, Float64}} = Tuple{Float64, Float64}[],
+    partition_ids::Vector{Int} = Int[],
     pixel_size::Real = 1.0,
     prefix::String = "render",
     fov::Union{Nothing, Tuple{Float64, Float64, Float64, Float64}} = nothing
@@ -67,7 +69,33 @@ function SMLMBaGoL.render_report(
     save_image(circles_path, combined)
     println("Saved: $circles_path")
 
-    # 4. Ground truth overlay: white locs + blue GT + green oracle + red found
+    # 4. Partition-colored localizations
+    if !isempty(partition_ids) && length(partition_ids) == length(locs_smld.emitters)
+        part_path = joinpath(output_dir, "$(prefix)_partitions.png")
+        n_parts = maximum(partition_ids)
+        # Build one SMLD per partition
+        part_smlds = SMLMData.SMLD[]
+        part_colors = Symbol[]
+        palette = [:red, :dodgerblue, :green, :orange, :purple, :cyan,
+                   :magenta, :yellow, :lime, :pink, :teal, :coral,
+                   :navy, :olive, :maroon, :skyblue, :salmon, :gold,
+                   :violet, :turquoise]
+        for pid in 1:n_parts
+            idxs = findall(==(pid), partition_ids)
+            isempty(idxs) && continue
+            p_locs = locs_smld.emitters[idxs]
+            push!(part_smlds, SMLMData.BasicSMLD(p_locs, locs_smld.camera, 1, 1))
+            push!(part_colors, palette[mod1(pid, length(palette))])
+        end
+        if !isempty(part_smlds)
+            render(part_smlds;
+                colors=part_colors, strategy=EllipseRender(),
+                target=target, filename=part_path)
+            println("Saved: $part_path")
+        end
+    end
+
+    # 5. Ground truth overlay: white locs + blue GT + green oracle + red found
     if !isempty(true_positions)
         gt_path = joinpath(output_dir, "$(prefix)_circles_groundtruth.png")
 
