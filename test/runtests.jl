@@ -310,7 +310,7 @@ using Distributions
             fixed_sigma=0.005, mean_count=15.0, count_model=:fixed)
         locs = vcat(sim1.smld.emitters, sim2.smld.emitters)
 
-        partitions, skipped = partition_locs(locs; nsigma=4.0, min_size=5, max_size=100)
+        partitions, skipped = partition_locs(locs; partition_sigma=4.0, min_size=5, max_size=100)
 
         @test length(partitions) == 2
         @test isempty(skipped)
@@ -338,7 +338,7 @@ using Distributions
             push!(locs, SMLMData.Emitter2DFit(x, y, 1000.0, 10.0, σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, i))
         end
 
-        partitions, skipped = partition_locs(locs; nsigma=6.0, min_size=3, max_size=20)
+        partitions, skipped = partition_locs(locs; partition_sigma=6.0, min_size=3, max_size=20)
 
         @test isempty(skipped)
         @test length(partitions) >= 2
@@ -350,7 +350,7 @@ using Distributions
         total_locs = sum(length(p.locs) for p in partitions)
         @test total_locs == 50
 
-        partitions_skip, skipped_skip = partition_locs(locs; nsigma=6.0, min_size=3, max_size=20, skip_size=20)
+        partitions_skip, skipped_skip = partition_locs(locs; partition_sigma=6.0, min_size=3, max_size=20, skip_size=20)
         @test length(skipped_skip) >= 1
     end
 
@@ -369,9 +369,10 @@ using Distributions
         @test diagnostics.posterior_image.pixel_size == 0.005
         @test sum(diagnostics.posterior_image.image) > 0
 
-        # Default: no posterior image
+        # Disable posterior image explicitly
         _, diag_default = run_bagol(smld;
-            n_iterations=500, burn_in=100, verbose=false)
+            n_iterations=500, burn_in=100, verbose=false,
+            posterior_pixel_size=0.0)
         @test diag_default.posterior_image === nothing
     end
 
@@ -384,7 +385,7 @@ using Distributions
         smld = sim.smld
 
         result_smld, diagnostics = run_bagol(smld;
-            nsigma=4.0,
+            partition_sigma=4.0,
             min_partition_size=3,
             max_partition_size=100,
             sync_interval=100,
@@ -503,7 +504,7 @@ using Distributions
                     ps_acc = PartitionSamples(thin=5)
                     result = run_collapsed_chain(locs;
                         n_iterations=4000, burn_in=800,
-                        shape=2.0, learn_shape=true,
+                        shape=2.0, learn_distribution=true,
                         accumulators=AbstractAccumulator[ps_acc],
                         verbose=false)
 

@@ -46,7 +46,7 @@ fov = compute_fov(sim.smld)
 
 result_smld, diagnostics = run_bagol(sim.smld;
     n_iterations=N_ITERATIONS, burn_in=BURN_IN,
-    nsigma=Inf,  # single cluster, no partitioning
+    partition_sigma=Inf,  # single cluster, no partitioning
     posterior_pixel_size=0.001,
     posterior_xlim=(fov[1], fov[2]),
     posterior_ylim=(fov[3], fov[4])

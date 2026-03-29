@@ -59,7 +59,9 @@ Run the collapsed Gibbs sampler on a set of localizations.
 - `n_iterations=10000`: Total MCMC iterations
 - `burn_in=2000`: Burn-in iterations before accumulating
 - `shape=2.0`: Initial Gamma shape for count distribution
-- `learn_shape=true`: Update shape during MCMC
+- `learn_distribution=true`: Control count distribution learning.
+  `true`=learn both μ and shape, `false`=fix both,
+  `:mu`=learn μ only (fix shape), `:shape`=learn shape only (fix μ)
 - `hierarchical_interval=100`: Iterations between μ/shape MH updates
 - `accumulators=AbstractAccumulator[]`: List of accumulators to update after burn-in
 - `verbose=false`: Print progress
@@ -75,7 +77,7 @@ function run_collapsed_chain(
     n_iterations::Int = 10000,
     burn_in::Int = 2000,
     shape::Float64 = 2.0,
-    learn_shape::Bool = true,
+    learn_distribution::Union{Bool, Symbol} = true,
     μ_prior_shape::Float64 = 2.0,
     μ_prior_scale::Float64 = 5.0,
     shape_prior_shape::Float64 = 2.0,
@@ -90,6 +92,13 @@ function run_collapsed_chain(
     if N == 0
         error("No localizations provided")
     end
+
+    # Validate learn_distribution
+    if learn_distribution isa Symbol && learn_distribution ∉ (:mu, :shape)
+        throw(ArgumentError("learn_distribution must be true, false, :mu, or :shape (got :$learn_distribution)"))
+    end
+    _learn_mu = learn_distribution === true || learn_distribution === :mu
+    _learn_shape = learn_distribution === true || learn_distribution === :shape
 
     # Initialize
     spatial_prior = UniformSpatialPrior(locs)
@@ -128,8 +137,10 @@ function run_collapsed_chain(
 
         # Hierarchical updates
         if iter % hierarchical_interval == 0
-            μ = _update_mu_collapsed(state, μ, current_shape, config_nt)
-            if learn_shape
+            if _learn_mu
+                μ = _update_mu_collapsed(state, μ, current_shape, config_nt)
+            end
+            if _learn_shape
                 current_shape = _update_shape_collapsed(state, μ, current_shape, config_nt)
             end
         end
@@ -149,7 +160,7 @@ function run_collapsed_chain(
         # Progress
         if verbose && iter % 1000 == 0
             K = state.n_active
-            shape_str = learn_shape ? ", shape=$(round(current_shape, digits=2))" : ""
+            shape_str = _learn_shape ? ", shape=$(round(current_shape, digits=2))" : ""
             println("Iter $iter: K=$K, μ=$(round(μ, digits=2))$shape_str")
         end
     end

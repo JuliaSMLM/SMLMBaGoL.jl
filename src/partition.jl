@@ -21,19 +21,19 @@ struct Partition{E<:SMLMData.AbstractEmitter}
 end
 
 """
-    partition_locs(locs; nsigma, min_size, max_size, skip_size, boundary_margin)
+    partition_locs(locs; partition_sigma, min_size, max_size, skip_size, boundary_margin)
 
 Partition localizations using precision-weighted DBSCAN.
 
-Two localizations are neighbors if `||p_i - p_j|| / (σ_i + σ_j) < nsigma`.
+Two localizations are neighbors if `||p_i - p_j|| / (σ_i + σ_j) < partition_sigma`.
 
 # Arguments
 - `locs`: Vector of localizations
-- `nsigma=3.0`: DBSCAN threshold in sigma units (Inf = no partitioning)
+- `partition_sigma=3.0`: DBSCAN threshold in sigma units (Inf = no partitioning)
 - `min_size=0`: Minimum locs per partition (clusters below this are noise)
 - `max_size=1000`: Split partitions larger than this
 - `skip_size=typemax(Int)`: Skip partitions larger than this (Inf = never skip)
-- `boundary_margin=0.0`: Distance from edge to flag as boundary (0 = auto: nsigma×median(σ))
+- `boundary_margin=0.0`: Distance from edge to flag as boundary (0 = auto: partition_sigma×median(σ))
 
 # Returns
 - `partitions`: Vector of Partition for valid clusters
@@ -41,7 +41,7 @@ Two localizations are neighbors if `||p_i - p_j|| / (σ_i + σ_j) < nsigma`.
 """
 function partition_locs(
     locs::Vector{E};
-    nsigma::Float64=3.0,
+    partition_sigma::Float64=3.0,
     min_size::Int=0,
     max_size::Int=1000,
     skip_size::Int=typemax(Int),
@@ -51,14 +51,14 @@ function partition_locs(
         return Partition{E}[], Partition{E}[]
     end
 
-    # Auto boundary margin: scale with nsigma (partition gap ≈ nsigma*(σ_i+σ_j))
+    # Auto boundary margin: scale with partition_sigma (partition gap ≈ partition_sigma*(σ_i+σ_j))
     if boundary_margin <= 0.0
         sigmas = [mean_sigma(loc) for loc in locs]
-        boundary_margin = nsigma * median(sigmas)
+        boundary_margin = partition_sigma * median(sigmas)
     end
 
     # Run precision-weighted DBSCAN
-    labels = precision_dbscan(locs, nsigma, min_size)
+    labels = precision_dbscan(locs, partition_sigma, min_size)
 
     # Group by cluster label
     cluster_ids = unique(labels)

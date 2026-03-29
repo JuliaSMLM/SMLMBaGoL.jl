@@ -104,10 +104,10 @@ result_smld, diagnostics = run_bagol(locs; camera=camera, n_iterations=10000)
 # Key parameters:
 #   μ=10.0                        # Mean locs per emitter
 #   shape=2.0                     # Count distribution shape (1=exp, >1=peaked)
-#   learn_shape=true              # Update shape during MCMC
-#   nsigma=3.0                    # DBSCAN threshold (Inf = no partitioning)
+#   learn_distribution=true       # true/false/:mu/:shape — control count distribution learning
+#   partition_sigma=3.0           # DBSCAN threshold (Inf = no partitioning)
 #   sync_interval=500             # Iterations between global μ/shape updates
-#   posterior_pixel_size=0.001    # Enable Rao-Blackwellized posterior image
+#   posterior_pixel_size=0.002    # Rao-Blackwellized posterior image (0.0 to disable)
 
 # 2. Standard report (compute metrics + write files + plot + render)
 report = compute_report(result_smld, diagnostics;
