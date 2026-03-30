@@ -628,22 +628,23 @@ end
 """
     propose_split_merge!(state, locs, μ, shape; n_restricted_scans=0) -> (Bool, Symbol)
 
-Proper RJMCMC split/merge with computable proposal densities and optional
-Jain-Neal restricted Gibbs scans for improved split acceptance.
+RJMCMC split/merge with |ΔK|=1 proposals and computable proposal densities.
 
-1. Propose K_new from π_count(K) ∝ P(N|K)  (count model cancels in MH)
-2. For ΔK = +1: sequential launch + restricted Gibbs scans (computable q_split)
-   For ΔK = -1: merge + reverse density via matching restricted Gibbs
-   For |ΔK| > 1: chain ±1 steps
+1. Randomly choose split (K→K+1) or merge (K→K-1) with equal probability.
+   Boundary: K=1 always split, K≥N always merge.
+2. Execute one split or merge with Jain-Neal restricted Gibbs scans.
 3. Accept/reject with full MH ratio:
 
-   log α = Δ_spatial + Δ_partition + Δ_proposal
+   log α = Δ_spatial + Δ_partition + Δ_proposal + Δ_count + Δ_move_type
 
-With `n_restricted_scans > 0`, the proposal density comes from the final
-restricted Gibbs sweep (Jain-Neal 2004). Intermediate sweeps improve the
-allocation quality without entering the density. The reverse density for
-merges uses the same framework: launch → intermediate sweeps → transition
-density from intermediate state to current allocation.
+Unlike the previous count-model K proposal (which sampled K_new from
+π_count(K) ∝ P(N|K) and canceled in the MH ratio), the |ΔK|=1 approach
+requires the count-model ratio explicitly:
+  Δ_count = log P(N|K') - log P(N|K)
+  Δ_move_type = log(d_{K'}) - log(b_K)  for splits (and vice versa for merges)
+
+This eliminates multi-step proposals that compound the DM penalty and are
+almost never accepted.
 
 Returns (accepted, move_type) where move_type is :split or :merge.
 """
@@ -655,42 +656,19 @@ function propose_split_merge!(state::CollapsedState,
     N < 2 && return false, :split
     K = state.n_active
 
-    # Compute count-model posterior for K = 1..K_max
-    K_max = max(2 * K, min(N, 30))
-    log_posts = state._log_probs  # reuse workspace
-    if K_max > length(log_posts)
-        K_max = length(log_posts)
+    # Choose split or merge with boundary handling
+    # b_K = P(proposing split at K), d_K = P(proposing merge at K)
+    if K <= 1
+        do_split = true
+        b_K = 1.0
+    elseif K >= N
+        do_split = false
+        b_K = 0.0
+    else
+        do_split = rand() < 0.5
+        b_K = 0.5
     end
-    @inbounds for k in 1:K_max
-        log_posts[k] = _log_count_posterior(k, N, shape, μ)
-    end
-
-    # Sample from normalized distribution (in-place log-sum-exp)
-    max_lp = log_posts[1]
-    @inbounds for k in 2:K_max
-        if log_posts[k] > max_lp
-            max_lp = log_posts[k]
-        end
-    end
-    total = 0.0
-    @inbounds for k in 1:K_max
-        v = exp(log_posts[k] - max_lp)
-        log_posts[k] = v
-        total += v
-    end
-
-    u = rand() * total
-    K_new = K_max
-    cumsum_p = 0.0
-    @inbounds for k in 1:K_max
-        cumsum_p += log_posts[k]
-        if u < cumsum_p
-            K_new = k
-            break
-        end
-    end
-
-    K_new == K && return false, :split
+    d_K = 1.0 - b_K
 
     # Save state for potential rollback
     _save_rollback!(state)
@@ -703,153 +681,156 @@ function propose_split_merge!(state::CollapsedState,
     lml_before = _total_spatial_lml(state)
     dm_before = _log_dm_partition(state, N, γ)
 
-    # Execute split(s) or merge(s) with computable proposal densities
-    move_type = K_new > K ? :split : :merge
-    log_q_fwd = 0.0  # log forward proposal density
-    log_q_rev = 0.0  # log reverse proposal density
+    log_q_fwd = 0.0  # log forward structural proposal density
+    log_q_rev = 0.0  # log reverse structural proposal density
 
-    if K_new > K
-        # Chain of splits: K → K+1 → ... → K_new
-        for step in 1:(K_new - K)
-            K_cur = K + step - 1
+    if do_split
+        K_new = K + 1
+        move_type = :split
 
-            # Select cluster uniformly at random
-            target_slot = 0
-            count = 0
-            r = rand(1:K_cur)
-            @inbounds for j in eachindex(state.active)
-                if state.active[j]
-                    count += 1
-                    if count == r
-                        target_slot = j
-                        break
-                    end
+        # Select cluster uniformly at random
+        target_slot = 0
+        count = 0
+        r = rand(1:K)
+        @inbounds for j in eachindex(state.active)
+            if state.active[j]
+                count += 1
+                if count == r
+                    target_slot = j
+                    break
                 end
             end
-
-            # Forward: select (1/K_cur) + split allocation
-            log_q_fwd += -log(Float64(K_cur))
-
-            _, log_q_alloc, member_indices, is_in_b = _do_sequential_split!(
-                state, target_slot, locs, γ;
-                n_restricted_scans = n_restricted_scans)
-
-            if log_q_alloc == -Inf
-                # Can't split (cluster too small)
-                _restore_rollback!(state, old_n_active, old_len)
-                return false, :split
-            end
-            log_q_fwd += log_q_alloc
-
-            # Reverse: uniform pair selection from K_cur+1 clusters
-            # The specific pair (parent_slot, new_slot) is 1 of C(K_cur+1, 2) pairs
-            K_after = K_cur + 1
-            log_q_rev += -log(Float64(K_after * (K_after - 1)) / 2.0)
         end
+
+        # Forward: select (1/K) + split allocation
+        log_q_fwd = -log(Float64(K))
+
+        _, log_q_alloc, member_indices, is_in_b = _do_sequential_split!(
+            state, target_slot, locs, γ;
+            n_restricted_scans = n_restricted_scans)
+
+        if log_q_alloc == -Inf
+            # Can't split (cluster too small)
+            _restore_rollback!(state, old_n_active, old_len)
+            return false, :split
+        end
+        log_q_fwd += log_q_alloc
+
+        # Reverse: uniform pair selection from K+1 clusters
+        log_q_rev = -log(Float64(K_new * (K_new - 1)) / 2.0)
+
+        # Birth/death rate correction: d_{K+1} / b_K
+        d_K_new = K_new >= N ? 1.0 : 0.5
+        Δ_move_type = log(d_K_new) - log(b_K)
     else
-        # Chain of merges: K → K-1 → ... → K_new
-        for step in 1:(K - K_new)
-            K_cur = K - step + 1
+        K_new = K - 1
+        move_type = :merge
 
-            # Select pair uniformly at random
-            n_pairs = K_cur * (K_cur - 1) ÷ 2
-            pair_idx = rand(1:n_pairs)
-            log_q_fwd += -log(Float64(n_pairs))
+        # Select pair uniformly at random
+        n_pairs = K * (K - 1) ÷ 2
+        pair_idx = rand(1:n_pairs)
+        log_q_fwd = -log(Float64(n_pairs))
 
-            # Enumerate active slots to find the selected pair
-            slot_a, slot_b = 0, 0
-            pair_count = 0
-            @inbounds for j1 in eachindex(state.active)
-                state.active[j1] || continue
-                for j2 in (j1+1):length(state.active)
-                    state.active[j2] || continue
-                    pair_count += 1
-                    if pair_count == pair_idx
-                        slot_a, slot_b = j1, j2
-                        break
-                    end
-                end
-                slot_b > 0 && break
-            end
-
-            # Collect all members of both clusters (sorted by loc index)
-            member_indices = Int[]
-            @inbounds for loc_idx in 1:N
-                a = state.assignments[loc_idx]
-                if a == slot_a || a == slot_b
-                    push!(member_indices, loc_idx)
+        # Enumerate active slots to find the selected pair
+        slot_a, slot_b = 0, 0
+        pair_count = 0
+        @inbounds for j1 in eachindex(state.active)
+            state.active[j1] || continue
+            for j2 in (j1+1):length(state.active)
+                state.active[j2] || continue
+                pair_count += 1
+                if pair_count == pair_idx
+                    slot_a, slot_b = j1, j2
+                    break
                 end
             end
-            m_merge = length(member_indices)
-
-            # Random seed selection matching the split's RJMCMC bijection.
-            # Seed density 1/(m(m-1)) appears in both split and merge proposals
-            # as auxiliary variables and cancels in the MH ratio.
-            s1 = rand(1:m_merge)
-            member_indices[1], member_indices[s1] = member_indices[s1], member_indices[1]
-            s2 = rand(2:m_merge)
-            member_indices[2], member_indices[s2] = member_indices[s2], member_indices[2]
-            if m_merge > 2
-                sort!(@view member_indices[3:m_merge])
-            end
-
-            # is_in_b relative to sub-cluster labels:
-            # member[i] goes to sub-B iff in same original cluster as seed_2
-            seed_b_cluster = state.assignments[member_indices[2]]
-            is_in_b = [state.assignments[member_indices[i]] == seed_b_cluster for i in 1:m_merge]
-
-            # Compute reverse (split) allocation density
-            if n_restricted_scans > 0
-                # Jain-Neal: launch → intermediate scans → transition density to current
-                # 1. Sample a launch state via sequential allocation from merged cluster
-                launch_is_in_b, launch_cs_a, launch_cs_b = _sample_sequential_launch(
-                    member_indices, state._loc_precs, state._locmix_grid, γ)
-
-                # 2. Run intermediate restricted Gibbs scans on the launch state
-                for _ in 1:(n_restricted_scans - 1)
-                    launch_cs_a, launch_cs_b, _ = _restricted_gibbs_sweep!(
-                        launch_is_in_b, launch_cs_a, launch_cs_b,
-                        member_indices, state._loc_precs, state._locmix_grid, γ, false)
-                end
-
-                # 3. Compute transition density: one Gibbs sweep from intermediate → current
-                log_q_alloc_rev = _restricted_gibbs_transition_density(
-                    launch_is_in_b, is_in_b,
-                    launch_cs_a, launch_cs_b,
-                    member_indices, state._loc_precs, state._locmix_grid, γ)
-            else
-                # No restricted Gibbs: use sequential allocation density (Round 3 behavior)
-                log_q_alloc_rev = _log_sequential_allocation(
-                    member_indices, is_in_b, state._loc_precs, state._locmix_grid, γ)
-            end
-
-            # Reverse: select cluster + allocation density (seed density cancels)
-            K_after = K_cur - 1
-            log_q_rev += -log(Float64(K_after)) + log_q_alloc_rev
-
-            # Execute the merge: move all locs from slot_b into slot_a
-            @inbounds for loc_idx in 1:N
-                if state.assignments[loc_idx] == slot_b
-                    lp = state._loc_precs[loc_idx]
-                    state.clusters[slot_b] = remove_loc(state.clusters[slot_b], lp)
-                    state.clusters[slot_a] = add_loc(state.clusters[slot_a], lp)
-                    state.assignments[loc_idx] = Int16(slot_a)
-                end
-            end
-            _deactivate_cluster!(state, slot_b)
+            slot_b > 0 && break
         end
+
+        # Collect all members of both clusters (sorted by loc index)
+        member_indices = Int[]
+        @inbounds for loc_idx in 1:N
+            a = state.assignments[loc_idx]
+            if a == slot_a || a == slot_b
+                push!(member_indices, loc_idx)
+            end
+        end
+        m_merge = length(member_indices)
+
+        # Random seed selection matching the split's RJMCMC bijection.
+        # Seed density 1/(m(m-1)) appears in both split and merge proposals
+        # as auxiliary variables and cancels in the MH ratio.
+        s1 = rand(1:m_merge)
+        member_indices[1], member_indices[s1] = member_indices[s1], member_indices[1]
+        s2 = rand(2:m_merge)
+        member_indices[2], member_indices[s2] = member_indices[s2], member_indices[2]
+        if m_merge > 2
+            sort!(@view member_indices[3:m_merge])
+        end
+
+        # is_in_b relative to sub-cluster labels:
+        # member[i] goes to sub-B iff in same original cluster as seed_2
+        seed_b_cluster = state.assignments[member_indices[2]]
+        is_in_b = [state.assignments[member_indices[i]] == seed_b_cluster for i in 1:m_merge]
+
+        # Compute reverse (split) allocation density
+        if n_restricted_scans > 0
+            # Jain-Neal: launch → intermediate scans → transition density to current
+            # 1. Sample a launch state via sequential allocation from merged cluster
+            launch_is_in_b, launch_cs_a, launch_cs_b = _sample_sequential_launch(
+                member_indices, state._loc_precs, state._locmix_grid, γ)
+
+            # 2. Run intermediate restricted Gibbs scans on the launch state
+            for _ in 1:(n_restricted_scans - 1)
+                launch_cs_a, launch_cs_b, _ = _restricted_gibbs_sweep!(
+                    launch_is_in_b, launch_cs_a, launch_cs_b,
+                    member_indices, state._loc_precs, state._locmix_grid, γ, false)
+            end
+
+            # 3. Compute transition density: one Gibbs sweep from intermediate → current
+            log_q_alloc_rev = _restricted_gibbs_transition_density(
+                launch_is_in_b, is_in_b,
+                launch_cs_a, launch_cs_b,
+                member_indices, state._loc_precs, state._locmix_grid, γ)
+        else
+            # No restricted Gibbs: use sequential allocation density (Round 3 behavior)
+            log_q_alloc_rev = _log_sequential_allocation(
+                member_indices, is_in_b, state._loc_precs, state._locmix_grid, γ)
+        end
+
+        # Reverse: select cluster + allocation density (seed density cancels)
+        log_q_rev = -log(Float64(K_new)) + log_q_alloc_rev
+
+        # Execute the merge: move all locs from slot_b into slot_a
+        @inbounds for loc_idx in 1:N
+            if state.assignments[loc_idx] == slot_b
+                lp = state._loc_precs[loc_idx]
+                state.clusters[slot_b] = remove_loc(state.clusters[slot_b], lp)
+                state.clusters[slot_a] = add_loc(state.clusters[slot_a], lp)
+                state.assignments[loc_idx] = Int16(slot_a)
+            end
+        end
+        _deactivate_cluster!(state, slot_b)
+
+        # Birth/death rate correction: b_{K-1} / d_K
+        b_K_new = K_new <= 1 ? 1.0 : 0.5
+        Δ_move_type = log(b_K_new) - log(d_K)
     end
 
     # Compute target density components AFTER the move
     lml_after = _total_spatial_lml(state)
     dm_after = _log_dm_partition(state, N, γ)
 
-    # Full MH acceptance ratio (count model cancels between posterior and proposal):
-    #   log α = Δ_spatial + Δ_partition + Δ_proposal
+    # Full MH acceptance ratio:
+    #   log α = Δ_spatial + Δ_partition + Δ_proposal + Δ_count + Δ_move_type
+    # Δ_count is needed because K is no longer proposed from the count model
+    # (which previously canceled against the posterior).
     Δ_spatial = lml_after - lml_before
     Δ_partition = dm_after - dm_before
     Δ_proposal = log_q_rev - log_q_fwd
-    log_α = Δ_spatial + Δ_partition + Δ_proposal
+    Δ_count = _log_count_posterior(K_new, N, shape, μ) -
+              _log_count_posterior(K, N, shape, μ)
+    log_α = Δ_spatial + Δ_partition + Δ_proposal + Δ_count + Δ_move_type
 
     if log_α >= 0 || rand() < exp(log_α)
         return true, move_type
