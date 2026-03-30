@@ -50,6 +50,54 @@ function initialize_collapsed_state(locs::Vector{<:SMLMData.AbstractEmitter},
 end
 
 """
+    initialize_from_assignments(assignments, locs) -> CollapsedState
+
+Initialize a CollapsedState from an explicit assignment vector.
+Used for diagnostics (transition matrix test, kernel verification).
+
+`assignments[i]` is the 1-based cluster label for localization `i`.
+All workspace buffers and precomputed data (LocPrecision, LocmixGrid)
+are built fresh.
+"""
+function initialize_from_assignments(assignments::AbstractVector{<:Integer},
+                                      locs::Vector{<:SMLMData.AbstractEmitter})
+    N = length(locs)
+    @assert length(assignments) == N "Assignment length must match number of locs"
+
+    spatial_prior = UniformSpatialPrior(locs)
+    log_area = log(area(spatial_prior))
+
+    assign16 = Vector{Int16}(assignments)
+    max_cluster = maximum(assign16)
+    clusters = [ClusterStats() for _ in 1:max_cluster]
+    active = falses(max_cluster)
+
+    for (i, a) in enumerate(assign16)
+        if a > 0
+            clusters[a] = add_loc(clusters[a], locs[i])
+            active[a] = true
+        end
+    end
+    n_active = count(active)
+
+    _loc_precs = precompute_loc_precisions(locs)
+    _locmix_grid = build_locmix_grid(_loc_precs)
+
+    max_K = max(N, 16)
+    _perm = collect(1:N)
+    _active_slots = Vector{Int}(undef, max_K)
+    _log_probs = Vector{Float64}(undef, max_K + 1)
+    _rollback_assignments = similar(assign16)
+    _rollback_clusters = similar(clusters)
+    _rollback_active = similar(active)
+
+    return CollapsedState(assign16, clusters, active, n_active, log_area,
+                          _loc_precs, _locmix_grid,
+                          _perm, _active_slots, _log_probs,
+                          _rollback_assignments, _rollback_clusters, _rollback_active)
+end
+
+"""
     run_collapsed_chain(locs; kwargs...) -> CollapsedChainResult
 
 Run the collapsed Gibbs sampler on a set of localizations.
@@ -58,6 +106,9 @@ Run the collapsed Gibbs sampler on a set of localizations.
 - `locs`: Vector of localizations (Emitter2DFit or similar)
 - `n_iterations=10000`: Total MCMC iterations
 - `burn_in=2000`: Burn-in iterations before accumulating
+- `initial_assignments=nothing`: Optional initial assignment vector.
+  If provided, the chain starts from this state instead of all-in-one.
+  Used for diagnostics (transition matrix test, kernel verification).
 - `shape=2.0`: Initial Gamma shape for count distribution
 - `learn_distribution=true`: Control count distribution learning.
   `true`=learn both μ and shape, `false`=fix both,
@@ -76,6 +127,7 @@ function run_collapsed_chain(
     locs::Vector{<:SMLMData.AbstractEmitter};
     n_iterations::Int = 10000,
     burn_in::Int = 2000,
+    initial_assignments::Union{Nothing, AbstractVector{<:Integer}} = nothing,
     shape::Float64 = 2.0,
     learn_distribution::Union{Bool, Symbol} = true,
     μ_prior_shape::Float64 = 2.0,
@@ -100,9 +152,13 @@ function run_collapsed_chain(
     _learn_mu = learn_distribution === true || learn_distribution === :mu
     _learn_shape = learn_distribution === true || learn_distribution === :shape
 
-    # Initialize
-    spatial_prior = UniformSpatialPrior(locs)
-    state = initialize_collapsed_state(locs, spatial_prior)
+    # Initialize from explicit assignments or default (all-in-one)
+    if initial_assignments !== nothing
+        state = initialize_from_assignments(initial_assignments, locs)
+    else
+        spatial_prior = UniformSpatialPrior(locs)
+        state = initialize_collapsed_state(locs, spatial_prior)
+    end
 
     μ = μ_prior_shape * μ_prior_scale  # Initial μ from prior mean
     current_shape = shape

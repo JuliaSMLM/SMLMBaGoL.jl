@@ -13,7 +13,7 @@ using Statistics
 
 # Export main API
 export run_bagol
-export run_collapsed_chain
+export run_collapsed_chain, initialize_from_assignments
 export estimate_mapn_collapsed, estimate_mapn_overlap, estimate_mapn_psm, estimate_dahl, estimate_vi_greedy
 export save_posterior_png
 export BaGoLDiagnostics
@@ -49,55 +49,45 @@ export run_optimality_sweep, run_speed_test, count_model_map_k
 export write_sweep, write_speed
 export plot_sweep, plot_speed  # extension stubs
 
-# Export diagnostics — target density abstraction
-export AbstractTargetDensity, DecoupledTarget, MFMTarget, UniformPriorTarget
-export log_target, evaluate_target, log_mfm_partition_ratio
+# Export diagnostics — target density
+export AbstractTargetDensity, DecoupledTarget
+export log_target, evaluate_target
 
-# Export diagnostics — enumeration
-export enumerate_canonical_partitions, canonicalize
-export exact_posterior, compare_mcmc_to_exact, run_enumeration_test
+# Export diagnostics — finite-state validation
+export enumerate_canonical_partitions, canonicalize, exact_posterior
+export run_kernel_invariance_test
 
 # Export diagnostics — detailed balance
-export DetailedBalanceResult
-export check_detailed_balance, run_detailed_balance_suite, print_db_summary
+export DetailedBalanceResult, check_detailed_balance
 
-# Export diagnostics — partition metrics
-export variation_of_information, expected_posterior_loss, partition_diagnostics
-
-# Export diagnostics — chain diagnostics
+# Export diagnostics — mixing
 export ChainDiagnosticAccumulator
-export effective_sample_size, autocorrelation, gelman_rubin
-export run_mixing_test, run_length_test
-
-# Export diagnostics — count model utilities
-export count_model_posterior, qpaint_recovery_rate
-export count_model_confusion_matrix, theoretical_accuracy_bound
+export effective_sample_size, autocorrelation, split_gelman_rubin
+export indicator_ess, run_mixing_test
 
 # Include source files
-include("spatial.jl")      # Must come before cluster_stats (provides get_cov_xy)
-include("cluster_stats.jl") # Must come before types.jl (CollapsedState uses ClusterStats)
+include("spatial.jl")
+include("cluster_stats.jl")
 include("types.jl")
 include("priors.jl")
 include("hierarchical.jl")
 include("mapn.jl")
-include("accumulators.jl")   # Accumulator interface for collapsed sampler
+include("accumulators.jl")
 include("collapsed_moves.jl")
 include("collapsed_sampler.jl")
-include("partition.jl")    # Must come before rjmcmc (provides Partition)
-include("partitioned.jl")  # Must come before rjmcmc (provides deduplicate_boundary_emitters)
+include("partition.jl")
+include("partitioned.jl")
 include("rjmcmc.jl")
 include("posterior_image.jl")
-include("archive.jl")       # Mmap chain archive
+include("archive.jl")
 include("simulation.jl")
-include("reports.jl")       # Standard report computation + write
-include("optimality.jl")    # Optimality sweep + speed test
+include("reports.jl")
+include("optimality.jl")
 
-# Diagnostics module (algorithm-agnostic evaluation infrastructure)
-include("diagnostics/target.jl")            # Target density abstraction (must come first)
-include("diagnostics/count_model.jl")       # Count model analysis
-include("diagnostics/partition_metrics.jl")  # VI, EPL, partition comparison
-include("diagnostics/chain_diagnostics.jl") # ESS, R-hat, autocorrelation, mixing tests
-include("diagnostics/enumeration.jl")       # Brute-force partition enumeration
-include("diagnostics/detailed_balance.jl")  # Detailed balance verification
+# Diagnostics (3 files)
+include("diagnostics/target.jl")
+include("diagnostics/finite_state.jl")
+include("diagnostics/mixing.jl")
+include("diagnostics/detailed_balance.jl")
 
 end # module

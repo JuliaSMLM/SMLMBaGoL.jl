@@ -12,7 +12,7 @@
     count_model_map_k(n_locs, mu, shape) -> Int
 
 MAP estimate of K from count model alone (no spatial information).
-Maximizes P(K | N, μ, shape) ∝ Gamma(N; K*shape, μ/shape).
+Maximizes P(K | N, μ, shape) ∝ NegBin(N; K×shape, shape/(shape+μ)).
 
 This is the Q-PAINT baseline: best you can do without resolving emitters.
 """
@@ -20,12 +20,11 @@ function count_model_map_k(n_locs::Int, mu::Float64, shape::Float64)
     n_locs == 0 && return 0
     best_k = 1
     best_ll = -Inf
+    p = shape / (shape + mu)
     # Search K from 1 to 3× expected
     k_max = max(10, ceil(Int, 3 * n_locs / mu))
     for k in 1:k_max
-        α = k * shape
-        θ = mu / shape
-        ll = (α - 1) * log(n_locs) - n_locs / θ - α * log(θ) - loggamma(α)
+        ll = logpdf(NegativeBinomial(k * shape, p), n_locs)
         if ll > best_ll
             best_ll = ll
             best_k = k
