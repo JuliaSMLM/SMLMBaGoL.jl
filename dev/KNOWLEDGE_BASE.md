@@ -192,6 +192,33 @@ The transition density for the merge reverse uses a "hybrid state" at each step:
 
 ---
 
+### 15. Weakening DM Prior (γ < shape) to Fix Under-Splitting (Round 6 — DEAD END)
+
+**What was tried:** Multi-prior brute-force enumeration comparing DM γ=2.0 (default), γ=1.0, γ=0.5, and uniform 1/S(N,K) partition priors. The hypothesis was that γ=shape=2 is "too strong" and a weaker γ would give better K recovery at d/σ=3.
+
+**Why it's wrong:** The exact posterior under DM γ=2 gives the HIGHEST P(K_true) for the close dimer (d/σ=3). Lower γ shifts mass TOWARD K=1, not K=2. This is because:
+1. DM γ=2 favors balanced partitions (n_k ≈ N/K) which have BETTER spatial fit (members near their emitter)
+2. DM γ=0.5 favors unbalanced partitions (one large, one small cluster) which have WORSE spatial fit (the large cluster's mean is between emitters)
+3. The DM concentration and spatial evidence are cooperative, not antagonistic
+
+**Uniform partition (1/S(N,K)) catastrophically over-splits:** MAP-K=4 for both d/σ=3 and d/σ=10 dimers. Removing the DM penalty entirely reintroduces the combinatorial over-splitting from KB #1.
+
+**What was learned:** The DM prior with γ=shape is the right choice. The under-splitting is a mixing problem (sampler can't cross the DM energy barrier), not a model problem (DM posterior itself gives correct answers). Adjusting γ is not a principled fix — it changes the correct target distribution for the worse.
+
+**Key data (d/σ=3, N=6):** P_exact(K=2): DM γ=2→0.603, γ=1→0.599, γ=0.5→0.579, Uniform→0.249
+
+**Branch/commit:** Analysis script `dev/prior_sensitivity.jl` added in Round 6. No sampler changes.
+
+---
+
+### 16. Hierarchical μ/shape Feedback Under Under-Splitting (Round 6 — OBSERVATION)
+
+**What was observed:** In smlmsim_highdensity (true μ≈8.7, shape≈1.5), the hierarchical learner converged to μ=17.44, shape=21.92. Because the sampler under-splits (K too low), each inferred cluster has more locs → the learner infers higher μ and shape. This creates a secondary feedback loop: higher μ shifts the count model toward lower K, reinforcing under-splitting.
+
+**Not a dead end per se** — fixing K-mixing would fix this. But it's a mechanism to be aware of: the hierarchical learner can mask or amplify mixing problems.
+
+---
+
 ## Working Techniques
 
 ### A. Localization Mixture Prior
