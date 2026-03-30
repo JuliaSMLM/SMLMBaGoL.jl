@@ -122,6 +122,9 @@ Run the collapsed Gibbs sampler on a set of localizations.
 - 50%: Allocation Gibbs sweep (full sweep per iteration)
 - 25%: Split (K → K+1, restricted Gibbs scan)
 - 25%: Merge (K → K-1, uniform pair selection)
+- `n_restricted_scans=5`: Jain-Neal restricted Gibbs scans per split/merge.
+  0 = sequential allocation only (Round 3 behavior).
+  >0 = launch + (n-1) intermediate sweeps + 1 final sweep with density.
 """
 function run_collapsed_chain(
     locs::Vector{<:SMLMData.AbstractEmitter};
@@ -138,7 +141,8 @@ function run_collapsed_chain(
     accumulators::Vector{<:AbstractAccumulator} = AbstractAccumulator[],
     verbose::Bool = false,
     callback::Union{Function, Nothing} = nothing,
-    callback_interval::Int = 1
+    callback_interval::Int = 1,
+    n_restricted_scans::Int = 5
 )
     N = length(locs)
     if N == 0
@@ -186,7 +190,8 @@ function run_collapsed_chain(
             acceptance[:gibbs_sweep] = (prev[1] + 1, prev[2] + 1)
         else
             # Split-merge — use current μ (no fixed μ₀ hack)
-            accepted, move_type = propose_split_merge!(state, locs, μ, current_shape)
+            accepted, move_type = propose_split_merge!(state, locs, μ, current_shape;
+                                                        n_restricted_scans = n_restricted_scans)
             prev = acceptance[move_type]
             acceptance[move_type] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
         end
@@ -251,7 +256,8 @@ function run_collapsed_iterations!(
     accumulators::Vector{<:AbstractAccumulator},
     burn_in::Int,
     current_iter::Int;
-    acceptance::Union{Dict{Symbol, Tuple{Int, Int}}, Nothing}=nothing
+    acceptance::Union{Dict{Symbol, Tuple{Int, Int}}, Nothing}=nothing,
+    n_restricted_scans::Int = 5
 )
     for _ in 1:n
         current_iter += 1
@@ -264,7 +270,8 @@ function run_collapsed_iterations!(
                 acceptance[:gibbs_sweep] = (prev[1] + 1, prev[2] + 1)
             end
         else
-            accepted, move_type = propose_split_merge!(state, locs, μ, shape)
+            accepted, move_type = propose_split_merge!(state, locs, μ, shape;
+                                                        n_restricted_scans = n_restricted_scans)
             if acceptance !== nothing
                 prev = acceptance[move_type]
                 acceptance[move_type] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
