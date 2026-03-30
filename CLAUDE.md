@@ -79,8 +79,11 @@ Plotting/rendering functions activate when the user loads these packages.
 
 - State = allocation vector only (which locs belong to which cluster)
 - Emitter positions integrated out analytically via ClusterStats
-- Moves: Gibbs allocation sweep (50%), split (25%), merge (25%)
-- K proposed from count-model posterior, spatial MH correction with area-invariant formulation
+- Moves: DM-weighted Gibbs allocation sweep (50%), RJMCMC split/merge (50%)
+- Gibbs: P(z_i=k|rest) ∝ (n_{-i,k}+γ) × predictive (Dirichlet-Multinomial partition prior)
+- Split/merge: sequential predictive allocation with computable proposal density
+- MH acceptance: Δ_spatial + Δ_partition + Δ_proposal (full RJMCMC)
+- K proposed from count-model posterior (cancels in MH ratio)
 - Rao-Blackwellized posterior image (Gaussian blobs, not point deltas)
 - MAP-N estimation via Dahl+Hungarian matching on stored assignment samples
 
@@ -192,6 +195,40 @@ Examples use `CairoMakie` and `SMLMRender` for visualization.
 This package is a Julia reimplementation of BaGoL. The current MATLAB implementation is in [LidkeLab/smite](https://github.com/LidkeLab/smite) at `+smi/@BaGoL`, integrated into the SMITE toolbox with shared SMF/SMD data structures.
 
 **Paper:** Fazel et al., "High-Precision Estimation of Emitter Positions using Bayesian Grouping of Localizations", *Nature Communications* 13, 7152 (2022). [doi:10.1038/s41467-022-34894-2](https://doi.org/10.1038/s41467-022-34894-2)
+
+## Sampler Research Protocol
+
+Multi-session research framework for improving the collapsed Gibbs sampler. Adapted from MillenniumPrize framework.
+
+### Key Files
+
+- `dev/STATUS.md` — Current research state. Read at start of session, update at end.
+- `dev/KNOWLEDGE_BASE.md` — Dead ends and working techniques. Check before proposing new approaches.
+- `dev/sampler_reference.md` — Authoritative mathematical reference for the sampler.
+
+### Session Protocol
+
+**"Run a round" / "next round" / "sampler round"** = execute the full protocol below.
+
+1. **Start:** Read `dev/STATUS.md` + relevant KNOWLEDGE_BASE.md entries
+2. **Validate first:** Run diagnostics before making changes. Let numerics lead.
+3. **Work:** Make changes, run tests, analyze results.
+4. **End (non-negotiable):** Update `dev/STATUS.md` (Recent Activity, thread status). Update `dev/KNOWLEDGE_BASE.md` if dead end found or technique proven.
+
+### Validation-First Principle
+
+Run `brute_force_enumeration.jl` and `detailed_balance_check.jl` before AND after sampler changes. The diagnostic verdict is ground truth. Do not record analytical claims without numerical backing.
+
+```bash
+# Quick validation (~2 min)
+julia --project=dev dev/detailed_balance_check.jl
+
+# Full validation (~30 min)
+julia --project=dev dev/brute_force_enumeration.jl
+
+# Practical validation (~20 min)
+julia --threads=auto --project=dev dev/smlmsim_highdensity.jl
+```
 
 ## Git Workflow
 
