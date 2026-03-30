@@ -211,9 +211,11 @@ Multi-session research framework for improving the collapsed Gibbs sampler. Adap
 **"Run a round" / "next round" / "sampler round"** = execute the full protocol below.
 
 1. **Start:** Read `dev/STATUS.md` + relevant KNOWLEDGE_BASE.md entries
-2. **Validate first:** Run diagnostics before making changes. Let numerics lead.
-3. **Work:** Make changes, run tests, analyze results.
-4. **End (non-negotiable):** Update `dev/STATUS.md` (Recent Activity, thread status). Update `dev/KNOWLEDGE_BASE.md` if dead end found or technique proven.
+2. **Plan:** Draft the round plan (what to try, why, expected outcome).
+3. **Codex review:** Run `/ask-codex` with the plan + relevant STATUS.md context. Incorporate feedback before proceeding.
+4. **Validate first:** Run diagnostics before making changes. Let numerics lead.
+5. **Work:** Make changes, run tests, analyze results.
+6. **End (non-negotiable):** Update `dev/STATUS.md` (Recent Activity, thread status). Update `dev/KNOWLEDGE_BASE.md` if dead end found or technique proven.
 
 ### Validation-First Principle
 

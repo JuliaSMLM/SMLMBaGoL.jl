@@ -2,7 +2,7 @@
 
 **Authoritative reference for the collapsed Gibbs sampler. Read before modifying. Update after modifying.**
 
-*Matches implementation on `main` branch (Round 4, 2026-03-29).*
+*Matches implementation on `main` branch (Round 6, 2026-03-30). No code changes since Round 4; Rounds 5-6 were diagnostic only.*
 
 ---
 
