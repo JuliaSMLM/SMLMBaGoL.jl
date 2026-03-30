@@ -199,6 +199,24 @@ function _nn_distances(emitters::Vector{<:SMLMData.AbstractEmitter})
     return dists
 end
 
+function _nn_distances(positions::Vector{Tuple{Float64, Float64}})
+    n = length(positions)
+    n < 2 && return Float64[]
+    dists = Float64[]
+    for i in 1:n
+        min_d = Inf
+        for j in 1:n
+            i == j && continue
+            dx = positions[i][1] - positions[j][1]
+            dy = positions[i][2] - positions[j][2]
+            d = sqrt(dx^2 + dy^2)
+            d < min_d && (min_d = d)
+        end
+        push!(dists, min_d)
+    end
+    return dists
+end
+
 # ============================================================================
 # compute_report
 # ============================================================================
@@ -285,6 +303,8 @@ function compute_report(
         NaN
     end
 
+    gt_nn_dists = _nn_distances(true_positions)
+
     gt_fields = (
         k_true = n_true,
         n_matched = n_matched,
@@ -295,6 +315,7 @@ function compute_report(
         rmse = rmse,
         rmse_oracle = oracle_rmse,
         calibration = calibration,
+        gt_nn_distances = gt_nn_dists,
     )
 
     return merge(base, gt_fields)
@@ -357,6 +378,10 @@ function _write_summary(report, path)
             med_nn = median(report.nn_distances) * 1000  # nm
             println(io)
             println(io, "Median NN distance: $(round(med_nn, digits=1)) nm")
+            if hasproperty(report, :gt_nn_distances) && !isempty(report.gt_nn_distances)
+                gt_med = median(report.gt_nn_distances) * 1000
+                println(io, "GT median NN dist:  $(round(gt_med, digits=1)) nm")
+            end
         end
         if report.has_gt
             println(io)
