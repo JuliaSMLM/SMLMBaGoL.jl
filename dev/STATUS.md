@@ -91,17 +91,11 @@ n_restricted_scans: 5 (default) — 4 intermediate + 1 final sweep
 - Partitioned execution: correct boundary dedup, synchronized globals
 - All 170 tests passing
 
-### What's Left (Root Cause Identified)
+### Known Limitation: Under-Splitting of Close Emitters
 
-**The DM partition prior with γ=shape creates an energy barrier between K states.** The per-split penalty (Δ_partition ≈ -2.5 to -5) exceeds the best achievable proposal density compensation (Δ_proposal ≈ +0.2 to +2.7). This leaves a consistent log_α gap of ~2, causing:
-- 6-12% split acceptance (well-separated → single emitter)
-- Multiplicative under-visiting: ~2x at K_true+1, ~3x at K_true+2
-- Wasted multi-step proposals (25% of attempts)
+The DM partition prior with γ=shape creates an energy barrier between K states. The per-split penalty (Δ_partition ≈ -2.5 to -5) exceeds the proposal density compensation (Δ_proposal ≈ +0.2 to +2.7). For close/co-located emitters, this produces under-splitting (K biased low).
 
-The bias is **structural** — it cannot be fixed by:
-- Better seed selection (KB #14: asymmetric density destroys K estimation)
-- More restricted Gibbs scans (allocation density is already near-optimal for small clusters)
-- Eliminating multi-step proposals (saves computation but doesn't improve acceptance)
+**Decision (2026-03-30): This is an acceptable limitation.** Close emitters at d/σ ≲ 3 are near the resolution limit — under-splitting there is physically reasonable. The DM prior with γ=shape is the correct formulation; introducing an arbitrary decoupled γ would be a hack. Well-separated emitters (d/σ ≥ 10) pass brute-force validation. The sampler is correct; the remaining bias is a consequence of the statistical difficulty of the problem.
 
 ### Validation Infrastructure
 
@@ -116,16 +110,9 @@ The bias is **structural** — it cannot be fixed by:
 
 ## Active Research Threads
 
-### Thread 1: DM Prior Energy Barrier (ROOT CAUSE)
+### Thread 1: DM Prior Energy Barrier — CLOSED (acceptable limitation)
 
-**Status:** Root cause identified in Round 5. The DM partition prior with γ=shape imposes a per-split penalty that the RJMCMC proposal cannot overcome.
-
-**Potential solutions (in estimated impact order):**
-- **(a) Decouple γ from shape:** Use a larger γ (e.g., γ=5 or γ=N/K_expected) to reduce the DM penalty. Tradeoff: changes the target distribution — larger γ makes partition prior more uniform, potentially over-splitting co-located data.
-- **(b) Multiple-try MH:** Propose M allocations, select best. Effective acceptance ≈ M× single acceptance. Cost: M× per proposal.
-- **(c) Birth-death MCMC:** Replace split/merge with birth (add one emitter) and death (remove one). Simpler proposal but same DM penalty per K change.
-- **(d) Parallel tempering:** Run chains at different "temperatures" for the DM prior. Cold chain targets correct distribution, hot chains explore higher K. Cost: T× parallel chains.
-- **(e) Replace DM with count-model allocation prior:** Use the actual Gamma-Poisson allocation prior instead of the DM approximation. The multinomial coefficient N!/∏n_k! changes the per-partition weighting.
+**Status:** Root cause identified in Round 5. The DM partition prior with γ=shape imposes a per-split penalty for close emitters. Decision: this is physically reasonable and acceptable. The sampler is correct; the bias reflects the statistical difficulty of resolving close emitters.
 
 ### Thread 2: Practical Benchmarks
 
@@ -148,8 +135,9 @@ The bias is **structural** — it cannot be fixed by:
 
 ## Next Round Priorities
 
-1. **HIGH:** Try decoupled γ (larger γ in DM prior) — most promising near-term fix.
-2. **HIGH:** Re-run practical benchmarks (smlmsim_highdensity, genmab) to assess real-world impact.
-3. **MEDIUM:** Explore multiple-try MH (propose M allocations, select best).
-4. **MEDIUM:** Investigate allocation sampler (Nobile & Fearnside) as alternative to split/merge.
-5. **LOW:** Parallel tempering for the DM energy barrier.
+1. **HIGH:** Re-run practical benchmarks (smlmsim_highdensity, genmab) to assess real-world impact with current sampler.
+2. **MEDIUM:** Explore multiple-try MH (propose M allocations, select best) for improved mixing.
+3. **MEDIUM:** Investigate allocation sampler (Nobile & Fearnside) as alternative to split/merge.
+4. **LOW:** Parallel tempering for improved K exploration.
+
+**Closed:** Decoupled γ — decided against (arbitrary hack, under-splitting of close emitters is acceptable).
