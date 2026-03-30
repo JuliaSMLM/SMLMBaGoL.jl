@@ -219,6 +219,29 @@ The transition density for the merge reverse uses a "hybrid state" at each step:
 
 ---
 
+### 17. |ΔK|=1 Random Split/Merge (Round 7 — CURRENT)
+
+**What was tried:** Replace count-model K sampling (which could propose |ΔK|>1) with random single-step proposals: 50/50 split/merge coin flip with boundary handling (K=1 always split, K≥N always merge). Since K is no longer proposed from π_count, the count-model ratio Δ_count = log P(N|K') - log P(N|K) enters the MH acceptance explicitly, along with a birth/death rate correction Δ_move_type for boundary cases.
+
+**What works:**
+1. Split acceptance doubled (2.7% → 6.7% on well-separated SM-only)
+2. Close dimer max ratio improved (2.18x → 2.01x) — Δ_count helps drive K=1→2 splits
+3. ESS improved ~12% (SM-only: 33171 → 37088)
+4. Eliminated multi-step waste (~25% of proposals in R6 were |ΔK|>1 and almost never accepted)
+5. Code simpler — no chain-of-splits/merges loops
+
+**What doesn't change:** The fundamental DM energy barrier per split (-2.5 to -5) persists. Single-step split acceptance is still only 5-7%. Practical smlmsim recall unchanged (~59%).
+
+**Trade-off:** The old count-model proposal was an independence sampler (global K jumps); the new one is a local random walk (K±1). This trades global K mobility for elimination of dead-on-arrival proposals. For the under-splitting problem (where K is stuck near K_mode), the local walk with Δ_count is a net win because the wasted multi-step proposals weren't helping anyway.
+
+**Key data (SM-only well-separated):**
+- R6: split 2.7%, merge 9.2%, ESS 33171, KL 0.020
+- R7: split 6.7%, merge 6.7%, ESS 37088, KL 0.019
+
+**Branch/commit:** main, Round 7 changes.
+
+---
+
 ## Working Techniques
 
 ### A. Localization Mixture Prior
@@ -258,6 +281,14 @@ For merge reverse density: same launch mechanism, then intermediate sweeps, then
 **Critical detail:** The seed density 1/(m(m-1)) must NOT be included in the MH ratio — it cancels between the split and merge auxiliary variables. Including it creates an m(m-1) ≈ 90 factor asymmetry that destroys K estimation.
 
 **Performance note:** Acceptance rates don't change much because better proposals also have higher proposal density, which partially cancels in the MH ratio. The benefit is in proposal quality — accepted moves are better.
+
+### F. |ΔK|=1 Random Split/Merge with Count-Model Ratio (Round 7)
+
+**What:** Replace count-model K proposal (which sampled K_new from π_count and could propose |ΔK|>1) with random ±1 proposals. 50/50 split/merge, boundary-aware. MH includes Δ_count = log P(N|K') - log P(N|K) and Δ_move_type for boundary corrections.
+
+**Why it works:** Eliminates multi-step proposals that compound the DM penalty and are almost never accepted. The count model enters the acceptance ratio directly, helping drive splits when the data supports higher K. Split acceptance doubled from ~3% to ~7%.
+
+**Trade-off:** Local random walk instead of global independence sampler. Loses ability to jump multiple K steps at once, but those jumps were almost never accepted anyway.
 
 ### D. Hierarchical μ/shape Learning
 

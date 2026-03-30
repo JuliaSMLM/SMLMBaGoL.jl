@@ -1,79 +1,66 @@
 # Sampler Research Status
 
-## Current State (2026-03-30, Round 6)
+## Current State (2026-03-30, Round 7)
 
-Round 6 resolved the model-vs-mixing question definitively: **the DM prior is correct; the problem is slow K-mixing.** Multi-prior brute-force enumeration shows DM γ=2 gives the best exact posterior P(K) across all separations. The sampler under-visits K > K_mode by 1.5-2.5× per step, consistent with slow split acceptance (2-12%). Practical benchmarks confirm 40% recall loss on high-density 6-mers.
+Round 7 replaced the count-model K proposal with |ΔK|=1 random split/merge proposals. This eliminated multi-step waste (~25% of proposals in R6) and added the count-model ratio Δ_count to the MH acceptance. Split acceptance doubled (2.7%→6.7%), ESS improved ~12%, and the close dimer max ratio improved (2.18x→2.01x). The fundamental under-visiting of K > K_mode persists but is slightly reduced.
 
-### Brute-Force Results (Round 6, unchanged code from Round 5)
+### Brute-Force Results (Round 7)
 
-| Test | KL | Max ratio | Verdict | K_mode exact | K_mode MCMC |
-|------|-----|-----------|---------|-------------|-------------|
-| Well-separated (d/σ=10) | 0.014 | 1.48x | **PASS** | K=2 (72.5%) | K=2 (79.4%) |
-| Close dimer (d/σ=3) | 0.040 | 2.18x | FAIL | K=2 (60.3%) | K=2 (59.3%) |
-| Single emitter | 0.047 | 3.22x | FAIL | K=1 (79.1%) | K=1 (89.4%) |
-| Large dimer (d/σ=8) | 0.033 | 2.49x | FAIL | K=2 (75.4%) | K=2 (84.9%) |
-| SM-only (well-sep) | 0.019 | 1.76x | FAIL | — | — |
+| Test | KL | Max ratio | Verdict | R6 KL | R6 ratio | Change |
+|------|-----|-----------|---------|-------|----------|--------|
+| Well-separated (d/σ=10) | 0.015 | 1.55x | **PASS** | 0.014 | 1.48x | ~same |
+| Close dimer (d/σ=3) | 0.036 | 2.01x | FAIL | 0.040 | 2.18x | **improved** |
+| Single emitter | 0.054 | 2.81x | FAIL | 0.047 | 3.22x | ratio improved |
+| Large dimer (d/σ=8) | 0.038 | 2.56x | FAIL | 0.033 | 2.49x | slightly worse |
+| SM-only (well-sep) | 0.019 | 1.76x | FAIL | 0.020 | 1.76x | ~same |
+
+**Split/merge acceptance rates (Round 7):**
+
+| Test | Split acc. | Merge acc. | R6 split | R6 merge |
+|------|-----------|-----------|----------|----------|
+| Well-sep (full MCMC) | 6.7% | 6.7% | ~3% | ~9% |
+| Close dimer | 36.9% | 64.5% | — | — |
+| Single emitter | 5.6% | 100% | — | — |
+| SM-only (well-sep) | 6.7% | 6.7% | 2.7% | 9.2% |
 
 **Close dimer P(K) detail (d/σ=3) — exact vs MCMC:**
 
 | K | P_exact | P_MCMC | Ratio | Direction |
 |---|---------|--------|-------|-----------|
-| 1 | 0.186 | 0.277 | 0.67 | Over-visited (1.49×) |
-| 2 | 0.603 | 0.593 | 1.02 | **Correct** |
-| 3 | 0.191 | 0.120 | 1.59 | Under-visited |
-| 4 | 0.020 | 0.009 | 2.18 | Under-visited |
-
-MAP-K = 2 in BOTH exact and MCMC — the mode is correctly identified. The bias only affects the tails: mass flows from K=3,4 → K=1, leaving K=2 essentially unchanged.
-
-### Prior Sensitivity Analysis (Exact Enumeration, No MCMC)
-
-Exact posterior P(K) under different partition priors — close dimer d/σ=3, N=6:
-
-| K | DM γ=2.0 | DM γ=1.0 | DM γ=0.5 | Uniform 1/S(N,K) |
-|---|----------|----------|----------|-------------------|
-| 1 | 0.186 | 0.224 | 0.291 | 0.029 |
-| 2 | **0.603** | 0.599 | 0.579 | 0.249 |
-| 3 | 0.191 | 0.163 | 0.122 | 0.360 |
-| 4 | 0.020 | 0.014 | 0.008 | **0.362** |
-| MAP-K | **2** | **2** | **2** | 4 (wrong!) |
-
-**Key findings:**
-1. **DM γ=2 gives the HIGHEST P(K=2) among all DM variants** — it cooperates with spatial evidence by favoring balanced partitions that align well with the two emitter clusters.
-2. **Weaker DM (γ=0.5) shifts mass toward K=1**, not K=2 — because unbalanced partitions have worse spatial fit.
-3. **Uniform partition catastrophically over-splits** (MAP-K=4 for d/σ=3, 10). This is the behavior documented in KB #1.
-4. The DM prior IS the right choice for this problem.
+| 1 | 0.186 | 0.272 | 0.68 | Over-visited (1.46×) |
+| 2 | 0.603 | 0.594 | 1.02 | **Correct** |
+| 3 | 0.191 | 0.124 | 1.54 | Under-visited |
+| 4 | 0.020 | 0.010 | 2.01 | Under-visited |
 
 ### Practical Benchmarks
 
 **smlmsim_highdensity** (331 hexamers, 25nm diameter, d/σ≈3.4):
 
-| Metric | Value | Assessment |
-|--------|-------|------------|
-| True emitters | 1986 | — |
-| Found emitters | 1199 | 40% missed |
-| Precision | 0.998 | Near-perfect |
-| Recall | 0.603 | Under-splitting |
-| RMSE | 4.9 nm | Excellent |
-| RMSE/Oracle | 1.25 | Good |
-| Learned μ | 17.44 (true ≈ 8.7) | 2× overestimate |
-| Learned shape | 21.92 (true ≈ 1.5) | Massive overestimate |
-| Split acceptance | 1.6% | Very low |
+| Metric | R7 Value | R6 Value | Assessment |
+|--------|----------|----------|------------|
+| True emitters | 1986 | 1986 | — |
+| Found emitters | 1181 | 1199 | ~same |
+| Precision | 0.999 | 0.998 | Near-perfect |
+| Recall | 0.594 | 0.603 | ~same |
+| RMSE | 4.9 nm | 4.9 nm | Excellent |
+| Learned μ | 17.79 | 17.44 | 2× overestimate |
+| Learned shape | 21.92 | 21.92 | Massive overestimate |
 
-The hierarchical learner adapts to the under-split state: fewer K → more locs per cluster → higher inferred μ and shape. This masks the under-splitting from the count model, creating a secondary feedback loop.
-
-**genmab** (GenMAb HexaBody, ROI ~2×2 μm): 19501 locs → 2308 emitters, μ=8.23, shape=2.62. Visually reasonable, no ground truth.
+**genmab** (GenMAb HexaBody, ROI ~2×2 μm): 19501 locs → 2034 emitters, μ=9.43, shape=3.02 (R6: 2308 emitters, μ=8.23, shape=2.62).
 
 ### Architecture Summary
 
 ```
 Move mix: Gibbs allocation (50%) + Split/Merge (50%)
 Gibbs:    P(z_i = k | rest) ∝ (n_{-i,k} + γ) × predictive  [DM-weighted]
-K proposal: Sample from count-model posterior P(K|N)
+K proposal: Random |ΔK|=1 (coin flip split/merge, boundary-aware)
 Split:    Random seeds + sequential launch + restricted Gibbs scans (Jain-Neal)
           Final scan density enters MH ratio; intermediate scans free.
 Merge:    Uniform pair + random seeds + reverse density via restricted Gibbs
           Launch → intermediate scans → transition density to current allocation
-MH:       log α = Δ_spatial + Δ_partition + Δ_proposal  [seed density cancels]
+MH:       log α = Δ_spatial + Δ_partition + Δ_proposal + Δ_count + Δ_move_type
+          Δ_count = log P(N|K') - log P(N|K)  [no longer cancels]
+          Δ_move_type = log(d_{K'}/b_K) or log(b_{K'}/d_K)  [boundary correction]
 Spatial prior: Locmix (data-driven mixture of localizations)
 Count model: NegBin(N; K*shape, p) — no separate P(K) prior
 DM prior: γ = shape (currently 2.0 default)
@@ -96,11 +83,11 @@ n_restricted_scans: 5 (default) — 4 intermediate + 1 final sweep
 
 ### Known Issue: Slow K-Mixing (Under-Visits K > K_mode)
 
-The sampler under-visits K > K_mode by 1.5-2.5× per step above the mode. This is a **mixing problem, not a model problem** — the DM γ=2 exact posterior correctly places MAP-K = K_true at all tested separations. The transition density implementation is correct (Jain-Neal framework verified), and the MH ratio computation is correct (Δ_spatial + Δ_partition + Δ_proposal).
+The sampler under-visits K > K_mode by 1.5-2× per step above the mode. This is a **mixing problem, not a model problem** — the DM γ=2 exact posterior correctly places MAP-K = K_true at all tested separations.
 
-**Root cause:** Split acceptance is 2-12%. The DM partition penalty Δ_partition ≈ -2.5 to -5 per split creates an energy barrier. Multi-step proposals (|ΔK|>1, ~25% of split/merge attempts) compound this penalty and are almost never accepted (log_α ≈ -5 to -7).
+**Root cause:** Split acceptance is 5-7% (doubled from 2-3% after Round 7's |ΔK|=1 change). The DM partition penalty Δ_partition ≈ -2.5 to -5 per split creates an energy barrier. Multi-step proposals were eliminated in Round 7, improving efficiency but not removing the barrier.
 
-**Practical impact:** 40% recall loss on dense 6-mers (d/σ≈3.4). The hierarchical learner adapts μ and shape upward to compensate, masking the problem.
+**Practical impact:** ~40% recall loss on dense 6-mers (d/σ≈3.4). The hierarchical learner adapts μ and shape upward to compensate, masking the problem.
 
 **Acceptable limitation:** Under-splitting of truly co-located emitters (d/σ ≈ 0) — identifiability limit, not a sampler deficiency.
 
@@ -109,31 +96,31 @@ The sampler under-visits K > K_mode by 1.5-2.5× per step above the mode. This i
 | Script | What it tests | Status |
 |--------|--------------|--------|
 | `brute_force_enumeration.jl` | Exact posterior comparison | WORKING, **1/4 PASS** |
-| `prior_sensitivity.jl` | Exact P(K) under different priors | **NEW** (Round 6) |
+| `prior_sensitivity.jl` | Exact P(K) under different priors | Working (Round 6) |
 | `mh_component_analysis.jl` | MH ratio component distributions | Working (Round 5) |
 | `detailed_balance_check.jl` | DB for specific state pairs | STALE |
-| `smlmsim_highdensity.jl` | Synthetic with ground truth | Re-run Round 6: Recall=0.60, RMSE=4.9nm |
-| `genmab_bagol.jl` | Real antibody data | Re-run Round 6: 2308 emitters, μ=8.23 |
+| `smlmsim_highdensity.jl` | Synthetic with ground truth | Re-run Round 7: Recall=0.59, RMSE=4.9nm |
+| `genmab_bagol.jl` | Real antibody data | Re-run Round 7: 2034 emitters, μ=9.43 |
 | `test/runtests.jl` | Unit + integration tests | ALL PASSING (170/170) |
 
 ## Active Research Threads
 
 ### Thread 1: Improve K-Mixing — OPEN
 
-**Status:** Round 6 confirmed the problem is mixing (not model). The exact DM posterior is correct. The sampler's split/merge kernel has low acceptance (2-12%) and wastes ~25% of proposals on impossible multi-step chains.
+**Status:** Round 7 implemented |ΔK|=1 proposals (eliminated multi-step waste). Split acceptance doubled (2.7%→6.7%), ESS improved ~12%, close dimer max ratio improved (2.18x→2.01x). But the fundamental DM energy barrier persists (split acceptance still only 5-7%).
 
 **Next steps:**
-1. **Restrict to |ΔK|=1 proposals** — eliminate multi-step waste, add log[P(N|K')/P(N|K)] to MH ratio. Simple change, ~33% more effective proposals.
-2. **Multiple-try MH** — propose M independent allocations, select best, correct with Hastings ratio. Higher cost but potentially much better acceptance.
+1. **Multiple-try MH** — propose M=5-10 independent split allocations, select best, correct with Hastings ratio. Higher cost but potentially much better acceptance.
+2. **Count-informed ±1 proposal** — choose split vs merge proportional to P(N|K+1)/P(N|K-1) instead of uniform 50/50. Concentrates proposals in the favored direction.
 3. **Non-reversible lifting** — persistent K direction (momentum). Complex but potentially transformative.
 
 ### Thread 2: Hierarchical Learner Feedback
 
-**Status:** smlmsim_highdensity shows μ drifts from 8.7 → 17.44 and shape from 1.5 → 21.92 when the sampler under-splits. The learner adapts to the biased K, creating a secondary feedback loop. This is not the primary problem (fixing K-mixing would fix this), but should be monitored.
+**Status:** smlmsim_highdensity still shows μ drifts from 8.7 → 17.79 and shape from 1.5 → 21.92 when the sampler under-splits. Unchanged from R6. Not the primary problem (fixing K-mixing would fix this), but should be monitored.
 
 ### Thread 3: Practical Validation
 
-**Status:** Re-run in Round 6. smlmsim: Recall=0.603, Precision=0.998, RMSE=4.9nm. genmab: 2308 emitters, visually reasonable.
+**Status:** Re-run in Round 7. smlmsim: Recall=0.594, Precision=0.999, RMSE=4.9nm (~same as R6). genmab: 2034 emitters, μ=9.43 (R6: 2308, μ=8.23).
 
 ## Round History
 
@@ -146,12 +133,13 @@ The sampler under-visits K > K_mode by 1.5-2.5× per step above the mode. This i
 | 4 | 2026-03-29 | Restricted Gibbs | Jain-Neal restricted Gibbs scans (n=5). **First brute-force PASS** (well-separated). K=1 accuracy converged to theory (92→80%=79.5%). K=4: 76→84%. 3/4 MCMC tests improved. |
 | 5 | 2026-03-30 | MH component analysis | **Root cause of under-splitting identified:** DM partition prior penalty (-2.5 to -5) exceeds proposal density compensation (+0.2 to +2.7). Informed seed selection tried and failed (KB #14). Diagnostic script `mh_component_analysis.jl` created. |
 | 6 | 2026-03-30 | Model vs mixing diagnosis | **DM prior is correct (not the problem).** Multi-prior enumeration: DM γ=2 gives best exact P(K_true), uniform over-splits. Problem is slow K-mixing (1.5-2.5× under-visit per K step). Practical: 40% recall loss on dense 6-mers. |
+| 7 | 2026-03-30 | |ΔK|=1 proposals | Replaced count-model K sampling with random ±1 split/merge. Split acceptance doubled (2.7%→6.7%), close dimer improved (2.18x→2.01x). Fundamental DM barrier persists. |
 
 ## Next Round Priorities
 
-**Core problem:** Slow K-mixing. The DM prior is correct, the MH ratio is correct, but split acceptance (2-12%) creates an energy barrier. Multi-step proposals waste ~25% of split/merge attempts.
+**Core problem:** Slow K-mixing. Split acceptance improved to 5-7% (from 2-3%) but the DM energy barrier per split (-2.5 to -5) persists.
 
-1. **HIGH:** Restrict to |ΔK|=1 proposals. Remove count-model K proposal, randomly split or merge, add log[P(N|K')/P(N|K)] to MH ratio. Eliminates wasted multi-step chains, ~33% more effective proposals. Test against brute-force.
-2. **HIGH:** Multiple-try MH. Propose M=5-10 independent split allocations, select the best (highest Δ_spatial + Δ_partition), correct with Hastings ratio. Could dramatically improve split acceptance.
+1. **HIGH:** Multiple-try MH. Propose M=5-10 independent split allocations, select the best (highest Δ_spatial + Δ_partition), correct with Hastings ratio. Could dramatically improve split acceptance.
+2. **MEDIUM:** Count-informed ±1 proposal. Choose split vs merge proportional to P(N|K+1)/P(N|K-1) instead of uniform 50/50. Concentrates proposals toward count-model preferred direction.
 3. **MEDIUM:** Investigate whether the hierarchical μ/shape feedback worsens the mixing problem. Consider freezing μ at a calibrated value during initial burn-in.
 4. **LOW:** Parallel tempering or non-reversible lifting for K exploration.
