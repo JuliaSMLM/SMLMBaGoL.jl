@@ -260,6 +260,193 @@ function _log_dm_partition(state::CollapsedState, N::Int, γ::Float64)
 end
 
 # ============================================================================
+# Restricted Gibbs sweeps (Jain-Neal improvement for split/merge)
+# ============================================================================
+
+"""
+    _restricted_gibbs_sweep!(is_in_b, cs_a, cs_b, member_indices, loc_precs, grid, γ, track_density)
+
+One restricted Gibbs sweep over non-seed members of a split cluster.
+Seeds (positions 1,2) are fixed; members 3..m are reassigned proportional
+to (n_sub + γ) × predictive, same as the Gibbs allocation sweep.
+
+If `track_density=true`, returns the log probability of the sampled path
+(product of conditional assignment probabilities). Used for the final scan
+in the Jain-Neal proposal where this density enters the MH ratio.
+
+Modifies `is_in_b` in place and returns updated (cs_a, cs_b, log_q).
+"""
+function _restricted_gibbs_sweep!(is_in_b::Union{BitVector, Vector{Bool}},
+                                   cs_a::ClusterStats, cs_b::ClusterStats,
+                                   member_indices::Vector{Int},
+                                   loc_precs::Vector{LocPrecision},
+                                   grid::LocmixGrid, γ::Float64,
+                                   track_density::Bool)
+    m = length(member_indices)
+    log_q = 0.0
+
+    for idx in 3:m
+        loc_idx = member_indices[idx]
+        lp = loc_precs[loc_idx]
+
+        # Remove from current sub-cluster
+        if is_in_b[idx]
+            cs_b = remove_loc(cs_b, lp)
+        else
+            cs_a = remove_loc(cs_a, lp)
+        end
+
+        # DM-weighted spatial predictive for each sub-cluster
+        log_pred_a = log_marginal_likelihood_locmix(add_loc(cs_a, lp), grid) -
+                     log_marginal_likelihood_locmix(cs_a, grid)
+        log_pred_b = log_marginal_likelihood_locmix(add_loc(cs_b, lp), grid) -
+                     log_marginal_likelihood_locmix(cs_b, grid)
+
+        log_w_a = log(Float64(cs_a.n) + γ) + log_pred_a
+        log_w_b = log(Float64(cs_b.n) + γ) + log_pred_b
+
+        max_lw = max(log_w_a, log_w_b)
+        p_b = exp(log_w_b - max_lw) / (exp(log_w_a - max_lw) + exp(log_w_b - max_lw))
+        p_b = clamp(p_b, 1e-300, 1.0 - 1e-300)
+
+        # Sample
+        if rand() < p_b
+            cs_b = add_loc(cs_b, lp)
+            is_in_b[idx] = true
+            if track_density
+                log_q += log(p_b)
+            end
+        else
+            cs_a = add_loc(cs_a, lp)
+            is_in_b[idx] = false
+            if track_density
+                log_q += log(1.0 - p_b)
+            end
+        end
+    end
+
+    return cs_a, cs_b, log_q
+end
+
+"""
+    _restricted_gibbs_transition_density(start_is_in_b, target_is_in_b, cs_a, cs_b,
+                                          member_indices, loc_precs, grid, γ)
+
+Compute the log transition density of one restricted Gibbs sweep producing
+`target_is_in_b` starting from state `(cs_a, cs_b, start_is_in_b)`.
+
+This is the probability that a single Gibbs sweep, processing non-seed members
+in canonical order, would assign each member to its target sub-cluster.
+
+The "hybrid state" at step j has:
+- Members 1..j-1: in their TARGET positions (already transitioned)
+- Member j: removed (being processed)
+- Members j+1..m: in their START positions (not yet processed)
+
+This correctly models the Gibbs sweep transition kernel q(target | start).
+Does not modify any inputs.
+"""
+function _restricted_gibbs_transition_density(start_is_in_b::Union{BitVector, Vector{Bool}},
+                                               target_is_in_b::Union{BitVector, Vector{Bool}},
+                                               cs_a::ClusterStats, cs_b::ClusterStats,
+                                               member_indices::Vector{Int},
+                                               loc_precs::Vector{LocPrecision},
+                                               grid::LocmixGrid, γ::Float64)
+    m = length(member_indices)
+    m < 3 && return 0.0
+
+    log_q = 0.0
+
+    for idx in 3:m
+        loc_idx = member_indices[idx]
+        lp = loc_precs[loc_idx]
+
+        # Remove from START position (hybrid state: earlier members already transitioned)
+        if start_is_in_b[idx]
+            cs_b = remove_loc(cs_b, lp)
+        else
+            cs_a = remove_loc(cs_a, lp)
+        end
+
+        # Compute conditionals
+        log_pred_a = log_marginal_likelihood_locmix(add_loc(cs_a, lp), grid) -
+                     log_marginal_likelihood_locmix(cs_a, grid)
+        log_pred_b = log_marginal_likelihood_locmix(add_loc(cs_b, lp), grid) -
+                     log_marginal_likelihood_locmix(cs_b, grid)
+
+        log_w_a = log(Float64(cs_a.n) + γ) + log_pred_a
+        log_w_b = log(Float64(cs_b.n) + γ) + log_pred_b
+
+        max_lw = max(log_w_a, log_w_b)
+        p_b = exp(log_w_b - max_lw) / (exp(log_w_a - max_lw) + exp(log_w_b - max_lw))
+        p_b = clamp(p_b, 1e-300, 1.0 - 1e-300)
+
+        # Record density of TARGET assignment
+        if target_is_in_b[idx]
+            log_q += log(p_b)
+        else
+            log_q += log(1.0 - p_b)
+        end
+
+        # Add to TARGET position (building the hybrid state for next step)
+        if target_is_in_b[idx]
+            cs_b = add_loc(cs_b, lp)
+        else
+            cs_a = add_loc(cs_a, lp)
+        end
+    end
+
+    return log_q
+end
+
+"""
+    _sample_sequential_launch(member_indices, loc_precs, grid, γ)
+
+Sample a launch allocation via sequential predictive allocation (same mechanism
+as the initial split). Seeds at positions 1→A, 2→B; remaining members allocated
+proportional to (n_sub + γ) × predictive.
+
+Returns (is_in_b, cs_a, cs_b). Does NOT compute density (it's not needed —
+only the final restricted Gibbs scan density enters the MH ratio).
+"""
+function _sample_sequential_launch(member_indices::Vector{Int},
+                                    loc_precs::Vector{LocPrecision},
+                                    grid::LocmixGrid, γ::Float64)
+    m = length(member_indices)
+    is_in_b = falses(m)
+    is_in_b[2] = true
+
+    cs_a = add_loc(ClusterStats(), loc_precs[member_indices[1]])
+    cs_b = add_loc(ClusterStats(), loc_precs[member_indices[2]])
+
+    for idx in 3:m
+        loc_idx = member_indices[idx]
+        lp = loc_precs[loc_idx]
+
+        log_pred_a = log_marginal_likelihood_locmix(add_loc(cs_a, lp), grid) -
+                     log_marginal_likelihood_locmix(cs_a, grid)
+        log_pred_b = log_marginal_likelihood_locmix(add_loc(cs_b, lp), grid) -
+                     log_marginal_likelihood_locmix(cs_b, grid)
+
+        log_w_a = log(Float64(cs_a.n) + γ) + log_pred_a
+        log_w_b = log(Float64(cs_b.n) + γ) + log_pred_b
+
+        max_lw = max(log_w_a, log_w_b)
+        p_b = exp(log_w_b - max_lw) / (exp(log_w_a - max_lw) + exp(log_w_b - max_lw))
+        p_b = clamp(p_b, 1e-300, 1.0 - 1e-300)
+
+        if rand() < p_b
+            cs_b = add_loc(cs_b, lp)
+            is_in_b[idx] = true
+        else
+            cs_a = add_loc(cs_a, lp)
+        end
+    end
+
+    return is_in_b, cs_a, cs_b
+end
+
+# ============================================================================
 # Sequential predictive allocation (computable proposal density)
 # ============================================================================
 
@@ -319,18 +506,26 @@ function _log_sequential_allocation(member_indices::Vector{Int},
 end
 
 """
-    _do_sequential_split!(state, parent_slot, locs, γ) -> (new_slot, log_q, member_indices, is_in_b)
+    _do_sequential_split!(state, parent_slot, locs, γ; n_restricted_scans=0)
 
-Split `parent_slot` using sequential predictive allocation with random seeds.
+Split `parent_slot` using sequential predictive allocation with random seeds,
+optionally followed by restricted Gibbs scans (Jain-Neal improvement).
+
 Two members are randomly selected as seeds (one for each sub-cluster),
 ensuring all binary partitions are reachable. Remaining members are processed
 in canonical (sorted by loc index) order for reproducible proposal density.
-Returns the new cluster slot, log allocation density (excluding seed selection
-factor), member indices, and allocation vector.
+
+With `n_restricted_scans > 0`: the sequential allocation serves as a "launch
+state," then `n_restricted_scans - 1` intermediate Gibbs sweeps improve the
+allocation, and one final sweep produces the proposal with computable density.
+Only the final sweep's density enters the MH ratio (intermediate sweeps are free).
+
+Returns (new_slot, log_q, member_indices, is_in_b).
 """
 function _do_sequential_split!(state::CollapsedState, parent_slot::Int,
                                 locs::Vector{<:SMLMData.AbstractEmitter},
-                                γ::Float64)
+                                γ::Float64;
+                                n_restricted_scans::Int = 5)
     loc_precs = state._loc_precs
     grid = state._locmix_grid
     N = length(locs)
@@ -350,9 +545,6 @@ function _do_sequential_split!(state::CollapsedState, parent_slot::Int,
     end
 
     # Randomly select two seed locs from cluster members.
-    # Fixed seeds (always member[1]→A, member[2]→B) make some partitions
-    # unreachable — e.g., the partition where the two lowest-indexed locs
-    # are in the same sub-cluster can never be directly proposed.
     s1 = rand(1:m)
     member_indices[1], member_indices[s1] = member_indices[s1], member_indices[1]
     s2 = rand(2:m)
@@ -373,7 +565,7 @@ function _do_sequential_split!(state::CollapsedState, parent_slot::Int,
     cs_b = add_loc(ClusterStats(), loc_precs[member_indices[2]])
     log_q = 0.0
 
-    # Sequential allocation for remaining members
+    # Sequential allocation for remaining members (launch state)
     for idx in 3:m
         loc_idx = member_indices[idx]
         lp = loc_precs[loc_idx]
@@ -401,6 +593,19 @@ function _do_sequential_split!(state::CollapsedState, parent_slot::Int,
         end
     end
 
+    # Restricted Gibbs scans (Jain-Neal improvement)
+    if n_restricted_scans > 0
+        # Intermediate scans: improve allocation without tracking density
+        for _ in 1:(n_restricted_scans - 1)
+            cs_a, cs_b, _ = _restricted_gibbs_sweep!(is_in_b, cs_a, cs_b,
+                member_indices, loc_precs, grid, γ, false)
+        end
+        # Final scan: sample new allocation + track density
+        # This density REPLACES the sequential allocation density
+        cs_a, cs_b, log_q = _restricted_gibbs_sweep!(is_in_b, cs_a, cs_b,
+            member_indices, loc_precs, grid, γ, true)
+    end
+
     # Apply the allocation to the state
     # Rebuild parent (A) from scratch, build new (B)
     state.clusters[parent_slot] = ClusterStats()
@@ -421,25 +626,31 @@ function _do_sequential_split!(state::CollapsedState, parent_slot::Int,
 end
 
 """
-    propose_split_merge!(state, locs, μ, shape) -> (Bool, Symbol)
+    propose_split_merge!(state, locs, μ, shape; n_restricted_scans=0) -> (Bool, Symbol)
 
-Proper RJMCMC split/merge with computable proposal densities.
+Proper RJMCMC split/merge with computable proposal densities and optional
+Jain-Neal restricted Gibbs scans for improved split acceptance.
 
 1. Propose K_new from π_count(K) ∝ P(N|K)  (count model cancels in MH)
-2. For ΔK = +1: sequential predictive split (computable q_split)
-   For ΔK = -1: deterministic merge (q_merge = selection probability)
+2. For ΔK = +1: sequential launch + restricted Gibbs scans (computable q_split)
+   For ΔK = -1: merge + reverse density via matching restricted Gibbs
    For |ΔK| > 1: chain ±1 steps
 3. Accept/reject with full MH ratio:
 
    log α = Δ_spatial + Δ_partition + Δ_proposal
 
-where count model terms cancel between posterior and proposal.
+With `n_restricted_scans > 0`, the proposal density comes from the final
+restricted Gibbs sweep (Jain-Neal 2004). Intermediate sweeps improve the
+allocation quality without entering the density. The reverse density for
+merges uses the same framework: launch → intermediate sweeps → transition
+density from intermediate state to current allocation.
 
 Returns (accepted, move_type) where move_type is :split or :merge.
 """
 function propose_split_merge!(state::CollapsedState,
                                locs::Vector{<:SMLMData.AbstractEmitter},
-                               μ::Float64, shape::Float64)
+                               μ::Float64, shape::Float64;
+                               n_restricted_scans::Int = 5)
     N = length(locs)
     N < 2 && return false, :split
     K = state.n_active
@@ -516,11 +727,12 @@ function propose_split_merge!(state::CollapsedState,
                 end
             end
 
-            # Forward: select (1/K_cur) + sequential allocation
+            # Forward: select (1/K_cur) + split allocation
             log_q_fwd += -log(Float64(K_cur))
 
             _, log_q_alloc, member_indices, is_in_b = _do_sequential_split!(
-                state, target_slot, locs, γ)
+                state, target_slot, locs, γ;
+                n_restricted_scans = n_restricted_scans)
 
             if log_q_alloc == -Inf
                 # Can't split (cluster too small)
@@ -586,11 +798,32 @@ function propose_split_merge!(state::CollapsedState,
             seed_b_cluster = state.assignments[member_indices[2]]
             is_in_b = [state.assignments[member_indices[i]] == seed_b_cluster for i in 1:m_merge]
 
-            # Compute reverse sequential allocation density with random seeds
-            log_q_alloc_rev = _log_sequential_allocation(
-                member_indices, is_in_b, state._loc_precs, state._locmix_grid, γ)
+            # Compute reverse (split) allocation density
+            if n_restricted_scans > 0
+                # Jain-Neal: launch → intermediate scans → transition density to current
+                # 1. Sample a launch state via sequential allocation from merged cluster
+                launch_is_in_b, launch_cs_a, launch_cs_b = _sample_sequential_launch(
+                    member_indices, state._loc_precs, state._locmix_grid, γ)
 
-            # Reverse: select cluster + sequential allocation (seed density cancels)
+                # 2. Run intermediate restricted Gibbs scans on the launch state
+                for _ in 1:(n_restricted_scans - 1)
+                    launch_cs_a, launch_cs_b, _ = _restricted_gibbs_sweep!(
+                        launch_is_in_b, launch_cs_a, launch_cs_b,
+                        member_indices, state._loc_precs, state._locmix_grid, γ, false)
+                end
+
+                # 3. Compute transition density: one Gibbs sweep from intermediate → current
+                log_q_alloc_rev = _restricted_gibbs_transition_density(
+                    launch_is_in_b, is_in_b,
+                    launch_cs_a, launch_cs_b,
+                    member_indices, state._loc_precs, state._locmix_grid, γ)
+            else
+                # No restricted Gibbs: use sequential allocation density (Round 3 behavior)
+                log_q_alloc_rev = _log_sequential_allocation(
+                    member_indices, is_in_b, state._loc_precs, state._locmix_grid, γ)
+            end
+
+            # Reverse: select cluster + allocation density (seed density cancels)
             K_after = K_cur - 1
             log_q_rev += -log(Float64(K_after)) + log_q_alloc_rev
 
