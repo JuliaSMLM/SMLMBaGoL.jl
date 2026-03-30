@@ -78,9 +78,26 @@ function _plot_cluster_sizes(report, output_dir)
     ax = Axis(fig[1, 1], xlabel="Localizations per emitter", ylabel="Probability",
               title="Count distribution (locs/emitter)")
 
+    # Ground truth empirical counts (if available from track_id)
+    ec = report.empirical_counts
+    has_gt_counts = !isempty(ec)
+
     # BaGoL's inferred cluster sizes (what the chain found)
     k_max = maximum(cs) + 5
+    if has_gt_counts
+        k_max = max(k_max, maximum(ec) + 5)
+    end
     k_range = 1:k_max
+
+    if has_gt_counts
+        gt_data = zeros(k_max)
+        for c in ec
+            1 <= c <= k_max && (gt_data[c] += 1)
+        end
+        gt_data ./= sum(gt_data)
+        barplot!(ax, collect(k_range), gt_data; color=(:gray70, 0.5), label="GT (empirical)")
+    end
+
     hist_data = zeros(k_max)
     for c in cs
         1 <= c <= k_max && (hist_data[c] += 1)
