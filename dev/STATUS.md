@@ -135,11 +135,65 @@ The sampler under-visits K > K_mode by 1.5-2× per step above the mode. This is 
 | 6 | 2026-03-30 | Model vs mixing diagnosis | **DM prior is correct (not the problem).** Multi-prior enumeration: DM γ=2 gives best exact P(K_true), uniform over-splits. Problem is slow K-mixing (1.5-2.5× under-visit per K step). Practical: 40% recall loss on dense 6-mers. |
 | 7 | 2026-03-30 | |ΔK|=1 proposals | Replaced count-model K sampling with random ±1 split/merge. Split acceptance doubled (2.7%→6.7%), close dimer improved (2.18x→2.01x). Fundamental DM barrier persists. |
 
-## Next Round Priorities
+## Next Round: Round 8 — Birth/Death Moves
 
-**Core problem:** Slow K-mixing. Split acceptance improved to 5-7% (from 2-3%) but the DM energy barrier per split (-2.5 to -5) persists.
+**Core problem:** Slow K-mixing. Split acceptance is 5-7% due to the DM energy barrier (-2.5 to -5 per split). The monolithic split must propose a full allocation in one shot.
 
-1. **HIGH:** Multiple-try MH. Propose M=5-10 independent split allocations, select the best (highest Δ_spatial + Δ_partition), correct with Hastings ratio. Could dramatically improve split acceptance.
-2. **MEDIUM:** Count-informed ±1 proposal. Choose split vs merge proportional to P(N|K+1)/P(N|K-1) instead of uniform 50/50. Concentrates proposals toward count-model preferred direction.
-3. **MEDIUM:** Investigate whether the hierarchical μ/shape feedback worsens the mixing problem. Consider freezing μ at a calibrated value during initial burn-in.
-4. **LOW:** Parallel tempering or non-reversible lifting for K exploration.
+**Plan:** Add birth/death as a third move type (supplementing, not replacing, split/merge). Reviewed and approved by Codex (gpt-5.4).
+
+### Birth Move (K → K+1)
+
+1. Pick a random non-sole-occupant loc i (uniform 1/N_eligible)
+2. Remove it from cluster j, create singleton cluster {i}
+3. MH acceptance:
+   - Δ_spatial = lml(singleton_i) + lml(cluster_j \ i) - lml(cluster_j)
+   - Δ_partition = log P_DM(z'|K+1) - log P_DM(z|K)
+   - Δ_count = log P(N|K+1) - log P(N|K)
+   - Δ_proposal = log(q_death_rev) - log(q_birth_fwd)
+4. After acceptance, Gibbs sweeps grow the new cluster by reassigning locs
+
+### Death Move (K → K-1)
+
+1. Pick a singleton cluster (1/n_singletons)
+2. Assign its member to another cluster proportional to predictive probability
+3. Remove the empty cluster
+4. MH acceptance (reverse of birth)
+
+### Proposal Densities
+
+```
+q_birth_fwd = p_birth × (1/N_eligible)
+q_death_rev = p_death × (1/n_singletons_after) × pred(i|cluster_j_reduced) / Σ_{k≠singleton} pred(i|cluster_k)
+```
+
+**Critical:** Death reverse density must be evaluated in the post-birth state x', with singleton excluded from destinations. No Jacobian needed (discrete collapsed move).
+
+### Move Mix
+
+Target: 40% Gibbs / 30% split-merge / 30% birth-death (Codex recommendation). Start with 50% / 25% / 25% conservatively.
+
+### Boundary Handling
+
+- No eligible locs (all sole occupants): skip birth, propose death or Gibbs
+- No singletons: skip death, propose birth or Gibbs
+- K=1: no death possible
+
+### Expected Benefit
+
+- DM penalty per birth ~-1.2 (vs -2.5 to -5 for split) — half the energy barrier
+- Trivial proposal density (no restricted Gibbs, no allocation)
+- Decomposes split into incremental steps: birth creates seed → Gibbs grows it
+- Won't fully replace split/merge for balanced missed splits, but provides cheap incremental K-mobility
+
+### Codex Feedback (Incorporated)
+
+- Pair birth or targeted birth (biased toward low within-cluster fit) are stronger variants; consider after baseline singleton birth works
+- Label symmetry not an issue since we use unlabeled partitions (assignment vector)
+- Tune move mix by ESS/sec for K, not raw acceptance rate
+
+## Future Priorities (After Round 8)
+
+1. **MEDIUM:** Multiple-try MH for split/merge
+2. **MEDIUM:** Targeted birth (choose loc with lowest within-cluster fit)
+3. **MEDIUM:** Count-informed ±1 proposal for split/merge
+4. **LOW:** Parallel tempering or non-reversible lifting
