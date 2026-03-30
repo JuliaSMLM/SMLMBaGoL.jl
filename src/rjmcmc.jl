@@ -209,7 +209,8 @@ function _run_bagol_collapsed(
     # Per-partition acceptance tracking
     _zero() = (0, 0)
     partition_acceptance = [Dict{Symbol, Tuple{Int, Int}}(
-        :gibbs_sweep => _zero(), :split => _zero(), :merge => _zero()
+        :gibbs_sweep => _zero(), :split => _zero(), :merge => _zero(),
+        :birth => _zero(), :death => _zero()
     ) for _ in 1:n_partitions]
 
     for outer in 1:n_outer
