@@ -41,7 +41,10 @@ function _plot_partition_k(report, output_dir)
     fig = Figure(size=(500, 350))
     ax = Axis(fig[1, 1], xlabel="Emitters found per partition", ylabel="Count",
               title="Per-partition K ($(length(pk)) partitions, $(sum(pk)) emitters total)")
-    hist!(ax, Float64.(pk); bins=max(1, maximum(pk) - minimum(pk) + 1), color=:steelblue)
+    lo, hi = extrema(pk)
+    counts = zeros(Int, hi - lo + 1)
+    for v in pk; counts[v - lo + 1] += 1; end
+    barplot!(ax, collect(lo:hi), counts; color=:steelblue)
     vlines!(ax, [median(pk)]; color=:red, linewidth=2, linestyle=:dash,
             label="Median = $(round(median(pk), digits=1))")
     axislegend(ax; position=:rt, framevisible=false)
@@ -119,12 +122,36 @@ end
 
 function _plot_nn_distances(report, output_dir)
     dists = report.nn_distances .* 1000  # nm
+    n_bins = 30
     fig = Figure(size=(500, 350))
     ax = Axis(fig[1, 1], xlabel="Nearest-neighbor distance (nm)", ylabel="Count",
               title="NN distances between emitters")
-    hist!(ax, dists; bins=30, color=:steelblue)
+    hist!(ax, dists; bins=n_bins, color=:steelblue)
+
+    # Mode: bin data manually and find peak
+    if length(dists) >= 2
+        edges = range(minimum(dists), maximum(dists); length=n_bins + 1)
+        counts = zeros(Int, n_bins)
+        for d in dists
+            idx = clamp(searchsortedlast(edges, d), 1, n_bins)
+            counts[idx] += 1
+        end
+        max_idx = argmax(counts)
+        mode_val = (edges[max_idx] + edges[max_idx + 1]) / 2
+        vlines!(ax, [mode_val]; color=:orange, linewidth=2, linestyle=:solid,
+                label="Mode = $(round(mode_val, digits=1)) nm")
+    end
+
     vlines!(ax, [median(dists)]; color=:red, linewidth=2, linestyle=:dash,
             label="Median = $(round(median(dists), digits=1)) nm")
+
+    # GT NN distances if available
+    if hasproperty(report, :gt_nn_distances) && !isempty(report.gt_nn_distances)
+        gt_median = median(report.gt_nn_distances) .* 1000
+        vlines!(ax, [gt_median]; color=:green3, linewidth=2, linestyle=:dashdot,
+                label="GT median = $(round(gt_median, digits=1)) nm")
+    end
+
     axislegend(ax; position=:rt, framevisible=false)
     save(joinpath(output_dir, "nn_distances.png"), fig, px_per_unit=2)
     println("Saved: $(joinpath(output_dir, "nn_distances.png"))")
@@ -144,7 +171,10 @@ function _plot_k_recovery(report, output_dir)
     fig = Figure(size=(500, 350))
     ax = Axis(fig[1, 1], xlabel="Emitters found per partition", ylabel="Count",
               title="K recovery: $(Int(pct))% correct ($n_correct/$n_parts)")
-    hist!(ax, Float64.(pk); bins=max(1, maximum(pk) - minimum(pk) + 1), color=:steelblue)
+    lo, hi = extrema(pk)
+    counts = zeros(Int, hi - lo + 1)
+    for v in pk; counts[v - lo + 1] += 1; end
+    barplot!(ax, collect(lo:hi), counts; color=:steelblue)
     if k_true_per_part > 0 && isinteger(k_true_per_part)
         vlines!(ax, [k_true_per_part]; color=:red, linewidth=2, linestyle=:dash,
                 label="True K/partition = $(Int(k_true_per_part))")
