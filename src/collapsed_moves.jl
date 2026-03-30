@@ -321,9 +321,12 @@ end
 """
     _do_sequential_split!(state, parent_slot, locs, γ) -> (new_slot, log_q, member_indices, is_in_b)
 
-Split `parent_slot` using sequential predictive allocation.
-Returns the new cluster slot, log proposal density, member indices, and
-allocation vector for computing reverse proposal density.
+Split `parent_slot` using sequential predictive allocation with random seeds.
+Two members are randomly selected as seeds (one for each sub-cluster),
+ensuring all binary partitions are reachable. Remaining members are processed
+in canonical (sorted by loc index) order for reproducible proposal density.
+Returns the new cluster slot, log allocation density (excluding seed selection
+factor), member indices, and allocation vector.
 """
 function _do_sequential_split!(state::CollapsedState, parent_slot::Int,
                                 locs::Vector{<:SMLMData.AbstractEmitter},
@@ -332,7 +335,7 @@ function _do_sequential_split!(state::CollapsedState, parent_slot::Int,
     grid = state._locmix_grid
     N = length(locs)
 
-    # Collect member indices (sorted for canonical ordering)
+    # Collect member indices
     member_indices = Int[]
     @inbounds for loc_idx in 1:N
         if state.assignments[loc_idx] == parent_slot
@@ -346,10 +349,23 @@ function _do_sequential_split!(state::CollapsedState, parent_slot::Int,
         return -1, -Inf, member_indices, Bool[]
     end
 
+    # Randomly select two seed locs from cluster members.
+    # Fixed seeds (always member[1]→A, member[2]→B) make some partitions
+    # unreachable — e.g., the partition where the two lowest-indexed locs
+    # are in the same sub-cluster can never be directly proposed.
+    s1 = rand(1:m)
+    member_indices[1], member_indices[s1] = member_indices[s1], member_indices[1]
+    s2 = rand(2:m)
+    member_indices[2], member_indices[s2] = member_indices[s2], member_indices[2]
+    # Canonical ordering of remaining members for reproducible proposal density
+    if m > 2
+        sort!(@view member_indices[3:m])
+    end
+
     # Allocate new slot
     new_slot = _find_inactive_slot(state)
 
-    # Seeds: member[1] → A (stays), member[2] → B (new)
+    # Seeds: position 1 → A (stays), position 2 → B (new)
     is_in_b = falses(m)
     is_in_b[2] = true
 
@@ -544,26 +560,37 @@ function propose_split_merge!(state::CollapsedState,
                 slot_b > 0 && break
             end
 
-            # Collect all members of both clusters (sorted for canonical ordering)
+            # Collect all members of both clusters (sorted by loc index)
             member_indices = Int[]
-            is_in_b = Bool[]
             @inbounds for loc_idx in 1:N
                 a = state.assignments[loc_idx]
-                if a == slot_a
+                if a == slot_a || a == slot_b
                     push!(member_indices, loc_idx)
-                    push!(is_in_b, false)
-                elseif a == slot_b
-                    push!(member_indices, loc_idx)
-                    push!(is_in_b, true)
                 end
             end
+            m_merge = length(member_indices)
 
-            # Compute reverse sequential allocation density
-            # (what would the split proposal density be for this allocation?)
+            # Random seed selection matching the split's RJMCMC bijection.
+            # Seed density 1/(m(m-1)) appears in both split and merge proposals
+            # as auxiliary variables and cancels in the MH ratio.
+            s1 = rand(1:m_merge)
+            member_indices[1], member_indices[s1] = member_indices[s1], member_indices[1]
+            s2 = rand(2:m_merge)
+            member_indices[2], member_indices[s2] = member_indices[s2], member_indices[2]
+            if m_merge > 2
+                sort!(@view member_indices[3:m_merge])
+            end
+
+            # is_in_b relative to sub-cluster labels:
+            # member[i] goes to sub-B iff in same original cluster as seed_2
+            seed_b_cluster = state.assignments[member_indices[2]]
+            is_in_b = [state.assignments[member_indices[i]] == seed_b_cluster for i in 1:m_merge]
+
+            # Compute reverse sequential allocation density with random seeds
             log_q_alloc_rev = _log_sequential_allocation(
                 member_indices, is_in_b, state._loc_precs, state._locmix_grid, γ)
 
-            # Reverse: select cluster from K_cur-1 + sequential allocation
+            # Reverse: select cluster + sequential allocation (seed density cancels)
             K_after = K_cur - 1
             log_q_rev += -log(Float64(K_after)) + log_q_alloc_rev
 
