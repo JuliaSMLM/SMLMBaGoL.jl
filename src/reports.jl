@@ -448,7 +448,9 @@ function _write_metrics_json(report, path)
         ar = report.acceptance_rates
         println(io, "  \"acceptance_gibbs\": $(round(get(ar, :gibbs_sweep, 0.0), digits=3)),")
         println(io, "  \"acceptance_split\": $(round(get(ar, :split, 0.0), digits=3)),")
-        println(io, "  \"acceptance_merge\": $(round(get(ar, :merge, 0.0), digits=3))")
+        println(io, "  \"acceptance_merge\": $(round(get(ar, :merge, 0.0), digits=3)),")
+        println(io, "  \"acceptance_birth\": $(round(get(ar, :birth, 0.0), digits=3)),")
+        println(io, "  \"acceptance_death\": $(round(get(ar, :death, 0.0), digits=3))")
         println(io, "}")
     end
     println("Saved: $path")

@@ -120,8 +120,8 @@ Run the collapsed Gibbs sampler on a set of localizations.
 - `callback_interval=1`: How often to call callback
 # Move distribution
 - 50%: Allocation Gibbs sweep (full sweep per iteration)
-- 25%: Split (K → K+1, restricted Gibbs scan)
-- 25%: Merge (K → K-1, uniform pair selection)
+- 25%: Split/merge (K ± 1, restricted Gibbs scan)
+- 25%: Birth/death (K ± 1, singleton detach/absorb)
 - `n_restricted_scans=5`: Jain-Neal restricted Gibbs scans per split/merge.
   0 = sequential allocation only (Round 3 behavior).
   >0 = launch + (n-1) intermediate sweeps + 1 final sweep with density.
@@ -171,6 +171,8 @@ function run_collapsed_chain(
         :gibbs_sweep => (0, 0),
         :split => (0, 0),
         :merge => (0, 0),
+        :birth => (0, 0),
+        :death => (0, 0),
     )
 
     config_nt = (
@@ -188,10 +190,15 @@ function run_collapsed_chain(
             gibbs_allocation_sweep!(state, locs, μ, current_shape)
             prev = acceptance[:gibbs_sweep]
             acceptance[:gibbs_sweep] = (prev[1] + 1, prev[2] + 1)
-        else
-            # Split-merge — use current μ (no fixed μ₀ hack)
+        elseif r < 0.75
+            # Split-merge
             accepted, move_type = propose_split_merge!(state, locs, μ, current_shape;
                                                         n_restricted_scans = n_restricted_scans)
+            prev = acceptance[move_type]
+            acceptance[move_type] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
+        else
+            # Birth-death
+            accepted, move_type = propose_birth_death!(state, locs, μ, current_shape)
             prev = acceptance[move_type]
             acceptance[move_type] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
         end
@@ -269,9 +276,15 @@ function run_collapsed_iterations!(
                 prev = acceptance[:gibbs_sweep]
                 acceptance[:gibbs_sweep] = (prev[1] + 1, prev[2] + 1)
             end
-        else
+        elseif r < 0.75
             accepted, move_type = propose_split_merge!(state, locs, μ, shape;
                                                         n_restricted_scans = n_restricted_scans)
+            if acceptance !== nothing
+                prev = acceptance[move_type]
+                acceptance[move_type] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
+            end
+        else
+            accepted, move_type = propose_birth_death!(state, locs, μ, shape)
             if acceptance !== nothing
                 prev = acceptance[move_type]
                 acceptance[move_type] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)

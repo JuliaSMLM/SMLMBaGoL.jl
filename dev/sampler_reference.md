@@ -2,7 +2,7 @@
 
 **Authoritative reference for the collapsed Gibbs sampler. Read before modifying. Update after modifying.**
 
-*Matches implementation on `main` branch (Round 7, 2026-03-30). Round 7 changed K proposal from count-model sampling to |ΔK|=1 random split/merge.*
+*Matches implementation on `main` branch (Round 8, 2026-03-30). Round 8 added birth/death moves as third move type (50/25/25 Gibbs/SM/BD).*
 
 ---
 
@@ -118,9 +118,10 @@ For an empty cluster: `p_pred = P_locmix(d_i)` (locmix prior at the localization
 | Move | Probability | Function | K change |
 |------|-------------|----------|----------|
 | Gibbs allocation sweep | 50% | `gibbs_allocation_sweep!` | Fixed |
-| Split/merge (K proposal) | 50% | `propose_split_merge!` | Variable |
+| Split/merge | 25% | `propose_split_merge!` | ±1 |
+| Birth/death | 25% | `propose_birth_death!` | ±1 |
 
-**Code:** `run_collapsed_chain` in `collapsed_sampler.jl` — `r < 0.50` → Gibbs, else → split/merge.
+**Code:** `run_collapsed_chain` in `collapsed_sampler.jl` — `r < 0.50` → Gibbs, `r < 0.75` → split/merge, else → birth/death.
 
 ### 3.1 Gibbs Allocation Sweep (K fixed)
 
@@ -244,6 +245,52 @@ log P_DM(z | K) = log Γ(Kγ) - K log Γ(γ) - log Γ(N + Kγ) + Σ_k log Γ(n_k
 On rejection: full rollback from saved state.
 
 **Code:** `_log_dm_partition`, `_total_spatial_lml`, `propose_split_merge!` in `collapsed_moves.jl`
+
+### 3.3 Birth/Death Moves (K ± 1, Incremental)
+
+Birth/death provides cheaper K±1 transitions than split/merge. The DM partition penalty per birth is ~-1.2 (vs -2.5 to -5 per split) because creating a singleton avoids the allocation quality penalty.
+
+#### Birth (K → K+1)
+
+1. Count non-sole-occupant locs: `N_eligible = N - n_singletons`
+2. Pick random non-sole-occupant loc: `1/N_eligible`
+3. Remove from parent cluster, create singleton cluster
+4. Gibbs sweeps (on subsequent iterations) grow the singleton by attracting nearby locs
+
+#### Death (K → K-1)
+
+1. Pick random singleton cluster: `1/n_singletons`
+2. Sample destination proportional to DM-weighted predictive:
+   `w(k) = (n_k + γ) × predictive(loc | cluster_k)` for all non-singleton clusters
+3. Absorb singleton loc into destination
+
+#### Internal Direction Selection
+
+Within the birth/death move:
+- Both feasible: `p_birth = p_death = 0.5`
+- Only birth feasible (n_singletons = 0 or K ≤ 1): `p_birth = 1.0`
+- Only death feasible (N_eligible = 0 or K ≥ N): `p_death = 1.0`
+
+#### Proposal Densities
+
+```
+q_birth(x → x') = p_birth(x) × (1/N_eligible(x))
+q_death_rev(x' → x) = p_death(x') × (1/n_singletons(x')) × w(dest)/Σw(k)
+```
+
+For death forward, the assignment probability `w(dest)/Σw` enters. For birth reverse, only the uniform loc selection enters.
+
+#### MH Acceptance
+
+```
+log α = Δ_spatial + Δ_partition + Δ_proposal + Δ_count
+```
+
+No Δ_move_type needed — the `p_birth`/`p_death` boundary handling is already in `q_fwd`/`q_rev`.
+
+**Detailed balance proof:** Standard MH. The proposal is a proper distribution over transitions. Forward (birth creating singleton from cluster j) and reverse (death absorbing singleton into cluster j) are exact inverses. The densities fully account for all randomness: direction selection + loc/singleton selection + DM-weighted destination (death only).
+
+**Code:** `propose_birth_death!` in `collapsed_moves.jl`
 
 ---
 
@@ -392,8 +439,9 @@ Uses Dahl assignments as template, then refines with overlap-based Hungarian mat
 
 | Value | Where | What | Justification |
 |-------|-------|------|---------------|
-| 50% / 50% | `collapsed_sampler.jl` | Gibbs/split-merge ratio | Empirical; gives K mixing time ~50 iters |
+| 50% / 25% / 25% | `collapsed_sampler.jl` | Gibbs/SM/BD ratio | Empirical; birth/death adds cheap K-mobility |
 | 50% / 50% | `collapsed_moves.jl` | Split/merge coin flip | Equal opportunity for K±1; boundary-aware |
+| 50% / 50% | `collapsed_moves.jl` | Birth/death coin flip | Equal opportunity for K±1; boundary-aware |
 | γ = α | `collapsed_moves.jl` | DM concentration parameter | Ties partition prior to count model shape |
 | 5 | `collapsed_moves.jl` | n_restricted_scans default | 4 intermediate + 1 final Jain-Neal sweep |
 | 0.3 | `hierarchical.jl` | Log-normal proposal σ for μ and α | ~25-35% acceptance rate |
