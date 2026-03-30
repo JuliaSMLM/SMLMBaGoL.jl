@@ -143,6 +143,7 @@ function _run_bagol_collapsed(
 
     # Restricted Gibbs scans (Jain-Neal)
     n_restricted_scans = get(kwargs, :n_restricted_scans, 5)
+    n_bd_substeps = get(kwargs, :n_bd_substeps, 3)
 
     # Hyperprior config
     μ_prior_shape = get(kwargs, :μ_prior_shape, 2.0)
@@ -221,7 +222,8 @@ function _run_bagol_collapsed(
                     μ, current_shape,
                     partition_accumulators[i], burn_in, iter_counters[i];
                     acceptance=partition_acceptance[i],
-                    n_restricted_scans=n_restricted_scans
+                    n_restricted_scans=n_restricted_scans,
+                    n_bd_substeps=n_bd_substeps
                 )
             end
         end
@@ -257,7 +259,8 @@ function _run_bagol_collapsed(
                     μ, current_shape,
                     partition_accumulators[i], burn_in, iter_counters[i];
                     acceptance=partition_acceptance[i],
-                    n_restricted_scans=n_restricted_scans
+                    n_restricted_scans=n_restricted_scans,
+                    n_bd_substeps=n_bd_substeps
                 )
             end
         end
