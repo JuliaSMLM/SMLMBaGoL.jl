@@ -119,6 +119,7 @@ plot_report(report; output_dir=OUTPUT_DIR)
 
 fov = (roi_xmin, roi_xmax, roi_ymin, roi_ymax)
 render_report(locs_smld, bagol_smld;
-    output_dir=OUTPUT_DIR, pixel_size=2.0, fov=fov)
+    output_dir=OUTPUT_DIR, pixel_size=2.0, fov=fov,
+    partition_ids=report.partition_ids)
 
 println("\nAll outputs saved to: $OUTPUT_DIR")

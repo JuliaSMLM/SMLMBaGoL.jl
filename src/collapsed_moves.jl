@@ -1,9 +1,11 @@
 # Collapsed Gibbs sampler moves for BaGoL
 #
-# Three move types:
+# Move types:
 # 1. Allocation Gibbs sweep — reassign each loc among K clusters (K fixed)
 # 2. Split — divide one cluster into two via restricted Gibbs scan
 # 3. Merge — combine two clusters into one
+# 4. Birth — detach a loc from its cluster as a new singleton (K+1)
+# 5. Death — absorb a singleton into another cluster (K-1)
 
 # ============================================================================
 # Helpers
@@ -831,6 +833,262 @@ function propose_split_merge!(state::CollapsedState,
     Δ_count = _log_count_posterior(K_new, N, shape, μ) -
               _log_count_posterior(K, N, shape, μ)
     log_α = Δ_spatial + Δ_partition + Δ_proposal + Δ_count + Δ_move_type
+
+    if log_α >= 0 || rand() < exp(log_α)
+        return true, move_type
+    else
+        _restore_rollback!(state, old_n_active, old_len)
+        return false, move_type
+    end
+end
+
+# ============================================================================
+# Birth/death moves (incremental K-mixing)
+# ============================================================================
+
+"""
+    propose_birth_death!(state, locs, μ, shape) -> (Bool, Symbol)
+
+Birth/death move for incremental K-mixing.
+
+Birth (K → K+1): pick a random non-sole-occupant loc, detach it as a singleton.
+Death (K → K-1): pick a random singleton, absorb it into a cluster via
+DM-weighted predictive.
+
+The DM partition penalty per birth is ~-1.2 (vs -2.5 to -5 for split),
+providing cheaper K±1 transitions. Subsequent Gibbs sweeps grow new
+singletons into proper clusters.
+
+MH acceptance:
+  log α = Δ_spatial + Δ_partition + Δ_proposal + Δ_count
+
+Birth proposal: q_fwd = p_birth × (1/N_eligible)
+Death reverse:  q_rev = p_death' × (1/n_singletons') × w(dest)/Σw
+  where w(k) = (n_k + γ) × predictive(loc | cluster_k)
+
+Returns (accepted, move_type) where move_type is :birth or :death.
+"""
+function propose_birth_death!(state::CollapsedState,
+                               locs::Vector{<:SMLMData.AbstractEmitter},
+                               μ::Float64, shape::Float64)
+    N = length(locs)
+    K = state.n_active
+    γ = Float64(shape)
+    loc_precs = state._loc_precs
+    grid = state._locmix_grid
+
+    # Count singletons (clusters with n=1)
+    n_singletons = 0
+    @inbounds for j in eachindex(state.active)
+        if state.active[j] && state.clusters[j].n == 1
+            n_singletons += 1
+        end
+    end
+    n_eligible = N - n_singletons  # locs in clusters with n ≥ 2
+
+    # Feasibility
+    can_birth = n_eligible > 0 && K < N
+    can_death = n_singletons > 0 && K > 1
+
+    if !can_birth && !can_death
+        return false, :birth
+    end
+
+    p_birth = can_birth && can_death ? 0.5 :
+              can_birth              ? 1.0 : 0.0
+
+    do_birth = rand() < p_birth
+
+    _save_rollback!(state)
+    old_n_active = K
+    old_len = length(state.clusters)
+
+    lml_before = _total_spatial_lml(state)
+    dm_before = _log_dm_partition(state, N, γ)
+
+    log_q_fwd = 0.0
+    log_q_rev = 0.0
+    K_new = do_birth ? K + 1 : K - 1
+    move_type = do_birth ? :birth : :death
+
+    if do_birth
+        # === BIRTH: K → K+1 ===
+        # Pick random non-sole-occupant loc
+        target = rand(1:n_eligible)
+        chosen_loc = 0
+        cnt = 0
+        @inbounds for loc_idx in 1:N
+            c = Int(state.assignments[loc_idx])
+            if c > 0 && state.active[c] && state.clusters[c].n > 1
+                cnt += 1
+                if cnt == target
+                    chosen_loc = loc_idx
+                    break
+                end
+            end
+        end
+
+        old_cluster = Int(state.assignments[chosen_loc])
+        lp = loc_precs[chosen_loc]
+
+        # Execute: detach loc as singleton
+        state.clusters[old_cluster] = remove_loc(state.clusters[old_cluster], lp)
+        new_slot = _find_inactive_slot(state)
+        _activate_cluster!(state, new_slot, add_loc(ClusterStats(), lp))
+        state.assignments[chosen_loc] = Int16(new_slot)
+
+        # Forward density: p_birth × (1/N_eligible)
+        log_q_fwd = log(p_birth) - log(Float64(n_eligible))
+
+        # Reverse density: death from state x'
+        # Count singletons in x'
+        n_sing_x = n_singletons + 1  # new singleton
+        if state.clusters[old_cluster].n == 1
+            n_sing_x += 1  # old cluster also became singleton
+        end
+
+        # Death feasibility in x'
+        can_d = n_sing_x > 0 && K_new > 1
+        can_b = (N - n_sing_x) > 0 && K_new < N
+        p_death_x = can_d && can_b ? 0.5 : can_d ? 1.0 : 0.0
+
+        # DM-weighted predictive for absorbing loc i into each cluster (excl new singleton)
+        log_probs = state._log_probs
+        dest_count = 0
+        log_w_dest = -Inf
+        @inbounds for j in eachindex(state.active)
+            if state.active[j] && j != new_slot
+                dest_count += 1
+                cs = state.clusters[j]
+                log_probs[dest_count] = log(Float64(cs.n) + γ) +
+                                         log_predictive_locmix(cs, lp, grid)
+                if j == old_cluster
+                    log_w_dest = log_probs[dest_count]
+                end
+            end
+        end
+
+        # log-sum-exp
+        max_lw = log_probs[1]
+        @inbounds for i in 2:dest_count
+            if log_probs[i] > max_lw; max_lw = log_probs[i]; end
+        end
+        lse = 0.0
+        @inbounds for i in 1:dest_count
+            lse += exp(log_probs[i] - max_lw)
+        end
+        log_sum = max_lw + log(lse)
+
+        log_q_rev = log(p_death_x) - log(Float64(n_sing_x)) +
+                    log_w_dest - log_sum
+
+    else
+        # === DEATH: K → K-1 ===
+        # Pick random singleton
+        target = rand(1:n_singletons)
+        singleton_slot = 0
+        cnt = 0
+        @inbounds for j in eachindex(state.active)
+            if state.active[j] && state.clusters[j].n == 1
+                cnt += 1
+                if cnt == target
+                    singleton_slot = j
+                    break
+                end
+            end
+        end
+
+        # Find the loc in the singleton
+        chosen_loc = 0
+        @inbounds for loc_idx in 1:N
+            if state.assignments[loc_idx] == singleton_slot
+                chosen_loc = loc_idx
+                break
+            end
+        end
+
+        lp = loc_precs[chosen_loc]
+
+        # DM-weighted predictive for each destination (all active except singleton)
+        log_probs = state._log_probs
+        dest_slots = state._active_slots  # reuse buffer
+        dest_count = 0
+        @inbounds for j in eachindex(state.active)
+            if state.active[j] && j != singleton_slot
+                dest_count += 1
+                cs = state.clusters[j]
+                log_probs[dest_count] = log(Float64(cs.n) + γ) +
+                                         log_predictive_locmix(cs, lp, grid)
+                dest_slots[dest_count] = j
+            end
+        end
+
+        if dest_count == 0
+            _restore_rollback!(state, old_n_active, old_len)
+            return false, :death
+        end
+
+        # log-sum-exp + sample
+        max_lw = log_probs[1]
+        @inbounds for i in 2:dest_count
+            if log_probs[i] > max_lw; max_lw = log_probs[i]; end
+        end
+        total = 0.0
+        @inbounds for i in 1:dest_count
+            total += exp(log_probs[i] - max_lw)
+        end
+        log_sum = max_lw + log(total)
+        inv_total = 1.0 / total
+
+        u = rand()
+        cumsum_p = 0.0
+        chosen_dest = dest_count
+        @inbounds for i in 1:dest_count
+            cumsum_p += exp(log_probs[i] - max_lw) * inv_total
+            if u < cumsum_p
+                chosen_dest = i
+                break
+            end
+        end
+        dest_slot = dest_slots[chosen_dest]
+
+        # Forward density: p_death × (1/n_singletons) × w(dest)/Σw
+        log_q_fwd = log(1.0 - p_birth) - log(Float64(n_singletons)) +
+                    log_probs[chosen_dest] - log_sum
+
+        # Execute death
+        state.clusters[singleton_slot] = remove_loc(state.clusters[singleton_slot], lp)
+        _deactivate_cluster!(state, singleton_slot)
+        state.clusters[dest_slot] = add_loc(state.clusters[dest_slot], lp)
+        state.assignments[chosen_loc] = Int16(dest_slot)
+
+        # Reverse density: birth from state x'
+        n_sing_x = 0
+        @inbounds for j in eachindex(state.active)
+            if state.active[j] && state.clusters[j].n == 1
+                n_sing_x += 1
+            end
+        end
+        n_elig_x = N - n_sing_x
+
+        can_b = n_elig_x > 0 && K_new < N
+        can_d = n_sing_x > 0 && K_new > 1
+        p_birth_x = can_b && can_d ? 0.5 : can_b ? 1.0 : 0.0
+
+        log_q_rev = log(p_birth_x) - log(Float64(n_elig_x))
+    end
+
+    # Post-move target densities
+    lml_after = _total_spatial_lml(state)
+    dm_after = _log_dm_partition(state, N, γ)
+
+    Δ_spatial = lml_after - lml_before
+    Δ_partition = dm_after - dm_before
+    Δ_proposal = log_q_rev - log_q_fwd
+    Δ_count = _log_count_posterior(K_new, N, shape, μ) -
+              _log_count_posterior(K, N, shape, μ)
+
+    log_α = Δ_spatial + Δ_partition + Δ_proposal + Δ_count
 
     if log_α >= 0 || rand() < exp(log_α)
         return true, move_type

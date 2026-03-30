@@ -290,6 +290,20 @@ For merge reverse density: same launch mechanism, then intermediate sweeps, then
 
 **Trade-off:** Local random walk instead of global independence sampler. Loses ability to jump multiple K steps at once, but those jumps were almost never accepted anyway.
 
+### G. Birth/Death Moves (Round 8 — CURRENT)
+
+**What:** Birth detaches a random non-sole-occupant loc as a singleton (K+1). Death absorbs a random singleton into the best-fit cluster via DM-weighted predictive (K-1). Standard MH with fully tractable proposal densities:
+- q_birth = p_birth × 1/N_eligible
+- q_death = p_death × 1/n_singletons × w(dest)/Σw where w(k) = (n_k+γ) × pred(i|k)
+
+**Why it works:** The DM partition penalty per birth is ~-1.2 (vs -2.5 to -5 for split), halving the energy barrier. After a birth, Gibbs sweeps attract nearby locs to the new singleton, growing it into a proper cluster. This decomposes the monolithic split (propose full allocation in one shot) into incremental steps (birth creates seed → Gibbs grows it).
+
+**Results:** Brute-force improved from 1/4 PASS to 3/4 PASS. Close dimer KL improved 2.8× (0.036→0.013), large dimer KL improved 15× (0.038→0.003). Birth acceptance 5-20% (varies by test), death acceptance 100%.
+
+**Move mix:** 50% Gibbs / 25% split-merge / 25% birth-death. Split/merge still needed for balanced splits; birth/death supplements with cheap K-mobility.
+
+**Limitation:** Single emitter test still fails (KL=0.024, max ratio 1.97×). When K_true=1, births from the sole cluster are rarely accepted (5.3%). Targeted birth (bias toward poorly-fitting locs) would help.
+
 ### D. Hierarchical μ/shape Learning
 
 **What:** Global MH updates for count distribution parameters, pooling cluster sizes across all partitions.

@@ -221,6 +221,7 @@ plot_report(report; output_dir=OUTPUT_DIR)
 render_report(smld_noisy, result_smld;
     output_dir = OUTPUT_DIR,
     true_positions = true_positions,
+    partition_ids = report.partition_ids,
     fov = fov)
 
 println("\n" * "="^60)
