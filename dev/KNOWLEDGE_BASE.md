@@ -178,6 +178,20 @@ The transition density for the merge reverse uses a "hybrid state" at each step:
 
 ---
 
+### 14. Informed Seed Selection for Merges (Round 5 — DEAD END)
+
+**What was tried:** Replace uniform random seed selection in merge proposals with "informed" seeds — one seed from each sub-cluster (A and B). This eliminates ~50% of wasted proposals where both seeds come from the same original cluster, giving near-zero q_alloc_rev. The seed density changes from 1/(m(m-1)) (uniform) to 1/(n_a × n_b) (one-from-each).
+
+**Why it failed:** The asymmetric seed density ratio m(m-1)/(n_a × n_b) enters the MH ratio as a 3-6× factor favoring splits. For typical cluster sizes (m=6, K=2 → n_a=n_b=3), m(m-1)/(n_a×n_b) = 30/9 ≈ 3.3. This overwhelms the spatial and partition terms in the MH ratio, causing catastrophic over-splitting. K-accuracy dropped from 80% to 16-32% on the K=2 test.
+
+**Deeper issue:** In the RJMCMC bijection framework, the split and merge must use MATCHING seed selection mechanisms. Uniform-uniform cancels. Informed-informed would also cancel, but informed seed selection for SPLITS (picking seeds that are far apart) concentrates proposal density on good splits, which increases log_q_fwd without a matching increase in log_q_rev. Any asymmetry between split and merge seed mechanisms creates a multiplicative bias that scales with cluster size.
+
+**What was learned:** Seed selection mechanisms must be symmetric between split and merge (same density, same mechanism). Asymmetric approaches that eliminate "bad" proposals on one side but not the other create density ratio factors that destroy K estimation. The ~50% wasted merge proposals are the price of correct detailed balance.
+
+**Branch/commit:** Implemented and reverted within Round 5 (not committed).
+
+---
+
 ## Working Techniques
 
 ### A. Localization Mixture Prior
