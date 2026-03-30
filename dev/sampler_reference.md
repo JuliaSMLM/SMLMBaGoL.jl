@@ -2,7 +2,7 @@
 
 **Authoritative reference for the collapsed Gibbs sampler. Read before modifying. Update after modifying.**
 
-*Matches implementation on `main` branch (Round 6, 2026-03-30). No code changes since Round 4; Rounds 5-6 were diagnostic only.*
+*Matches implementation on `main` branch (Round 7, 2026-03-30). Round 7 changed K proposal from count-model sampling to |ΔK|=1 random split/merge.*
 
 ---
 
@@ -147,31 +147,33 @@ The concentration parameter γ = α (the count model shape).
 
 **Code:** `gibbs_allocation_sweep!` in `collapsed_moves.jl`
 
-### 3.2 RJMCMC Split/Merge with Computable Proposals
+### 3.2 RJMCMC Split/Merge with |ΔK|=1 Proposals
 
 This is the three-stage process for changing K.
 
-#### Stage 1: Propose K from count-model posterior
+#### Stage 1: Random split/merge selection
 
 ```
-π_count(K) ∝ P(N | K, α, μ) = NegBin(N; Kα, α/(α+μ))
+With probability b_K: propose split (K → K+1)
+With probability d_K: propose merge (K → K-1)
 ```
 
-No separate prior on K — the NegBin likelihood alone regularizes K. Sample K_new from this discrete distribution over K = 1..K_max where `K_max = max(2K, min(N, 30))`.
+Boundary handling:
+- K = 1: b_K = 1.0 (always split, can't merge below 1)
+- K ≥ N: d_K = 1.0 (always merge, can't split beyond N)
+- Otherwise: b_K = d_K = 0.5
 
-If K_new = K: no-op, return.
+Previous rounds (1-6) used a count-model independence sampler: sample K_new from π_count(K) ∝ P(N|K), which could propose |ΔK| > 1. Multi-step proposals compounded the DM partition penalty and were almost never accepted (~25% of proposals wasted). Round 7 switched to |ΔK|=1 random walk, with the count-model ratio entering the MH acceptance instead.
 
-**Note:** Uses the fixed prior mean μ (not the adaptive μ from hierarchical learning) to prevent the μ-K positive feedback loop.
+**Note:** Uses the fixed prior mean μ (not the adaptive μ from hierarchical learning) for the count-model ratio, preventing the μ-K positive feedback loop.
 
-**Code:** `_log_count_posterior(K, N, shape, μ)` in `collapsed_moves.jl`
+**Code:** `propose_split_merge!` in `collapsed_moves.jl`
 
-#### Stage 2: Execute splits or merges
+#### Stage 2: Execute one split or one merge
 
-**If K_new > K (chain of splits):**
+**Split (K → K+1):**
 
-For each split step (K_cur → K_cur + 1):
-
-1. Select parent cluster uniformly at random: probability 1/K_cur
+1. Select parent cluster uniformly at random: probability 1/K
 2. **Random seed selection:** pick two members randomly from the parent cluster (ordered pair, probability 1/(m(m-1)))
    - Seed 1 → sub-cluster A (stays in parent slot)
    - Seed 2 → sub-cluster B (goes to new slot)
@@ -191,15 +193,13 @@ For each split step (K_cur → K_cur + 1):
      same procedure, but accumulate log P(z_j = chosen) for each member.
    - The final sweep's density REPLACES the sequential allocation density.
    - If `n_restricted_scans == 0`: use sequential allocation density directly.
-6. Forward proposal density: `q_fwd = (1/K_cur) × q_alloc`
+6. Forward structural density: `q_fwd = (1/K) × q_alloc`
    - Note: seed selection density 1/(m(m-1)) is NOT included (see Stage 3)
-7. Reverse (merge) density: `q_rev = 1/C(K_cur+1, 2)`
+7. Reverse structural density: `q_rev = 1/C(K+1, 2)`
 
-**If K_new < K (chain of merges):**
+**Merge (K → K-1):**
 
-For each merge step (K_cur → K_cur - 1):
-
-1. Select pair uniformly at random: probability 1/C(K_cur, 2)
+1. Select pair uniformly at random: probability 1/C(K, 2)
 2. **Random seed selection for reverse density:** pick two members randomly from the merged set (matching the split's bijection). Seed density cancels.
 3. Sort remaining members by loc index. Compute `is_in_b` relative to sub-cluster labels (member[i] is in same original cluster as seed_2).
 4. **Compute reverse allocation density:**
@@ -211,8 +211,8 @@ For each merge step (K_cur → K_cur - 1):
         Uses hybrid state: members already processed have target assignments,
         later members have intermediate-state assignments.
    - If `n_restricted_scans == 0`: sequential allocation density of `is_in_b`
-5. Forward density: `q_fwd = 1/C(K_cur, 2)`
-6. Reverse (split) density: `q_rev = (1/(K_cur-1)) × q_alloc_rev`
+5. Forward structural density: `q_fwd = 1/C(K, 2)`
+6. Reverse structural density: `q_rev = (1/(K-1)) × q_alloc_rev`
 7. Execute: move all locs from slot_b into slot_a, deactivate slot_b.
 
 **Code:** `_do_sequential_split!`, `_restricted_gibbs_sweep!`, `_restricted_gibbs_transition_density`, `_sample_sequential_launch`, `propose_split_merge!` in `collapsed_moves.jl`
@@ -220,15 +220,19 @@ For each merge step (K_cur → K_cur - 1):
 #### Stage 3: MH acceptance
 
 ```
-log α = Δ_spatial + Δ_partition + Δ_proposal
+log α = Δ_spatial + Δ_partition + Δ_proposal + Δ_count + Δ_move_type
 ```
 
 where:
 - `Δ_spatial = Σ_k log p(data_k)_new - Σ_k log p(data_k)_old` (locmix marginal likelihoods)
 - `Δ_partition = log P_DM(z_new | K_new) - log P_DM(z_old | K_old)` (Dirichlet-Multinomial)
-- `Δ_proposal = log q_rev - log q_fwd`
+- `Δ_proposal = log q_rev - log q_fwd` (structural proposal densities)
+- `Δ_count = log P(N|K') - log P(N|K)` (count-model ratio — no longer cancels)
+- `Δ_move_type = log(d_{K'}/b_K)` for splits, `log(b_{K'}/d_K)` for merges (birth/death rate correction)
 
-The count-model terms `P(N|K)` cancel between the posterior ratio and the K proposal ratio.
+**Why Δ_count no longer cancels:** In rounds 1-6, K was proposed from π_count(K) ∝ P(N|K), so P(N|K')/P(N|K) appeared in both the target ratio and the proposal ratio, canceling. With |ΔK|=1 random proposals, the count model is only in the target, not the proposal.
+
+**Δ_move_type:** Zero for interior K (both b and d are 0.5). Non-zero only at boundaries: K=1 split has Δ_move_type = log(0.5/1.0) = -log(2).
 
 **Seed selection cancellation:** The random seed density 1/(m(m-1)) appears as an auxiliary variable in both the split and merge proposals via the RJMCMC bijection framework and cancels in the MH ratio. It must NOT be included explicitly — doing so creates an m(m-1) ≈ 90 factor asymmetry that destroys K estimation (see Knowledge Base entry #12).
 
@@ -269,15 +273,15 @@ The locmix is evaluated at the posterior mean `ŝ_j = Λ⁻¹η`, not integrated
 
 ---
 
-## 5. Why Fixed μ for the K Proposal
+## 5. Why Fixed μ for the Count-Model Ratio
 
-The count-model K proposal uses `π_count(K) ∝ NegBin(N; Kα, α/(α+μ))` where μ is the fixed prior mean (set once at initialization from the `mu` kwarg). If the adaptive μ (which tracks data) were used:
+The count-model ratio Δ_count = log P(N|K') - log P(N|K) uses `P(N|K) = NegBin(N; Kα, α/(α+μ))` where μ is the fixed prior mean (set once at initialization from the `mu` kwarg). If the adaptive μ (which tracks data) were used:
 
 ```
 Feedback loop: K↑ → μ_adaptive tracks smaller clusters → count model shifts → K↑↑
 ```
 
-Fixed μ breaks this cycle. The count model proposal is stable regardless of the current chain state.
+Fixed μ breaks this cycle. The count-model ratio is stable regardless of the current chain state.
 
 **Code:** `mu` passed to `propose_split_merge!` in `collapsed_sampler.jl` is the initial value, not the adapted one.
 
@@ -389,7 +393,7 @@ Uses Dahl assignments as template, then refines with overlap-based Hungarian mat
 | Value | Where | What | Justification |
 |-------|-------|------|---------------|
 | 50% / 50% | `collapsed_sampler.jl` | Gibbs/split-merge ratio | Empirical; gives K mixing time ~50 iters |
-| K_max = max(2K, min(N,30)) | `collapsed_moves.jl` | Ceiling for K proposal | Prevents wasting proposals on impossible K |
+| 50% / 50% | `collapsed_moves.jl` | Split/merge coin flip | Equal opportunity for K±1; boundary-aware |
 | γ = α | `collapsed_moves.jl` | DM concentration parameter | Ties partition prior to count model shape |
 | 5 | `collapsed_moves.jl` | n_restricted_scans default | 4 intermediate + 1 final Jain-Neal sweep |
 | 0.3 | `hierarchical.jl` | Log-normal proposal σ for μ and α | ~25-35% acceptance rate |
@@ -539,10 +543,10 @@ Replaces tests 1-5 with one parametric sweep. Primary axis: d/σ from 0→10 for
 
 ## 13. Anti-Patterns (Things That Broke Before)
 
-### Using adaptive μ in K proposal
+### Using adaptive μ in count-model ratio
 **Symptom:** K runs away to high values.
-**Root cause:** μ tracks N/K → count model shifts → positive feedback.
-**Fix:** Use fixed μ = prior mean. See Section 5.
+**Root cause:** μ tracks N/K → count model ratio shifts → positive feedback.
+**Fix:** Use fixed μ = prior mean for Δ_count. See Section 5.
 
 ### Missing DM partition prior (Round 2 root cause)
 **Symptom:** Systematic over-splitting. Brute-force detects sampler/target mismatch.
