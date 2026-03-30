@@ -2,7 +2,7 @@
 
 **Authoritative reference for the collapsed Gibbs sampler. Read before modifying. Update after modifying.**
 
-*Matches implementation on `main` branch (Round 8, 2026-03-30). Round 8 added birth/death moves as third move type (50/25/25 Gibbs/SM/BD).*
+*Matches implementation on `main` branch (Round 9, 2026-03-30). Round 9 added BD burst (n_bd_substeps=5) for improved K-mixing throughput. 4/4 brute-force PASS.*
 
 ---
 
@@ -119,9 +119,11 @@ For an empty cluster: `p_pred = P_locmix(d_i)` (locmix prior at the localization
 |------|-------------|----------|----------|
 | Gibbs allocation sweep | 50% | `gibbs_allocation_sweep!` | Fixed |
 | Split/merge | 25% | `propose_split_merge!` | ±1 |
-| Birth/death | 25% | `propose_birth_death!` | ±1 |
+| Birth/death | 25% × n_bd_substeps | `propose_birth_death!` | ±1 |
 
-**Code:** `run_collapsed_chain` in `collapsed_sampler.jl` — `r < 0.50` → Gibbs, `r < 0.75` → split/merge, else → birth/death.
+**BD burst:** When the birth/death move is selected (25%), `n_bd_substeps` (default 5) sequential BD attempts are made. Each is independent MH with proper acceptance. This increases K-transition throughput by 5× at ~2× cost per outer iteration. The target distribution is unchanged — each substep independently satisfies detailed balance.
+
+**Code:** `run_collapsed_chain` in `collapsed_sampler.jl` — `r < 0.50` → Gibbs, `r < 0.75` → split/merge, else → BD burst (5 substeps).
 
 ### 3.1 Gibbs Allocation Sweep (K fixed)
 
@@ -440,6 +442,7 @@ Uses Dahl assignments as template, then refines with overlap-based Hungarian mat
 | Value | Where | What | Justification |
 |-------|-------|------|---------------|
 | 50% / 25% / 25% | `collapsed_sampler.jl` | Gibbs/SM/BD ratio | Empirical; birth/death adds cheap K-mobility |
+| 5 | `collapsed_sampler.jl` | n_bd_substeps default | 5 substeps gives 4/4 brute-force PASS; 3 was 3/4 |
 | 50% / 50% | `collapsed_moves.jl` | Split/merge coin flip | Equal opportunity for K±1; boundary-aware |
 | 50% / 50% | `collapsed_moves.jl` | Birth/death coin flip | Equal opportunity for K±1; boundary-aware |
 | γ = α | `collapsed_moves.jl` | DM concentration parameter | Ties partition prior to count model shape |

@@ -79,7 +79,7 @@ Plotting/rendering functions activate when the user loads these packages.
 
 - State = allocation vector only (which locs belong to which cluster)
 - Emitter positions integrated out analytically via ClusterStats
-- Moves: DM-weighted Gibbs allocation sweep (50%), RJMCMC split/merge (25%), birth/death (25%)
+- Moves: DM-weighted Gibbs allocation sweep (50%), RJMCMC split/merge (25%), birth/death (25% × 5 substeps)
 - Gibbs: P(z_i=k|rest) ∝ (n_{-i,k}+γ) × predictive (Dirichlet-Multinomial partition prior)
 - Split/merge: |ΔK|=1 random proposals with Jain-Neal restricted Gibbs scans
 - MH acceptance: Δ_spatial + Δ_partition + Δ_proposal + Δ_count + Δ_move_type

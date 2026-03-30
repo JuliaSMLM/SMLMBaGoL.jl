@@ -302,7 +302,19 @@ For merge reverse density: same launch mechanism, then intermediate sweeps, then
 
 **Move mix:** 50% Gibbs / 25% split-merge / 25% birth-death. Split/merge still needed for balanced splits; birth/death supplements with cheap K-mobility.
 
-**Limitation:** Single emitter test still fails (KL=0.024, max ratio 1.97×). When K_true=1, births from the sole cluster are rarely accepted (5.3%). Targeted birth (bias toward poorly-fitting locs) would help.
+**Limitation (resolved by Round 9 BD burst):** Single emitter test failed with n_bd_substeps=1 (KL=0.024, max ratio 1.97×). BD burst (n=5) fixes this by providing more K-transition attempts per iteration.
+
+### H. BD Burst (Round 9 — CURRENT)
+
+**What:** When the birth/death move is selected (25% of iterations), run `n_bd_substeps` (default 5) sequential BD attempts instead of 1. Each substep is independent MH with proper acceptance/rejection.
+
+**Why it works:** For co-located emitters, no proposal weighting can improve birth acceptance — all births have identical acceptance probability (the locs are exchangeable). The only lever is more attempts. With 5 substeps, the effective K-transition rate increases 5×, the ESS for K increases proportionally, and the max ratio deviation decreases by ~√5.
+
+**Key insight:** Codex review identified that targeted birth (inverse-predictive weighting) doesn't help co-located cases because (1) all locs have similar predictive, and (2) MH correction exactly compensates any proposal bias. The mathematically correct approach is simply more attempts.
+
+**Results:** 4/4 brute-force PASS (was 3/4). Single emitter: 1.97×→1.40×. ESS improved 16-179%. Practical recall unchanged (~59%) because large partitions are bottlenecked by split/merge, not BD.
+
+**Calibration:** n=3 gives 3/4 PASS (single emitter 1.76×, just above 1.65× threshold). n=5 gives comfortable 4/4 PASS (single emitter 1.40×). Cost: ~2× per outer iteration (BD is cheap relative to Gibbs/SM).
 
 ### D. Hierarchical μ/shape Learning
 

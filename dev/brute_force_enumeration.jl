@@ -216,9 +216,11 @@ function run_mcmc_with_tracking(locs::Vector{<:SMLMData.AbstractEmitter},
             prev = acceptance[move_type]
             acceptance[move_type] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
         else
-            accepted, move_type = SMLMBaGoL.propose_birth_death!(state, locs, μ, shape)
-            prev = acceptance[move_type]
-            acceptance[move_type] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
+            for _bd in 1:5  # BD burst: 5 substeps per selection
+                accepted, move_type = SMLMBaGoL.propose_birth_death!(state, locs, μ, shape)
+                prev = acceptance[move_type]
+                acceptance[move_type] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
+            end
         end
 
         if iter > burn_in

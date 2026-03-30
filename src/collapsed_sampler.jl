@@ -125,6 +125,9 @@ Run the collapsed Gibbs sampler on a set of localizations.
 - `n_restricted_scans=5`: Jain-Neal restricted Gibbs scans per split/merge.
   0 = sequential allocation only (Round 3 behavior).
   >0 = launch + (n-1) intermediate sweeps + 1 final sweep with density.
+- `n_bd_substeps=3`: Number of birth/death attempts per BD selection.
+  Multiple substeps increase K-transition throughput without changing the
+  target distribution. Each substep is independent MH with proper acceptance.
 """
 function run_collapsed_chain(
     locs::Vector{<:SMLMData.AbstractEmitter};
@@ -142,7 +145,8 @@ function run_collapsed_chain(
     verbose::Bool = false,
     callback::Union{Function, Nothing} = nothing,
     callback_interval::Int = 1,
-    n_restricted_scans::Int = 5
+    n_restricted_scans::Int = 5,
+    n_bd_substeps::Int = 5
 )
     N = length(locs)
     if N == 0
@@ -197,10 +201,12 @@ function run_collapsed_chain(
             prev = acceptance[move_type]
             acceptance[move_type] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
         else
-            # Birth-death
-            accepted, move_type = propose_birth_death!(state, locs, μ, current_shape)
-            prev = acceptance[move_type]
-            acceptance[move_type] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
+            # Birth-death (multiple substeps for K-mixing throughput)
+            for _bd in 1:n_bd_substeps
+                accepted, move_type = propose_birth_death!(state, locs, μ, current_shape)
+                prev = acceptance[move_type]
+                acceptance[move_type] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
+            end
         end
 
         # Hierarchical updates
@@ -264,7 +270,8 @@ function run_collapsed_iterations!(
     burn_in::Int,
     current_iter::Int;
     acceptance::Union{Dict{Symbol, Tuple{Int, Int}}, Nothing}=nothing,
-    n_restricted_scans::Int = 5
+    n_restricted_scans::Int = 5,
+    n_bd_substeps::Int = 5
 )
     for _ in 1:n
         current_iter += 1
@@ -284,10 +291,12 @@ function run_collapsed_iterations!(
                 acceptance[move_type] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
             end
         else
-            accepted, move_type = propose_birth_death!(state, locs, μ, shape)
-            if acceptance !== nothing
-                prev = acceptance[move_type]
-                acceptance[move_type] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
+            for _bd in 1:n_bd_substeps
+                accepted, move_type = propose_birth_death!(state, locs, μ, shape)
+                if acceptance !== nothing
+                    prev = acceptance[move_type]
+                    acceptance[move_type] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
+                end
             end
         end
 
