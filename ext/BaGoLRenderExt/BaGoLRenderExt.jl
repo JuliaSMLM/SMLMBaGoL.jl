@@ -69,30 +69,19 @@ function SMLMBaGoL.render_report(
     save_image(circles_path, combined)
     println("Saved: $circles_path")
 
-    # 4. Partition-colored localizations
+    # 4. Partition-colored localizations (categorical coloring on single SMLD)
     if !isempty(partition_ids) && length(partition_ids) == length(locs_smld.emitters)
         part_path = joinpath(output_dir, "$(prefix)_partitions.png")
-        n_parts = maximum(partition_ids)
-        # Build one SMLD per partition
-        part_smlds = SMLMData.SMLD[]
-        part_colors = Symbol[]
-        palette = [:red, :dodgerblue, :green, :orange, :purple, :cyan,
-                   :magenta, :yellow, :lime, :pink, :teal, :coral,
-                   :navy, :olive, :maroon, :skyblue, :salmon, :gold,
-                   :violet, :turquoise]
-        for pid in 1:n_parts
-            idxs = findall(==(pid), partition_ids)
-            isempty(idxs) && continue
-            p_locs = locs_smld.emitters[idxs]
-            push!(part_smlds, SMLMData.BasicSMLD(p_locs, locs_smld.camera, 1, 1))
-            push!(part_colors, palette[mod1(pid, length(palette))])
-        end
-        if !isempty(part_smlds)
-            render(part_smlds;
-                colors=part_colors, strategy=EllipseRender(),
-                target=target, filename=part_path)
-            println("Saved: $part_path")
-        end
+        # Set dataset field to partition ID for categorical coloring
+        part_emitters = [SMLMData.Emitter2DFit{Float64}(
+            e.x, e.y, e.photons, e.bg, e.σ_x, e.σ_y, e.σ_photons, e.σ_bg;
+            σ_xy=e.σ_xy, frame=e.frame, dataset=partition_ids[i],
+            track_id=e.track_id, id=e.id
+        ) for (i, e) in enumerate(locs_smld.emitters)]
+        part_smld = SMLMData.BasicSMLD(part_emitters, locs_smld.camera, 1, 1)
+        render(part_smld; strategy=EllipseRender(), color_by=:dataset,
+               categorical=true, target=target, filename=part_path)
+        println("Saved: $part_path")
     end
 
     # 5. Ground truth overlay: white locs + blue GT + green oracle + red found

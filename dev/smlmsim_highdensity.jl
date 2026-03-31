@@ -3,7 +3,7 @@
 # Dense hexamers (25 nm diameter) + equal density of monomers, with
 # blinking stats learned from GenMAb HexaBody RGY data (Cell_01):
 # μ ≈ 8.7 locs/emitter, shape ≈ 1.5
-# 2× hexamer density (16/μm²) + 16/μm² monomers — stress test for BaGoL
+# 4× hexamer density (32/μm²) + 32/μm² monomers — stress test for BaGoL
 # with mixed cluster sizes.
 #
 # Run with: julia --threads=auto --project=dev dev/smlmsim_highdensity.jl
@@ -44,10 +44,10 @@ fov_size = CAMERA_PIXELS * PIXEL_SIZE
 
 # Pattern — hexamers at high density so clusters frequently overlap
 # d=0.025 μm (25 nm) hexamer diameter
-# At density=16 patterns/μm² → ~655 hexamers in FOV → ~3932 emitters
-# Plus ~655 monomers scattered randomly (equal pattern count)
-# Mean inter-pattern distance ≈ 1/√(density_total) ≈ 0.18 μm
-DENSITY_NMER = 16.0                 # hexamers/μm² (2× original)
+# At density=32 patterns/μm² → ~1311 hexamers in FOV → ~7864 emitters
+# Plus ~1311 monomers scattered randomly (equal pattern count)
+# Mean inter-pattern distance ≈ 1/√(density_total) ≈ 0.125 μm
+DENSITY_NMER = 32.0                 # hexamers/μm² (4× original)
 DENSITY_MONO = DENSITY_NMER         # monomers/μm² (equal count)
 PATTERN_N = 6                       # hexamers
 PATTERN_D = 0.025                   # 25 nm diameter
@@ -130,27 +130,25 @@ pattern_mono = SMLMSim.Nmer2D(n=1, d=0.0)
 smld_mono, info_mono = SMLMSim.simulate(params_mono; pattern=pattern_mono, molecule=fluor, camera=camera)
 
 # --- Merge simulations ---
-# Offset monomer track_ids and pattern ids to avoid collisions
-max_track_nmer = maximum(e.track_id for e in smld_nmer.emitters)
-max_id_nmer = maximum(e.id for e in smld_nmer.emitters)
-
-function offset_emitter(e::SMLMData.Emitter2DFit, track_offset, id_offset)
-    SMLMData.Emitter2DFit{Float64}(
+# Offset monomer track_ids and pattern ids to avoid collisions with hexamer IDs
+function offset_smld(smld::SMLMData.SMLD, track_offset, id_offset)
+    new_emitters = [SMLMData.Emitter2DFit{Float64}(
         e.x, e.y, e.photons, e.bg, e.σ_x, e.σ_y, e.σ_photons, e.σ_bg;
         σ_xy=e.σ_xy, frame=e.frame, dataset=e.dataset,
-        track_id=e.track_id + track_offset, id=e.id + id_offset)
+        track_id=e.track_id + track_offset, id=e.id + id_offset
+    ) for e in smld.emitters]
+    SMLMData.BasicSMLD(new_emitters, smld.camera, smld.n_frames, smld.n_datasets)
 end
 
-mono_emitters = [offset_emitter(e, max_track_nmer, max_id_nmer) for e in smld_mono.emitters]
-merged_emitters = vcat(smld_nmer.emitters, mono_emitters)
-smld_noisy = SMLMData.BasicSMLD(merged_emitters, camera, NFRAMES, 1)
+smld_mono_offset = offset_smld(smld_mono,
+    maximum(e.track_id for e in smld_nmer.emitters),
+    maximum(e.id for e in smld_nmer.emitters))
+smld_noisy = SMLMData.cat_smld(smld_nmer, smld_mono_offset)
 
-# Merge true positions (same offset for true SMLDs)
-max_track_true = maximum(e.track_id for e in info_nmer.smld_true.emitters)
-max_id_true = maximum(e.id for e in info_nmer.smld_true.emitters)
-mono_true = [offset_emitter(e, max_track_true, max_id_true) for e in info_mono.smld_true.emitters]
-merged_true = vcat(info_nmer.smld_true.emitters, mono_true)
-smld_true = SMLMData.BasicSMLD(merged_true, camera, 1, 1)
+true_mono_offset = offset_smld(info_mono.smld_true,
+    maximum(e.track_id for e in info_nmer.smld_true.emitters),
+    maximum(e.id for e in info_nmer.smld_true.emitters))
+smld_true = SMLMData.cat_smld(info_nmer.smld_true, true_mono_offset)
 
 # Extract unique true emitter positions
 function get_unique_true_positions(smld_true::SMLMData.SMLD)
