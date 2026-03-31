@@ -2,7 +2,7 @@
 
 **Authoritative reference for the collapsed Gibbs sampler. Read before modifying. Update after modifying.**
 
-*Matches implementation on `main` branch (Round 9, 2026-03-30). Round 9 added BD burst (n_bd_substeps=5) for improved K-mixing throughput. 4/4 brute-force PASS.*
+*Matches implementation on `main` branch (Round 9, 2026-03-30). Round 9 added BD burst (n_bd_substeps=5) for improved K-mixing throughput. 4/4 brute-force PASS. Round 11: no code changes — confirmed target is correct, mixing is the bottleneck at large N.*
 
 ---
 
