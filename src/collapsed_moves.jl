@@ -133,16 +133,14 @@ function gibbs_allocation_sweep!(state::CollapsedState,
             state.clusters[old_cluster] = remove_loc(state.clusters[old_cluster], lp)
         end
 
-        # Compute allocation weight for each active cluster:
-        #   P(z_i = k | rest) ∝ (n_{-i,k} + γ) × predictive(x_i | cluster_k)
-        # The (n_{-i,k} + γ) term is the Dirichlet-Multinomial partition prior,
-        # giving a "rich get richer" effect that compensates for the combinatorial
-        # explosion of partitions at higher K.
+        # Predictive-only proposal weights (MH-corrected for DM target):
+        #   q(z_i = k) ∝ predictive(x_i | cluster_k)
+        # MH acceptance handles (n_{-i,k} + γ) DM factor: α = (n_new+γ)/(n_old+γ)
         γ = shape
         for i in 1:K
             slot = active_slots[i]
             cs = state.clusters[slot]
-            log_probs[i] = log(Float64(cs.n) + γ) + log_predictive(cs, lp, log_area)
+            log_probs[i] = log_predictive(cs, lp, log_area)
         end
 
         # In-place log-sum-exp normalization → probabilities in log_probs[1:K]
@@ -172,10 +170,19 @@ function gibbs_allocation_sweep!(state::CollapsedState,
             end
         end
 
-        # Assign to chosen cluster
-        slot = active_slots[chosen]
-        state.clusters[slot] = add_loc(state.clusters[slot], lp)
-        state.assignments[loc_idx] = Int16(slot)
+        # MH correction: propose from predictive, accept with DM ratio
+        proposed_slot = active_slots[chosen]
+        final_slot = proposed_slot
+        if old_cluster > 0 && state.active[old_cluster] && proposed_slot != old_cluster
+            n_proposed = Float64(state.clusters[proposed_slot].n)
+            n_old = Float64(state.clusters[old_cluster].n)
+            α = min(1.0, (n_proposed + γ) / (n_old + γ))
+            if rand() >= α
+                final_slot = old_cluster
+            end
+        end
+        state.clusters[final_slot] = add_loc(state.clusters[final_slot], lp)
+        state.assignments[loc_idx] = Int16(final_slot)
     end
 end
 
@@ -268,13 +275,12 @@ end
 """
     _restricted_gibbs_sweep!(is_in_b, cs_a, cs_b, member_indices, loc_precs, grid, γ, track_density)
 
-One restricted Gibbs sweep over non-seed members of a split cluster.
-Seeds (positions 1,2) are fixed; members 3..m are reassigned proportional
-to (n_sub + γ) × predictive, same as the Gibbs allocation sweep.
+One restricted MH-Gibbs sweep over non-seed members of a split cluster.
+Seeds (positions 1,2) are fixed; members 3..m are proposed proportional
+to predictive only, then MH-corrected with DM ratio α = (n_target+γ)/(n_current+γ).
 
-If `track_density=true`, returns the log probability of the sampled path
-(product of conditional assignment probabilities). Used for the final scan
-in the Jain-Neal proposal where this density enters the MH ratio.
+If `track_density=true`, returns the log transition density including
+stay-via-rejection terms. Used for the final scan in Jain-Neal proposals.
 
 Modifies `is_in_b` in place and returns updated (cs_a, cs_b, log_q).
 """
@@ -290,40 +296,71 @@ function _restricted_gibbs_sweep!(is_in_b::Union{BitVector, Vector{Bool}},
     for idx in 3:m
         loc_idx = member_indices[idx]
         lp = loc_precs[loc_idx]
+        was_in_b = is_in_b[idx]
 
         # Remove from current sub-cluster
-        if is_in_b[idx]
+        if was_in_b
             cs_b = remove_loc(cs_b, lp)
         else
             cs_a = remove_loc(cs_a, lp)
         end
 
-        # DM-weighted spatial predictive for each sub-cluster
+        # Predictive-only proposal weights
         log_pred_a = log_marginal_likelihood(add_loc(cs_a, lp), log_area) -
                      log_marginal_likelihood(cs_a, log_area)
         log_pred_b = log_marginal_likelihood(add_loc(cs_b, lp), log_area) -
                      log_marginal_likelihood(cs_b, log_area)
 
-        log_w_a = log(Float64(cs_a.n) + γ) + log_pred_a
-        log_w_b = log(Float64(cs_b.n) + γ) + log_pred_b
+        max_lp = max(log_pred_a, log_pred_b)
+        q_b = exp(log_pred_b - max_lp) / (exp(log_pred_a - max_lp) + exp(log_pred_b - max_lp))
+        q_b = clamp(q_b, 1e-300, 1.0 - 1e-300)
 
-        max_lw = max(log_w_a, log_w_b)
-        p_b = exp(log_w_b - max_lw) / (exp(log_w_a - max_lw) + exp(log_w_b - max_lw))
-        p_b = clamp(p_b, 1e-300, 1.0 - 1e-300)
+        # DM counts for MH correction (after removal of loc i)
+        n_a = Float64(cs_a.n)
+        n_b = Float64(cs_b.n)
 
-        # Sample
-        if rand() < p_b
-            cs_b = add_loc(cs_b, lp)
-            is_in_b[idx] = true
-            if track_density
-                log_q += log(p_b)
+        # Sample from predictive-only proposal, MH-correct with DM ratio
+        if was_in_b
+            # Currently in B. α(B→A) = min(1, (n_a+γ)/(n_b+γ))
+            α_to_a = min(1.0, (n_a + γ) / (n_b + γ))
+            proposed_a = rand() >= q_b
+            ends_in_b = !(proposed_a && rand() < α_to_a)
+        else
+            # Currently in A. α(A→B) = min(1, (n_b+γ)/(n_a+γ))
+            α_to_b = min(1.0, (n_b + γ) / (n_a + γ))
+            proposed_b = rand() < q_b
+            ends_in_b = proposed_b && rand() < α_to_b
+        end
+
+        # Track transition density including stay-via-rejection
+        if track_density
+            if was_in_b
+                α_to_a = min(1.0, (n_a + γ) / (n_b + γ))
+                if ends_in_b
+                    # Stayed in B: P = q_b + (1-q_b)×(1-α_to_a)
+                    log_q += log(max(q_b + (1.0 - q_b) * (1.0 - α_to_a), 1e-300))
+                else
+                    # Moved to A: P = (1-q_b) × α_to_a
+                    log_q += log(max((1.0 - q_b) * α_to_a, 1e-300))
+                end
+            else
+                α_to_b = min(1.0, (n_b + γ) / (n_a + γ))
+                if ends_in_b
+                    # Moved to B: P = q_b × α_to_b
+                    log_q += log(max(q_b * α_to_b, 1e-300))
+                else
+                    # Stayed in A: P = (1-q_b) + q_b×(1-α_to_b)
+                    log_q += log(max((1.0 - q_b) + q_b * (1.0 - α_to_b), 1e-300))
+                end
             end
+        end
+
+        # Update state
+        is_in_b[idx] = ends_in_b
+        if ends_in_b
+            cs_b = add_loc(cs_b, lp)
         else
             cs_a = add_loc(cs_a, lp)
-            is_in_b[idx] = false
-            if track_density
-                log_q += log(1.0 - p_b)
-            end
         end
     end
 
@@ -334,18 +371,17 @@ end
     _restricted_gibbs_transition_density(start_is_in_b, target_is_in_b, cs_a, cs_b,
                                           member_indices, loc_precs, log_area, γ)
 
-Compute the log transition density of one restricted Gibbs sweep producing
+Compute the log transition density of one restricted MH-Gibbs sweep producing
 `target_is_in_b` starting from state `(cs_a, cs_b, start_is_in_b)`.
 
-This is the probability that a single Gibbs sweep, processing non-seed members
-in canonical order, would assign each member to its target sub-cluster.
+Uses predictive-only proposals with MH correction. Transition density includes
+stay-via-rejection terms: P(stay) = q_same + q_other × (1-α).
 
 The "hybrid state" at step j has:
 - Members 1..j-1: in their TARGET positions (already transitioned)
 - Member j: removed (being processed)
 - Members j+1..m: in their START positions (not yet processed)
 
-This correctly models the Gibbs sweep transition kernel q(target | start).
 Does not modify any inputs.
 """
 function _restricted_gibbs_transition_density(start_is_in_b::Union{BitVector, Vector{Bool}},
@@ -362,35 +398,51 @@ function _restricted_gibbs_transition_density(start_is_in_b::Union{BitVector, Ve
     for idx in 3:m
         loc_idx = member_indices[idx]
         lp = loc_precs[loc_idx]
+        was_in_b = start_is_in_b[idx]
 
         # Remove from START position (hybrid state: earlier members already transitioned)
-        if start_is_in_b[idx]
+        if was_in_b
             cs_b = remove_loc(cs_b, lp)
         else
             cs_a = remove_loc(cs_a, lp)
         end
 
-        # Compute conditionals
+        # Predictive-only proposal weights
         log_pred_a = log_marginal_likelihood(add_loc(cs_a, lp), log_area) -
                      log_marginal_likelihood(cs_a, log_area)
         log_pred_b = log_marginal_likelihood(add_loc(cs_b, lp), log_area) -
                      log_marginal_likelihood(cs_b, log_area)
 
-        log_w_a = log(Float64(cs_a.n) + γ) + log_pred_a
-        log_w_b = log(Float64(cs_b.n) + γ) + log_pred_b
+        max_lp = max(log_pred_a, log_pred_b)
+        q_b = exp(log_pred_b - max_lp) / (exp(log_pred_a - max_lp) + exp(log_pred_b - max_lp))
+        q_b = clamp(q_b, 1e-300, 1.0 - 1e-300)
 
-        max_lw = max(log_w_a, log_w_b)
-        p_b = exp(log_w_b - max_lw) / (exp(log_w_a - max_lw) + exp(log_w_b - max_lw))
-        p_b = clamp(p_b, 1e-300, 1.0 - 1e-300)
+        # DM counts for MH correction
+        n_a = Float64(cs_a.n)
+        n_b = Float64(cs_b.n)
 
-        # Record density of TARGET assignment
-        if target_is_in_b[idx]
-            log_q += log(p_b)
+        # MH-corrected transition density to target assignment
+        if was_in_b
+            α_to_a = min(1.0, (n_a + γ) / (n_b + γ))
+            if target_is_in_b[idx]
+                # Stayed in B: P = q_b + (1-q_b)×(1-α_to_a)
+                log_q += log(max(q_b + (1.0 - q_b) * (1.0 - α_to_a), 1e-300))
+            else
+                # Moved to A: P = (1-q_b) × α_to_a
+                log_q += log(max((1.0 - q_b) * α_to_a, 1e-300))
+            end
         else
-            log_q += log(1.0 - p_b)
+            α_to_b = min(1.0, (n_b + γ) / (n_a + γ))
+            if target_is_in_b[idx]
+                # Moved to B: P = q_b × α_to_b
+                log_q += log(max(q_b * α_to_b, 1e-300))
+            else
+                # Stayed in A: P = (1-q_b) + q_b×(1-α_to_b)
+                log_q += log(max((1.0 - q_b) + q_b * (1.0 - α_to_b), 1e-300))
+            end
         end
 
-        # Add to TARGET position (building the hybrid state for next step)
+        # Add to TARGET position (building hybrid state for next step)
         if target_is_in_b[idx]
             cs_b = add_loc(cs_b, lp)
         else
@@ -404,9 +456,9 @@ end
 """
     _sample_sequential_launch(member_indices, loc_precs, grid, γ)
 
-Sample a launch allocation via sequential predictive allocation (same mechanism
-as the initial split). Seeds at positions 1→A, 2→B; remaining members allocated
-proportional to (n_sub + γ) × predictive.
+Sample a launch allocation via sequential predictive-only allocation.
+Seeds at positions 1→A, 2→B; remaining members allocated proportional
+to predictive only (no DM weighting).
 
 Returns (is_in_b, cs_a, cs_b). Does NOT compute density (it's not needed —
 only the final restricted Gibbs scan density enters the MH ratio).
@@ -425,16 +477,14 @@ function _sample_sequential_launch(member_indices::Vector{Int},
         loc_idx = member_indices[idx]
         lp = loc_precs[loc_idx]
 
+        # Predictive-only allocation (no DM weighting)
         log_pred_a = log_marginal_likelihood(add_loc(cs_a, lp), log_area) -
                      log_marginal_likelihood(cs_a, log_area)
         log_pred_b = log_marginal_likelihood(add_loc(cs_b, lp), log_area) -
                      log_marginal_likelihood(cs_b, log_area)
 
-        log_w_a = log(Float64(cs_a.n) + γ) + log_pred_a
-        log_w_b = log(Float64(cs_b.n) + γ) + log_pred_b
-
-        max_lw = max(log_w_a, log_w_b)
-        p_b = exp(log_w_b - max_lw) / (exp(log_w_a - max_lw) + exp(log_w_b - max_lw))
+        max_lp = max(log_pred_a, log_pred_b)
+        p_b = exp(log_pred_b - max_lp) / (exp(log_pred_a - max_lp) + exp(log_pred_b - max_lp))
         p_b = clamp(p_b, 1e-300, 1.0 - 1e-300)
 
         if rand() < p_b
@@ -456,11 +506,11 @@ end
     _log_sequential_allocation(member_indices, is_in_b, loc_precs, grid, γ) -> Float64
 
 Compute the log probability of the allocation `is_in_b` under sequential
-predictive allocation of the members of a parent cluster.
+predictive-only allocation of the members of a parent cluster.
 
 Sequential allocation:
   - member[1] seeds sub-cluster A, member[2] seeds sub-cluster B
-  - For j = 3..m: assign member[j] proportional to (n_sub + γ) × predictive
+  - For j = 3..m: assign member[j] proportional to predictive only (no DM)
 
 Returns the log probability of the given allocation (product of conditional
 assignment probabilities for members 3..m).
@@ -482,18 +532,14 @@ function _log_sequential_allocation(member_indices::Vector{Int},
         loc_idx = member_indices[idx]
         lp = loc_precs[loc_idx]
 
-        # DM-weighted spatial predictive for each sub-cluster
+        # Predictive-only allocation (no DM weighting)
         log_pred_a = log_marginal_likelihood(add_loc(cs_a, lp), log_area) -
                      log_marginal_likelihood(cs_a, log_area)
         log_pred_b = log_marginal_likelihood(add_loc(cs_b, lp), log_area) -
                      log_marginal_likelihood(cs_b, log_area)
 
-        log_w_a = log(Float64(cs_a.n) + γ) + log_pred_a
-        log_w_b = log(Float64(cs_b.n) + γ) + log_pred_b
-
-        # Normalize
-        max_lw = max(log_w_a, log_w_b)
-        p_b = exp(log_w_b - max_lw) / (exp(log_w_a - max_lw) + exp(log_w_b - max_lw))
+        max_lp = max(log_pred_a, log_pred_b)
+        p_b = exp(log_pred_b - max_lp) / (exp(log_pred_a - max_lp) + exp(log_pred_b - max_lp))
         p_b = clamp(p_b, 1e-300, 1.0 - 1e-300)
 
         if is_in_b[idx]
@@ -572,16 +618,14 @@ function _do_sequential_split!(state::CollapsedState, parent_slot::Int,
         loc_idx = member_indices[idx]
         lp = loc_precs[loc_idx]
 
+        # Predictive-only allocation (no DM weighting)
         log_pred_a = log_marginal_likelihood(add_loc(cs_a, lp), log_area) -
                      log_marginal_likelihood(cs_a, log_area)
         log_pred_b = log_marginal_likelihood(add_loc(cs_b, lp), log_area) -
                      log_marginal_likelihood(cs_b, log_area)
 
-        log_w_a = log(Float64(cs_a.n) + γ) + log_pred_a
-        log_w_b = log(Float64(cs_b.n) + γ) + log_pred_b
-
-        max_lw = max(log_w_a, log_w_b)
-        p_b = exp(log_w_b - max_lw) / (exp(log_w_a - max_lw) + exp(log_w_b - max_lw))
+        max_lp = max(log_pred_a, log_pred_b)
+        p_b = exp(log_pred_b - max_lp) / (exp(log_pred_a - max_lp) + exp(log_pred_b - max_lp))
         p_b = clamp(p_b, 1e-300, 1.0 - 1e-300)
 
         # Sample
@@ -1005,7 +1049,7 @@ function propose_birth_death!(state::CollapsedState,
 
         lp = loc_precs[chosen_loc]
 
-        # DM-weighted predictive for each destination (all active except singleton)
+        # Predictive-only destination weights (DM enters via Δ_partition in MH)
         log_probs = state._log_probs
         dest_slots = state._active_slots  # reuse buffer
         dest_count = 0
@@ -1013,8 +1057,7 @@ function propose_birth_death!(state::CollapsedState,
             if state.active[j] && j != singleton_slot
                 dest_count += 1
                 cs = state.clusters[j]
-                log_probs[dest_count] = log(Float64(cs.n) + γ) +
-                                         log_predictive(cs, lp, log_area)
+                log_probs[dest_count] = log_predictive(cs, lp, log_area)
                 dest_slots[dest_count] = j
             end
         end

@@ -2,7 +2,7 @@
 
 **Authoritative reference for the collapsed Gibbs sampler. Read before modifying. Update after modifying.**
 
-*Matches implementation on `main` branch (Round 9, 2026-03-30). Round 9 added BD burst (n_bd_substeps=5) for improved K-mixing throughput. 4/4 brute-force PASS. Round 11: no code changes — confirmed target is correct, mixing is the bottleneck at large N.*
+*Matches implementation on `poisson-k-prior` branch (Round 12, 2026-03-31). Round 12: predictive-only proposals everywhere (DM removed from all proposal kernels, MH-corrected). Flat spatial + Poisson(ρA) K prior. 4/4 brute-force PASS.*
 
 ---
 
@@ -127,26 +127,27 @@ For an empty cluster: `p_pred = P_locmix(d_i)` (locmix prior at the localization
 
 ### 3.1 Gibbs Allocation Sweep (K fixed)
 
-**What it does:** Reassign each localization among the K existing clusters, with DM-weighted allocation.
+**What it does:** Reassign each localization among the K existing clusters via Metropolis-within-Gibbs with predictive-only proposals.
 
 **Algorithm:**
 1. Random permutation (Fisher-Yates in-place on `state._perm`)
 2. For each loc i in random order:
    - Skip sole occupants (maintains K)
    - Remove loc from current cluster: `remove_loc(cs, lp)`
-   - For each active cluster k, compute allocation weight
-   - Log-sum-exp normalize → sample from categorical
-   - `add_loc` to chosen cluster
+   - Proposal: `q(z_i = k) ∝ predictive(d_i | cluster_k)` (no DM factor)
+   - Log-sum-exp normalize → sample proposed cluster from categorical
+   - MH accept/reject: `α = min(1, (n_proposed + γ) / (n_old + γ))`
+   - If reject: put back in old cluster; if accept: assign to proposed
    - Update `assignments[i]`
 
 **Math:**
 ```
-P(z_i = k | rest) ∝ (n_{-i,k} + γ) × p_pred(d_i | cluster_k)
+Target:   π(z_i = k | rest) ∝ (n_{-i,k} + γ) × predictive(d_i | cluster_k)
+Proposal: q(z_i = k)        ∝ predictive(d_i | cluster_k)
+MH ratio: α = (n_{-i,proposed} + γ) / (n_{-i,old} + γ)  [predictive cancels]
 ```
 
-The `(n_{-i,k} + γ)` factor is the Dirichlet-Multinomial partition prior. It provides a "rich get richer" effect that compensates for the combinatorial explosion of partitions at higher K. Without it, the implicit prior is uniform-per-label, which gives S(N,3) >> S(N,1) partitions — strongly favoring higher K.
-
-The concentration parameter γ = α (the count model shape).
+The DM `(n_{-i,k} + γ)` factor enters through MH acceptance, not the proposal. This decouples spatial evidence from DM's rich-get-richer dynamics. γ = α (count model shape).
 
 **Code:** `gibbs_allocation_sweep!` in `collapsed_moves.jl`
 
@@ -181,19 +182,18 @@ Previous rounds (1-6) used a count-model independence sampler: sample K_new from
    - Seed 1 → sub-cluster A (stays in parent slot)
    - Seed 2 → sub-cluster B (goes to new slot)
 3. Sort remaining members by loc index (canonical ordering)
-4. **Sequential predictive allocation (launch):** for each remaining member j = 3..m:
+4. **Sequential predictive-only allocation (launch):** for each remaining member j = 3..m:
    ```
-   log w_A = log(n_A + γ) + log p_pred(d_j | sub-A)
-   log w_B = log(n_B + γ) + log p_pred(d_j | sub-B)
-   p_B = exp(log w_B) / (exp(log w_A) + exp(log w_B))
+   p_B = pred(d_j | sub-B) / (pred(d_j | sub-A) + pred(d_j | sub-B))
    ```
-   Sample: member j → B with probability p_B, else → A.
-5. **Restricted Gibbs scans (Jain-Neal):** if `n_restricted_scans > 0`:
+   Sample: member j → B with probability p_B, else → A. No DM weighting.
+5. **Restricted MH-Gibbs scans (Jain-Neal):** if `n_restricted_scans > 0`:
    - Run `n_restricted_scans - 1` intermediate sweeps (no density tracking):
-     for each non-seed member in canonical order, remove from current sub-cluster,
-     compute DM-weighted predictive for each sub, sample, add back.
+     for each non-seed member, propose from predictive-only, MH-accept with
+     `α = min(1, (n_target+γ)/(n_current+γ))`.
    - Run 1 final sweep (sample + track density → `q_alloc`):
-     same procedure, but accumulate log P(z_j = chosen) for each member.
+     same MH-Gibbs procedure. Density includes stay-via-rejection terms:
+     `P(stay) = q_same + q_other × (1-α)`, `P(move) = q_other × α`.
    - The final sweep's density REPLACES the sequential allocation density.
    - If `n_restricted_scans == 0`: use sequential allocation density directly.
 6. Forward structural density: `q_fwd = (1/K) × q_alloc`
@@ -262,8 +262,8 @@ Birth/death provides cheaper K±1 transitions than split/merge. The DM partition
 #### Death (K → K-1)
 
 1. Pick random singleton cluster: `1/n_singletons`
-2. Sample destination proportional to DM-weighted predictive:
-   `w(k) = (n_k + γ) × predictive(loc | cluster_k)` for all non-singleton clusters
+2. Sample destination proportional to predictive only:
+   `w(k) = predictive(loc | cluster_k)` for all non-singleton clusters (no DM weighting)
 3. Absorb singleton loc into destination
 
 #### Internal Direction Selection
@@ -285,12 +285,12 @@ For death forward, the assignment probability `w(dest)/Σw` enters. For birth re
 #### MH Acceptance
 
 ```
-log α = Δ_spatial + Δ_partition + Δ_proposal + Δ_count
+log α = Δ_spatial + Δ_partition + Δ_proposal + Δ_count + Δ_K_prior
 ```
 
-No Δ_move_type needed — the `p_birth`/`p_death` boundary handling is already in `q_fwd`/`q_rev`.
+Δ_K_prior from Poisson(ρA) prior. No Δ_move_type needed — the `p_birth`/`p_death` boundary handling is already in `q_fwd`/`q_rev`.
 
-**Detailed balance proof:** Standard MH. The proposal is a proper distribution over transitions. Forward (birth creating singleton from cluster j) and reverse (death absorbing singleton into cluster j) are exact inverses. The densities fully account for all randomness: direction selection + loc/singleton selection + DM-weighted destination (death only).
+**Detailed balance proof:** Standard MH. The proposal is a proper distribution over transitions. Forward (birth creating singleton from cluster j) and reverse (death absorbing singleton into cluster j) are exact inverses. The densities fully account for all randomness: direction selection + loc/singleton selection + predictive-only destination (death only). DM enters via Δ_partition in acceptance.
 
 **Code:** `propose_birth_death!` in `collapsed_moves.jl`
 
