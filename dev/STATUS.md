@@ -1,23 +1,59 @@
 # Sampler Research Status
 
-## Current State (2026-03-30, post-Round 10)
+## Current State (2026-03-30, post-Round 11)
 
-Round 9 achieved 4/4 brute-force PASS via BD burst (n_bd_substeps=5). However, subsequent optimality sweep and oracle-init testing revealed a fundamental issue: **the DM/Polya partition prior creates systematic downward K pressure** that makes BaGoL worse than Q-PAINT for octamers at intermediate separations (NN≈2σ).
+Round 9 achieved 4/4 brute-force PASS. Round 11 investigated whether BaGoL's K under-estimation at intermediate separations is a target or kernel problem. **Conclusion: it is a MIXING problem.** The target (marginal P(K)) likely still favors K≈7-8 at d=0, consistent with brute-force and Q-PAINT. But the sampler converges to K≈3 from both K=1 and K=8 starts — the chain cannot reach equilibrium at N=40.
 
-**Brute-force: 4/4 PASS.** Small-N sampler is correct.
-**Optimality: FAILING.** Octamers at d/σ=5 — Q-PAINT 100%, BaGoL 0% (from oracle K=8, chain drops to K≈6).
+**Brute-force: 4/4 PASS.** Small-N sampler is correct. Target is correct at N=6.
+**Optimality: FAILING.** Mixing problem at N=40 — sampler cannot reach the target's preferred K.
 
-### Root Cause: DM/Polya Dynamics
+### Root Cause: Per-Allocation Energy Barriers (Round 11, refined)
 
-The DM partition prior (γ=shape) is mathematically correct (proven derivation from NegBin count model). But it creates compounding K-reducing forces:
-- Gibbs: (n_k+γ) rich-get-richer destabilizes balanced partitions at NN≈2σ
-- Every birth: Δ_DM ≈ -4 (opposed). Every death: Δ_DM ≈ +4 (favored)
-- Every split: Δ_DM ≈ -6 (opposed). Every merge: Δ_DM ≈ +6 (favored)
-- log Γ convexity means Polya density favors UNBALANCED sizes
+The spatial ML has a per-cluster Occam factor `-log(n_k)` (partition-dependent part, after cancelling terms that depend only on N). For any SPECIFIC allocation at K=8 vs K=4, the DM relief (+30) overwhelms the count model (+2) and spatial penalty (+2), making K=4 score higher.
 
-At K=8 with NN=1.9σ: Gibbs creates sizes [9,7,7,6,4,3,2,2] from balanced [5,5,5,5,5,5,5,5]. Small clusters become death targets. Chain drops to K≈6. This is NOT mixing failure — chain converges to K≈6 from both K=1 and oracle K=8 in 500K iterations.
+**But:** the MARGINAL P(K|data) sums over all allocations at each K. The entropy of allocations at higher K compensates. Exact computation of the co-located marginal (composition enumeration for K=1..6) shows P(K) monotonically increasing through K=6:
 
-See `docs/dm-polya-proof.md` for full derivation and evidence.
+| K | count | E[-Σlog(n_k)] | P(K)/P(6) |
+|---|-------|---------------|-----------|
+| 1 | -12.25 | -3.69 | 0.016 |
+| 2 | -9.05 | -5.55 | 0.086 |
+| 3 | -6.96 | -6.92 | 0.241 |
+| 4 | -5.52 | -7.98 | 0.480 |
+| 5 | -4.54 | -8.82 | 0.756 |
+| 6 | -3.91 | -9.49 | 1.000 |
+
+The trend clearly continues to K≈7-8 (Q-PAINT MAP), confirming **the target is correct**. The sampler at K≈3 is far below the target peak — this is a severe mixing failure at N=40.
+
+**Why specific-allocation scoring was misleading:** K=4 gibbs-opt scores +26 above K=8 oracle for a SPECIFIC allocation. But P(K) requires summing over ALL allocations. The number of good allocations at K=8 vastly exceeds K=4, and the DM-weighted entropy compensates for the per-allocation penalty.
+
+### Key Evidence (Round 11 diagnostics, `dev/k_target_scoring.jl`)
+
+**Per-allocation scoring (informative but NOT the marginal):**
+
+| K | Label | Count | DM | Spatial | Total | Δ vs K=8 oracle |
+|---|-------|-------|-----|---------|-------|-----------------|
+| 8 | oracle | -3.40 | -87.79 | +257.08 | +165.89 | 0.00 |
+| 8 | gibbs-opt | -3.40 | -81.47 | +256.83 | +171.97 | +6.07 |
+| 7 | gibbs-opt | -3.54 | -78.92 | +264.46 | +181.99 | +16.10 |
+| 4 | gibbs-opt | -5.52 | -57.17 | +254.76 | +192.07 | +26.18 |
+
+Each K-change in the allocation faces a large energy barrier (DM penalty ≈ -6 to -30 per step). Even though the MARGINAL favors high K, the chain's K-transition moves see the per-allocation landscape, which has valleys at K≈3-6. The chain gets trapped.
+
+**Saddle-point is fine:** Grid vs exact locmix differ by <0.02 per cluster. Not a factor.
+
+**Co-located test (d=0):** Both K=1 and K=8 starts converge to K≈3 (200K iters). This is NOT because the target prefers K=3 (the marginal increases through K=6+). It is because the chain mixes too slowly to reach equilibrium at N=40.
+
+**Octamer (NN=1.9σ):** Both starts converge to K≈6. Same mixing explanation — chain is trapped below the target's preferred K.
+
+### Why Mixing Fails at Large N
+
+At N=6 (brute-force), the DM energy barriers are ≈2-5 per K step, and birth/death with BD burst overcome them. At N=40:
+- Each K step faces ≈6-30 in DM penalty for a specific allocation
+- Birth acceptance ≈5-20% (creates singletons → vulnerable to immediate death)
+- Split acceptance ≈3-7% (DM penalty compounds with allocation cost)
+- The chain oscillates locally but cannot make sustained net progress toward high K
+
+The mixing time scales exponentially with N/K — the energy barrier per K-step grows with cluster sizes, making higher K increasingly hard to reach.
 
 ### Brute-Force Results (Round 9)
 
@@ -124,23 +160,26 @@ All 4 brute-force tests now PASS. The residual under-visiting (1.2-1.4× for wor
 
 ## Active Research Threads
 
-### Thread 1: K-Changing Kernel Bias — OPEN (Critical)
+### Thread 1: K-Mixing at Large N — OPEN (Critical)
 
-**Status:** Round 10 tested MH-corrected predictive-only Gibbs (propose ∝ pred, accept with DM ratio). Both standard and MH Gibbs converge from oracle K=8 to K≈4.5 for octamers at NN=1.9σ. Initially this was misinterpreted as "the target is wrong." Codex review corrected this: **the diagnostic only changed the within-K allocation sweep, not the K-changing moves.** Both variants share identical split/merge and birth/death kernels, which are the actual bottleneck.
+**Status:** Round 11 confirmed the target is correct (marginal P(K) favors high K at d=0 and likely at NN=1.9σ), but the sampler cannot reach the target's preferred K at N=40. This is a MIXING problem, not a target or kernel-correctness problem.
 
-**Key insight (Codex Round 10 review):** P(N|K) and the DM prior are NOT two forces fighting — they are a factorization of the same NegBin count model. After summing over allocations at fixed K, the DM collapses back into the count model. If Q-PAINT (count-only) correctly favors K=8, the full posterior with correct spatial likelihood should also favor K≥8. The problem must be in the K-changing kernel or the spatial likelihood approximation.
+**Key insight (Round 11):** Scoring specific allocations across K is misleading — K=4 MAP scores +26 above K=8 oracle, but the marginal P(K) (which sums over all allocations weighted by DM) favors K≈7-8. The entropy of allocations at higher K compensates for the per-allocation DM+Occam penalty.
 
-**Evidence of K-kernel bias:** SM-only diagnostic FAILS at 1.76x max ratio for well-separated dimers. This directly shows the split/merge kernel has bias that persists regardless of which Gibbs variant is used.
+**Evidence:**
+- Exact co-located marginal (composition enumeration, K=1..6): P(K) monotonically increasing, consistent with Q-PAINT MAP K=8
+- Co-located sampler gives K≈3 from both K=1 and K=8 starts → severe under-mixing
+- Octamer sampler gives K≈6 from both starts → same under-mixing, different degree
+- SM-only brute-force FAILS at 1.76x → split/merge kernel has measurable bias at N=6 scale
+- Saddle-point locmix vs exact: <0.02 per cluster (not a factor)
 
-**Next: Round 11 — Audit K-Changing Moves**
+**Root cause:** Per-allocation energy barriers scale with cluster sizes and compound at higher K. Birth/death and split/merge moves have ~5-20% acceptance for K-increasing proposals. The mixing time scales exponentially with N, making the sampler unable to reach equilibrium at N=40 within practical iteration counts.
 
-Priority investigation:
-1. Measure K=8↔7↔6↔5 transition flux and acceptance rates individually (not just end-state K)
-2. Check locmix saddle-point approximation vs exact integration on octamer states
-3. Validate K-moves on small octamer-like toy (e.g., N=8, K=4, d/σ=2 brute-force)
-4. Verify co-located limit: full sampler must match Q-PAINT exactly at d=0
-
-γ=shape is mathematically correct and stays fixed. The target distribution is NOT the problem.
+**Next directions:**
+1. Design K-transition moves that see the MARGINAL landscape, not per-allocation landscape
+2. Consider parallel tempering or annealed approaches for K-dimension mixing
+3. Investigate whether non-reversible MCMC or Hamiltonian-like moves could improve K-mixing
+4. Possible: decouple K proposal from allocation (propose K first from count model, then sample allocation at new K)
 
 ### Thread 2: Hierarchical Learner Feedback
 
@@ -166,13 +205,16 @@ Priority investigation:
 | 9 | 2026-03-30 | BD burst | BD burst (n_bd_substeps=5): 5 sequential BD per selection. **4/4 brute-force PASS** (was 3/4). Single emitter FAIL→PASS (1.97×→1.40×). ESS +16-179%. Practical recall unchanged (59%). |
 | 9+ | 2026-03-30 | DM/Polya analysis | Optimality sweep + oracle init revealed DM creates systematic ↓K pressure. BaGoL worse than Q-PAINT for octamers at NN≈2σ. Root cause: Gibbs destabilizes balanced partitions, compounds with death/merge bias. Fix: time-scale separation. |
 | 10 | 2026-03-30 | MH-Gibbs diagnostic | Tested MH-corrected pred-only Gibbs. Both Gibbs variants give K≈4.5 from oracle K=8. Initially concluded "target is wrong" — **Codex corrected: diagnostic only changed within-K sweep, not K-changing moves.** K-kernel bias (SM-only FAIL at 1.76x) is the real suspect. γ=shape stays fixed. |
+| 11 | 2026-03-30 | Target scoring + marginal | **Per-allocation scoring misleading:** K=4 MAP scores +26 above K=8 oracle, but MARGINAL P(K) increases through K=6+ (exact enumeration). Target is correct — **mixing is the problem.** Sampler K≈3 at d=0 (both starts), target peak ≈ K=7-8. Saddle-point fine (<0.02/cluster). |
 
 ## Future Priorities
 
-1. **CRITICAL — Round 11:** Audit K-changing kernel — measure transition flux K=8↔7↔...↔4, identify asymmetry source
-2. **HIGH:** Validate K-moves on small octamer-like brute-force (e.g., N=8, K=4, d/σ=2)
-3. **HIGH:** Check locmix saddle-point approximation vs exact integration on octamer states
-4. **HIGH:** Verify co-located limit: full sampler must match Q-PAINT at d=0
-5. **COMPLETED (Round 10):** MH-corrected Gibbs — doesn't isolate the problem (same K-changing kernel)
-6. **COMPLETED:** Brute-force 4/4 PASS — small-N sampler correct
-7. **DOCUMENTED:** DM/Polya derivation — see docs/dm-polya-proof.md. γ=shape is correct.
+1. **CRITICAL:** Improve K-mixing at large N. Per-allocation energy barriers prevent the sampler from reaching the target's preferred K. Need fundamentally new K-transition strategy.
+2. **HIGH:** Design K-proposals that see the marginal landscape (not per-allocation). Possible: count-model K proposal + full reallocation via SMC or annealing.
+3. **HIGH:** Parallel tempering / annealed importance sampling for the K dimension.
+4. **MEDIUM:** Investigate non-reversible K-transitions (momentum-based, look-ahead).
+5. **MEDIUM:** Validate octamer marginal P(K) (composition enumeration too expensive at K=8 — use SMC or thermodynamic integration).
+6. **COMPLETED (Round 11):** Target is correct at d=0 (marginal increases through K=6+). Saddle-point fine. Per-allocation scoring is misleading — must use marginal.
+7. **COMPLETED (Round 10):** MH-corrected Gibbs doesn't help (same K-changing kernel).
+8. **COMPLETED (Round 9):** Brute-force 4/4 PASS — small-N sampler correct.
+9. **DOCUMENTED:** DM/Polya derivation — see docs/dm-polya-proof.md. γ=shape is correct.

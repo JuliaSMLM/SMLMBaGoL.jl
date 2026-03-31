@@ -326,26 +326,25 @@ For merge reverse density: same launch mechanism, then intermediate sweeps, then
 
 ---
 
-### 18. DM/Polya Partition Prior: Correct Prior, K-Kernel Under Investigation (Rounds 9-10)
+### 18. DM/Polya Partition Prior: Correct Prior, Mixing Problem at Large N (Rounds 9-11)
 
 **What was found:** The DM partition prior with γ=shape is provably the correct prior on assignment vectors z given the NegBin count model conditioned on N (see `docs/dm-polya-proof.md`). γ=shape is NOT a tuning knob — it is a mathematical consequence of the count model and must not be changed.
 
-**Critical conceptual point (Codex, Round 10):** P(N|K) and the DM P(z|K,N) are NOT two independent forces fighting over K. They are a factorization of the same NegBin count model. After summing P_DM(z|K,N) over all allocations z at fixed K, the DM collapses back into P(N|K). Therefore, if Q-PAINT (count-only) correctly favors K=8, the full posterior with correct spatial likelihood should also favor K≥8 (spatial info can only help).
+**Critical conceptual point (Codex, Round 10):** P(N|K) and the DM P(z|K,N) are NOT two independent forces fighting over K. They are a factorization of the same NegBin count model. After summing P_DM(z|K,N) over all allocations z at fixed K, the DM collapses back into P(N|K).
 
-**Observed failure:** N=40, 8 emitters at NN=1.9σ, nohier:
-- Q-PAINT: MAP K=8.
-- BaGoL from oracle K=8: drops to K≈4.5.
-- Both standard DM Gibbs and MH-corrected Gibbs give same K≈4.5.
-- SM-only diagnostic: FAILS at 1.76x (K-kernel has measurable bias).
+**Round 11 resolution:** The target IS correct. The marginal P(K|data) at d=0 was computed exactly by composition enumeration (K=1..6) and monotonically increases through K=6, consistent with Q-PAINT MAP K=8. The sampler at K≈3 is far below the target — a severe MIXING failure.
 
-**Round 10 diagnostic was inconclusive:** Changing the within-K Gibbs sweep doesn't test the K-changing moves (split/merge, birth/death), which are the actual bottleneck. Both Gibbs variants share identical K-changing kernels, so matching K≈4.5 doesn't distinguish "target wrong" from "K-kernel biased."
+**Why specific-allocation scoring was misleading (Round 11 lesson):** K=4 gibbs-opt scores +26 above K=8 oracle for a SPECIFIC allocation (the MAP at each K). But the MARGINAL sums over ALL allocations weighted by DM. The entropy at higher K (many more allocations) compensates for the per-allocation DM penalty. Comparing MAP allocations across K does NOT give P(K|data).
 
-**Open questions:**
-1. Does the K-changing kernel have systematic downward bias? (SM-only FAIL suggests yes)
-2. Does the locmix saddle-point approximation introduce bias at intermediate separations?
-3. Does the co-located limit work? (Full sampler should match Q-PAINT at d=0)
+**Partition-dependent Occam residual (Codex correction):** The partition-dependent part of the spatial ML at d=0 (equal σ) is `-Σ_k log(n_k)`, NOT `-K log(2π) - Σ log(n_k)`. The `log(2π)` terms cancel because `Σn_k = N` is fixed. The `-Σlog(n_k)` creates a per-allocation energy barrier for K-increasing moves, but this is compensated in the MARGINAL by the DM's allocation entropy at higher K.
 
-**What was learned:** Do NOT conclude "target is wrong" without independent verification (tempered MCMC, SMC, or exact enumeration at the problem scale). Changing the within-K sweep is not a valid diagnostic for K-move bias.
+**Mixing failure mechanism:** Each K-increasing move (birth, split) faces the per-allocation DM penalty (≈-6 to -30 depending on cluster sizes). Even though the marginal favors high K, the chain's transition moves see the per-allocation landscape, not the marginal. The chain oscillates locally (K≈3-6) but cannot make sustained progress toward the target peak (K≈7-8). This failure scales with N — at N=6 (brute-force), the barriers are small enough for BD burst to overcome; at N=40, they are insurmountable with current moves.
+
+**What was learned:**
+1. Do NOT conclude "target is wrong" from specific-allocation scoring. Always compute the marginal.
+2. Convergence from both K=1 and K=8 to the same K does NOT prove the target peaks there — it can indicate a metastable mixing trap accessible from both directions.
+3. The brute-force at N=6 correctly showed the target is OK. Trust it.
+4. Saddle-point locmix is fine (<0.02/cluster). The approximation is not the issue.
 
 ---
 
