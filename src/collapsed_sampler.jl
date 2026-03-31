@@ -8,16 +8,15 @@
 # ============================================================================
 
 """
-    initialize_collapsed_state(locs; spatial_prior) -> CollapsedState
+    initialize_collapsed_state(locs, spatial_model, allocation_model) -> CollapsedState
 
 Initialize collapsed state: all locs in one cluster.
 """
 function initialize_collapsed_state(locs::Vector{<:SMLMData.AbstractEmitter},
-                                     spatial_prior::UniformSpatialPrior)
+                                     sp::AbstractSpatialModel,
+                                     am::AbstractAllocationModel=DMAllocation())
     N = length(locs)
-    log_area = log(area(spatial_prior))
 
-    # Start with one cluster containing all locs
     cs = ClusterStats()
     for loc in locs
         cs = add_loc(cs, loc)
@@ -28,11 +27,9 @@ function initialize_collapsed_state(locs::Vector{<:SMLMData.AbstractEmitter},
     active = BitVector([true])
     n_active = 1
 
-    # Precompute loc precisions (locs never change during chain)
     _loc_precs = precompute_loc_precisions(locs)
 
-    # Pre-allocate workspace buffers
-    max_K = max(N, 16)  # Upper bound on cluster count
+    max_K = max(N, 16)
     _perm = collect(1:N)
     _active_slots = Vector{Int}(undef, max_K)
     _log_probs = Vector{Float64}(undef, max_K + 1)
@@ -40,10 +37,17 @@ function initialize_collapsed_state(locs::Vector{<:SMLMData.AbstractEmitter},
     _rollback_clusters = similar(clusters)
     _rollback_active = similar(active)
 
-    return CollapsedState(assignments, clusters, active, n_active, log_area,
+    return CollapsedState(assignments, clusters, active, n_active, sp, am,
                           _loc_precs,
                           _perm, _active_slots, _log_probs,
                           _rollback_assignments, _rollback_clusters, _rollback_active)
+end
+
+# Backward-compatible: accept UniformSpatialPrior → FlatSpatial
+function initialize_collapsed_state(locs::Vector{<:SMLMData.AbstractEmitter},
+                                     spatial_prior::UniformSpatialPrior,
+                                     am::AbstractAllocationModel=DMAllocation())
+    initialize_collapsed_state(locs, FlatSpatial(log(area(spatial_prior))), am)
 end
 
 """
@@ -57,12 +61,11 @@ All workspace buffers and precomputed data (LocPrecision)
 are built fresh.
 """
 function initialize_from_assignments(assignments::AbstractVector{<:Integer},
-                                      locs::Vector{<:SMLMData.AbstractEmitter})
+                                      locs::Vector{<:SMLMData.AbstractEmitter};
+                                      sp::AbstractSpatialModel=FlatSpatial(log(area(UniformSpatialPrior(locs)))),
+                                      am::AbstractAllocationModel=DMAllocation())
     N = length(locs)
     @assert length(assignments) == N "Assignment length must match number of locs"
-
-    spatial_prior = UniformSpatialPrior(locs)
-    log_area = log(area(spatial_prior))
 
     assign16 = Vector{Int16}(assignments)
     max_cluster = maximum(assign16)
@@ -87,7 +90,7 @@ function initialize_from_assignments(assignments::AbstractVector{<:Integer},
     _rollback_clusters = similar(clusters)
     _rollback_active = similar(active)
 
-    return CollapsedState(assign16, clusters, active, n_active, log_area,
+    return CollapsedState(assign16, clusters, active, n_active, sp, am,
                           _loc_precs,
                           _perm, _active_slots, _log_probs,
                           _rollback_assignments, _rollback_clusters, _rollback_active)
@@ -154,7 +157,7 @@ function run_collapsed_chain(
 
     allocation_model in (:dm, :decoupled) ||
         throw(ArgumentError("allocation_model must be :dm or :decoupled (got :$allocation_model)"))
-    use_dm = allocation_model === :dm
+    am = allocation_model === :dm ? DMAllocation() : DecoupledAllocation()
 
     # Validate learn_distribution
     if learn_distribution isa Symbol && learn_distribution ∉ (:mu, :shape)
@@ -165,15 +168,15 @@ function run_collapsed_chain(
 
     # Initialize from explicit assignments or default (all-in-one)
     if initial_assignments !== nothing
-        state = initialize_from_assignments(initial_assignments, locs)
+        state = initialize_from_assignments(initial_assignments, locs; am=am)
     else
         spatial_prior = UniformSpatialPrior(locs)
-        state = initialize_collapsed_state(locs, spatial_prior)
+        state = initialize_collapsed_state(locs, spatial_prior, am)
     end
 
     μ = μ_prior_shape * μ_prior_scale  # Initial μ from prior mean
     current_shape = shape
-    A = exp(state.log_area)
+    A = spatial_area(state.spatial)
     ρ = ρ_prior_shape / ρ_prior_rate  # Initial ρ from prior mean
 
     acceptance = Dict{Symbol, Tuple{Int, Int}}(
@@ -198,19 +201,19 @@ function run_collapsed_chain(
 
         if r < 0.50
             # Gibbs allocation sweep (always "accepts" — it's exact Gibbs)
-            gibbs_allocation_sweep!(state, locs, μ, current_shape; use_dm=use_dm)
+            gibbs_allocation_sweep!(state, locs, μ, current_shape)
             prev = acceptance[:gibbs_sweep]
             acceptance[:gibbs_sweep] = (prev[1] + 1, prev[2] + 1)
         elseif r < 0.75
             # Split-merge
             accepted, move_type = propose_split_merge!(state, locs, μ, current_shape, ρ;
-                                                        n_restricted_scans=n_restricted_scans, use_dm=use_dm)
+                                                        n_restricted_scans=n_restricted_scans)
             prev = acceptance[move_type]
             acceptance[move_type] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
         else
             # Birth-death (multiple substeps for K-mixing throughput)
             for _bd in 1:n_bd_substeps
-                accepted, move_type = propose_birth_death!(state, locs, μ, current_shape, ρ; use_dm=use_dm)
+                accepted, move_type = propose_birth_death!(state, locs, μ, current_shape, ρ)
                 prev = acceptance[move_type]
                 acceptance[move_type] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
             end
@@ -281,29 +284,28 @@ function run_collapsed_iterations!(
     current_iter::Int;
     acceptance::Union{Dict{Symbol, Tuple{Int, Int}}, Nothing}=nothing,
     n_restricted_scans::Int = 5,
-    n_bd_substeps::Int = 5,
-    use_dm::Bool = true
+    n_bd_substeps::Int = 5
 )
     for _ in 1:n
         current_iter += 1
 
         r = rand()
         if r < 0.50
-            gibbs_allocation_sweep!(state, locs, μ, shape; use_dm=use_dm)
+            gibbs_allocation_sweep!(state, locs, μ, shape)
             if acceptance !== nothing
                 prev = acceptance[:gibbs_sweep]
                 acceptance[:gibbs_sweep] = (prev[1] + 1, prev[2] + 1)
             end
         elseif r < 0.75
             accepted, move_type = propose_split_merge!(state, locs, μ, shape, ρ;
-                                                        n_restricted_scans=n_restricted_scans, use_dm=use_dm)
+                                                        n_restricted_scans=n_restricted_scans)
             if acceptance !== nothing
                 prev = acceptance[move_type]
                 acceptance[move_type] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
             end
         else
             for _bd in 1:n_bd_substeps
-                accepted, move_type = propose_birth_death!(state, locs, μ, shape, ρ; use_dm=use_dm)
+                accepted, move_type = propose_birth_death!(state, locs, μ, shape, ρ)
                 if acceptance !== nothing
                     prev = acceptance[move_type]
                     acceptance[move_type] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)

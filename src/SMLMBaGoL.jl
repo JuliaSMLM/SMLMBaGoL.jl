@@ -54,6 +54,9 @@ export AbstractTargetDensity, DecoupledTarget, DMFlatTarget, DirectNegBinFlatTar
 export log_target, evaluate_target
 
 # Export diagnostics — finite-state validation
+export AbstractSpatialModel, FlatSpatial, LocmixSpatial, spatial_ml, spatial_pred
+export AbstractAllocationModel, DMAllocation, DecoupledAllocation
+
 export enumerate_canonical_partitions, canonicalize, exact_posterior
 export enumerate_labeled_partitions
 export run_kernel_invariance_test, run_labeled_invariance_test

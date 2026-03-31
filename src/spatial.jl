@@ -1,5 +1,11 @@
 # Spatial utilities for dimension-agnostic coordinate access
 
+# Abstract model types (defined early for CollapsedState and dispatch)
+"""Base type for spatial prior models (FlatSpatial, LocmixSpatial)."""
+abstract type AbstractSpatialModel end
+"""Base type for allocation models (DMAllocation, DecoupledAllocation)."""
+abstract type AbstractAllocationModel end
+
 """
     get_coords(loc)
 
