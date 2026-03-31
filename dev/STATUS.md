@@ -1,11 +1,11 @@
 # Sampler Research Status
 
-## Current State (2026-03-30, post-Round 11)
+## Current State (2026-03-31, post-Round 12)
 
-Round 9 achieved 4/4 brute-force PASS. Round 11 investigated whether BaGoL's K under-estimation at intermediate separations is a target or kernel problem. **Conclusion: it is a MIXING problem.** The target (marginal P(K)) likely still favors K≈7-8 at d=0, consistent with brute-force and Q-PAINT. But the sampler converges to K≈3 from both K=1 and K=8 starts — the chain cannot reach equilibrium at N=40.
+Round 12 tested predictive-only proposals (remove DM weighting from all proposal kernels, MH-correct). **Conclusion: DM proposal dynamics are NOT the large-N bottleneck.** The N=40 co-located K=1 trap exists identically in both DM-weighted and predictive-only proposals (birth acceptance 0.12% in both cases). The bottleneck is the target landscape under Poisson K prior + flat spatial.
 
-**Brute-force: 4/4 PASS.** Small-N sampler is correct. Target is correct at N=6.
-**Optimality: FAILING.** Mixing problem at N=40 — sampler cannot reach the target's preferred K.
+**Brute-force: 4/4 PASS.** Small-N sampler correct with predictive-only proposals. Close dimer improved 1.30x→1.27x.
+**Practical: UNCHANGED.** smlmsim recall 0.478 (baseline 0.475). Poisson K prior itself causes worse recall than locmix (0.592).
 
 ### Root Cause: Per-Allocation Energy Barriers (Round 11, refined)
 
@@ -61,15 +61,15 @@ At N=6 (brute-force), the DM energy barriers are ≈2-5 per K step, and birth/de
 
 The mixing time scales exponentially with N/K — the energy barrier per K-step grows with cluster sizes, making higher K increasingly hard to reach.
 
-### Brute-Force Results (Round 9)
+### Brute-Force Results (Round 12, Poisson K prior + predictive-only proposals)
 
-| Test | KL | Max ratio | Verdict | R8 KL | R8 ratio | Change |
-|------|-----|-----------|---------|-------|----------|--------|
-| Well-separated (d/σ=10) | **0.000** | **1.06x** | **PASS** | 0.001 | 1.08x | Better |
-| Close dimer (d/σ=3) | **0.008** | **1.25x** | **PASS** | 0.013 | 1.41x | **1.6x better KL** |
-| Single emitter | **0.012** | **1.40x** | **PASS** | 0.024 | 1.97x | **2x better KL, FAIL→PASS** |
-| Large dimer (d/σ=8) | **0.002** | **1.14x** | **PASS** | 0.003 | 1.24x | Better |
-| SM-only (well-sep) | 0.019 | 1.76x | FAIL | 0.019 | 1.76x | same (no B/D) |
+| Test | R12 KL | R12 Max | Verdict | Baseline KL | Baseline Max |
+|------|--------|---------|---------|-------------|--------------|
+| Well-separated (d/σ=10) | 0.000 | **1.08x** | **PASS** | 0.000 | 1.05x |
+| Close dimer (d/σ=3) | **0.009** | **1.27x** | **PASS** | 0.010 | 1.30x |
+| Single emitter | 0.002 | **1.48x** | **PASS** | 0.001 | 1.37x |
+| Large dimer (d/σ=8) | 0.000 | **1.08x** | **PASS** | 0.000 | 1.00x |
+| SM-only (well-sep) | 0.002 | **1.47x** | **PASS** | 0.002 | 1.45x |
 
 **ESS improvement (Round 9 vs Round 8):**
 
@@ -93,14 +93,16 @@ The mixing time scales exponentially with N/K — the energy barrier per K-step 
 
 **smlmsim_highdensity** (331 hexamers, 25nm diameter, d/σ≈3.4):
 
-| Metric | R9 Value | R8 Value | Assessment |
-|--------|----------|----------|------------|
-| True emitters | 1986 | 1986 | — |
-| Precision | 0.999 | 1.000 | Near-perfect |
-| Recall | 0.592 | 0.591 | ~same |
-| RMSE | 4.8 nm | 4.8 nm | Excellent |
-| Learned μ | 17.79 | 17.79 | 2× overestimate (unchanged) |
-| Learned shape | 21.92 | 21.92 | Unchanged |
+| Metric | R12 (pred-only) | Poisson baseline | R9 (locmix) |
+|--------|-----------------|------------------|-------------|
+| True emitters | 1986 | 1986 | 1986 |
+| Precision | 1.000 | 1.000 | 0.999 |
+| Recall | 0.478 | 0.475 | 0.592 |
+| RMSE | 4.5 nm | 4.4 nm | 4.8 nm |
+| Learned μ | 19.93 | 19.93 | 17.79 |
+| Learned shape | 24.31 | 20.97 | 21.92 |
+
+Note: Poisson K prior branch has worse recall than locmix (0.475 vs 0.592).
 
 BD burst doesn't help practical recall because smlmsim uses large partitions (median K=4, up to K=13) where the K-mixing bottleneck is different — dominated by split/merge dynamics, not birth/death acceptance.
 
@@ -110,7 +112,7 @@ BD burst doesn't help practical recall because smlmsim uses large partitions (me
 
 ```
 Move mix: Gibbs allocation (50%) + Split/Merge (25%) + Birth/Death (25% × 5 substeps)
-Gibbs:    P(z_i = k | rest) ∝ (n_{-i,k} + γ) × predictive  [DM-weighted]
+Gibbs:    q(z_i = k) ∝ predictive  [pred-only proposal, MH-correct with (n+γ) ratio]
 Split/Merge:
   K proposal: Random |ΔK|=1 (coin flip split/merge, boundary-aware)
   Split:    Random seeds + sequential launch + restricted Gibbs scans (Jain-Neal)
@@ -124,9 +126,10 @@ Birth/Death:
   MH:       log α = Δ_spatial + Δ_partition + Δ_proposal + Δ_count
   q_birth = p_birth × 1/N_eligible
   q_death = p_death × 1/n_singletons × w(dest)/Σw  [w = (n_k+γ) × pred]
-Spatial prior: Locmix (data-driven mixture of localizations)
-Count model: NegBin(N; K*shape, p) — no separate P(K) prior
+Spatial prior: Flat uniform + Poisson(ρA) K prior (area cancels)
+Count model: NegBin(N; K*shape, p)
 DM prior: γ = shape (currently 2.0 default)
+Proposals: All predictive-only (no DM in proposals), MH-corrected
 Hierarchical: Global MH updates for μ, shape across partitions
 n_restricted_scans: 5 (default) — 4 intermediate + 1 final sweep
 ```
@@ -168,24 +171,24 @@ All 4 brute-force tests now PASS. The residual under-visiting (1.2-1.4× for wor
 
 ### Thread 1: K-Mixing at Large N — OPEN (Critical)
 
-**Status:** Round 11 confirmed the target is correct (marginal P(K) favors high K at d=0 and likely at NN=1.9σ), but the sampler cannot reach the target's preferred K at N=40. This is a MIXING problem, not a target or kernel-correctness problem.
+**Status:** Round 12 proved that DM proposal dynamics are NOT the bottleneck. Predictive-only proposals (remove all DM from proposals, MH-correct) give identical mixing at N=40: birth acceptance 0.12% in both cases, K stuck at 1.
 
-**Key insight (Round 11):** Scoring specific allocations across K is misleading — K=4 MAP scores +26 above K=8 oracle, but the marginal P(K) (which sums over all allocations weighted by DM) favors K≈7-8. The entropy of allocations at higher K compensates for the per-allocation DM+Occam penalty.
+**Key insight (Round 12):** The N=40 co-located K=1 trap is a TARGET LANDSCAPE problem under Poisson K prior + flat spatial, not a proposal problem. The DM-weighted vs predictive-only proposals make no difference because the energy barrier for K=1→K=2 is dominated by Δ_partition + Δ_count + Δ_K_prior, not by proposal dynamics.
 
-**Evidence:**
-- Exact co-located marginal (composition enumeration, K=1..6): P(K) monotonically increasing, consistent with Q-PAINT MAP K=8
-- Co-located sampler gives K≈3 from both K=1 and K=8 starts → severe under-mixing
-- Octamer sampler gives K≈6 from both starts → same under-mixing, different degree
-- SM-only brute-force FAILS at 1.76x → split/merge kernel has measurable bias at N=6 scale
-- Saddle-point locmix vs exact: <0.02 per cluster (not a factor)
+**Evidence (Round 12):**
+- Brute-force 4/4 PASS (both DM-weighted and predictive-only)
+- N=40 co-located: K=1 stuck, birth 0.12% — identical baseline vs predictive-only
+- smlmsim: recall 0.478 (baseline) vs 0.475 (pred-only) — within noise
+- Close dimer improved slightly (1.30x → 1.27x) — small-N benefit only
+- SM-only PASS: 1.45x (baseline) vs 1.47x (pred-only) — equivalent
 
-**Root cause:** Per-allocation energy barriers scale with cluster sizes and compound at higher K. Birth/death and split/merge moves have ~5-20% acceptance for K-increasing proposals. The mixing time scales exponentially with N, making the sampler unable to reach equilibrium at N=40 within practical iteration counts.
+**Root cause (refined):** The Poisson K prior + flat spatial creates a deep well at K=1 for co-located data. The per-cluster spatial penalty -log(A) combined with the Poisson log(ρ) - log(K+1) makes K=1 strongly favored in the target when A is large and ρ is moderate. This is a different problem from the locmix era where the target was correct but the sampler couldn't reach it.
 
 **Next directions:**
-1. Design K-transition moves that see the MARGINAL landscape, not per-allocation landscape
-2. Consider parallel tempering or annealed approaches for K-dimension mixing
-3. Investigate whether non-reversible MCMC or Hamiltonian-like moves could improve K-mixing
-4. Possible: decouple K proposal from allocation (propose K first from count model, then sample allocation at new K)
+1. Investigate whether the Poisson K prior target is correct at N=40 (TI on new prior)
+2. Consider whether locmix should be restored (locmix gave recall 0.592 vs 0.475)
+3. Parallel tempering / annealed approaches remain viable
+4. Block birth may help but won't fix a target problem
 
 ### Thread 2: Hierarchical Learner Feedback
 
@@ -212,15 +215,17 @@ All 4 brute-force tests now PASS. The residual under-visiting (1.2-1.4× for wor
 | 9+ | 2026-03-30 | DM/Polya analysis | Optimality sweep + oracle init revealed DM creates systematic ↓K pressure. BaGoL worse than Q-PAINT for octamers at NN≈2σ. Root cause: Gibbs destabilizes balanced partitions, compounds with death/merge bias. Fix: time-scale separation. |
 | 10 | 2026-03-30 | MH-Gibbs diagnostic | Tested MH-corrected pred-only Gibbs. Both Gibbs variants give K≈4.5 from oracle K=8. Initially concluded "target is wrong" — **Codex corrected: diagnostic only changed within-K sweep, not K-changing moves.** K-kernel bias (SM-only FAIL at 1.76x) is the real suspect. γ=shape stays fixed. |
 | 11 | 2026-03-30 | Target scoring + TI marginal | **TI proves mixing failure.** Per-allocation K=4 MAP > K=8 oracle (misleading). TI marginal: co-located peak K=7, octamer peak K=10. Sampler: K≈3 and K≈6 respectively. Joint mode ≠ marginal mode — sampler tracks joint, can't reach marginal peak. Saddle-point fine (<0.02/cluster). |
+| 12 | 2026-03-31 | Predictive-only proposals | Removed DM `(n+γ)` from all proposal kernels (Gibbs, split, restricted Gibbs, death). MH-corrected against unchanged target. **4/4 brute-force PASS** (close dimer improved 1.30x→1.27x). Practical recall unchanged (0.478 vs 0.475 baseline). N=40 co-located stuck at K=1 — same as baseline (Poisson K prior issue). Conclusion: DM proposal dynamics are not the bottleneck at practical N. |
 
 ## Future Priorities
 
-1. **CRITICAL:** Improve K-mixing at large N. Per-allocation energy barriers prevent the sampler from reaching the target's preferred K. Need fundamentally new K-transition strategy.
+1. **CRITICAL:** Poisson K prior + flat spatial creates deep K=1 well at large N. Birth acceptance <0.2% at N=40 co-located, identical before and after predictive-only changes. Need to address the target/prior landscape, not just proposal dynamics.
 2. **HIGH:** Design K-proposals that see the marginal landscape (not per-allocation). Possible: count-model K proposal + full reallocation via SMC or annealing.
 3. **HIGH:** Parallel tempering / annealed importance sampling for the K dimension.
-4. **MEDIUM:** Investigate non-reversible K-transitions (momentum-based, look-ahead).
+4. **MEDIUM:** Block birth (approach #2 from Round 12 analysis) — create nontrivial new clusters via micro-split instead of singleton detach.
 5. **MEDIUM:** Validate octamer marginal P(K) (composition enumeration too expensive at K=8 — use SMC or thermodynamic integration).
-6. **COMPLETED (Round 11):** Target is correct at d=0 (marginal increases through K=6+). Saddle-point fine. Per-allocation scoring is misleading — must use marginal.
-7. **COMPLETED (Round 10):** MH-corrected Gibbs doesn't help (same K-changing kernel).
-8. **COMPLETED (Round 9):** Brute-force 4/4 PASS — small-N sampler correct.
-9. **DOCUMENTED:** DM/Polya derivation — see docs/dm-polya-proof.md. γ=shape is correct.
+6. **COMPLETED (Round 12):** Predictive-only proposals everywhere. Correct but neutral — DM proposal dynamics are not the large-N bottleneck. Close dimer improved slightly.
+7. **COMPLETED (Round 11):** Target is correct at d=0 (marginal increases through K=6+). Saddle-point fine. Per-allocation scoring is misleading — must use marginal.
+8. **COMPLETED (Round 10):** MH-corrected Gibbs doesn't help (same K-changing kernel).
+9. **COMPLETED (Round 9):** Brute-force 4/4 PASS — small-N sampler correct.
+10. **DOCUMENTED:** DM/Polya derivation — see docs/dm-polya-proof.md. γ=shape is correct.

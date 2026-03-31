@@ -348,6 +348,32 @@ For merge reverse density: same launch mechanism, then intermediate sweeps, then
 
 ---
 
+### 19. Predictive-Only Proposals: Correct but Neutral at Large N (Round 12)
+
+**What was tried:** Remove DM `(n_k + γ)` from ALL proposal kernels: Gibbs sweep, split sequential allocation, restricted Gibbs sweeps, death destination. Use predictive-only proposals everywhere. MH-correct against the unchanged DM+spatial target: `α = min(1, (n_new+γ)/(n_old+γ))`.
+
+For restricted Gibbs (Jain-Neal), the transition density now includes stay-via-rejection terms: `P(stay) = q_same + q_other × (1-α)`, `P(move) = q_other × α`. This is critical for split/merge correctness.
+
+**Results:**
+- Brute-force: 4/4 PASS (close dimer improved 1.30x → 1.27x, single emitter slightly worse 1.37x → 1.48x)
+- SM-only PASS (1.45x → 1.47x, equivalent)
+- N=40 co-located: stuck at K=1, birth acceptance 0.12% — **identical to DM-weighted baseline**
+- smlmsim: recall 0.478 (baseline 0.475) — within noise
+- Unit tests: 170/170 pass, K-accuracy improved (96%, 96%, 100%)
+
+**Why it didn't help at large N:** The N=40 K=1 trap is a target landscape problem, not a proposal dynamics problem. The energy barrier for K=1→K=2 is dominated by `Δ_partition + Δ_count + Δ_K_prior`, which are target terms unchanged by proposal modifications. The DM-weighted proposal gives ~7% per-loc probability of moving to a singleton, while predictive-only gives ~4%, but neither matters when births themselves are rejected at 99.9%.
+
+**What was learned:**
+1. Proposal dynamics are not the large-N mixing bottleneck. The target landscape dominates.
+2. Predictive-only proposals are mathematically sound (standard Metropolis-within-Gibbs).
+3. The restricted Gibbs transition density must include MH rejection terms — pure proposal probability is wrong.
+4. At small N (brute-force), the change is slightly beneficial for close dimers.
+5. The Poisson K prior + flat spatial combination creates worse recall than locmix (0.475 vs 0.592).
+
+**Branch/commit:** poisson-k-prior, Round 12 changes.
+
+---
+
 ## Theoretical Limits
 
 ### Co-Located MAP-N Accuracy
