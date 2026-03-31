@@ -1,8 +1,10 @@
-# High-Density 6-mer Benchmark — GenMAb-Like Photophysics
-# ========================================================
-# Dense hexamers (25 nm diameter) with blinking stats learned from
-# GenMAb HexaBody RGY data (Cell_01): μ ≈ 8.7 locs/emitter, shape ≈ 1.5
-# High density so hexamers frequently overlap — stress test for BaGoL.
+# High-Density 6-mer + Monomer Benchmark — GenMAb-Like Photophysics
+# ==================================================================
+# Dense hexamers (25 nm diameter) + equal density of monomers, with
+# blinking stats learned from GenMAb HexaBody RGY data (Cell_01):
+# μ ≈ 8.7 locs/emitter, shape ≈ 1.5
+# 2× hexamer density (16/μm²) + 16/μm² monomers — stress test for BaGoL
+# with mixed cluster sizes.
 #
 # Run with: julia --threads=auto --project=dev dev/smlmsim_highdensity.jl
 # Set GEN_PLOTS=false to skip rendering (timing-only mode)
@@ -42,10 +44,11 @@ fov_size = CAMERA_PIXELS * PIXEL_SIZE
 
 # Pattern — hexamers at high density so clusters frequently overlap
 # d=0.025 μm (25 nm) hexamer diameter
-# At density=8 patterns/μm² → ~327 hexamers in FOV → ~1964 emitters
-# Mean inter-hexamer distance ≈ 1/√density ≈ 0.35 μm, but with Poisson
-# clustering many will be within 50-100 nm → overlapping blink clouds
-DENSITY = 8.0                       # hexamers/μm²
+# At density=16 patterns/μm² → ~655 hexamers in FOV → ~3932 emitters
+# Plus ~655 monomers scattered randomly (equal pattern count)
+# Mean inter-pattern distance ≈ 1/√(density_total) ≈ 0.18 μm
+DENSITY_NMER = 16.0                 # hexamers/μm² (2× original)
+DENSITY_MONO = DENSITY_NMER         # monomers/μm² (equal count)
 PATTERN_N = 6                       # hexamers
 PATTERN_D = 0.025                   # 25 nm diameter
 
@@ -73,16 +76,19 @@ N_ITERATIONS = 15_000
 BURN_IN = 3_000
 PARTITION_SIGMA = 2.0                   # tighter partitioning for dense data
 
-n_patterns_est = round(Int, DENSITY * fov_size^2)
-n_emitters_est = n_patterns_est * PATTERN_N
+n_nmer_est = round(Int, DENSITY_NMER * fov_size^2)
+n_mono_est = round(Int, DENSITY_MONO * fov_size^2)
+n_emitters_est = n_nmer_est * PATTERN_N + n_mono_est
+density_total = DENSITY_NMER + DENSITY_MONO
 
 println("="^60)
-println("High-Density 6-mer Benchmark — GenMAb-Like Photophysics")
+println("High-Density 6-mer + Monomer Benchmark — GenMAb-Like Photophysics")
 println("="^60)
 println("  FOV: $(fov_size) × $(fov_size) μm")
-println("  Pattern: $(PATTERN_N)-mer, d=$(PATTERN_D*1000) nm, density=$(DENSITY)/μm²")
-println("  Expected: ~$(n_patterns_est) hexamers → ~$(n_emitters_est) emitters")
-println("  Mean hexamer spacing: ~$(round(1/sqrt(DENSITY)*1000, digits=0)) nm")
+println("  Hexamers: $(PATTERN_N)-mer, d=$(PATTERN_D*1000) nm, density=$(DENSITY_NMER)/μm²")
+println("  Monomers: density=$(DENSITY_MONO)/μm²")
+println("  Expected: ~$(n_nmer_est) hexamers + ~$(n_mono_est) monomers → ~$(n_emitters_est) emitters")
+println("  Mean inter-pattern spacing: ~$(round(1/sqrt(density_total)*1000, digits=0)) nm")
 println("  Acquisition: $(NFRAMES) frames @ $(FRAMERATE) fps ($(NFRAMES/FRAMERATE)s)")
 println("  Expected blinks/emitter: ~$(round(NFRAMES/FRAMERATE * K_ON, digits=1))")
 println("  τ_on = $(round(1000/K_OFF, digits=1)) ms, τ_off = $(round(1000/K_ON, digits=0)) ms")
@@ -92,10 +98,14 @@ println("  τ_on = $(round(1000/K_OFF, digits=1)) ms, τ_off = $(round(1000/K_ON
 # =============================================================================
 
 _log("\n" * "-"^60)
-_log("Running SMLMSim...")
+_log("Running SMLMSim (hexamers + monomers)...")
 
-params = SMLMSim.StaticSMLMConfig(
-    density = DENSITY,
+fluor = SMLMSim.GenericFluor(photons=PHOTON_RATE, k_off=K_OFF, k_on=K_ON)
+camera = SMLMData.IdealCamera(CAMERA_PIXELS, CAMERA_PIXELS, PIXEL_SIZE)
+
+# --- Hexamer simulation ---
+params_nmer = SMLMSim.StaticSMLMConfig(
+    density = DENSITY_NMER,
     σ_psf = PSF_SIGMA,
     minphotons = MIN_PHOTONS,
     ndatasets = 1,
@@ -103,13 +113,44 @@ params = SMLMSim.StaticSMLMConfig(
     framerate = FRAMERATE,
     ndims = 2
 )
+pattern_nmer = SMLMSim.Nmer2D(n=PATTERN_N, d=PATTERN_D)
+smld_nmer, info_nmer = SMLMSim.simulate(params_nmer; pattern=pattern_nmer, molecule=fluor, camera=camera)
 
-pattern = SMLMSim.Nmer2D(n=PATTERN_N, d=PATTERN_D)
-fluor = SMLMSim.GenericFluor(photons=PHOTON_RATE, k_off=K_OFF, k_on=K_ON)
-camera = SMLMData.IdealCamera(CAMERA_PIXELS, CAMERA_PIXELS, PIXEL_SIZE)
+# --- Monomer simulation ---
+params_mono = SMLMSim.StaticSMLMConfig(
+    density = DENSITY_MONO,
+    σ_psf = PSF_SIGMA,
+    minphotons = MIN_PHOTONS,
+    ndatasets = 1,
+    nframes = NFRAMES,
+    framerate = FRAMERATE,
+    ndims = 2
+)
+pattern_mono = SMLMSim.Nmer2D(n=1, d=0.0)
+smld_mono, info_mono = SMLMSim.simulate(params_mono; pattern=pattern_mono, molecule=fluor, camera=camera)
 
-smld_noisy, sim_info = SMLMSim.simulate(params; pattern=pattern, molecule=fluor, camera=camera)
-smld_true = sim_info.smld_true
+# --- Merge simulations ---
+# Offset monomer track_ids and pattern ids to avoid collisions
+max_track_nmer = maximum(e.track_id for e in smld_nmer.emitters)
+max_id_nmer = maximum(e.id for e in smld_nmer.emitters)
+
+function offset_emitter(e::SMLMData.Emitter2DFit, track_offset, id_offset)
+    SMLMData.Emitter2DFit{Float64}(
+        e.x, e.y, e.photons, e.bg, e.σ_x, e.σ_y, e.σ_photons, e.σ_bg;
+        σ_xy=e.σ_xy, frame=e.frame, dataset=e.dataset,
+        track_id=e.track_id + track_offset, id=e.id + id_offset)
+end
+
+mono_emitters = [offset_emitter(e, max_track_nmer, max_id_nmer) for e in smld_mono.emitters]
+merged_emitters = vcat(smld_nmer.emitters, mono_emitters)
+smld_noisy = SMLMData.BasicSMLD(merged_emitters, camera, NFRAMES, 1)
+
+# Merge true positions (same offset for true SMLDs)
+max_track_true = maximum(e.track_id for e in info_nmer.smld_true.emitters)
+max_id_true = maximum(e.id for e in info_nmer.smld_true.emitters)
+mono_true = [offset_emitter(e, max_track_true, max_id_true) for e in info_mono.smld_true.emitters]
+merged_true = vcat(info_nmer.smld_true.emitters, mono_true)
+smld_true = SMLMData.BasicSMLD(merged_true, camera, 1, 1)
 
 # Extract unique true emitter positions
 function get_unique_true_positions(smld_true::SMLMData.SMLD)
@@ -128,6 +169,9 @@ end
 true_positions = get_unique_true_positions(smld_true)
 n_true = length(true_positions)
 n_locs_raw = length(smld_noisy.emitters)
+
+println("  Hexamers: $(info_nmer.n_patterns) patterns, $(info_nmer.n_emitters) emitters, $(info_nmer.n_localizations) locs")
+println("  Monomers: $(info_mono.n_patterns) patterns, $(info_mono.n_emitters) emitters, $(info_mono.n_localizations) locs")
 
 println("  True emitters: $n_true")
 println("  Raw localizations: $n_locs_raw")
