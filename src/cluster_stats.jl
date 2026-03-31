@@ -649,4 +649,14 @@ end
 
 """Area of the spatial prior region (for Poisson K prior cancellation)."""
 spatial_area(sp::FlatSpatial) = exp(sp.log_area)
+spatial_area(sp::LocmixSpatial) = (sp.grid.nx * sp.grid.dx) * (sp.grid.ny * sp.grid.dy)
 spatial_log_area(sp::FlatSpatial) = sp.log_area
+spatial_log_area(sp::LocmixSpatial) = log(spatial_area(sp))
+
+"""Construct LocmixSpatial from precomputed loc precisions."""
+LocmixSpatial(loc_precs::Vector{LocPrecision}) = LocmixSpatial(build_locmix_grid(loc_precs))
+
+"""Construct LocmixSpatial from emitters (convenience)."""
+function LocmixSpatial(locs::Vector{<:SMLMData.AbstractEmitter})
+    LocmixSpatial(precompute_loc_precisions(locs))
+end
