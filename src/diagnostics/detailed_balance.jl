@@ -23,7 +23,7 @@ end
 
 """
     check_detailed_balance(z_from, z_to, locs, td;
-                           μ, shape, log_q_fwd, log_q_rev,
+                           μ, shape, ρ, log_q_fwd, log_q_rev,
                            log_ratio_code=nothing, tol=1e-8) -> DetailedBalanceResult
 
 Verify detailed balance for a specific transition pair.
@@ -36,33 +36,34 @@ function check_detailed_balance(z_from::AbstractVector{<:Integer},
                                  z_to::AbstractVector{<:Integer},
                                  locs::Vector{<:SMLMData.AbstractEmitter},
                                  td::AbstractTargetDensity;
-                                 μ::Float64, shape::Float64,
+                                 μ::Float64, shape::Float64, ρ::Float64=2.0,
                                  log_q_fwd::Float64, log_q_rev::Float64,
                                  log_ratio_code::Union{Float64, Nothing}=nothing,
                                  tol::Float64=1e-8)
     loc_precs = precompute_loc_precisions(locs)
-    grid = build_locmix_grid(loc_precs)
-    return check_detailed_balance(z_from, z_to, loc_precs, grid, td;
-        μ=μ, shape=shape, log_q_fwd=log_q_fwd, log_q_rev=log_q_rev,
+    spatial_prior = UniformSpatialPrior(locs)
+    log_area = log(area(spatial_prior))
+    return check_detailed_balance(z_from, z_to, loc_precs, log_area, td;
+        μ=μ, shape=shape, ρ=ρ, log_q_fwd=log_q_fwd, log_q_rev=log_q_rev,
         log_ratio_code=log_ratio_code, tol=tol)
 end
 
 """
-    check_detailed_balance(z_from, z_to, loc_precs, grid, td; ...) -> DetailedBalanceResult
+    check_detailed_balance(z_from, z_to, loc_precs, log_area, td; ...) -> DetailedBalanceResult
 
 Precomputed-arguments version for checking multiple transitions efficiently.
 """
 function check_detailed_balance(z_from::AbstractVector{<:Integer},
                                  z_to::AbstractVector{<:Integer},
                                  loc_precs::Vector{LocPrecision},
-                                 grid::LocmixGrid,
+                                 log_area::Float64,
                                  td::AbstractTargetDensity;
-                                 μ::Float64, shape::Float64,
+                                 μ::Float64, shape::Float64, ρ::Float64=2.0,
                                  log_q_fwd::Float64, log_q_rev::Float64,
                                  log_ratio_code::Union{Float64, Nothing}=nothing,
                                  tol::Float64=1e-8)
-    log_pi_from = log_target(td, z_from, loc_precs, grid, μ, shape)
-    log_pi_to = log_target(td, z_to, loc_precs, grid, μ, shape)
+    log_pi_from = log_target(td, z_from, loc_precs, log_area, μ, shape, ρ)
+    log_pi_to = log_target(td, z_to, loc_precs, log_area, μ, shape, ρ)
     log_ratio_direct = (log_pi_to + log_q_rev) - (log_pi_from + log_q_fwd)
 
     if log_ratio_code !== nothing

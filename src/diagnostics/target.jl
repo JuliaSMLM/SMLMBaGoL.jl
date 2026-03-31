@@ -7,48 +7,55 @@
     AbstractTargetDensity
 
 Base type for target distributions over the partition space.
-Implement `log_target(td, z, loc_precs, grid, μ, shape)` for new variants.
+Implement `log_target(td, z, loc_precs, log_area, μ, shape, ρ)` for new variants.
 """
 abstract type AbstractTargetDensity end
 
 """
     DecoupledTarget <: AbstractTargetDensity
 
-Count model × collapsed spatial likelihood, no partition prior.
+Count model × Poisson K prior × collapsed spatial likelihood.
 
-    P(z, K | data) ∝ P_count(N | K, μ, α) × ∏_k ML_locmix_k(z)
+    P(z, K | data) ∝ P_count(N | K, μ, α) × P_K(K | ρ, A) × ∏_k ML_flat_k(z)
+
+The Poisson(ρA) K prior combined with flat spatial -log(A) per cluster
+makes the target area-independent: the A^K from the K prior cancels
+the A^{-K} from K clusters' uniform position priors.
 """
 struct DecoupledTarget <: AbstractTargetDensity end
 
 """
-    log_target(td, z, loc_precs, grid, μ, shape) -> Float64
+    log_target(td, z, loc_precs, log_area, μ, shape, ρ) -> Float64
 
 Evaluate the unnormalized log target density for assignment vector `z`.
 """
 function log_target end
 
 function log_target(::DecoupledTarget, z::AbstractVector{<:Integer},
-                    loc_precs::Vector{LocPrecision}, grid::LocmixGrid,
-                    μ::Float64, shape::Float64)
+                    loc_precs::Vector{LocPrecision}, log_area::Float64,
+                    μ::Float64, shape::Float64, ρ::Float64)
     N = length(z)
     K = _count_clusters(z)
+    A = exp(log_area)
     log_count = _log_count_term(K, N, shape, μ)
-    log_spatial = _sum_cluster_ml_locmix(z, K, loc_precs, grid)
-    return log_count + log_spatial
+    log_k_prior = log_prior_k_poisson(K, ρ, A)
+    log_spatial = _sum_cluster_ml_flat(z, K, loc_precs, log_area)
+    return log_count + log_k_prior + log_spatial
 end
 
 """
-    evaluate_target(td, z, locs; μ, shape) -> Float64
+    evaluate_target(td, z, locs; μ, shape, ρ) -> Float64
 
-Convenience wrapper that builds LocPrecision and LocmixGrid automatically.
+Convenience wrapper that builds LocPrecision automatically.
 """
 function evaluate_target(td::AbstractTargetDensity,
                          z::AbstractVector{<:Integer},
                          locs::Vector{<:SMLMData.AbstractEmitter};
-                         μ::Float64, shape::Float64)
+                         μ::Float64, shape::Float64, ρ::Float64=2.0)
     loc_precs = precompute_loc_precisions(locs)
-    grid = build_locmix_grid(loc_precs)
-    return log_target(td, z, loc_precs, grid, μ, shape)
+    spatial_prior = UniformSpatialPrior(locs)
+    log_area = log(area(spatial_prior))
+    return log_target(td, z, loc_precs, log_area, μ, shape, ρ)
 end
 
 # ============================================================================
@@ -93,12 +100,12 @@ function _build_clusters_from_z(z::AbstractVector{<:Integer},
     return clusters, active
 end
 
-function _sum_cluster_ml_locmix(z::AbstractVector{<:Integer}, K::Int,
-                                 loc_precs::Vector{LocPrecision}, grid::LocmixGrid)
+function _sum_cluster_ml_flat(z::AbstractVector{<:Integer}, K::Int,
+                               loc_precs::Vector{LocPrecision}, log_area::Float64)
     clusters, active = _build_clusters_from_z(z, loc_precs)
     total = 0.0
     for k in active
-        total += log_marginal_likelihood_locmix(clusters[k], grid)
+        total += log_marginal_likelihood(clusters[k], log_area)
     end
     return total
 end

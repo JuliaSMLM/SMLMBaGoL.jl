@@ -44,10 +44,12 @@ end
 
 function log_target(z::Vector{Int}, K::Int, N::Int,
                     loc_precs::Vector{SMLMBaGoL.LocPrecision},
-                    grid::SMLMBaGoL.LocmixGrid,
-                    μ::Float64, shape::Float64)
+                    log_area::Float64,
+                    μ::Float64, shape::Float64,
+                    ρ::Float64, A::Float64)
     γ = shape
     log_count = SMLMBaGoL._log_count_posterior(K, N, shape, μ)
+    log_k_prior = SMLMBaGoL.log_prior_k_poisson(K, ρ, A)
     sizes = zeros(Int, K)
     for i in 1:N; sizes[z[i]] += 1; end
     log_dm = loggamma(K * γ) - K * loggamma(γ) - loggamma(N + K * γ)
@@ -60,9 +62,9 @@ function log_target(z::Vector{Int}, K::Int, N::Int,
                 cs = SMLMBaGoL.add_loc(cs, loc_precs[i])
             end
         end
-        log_spatial += SMLMBaGoL.log_marginal_likelihood_locmix(cs, grid)
+        log_spatial += SMLMBaGoL.log_marginal_likelihood(cs, log_area)
     end
-    return log_count + log_dm + log_spatial
+    return log_count + log_k_prior + log_dm + log_spatial
 end
 
 function make_state_from_z(z::Vector{Int}, K::Int, locs)
@@ -119,11 +121,13 @@ function test_colocated()
     println("TEST 1: CO-LOCATED (d=0) — Chain state vs Oracle")
     println("="^70)
 
-    σ = 0.007; μ = 5.0; shape = 2.0; n_per = 5
+    σ = 0.007; μ = 5.0; shape = 2.0; n_per = 5; ρ = 2.0
     locs, true_z, _ = make_octamer_locs(; NN_over_sigma=0.0, σ=σ, n_per=n_per, seed=42)
     N = length(locs)
     loc_precs = SMLMBaGoL.precompute_loc_precisions(locs)
-    grid = SMLMBaGoL.build_locmix_grid(loc_precs)
+    spatial_prior = SMLMBaGoL.UniformSpatialPrior(locs)
+    log_area = log(SMLMBaGoL.area(spatial_prior))
+    A = exp(log_area)
 
     # Run sampler to "equilibrium"
     println("\n  Running sampler from K=1 (200K iters)...")
@@ -134,10 +138,10 @@ function test_colocated()
         if r < 0.50
             SMLMBaGoL.gibbs_allocation_sweep!(state, locs, μ, shape)
         elseif r < 0.75
-            SMLMBaGoL.propose_split_merge!(state, locs, μ, shape)
+            SMLMBaGoL.propose_split_merge!(state, locs, μ, shape, ρ)
         else
             for _ in 1:5
-                SMLMBaGoL.propose_birth_death!(state, locs, μ, shape)
+                SMLMBaGoL.propose_birth_death!(state, locs, μ, shape, ρ)
             end
         end
     end
@@ -145,11 +149,11 @@ function test_colocated()
     K_chain = maximum(z_chain)
 
     # Score chain state
-    π_chain = log_target(z_chain, K_chain, N, loc_precs, grid, μ, shape)
+    π_chain = log_target(z_chain, K_chain, N, loc_precs, log_area, μ, shape, ρ, A)
 
     # Score oracle K=8 balanced allocation
     z_oracle = [(mod(i - 1, 8) + 1) for i in 1:N]
-    π_oracle = log_target(z_oracle, 8, N, loc_precs, grid, μ, shape)
+    π_oracle = log_target(z_oracle, 8, N, loc_precs, log_area, μ, shape, ρ, A)
 
     # Score oracle after Gibbs optimization at K=8
     state_oracle = make_state_from_z(z_oracle, 8, locs)
@@ -158,7 +162,7 @@ function test_colocated()
     end
     z_oracle_opt = get_z(state_oracle, N)
     K_oracle_opt = maximum(z_oracle_opt)
-    π_oracle_opt = log_target(z_oracle_opt, K_oracle_opt, N, loc_precs, grid, μ, shape)
+    π_oracle_opt = log_target(z_oracle_opt, K_oracle_opt, N, loc_precs, log_area, μ, shape, ρ, A)
 
     sizes_chain = sort([count(==(k), z_chain) for k in 1:K_chain], rev=true)
     sizes_oracle_opt = sort([count(==(k), z_oracle_opt) for k in 1:K_oracle_opt], rev=true)
@@ -190,11 +194,13 @@ function test_octamer()
     println("TEST 2: OCTAMER (NN=1.9σ) — Chain state vs Oracle")
     println("="^70)
 
-    σ = 0.007; μ = 5.0; shape = 2.0; n_per = 5
+    σ = 0.007; μ = 5.0; shape = 2.0; n_per = 5; ρ = 2.0
     locs, true_z, _ = make_octamer_locs(; NN_over_sigma=1.9, σ=σ, n_per=n_per, seed=42)
     N = length(locs)
     loc_precs = SMLMBaGoL.precompute_loc_precisions(locs)
-    grid = SMLMBaGoL.build_locmix_grid(loc_precs)
+    spatial_prior = SMLMBaGoL.UniformSpatialPrior(locs)
+    log_area = log(SMLMBaGoL.area(spatial_prior))
+    A = exp(log_area)
 
     # Run sampler from K=1
     println("\n  Running sampler from K=1 (200K iters)...")
@@ -205,19 +211,19 @@ function test_octamer()
         if r < 0.50
             SMLMBaGoL.gibbs_allocation_sweep!(state, locs, μ, shape)
         elseif r < 0.75
-            SMLMBaGoL.propose_split_merge!(state, locs, μ, shape)
+            SMLMBaGoL.propose_split_merge!(state, locs, μ, shape, ρ)
         else
             for _ in 1:5
-                SMLMBaGoL.propose_birth_death!(state, locs, μ, shape)
+                SMLMBaGoL.propose_birth_death!(state, locs, μ, shape, ρ)
             end
         end
     end
     z_chain = get_z(state, N)
     K_chain = maximum(z_chain)
-    π_chain = log_target(z_chain, K_chain, N, loc_precs, grid, μ, shape)
+    π_chain = log_target(z_chain, K_chain, N, loc_precs, log_area, μ, shape, ρ, A)
 
     # Score oracle
-    π_oracle = log_target(true_z, 8, N, loc_precs, grid, μ, shape)
+    π_oracle = log_target(true_z, 8, N, loc_precs, log_area, μ, shape, ρ, A)
 
     # Gibbs-optimize oracle at K=8
     state_oracle = make_state_from_z(copy(true_z), 8, locs)
@@ -226,7 +232,7 @@ function test_octamer()
     end
     z_oracle_opt = get_z(state_oracle, N)
     K_oracle_opt = maximum(z_oracle_opt)
-    π_oracle_opt = log_target(z_oracle_opt, K_oracle_opt, N, loc_precs, grid, μ, shape)
+    π_oracle_opt = log_target(z_oracle_opt, K_oracle_opt, N, loc_precs, log_area, μ, shape, ρ, A)
 
     sizes_chain = sort([count(==(k), z_chain) for k in 1:K_chain], rev=true)
     sizes_oracle_opt = sort([count(==(k), z_oracle_opt) for k in 1:K_oracle_opt], rev=true)
@@ -259,11 +265,13 @@ function test_designed_move()
     println("TEST 3: DESIGNED BIRTH MOVE — Would it be accepted?")
     println("="^70)
 
-    σ = 0.007; μ = 5.0; shape = 2.0; n_per = 5
+    σ = 0.007; μ = 5.0; shape = 2.0; n_per = 5; ρ = 2.0
     locs, true_z, positions = make_octamer_locs(; NN_over_sigma=0.0, σ=σ, n_per=n_per, seed=42)
     N = length(locs)
     loc_precs = SMLMBaGoL.precompute_loc_precisions(locs)
-    grid = SMLMBaGoL.build_locmix_grid(loc_precs)
+    spatial_prior = SMLMBaGoL.UniformSpatialPrior(locs)
+    log_area = log(SMLMBaGoL.area(spatial_prior))
+    A = exp(log_area)
     γ = shape
 
     println("\n  Co-located case: construct K=7 → K=8 birth")
@@ -279,14 +287,14 @@ function test_designed_move()
     K7 = 7
 
     # Score K=7
-    π_7 = log_target(z7, K7, N, loc_precs, grid, μ, shape)
+    π_7 = log_target(z7, K7, N, loc_precs, log_area, μ, shape, ρ, A)
 
     # Birth: detach loc 1 (from cluster 1, which has 10 locs) → singleton
     z8 = copy(z7)
     z8[1] = 8  # new singleton cluster
     K8 = 8
 
-    π_8 = log_target(z8, K8, N, loc_precs, grid, μ, shape)
+    π_8 = log_target(z8, K8, N, loc_precs, log_area, μ, shape, ρ, A)
 
     Δ_target = π_8 - π_7
 
@@ -319,7 +327,7 @@ function test_designed_move()
                 cs = SMLMBaGoL.add_loc(cs, loc_precs[i])
             end
         end
-        lw = log(Float64(cs.n) + γ) + SMLMBaGoL.log_predictive_locmix(cs, lp_birth, grid)
+        lw = log(Float64(cs.n) + γ) + SMLMBaGoL.log_predictive(cs, lp_birth, log_area)
         push!(log_weights, lw)
         push!(dest_names, k)
     end
@@ -348,7 +356,7 @@ function test_designed_move()
     for trial in 1:1000
         Random.seed!(trial)
         state7 = make_state_from_z(copy(z7), K7, locs)
-        accepted, move_type = SMLMBaGoL.propose_birth_death!(state7, locs, μ, shape)
+        accepted, move_type = SMLMBaGoL.propose_birth_death!(state7, locs, μ, shape, ρ)
         if move_type == :birth
             n_proposed += 1
             if accepted
@@ -372,7 +380,7 @@ function test_designed_move()
             SMLMBaGoL.gibbs_allocation_sweep!(state7, locs, μ, shape)
         end
         for step in 1:1000
-            SMLMBaGoL.propose_birth_death!(state7, locs, μ, shape)
+            SMLMBaGoL.propose_birth_death!(state7, locs, μ, shape, ρ)
             if state7.n_active >= 8
                 k_reached_8 += 1
                 break
@@ -391,18 +399,20 @@ function test_same_K_comparison()
     println("TEST 4: SAME-K COMPARISON — Oracle K=8 vs Chain's K=8 allocation")
     println("="^70)
 
-    σ = 0.007; μ = 5.0; shape = 2.0; n_per = 5
+    σ = 0.007; μ = 5.0; shape = 2.0; n_per = 5; ρ = 2.0
 
     for (label, nn_sigma) in [("co-located (d=0)", 0.0), ("octamer (NN=1.9σ)", 1.9)]
         println("\n  --- $label ---")
         locs, true_z, _ = make_octamer_locs(; NN_over_sigma=nn_sigma, σ=σ, n_per=n_per, seed=42)
         N = length(locs)
         loc_precs = SMLMBaGoL.precompute_loc_precisions(locs)
-        grid = SMLMBaGoL.build_locmix_grid(loc_precs)
+        spatial_prior = SMLMBaGoL.UniformSpatialPrior(locs)
+        log_area = log(SMLMBaGoL.area(spatial_prior))
+        A = exp(log_area)
 
         # Oracle K=8
         z_oracle = nn_sigma > 0 ? copy(true_z) : [(mod(i-1, 8)+1) for i in 1:N]
-        π_oracle = log_target(z_oracle, 8, N, loc_precs, grid, μ, shape)
+        π_oracle = log_target(z_oracle, 8, N, loc_precs, log_area, μ, shape, ρ, A)
 
         # Gibbs-optimize at K=8 (find the BEST K=8 allocation)
         state8 = make_state_from_z(copy(z_oracle), 8, locs)
@@ -411,7 +421,7 @@ function test_same_K_comparison()
         for sweep in 1:2000
             SMLMBaGoL.gibbs_allocation_sweep!(state8, locs, μ, shape)
             z_curr = get_z(state8, N)
-            π_curr = log_target(z_curr, 8, N, loc_precs, grid, μ, shape)
+            π_curr = log_target(z_curr, 8, N, loc_precs, log_area, μ, shape, ρ, A)
             if π_curr > best_π
                 best_π = π_curr
                 best_z = copy(z_curr)
@@ -430,16 +440,16 @@ function test_same_K_comparison()
             if r < 0.50
                 SMLMBaGoL.gibbs_allocation_sweep!(state_chain, locs, μ, shape)
             elseif r < 0.75
-                SMLMBaGoL.propose_split_merge!(state_chain, locs, μ, shape)
+                SMLMBaGoL.propose_split_merge!(state_chain, locs, μ, shape, ρ)
             else
                 for _ in 1:5
-                    SMLMBaGoL.propose_birth_death!(state_chain, locs, μ, shape)
+                    SMLMBaGoL.propose_birth_death!(state_chain, locs, μ, shape, ρ)
                 end
             end
             if iter > 50_000 && iter % 100 == 0
                 z_c = get_z(state_chain, N)
                 K_c = maximum(z_c)
-                π_c = log_target(z_c, K_c, N, loc_precs, grid, μ, shape)
+                π_c = log_target(z_c, K_c, N, loc_precs, log_area, μ, shape, ρ, A)
                 if π_c > best_chain_π
                     best_chain_π = π_c
                     best_chain_z = copy(z_c)

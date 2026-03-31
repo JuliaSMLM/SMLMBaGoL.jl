@@ -4,8 +4,8 @@
 # by tempering the spatial likelihood: π_β(z) ∝ P_DM(z) × exp(β × ML(z))
 # and integrating: log Z(K) = ∫₀¹ E_β[ML(z)] dβ
 #
-# This gives the EXACT marginal P(K|data) ∝ P(N|K) × Z(K), not just
-# per-allocation scores.
+# This gives the EXACT marginal P(K|data) ∝ P(N|K) × P(K|ρ,A) × Z(K),
+# not just per-allocation scores.
 #
 # Usage: julia --project=dev dev/thermodynamic_integration.jl
 
@@ -47,7 +47,7 @@ end
 
 function tempered_gibbs_sweep!(assignments::Vector{Int16}, K::Int, N::Int,
                                 loc_precs::Vector{SMLMBaGoL.LocPrecision},
-                                grid::SMLMBaGoL.LocmixGrid,
+                                log_area::Float64,
                                 γ::Float64, β::Float64)
     # Build cluster stats
     clusters = [SMLMBaGoL.ClusterStats() for _ in 1:K]
@@ -77,7 +77,7 @@ function tempered_gibbs_sweep!(assignments::Vector{Int16}, K::Int, N::Int,
             cs = clusters[k]
             log_dm = log(Float64(cs.n) + γ)
             if β > 0
-                log_pred = SMLMBaGoL.log_predictive_locmix(cs, lp, grid)
+                log_pred = SMLMBaGoL.log_predictive(cs, lp, log_area)
                 log_probs[k] = log_dm + β * log_pred
             else
                 log_probs[k] = log_dm
@@ -113,7 +113,7 @@ end
 # Compute total spatial ML for an allocation
 function total_ml(assignments::Vector{Int16}, K::Int, N::Int,
                   loc_precs::Vector{SMLMBaGoL.LocPrecision},
-                  grid::SMLMBaGoL.LocmixGrid)
+                  log_area::Float64)
     clusters = [SMLMBaGoL.ClusterStats() for _ in 1:K]
     for i in 1:N
         k = Int(assignments[i])
@@ -121,7 +121,7 @@ function total_ml(assignments::Vector{Int16}, K::Int, N::Int,
     end
     ml = 0.0
     for k in 1:K
-        ml += SMLMBaGoL.log_marginal_likelihood_locmix(clusters[k], grid)
+        ml += SMLMBaGoL.log_marginal_likelihood(clusters[k], log_area)
     end
     return ml
 end
@@ -132,7 +132,7 @@ end
 
 function thermodynamic_integration(K::Int, N::Int,
                                     loc_precs::Vector{SMLMBaGoL.LocPrecision},
-                                    grid::SMLMBaGoL.LocmixGrid,
+                                    log_area::Float64,
                                     γ::Float64;
                                     n_beta::Int=21,
                                     n_burn::Int=2000,
@@ -148,14 +148,14 @@ function thermodynamic_integration(K::Int, N::Int,
 
         # Burn-in
         for _ in 1:n_burn
-            tempered_gibbs_sweep!(assignments, K, N, loc_precs, grid, γ, β)
+            tempered_gibbs_sweep!(assignments, K, N, loc_precs, log_area, γ, β)
         end
 
         # Collect samples
         ml_samples = Float64[]
         for s in 1:n_samples
-            tempered_gibbs_sweep!(assignments, K, N, loc_precs, grid, γ, β)
-            push!(ml_samples, total_ml(assignments, K, N, loc_precs, grid))
+            tempered_gibbs_sweep!(assignments, K, N, loc_precs, log_area, γ, β)
+            push!(ml_samples, total_ml(assignments, K, N, loc_precs, log_area))
         end
 
         push!(E_ML, mean(ml_samples))
@@ -186,7 +186,10 @@ function main()
         locs, true_z, _ = make_octamer_locs(; NN_over_sigma=nn_sigma, σ=σ, n_per=n_per, seed=42)
         N = length(locs)
         loc_precs = SMLMBaGoL.precompute_loc_precisions(locs)
-        grid = SMLMBaGoL.build_locmix_grid(loc_precs)
+        spatial_prior = SMLMBaGoL.UniformSpatialPrior(locs)
+        log_area = log(SMLMBaGoL.area(spatial_prior))
+        A = exp(log_area)
+        ρ = 2.0
         γ = shape
         p = shape / (shape + μ)
 
@@ -200,33 +203,35 @@ function main()
             K > N && break
             println("\n  --- K=$K ---")
             Random.seed!(42 + K)
-            log_Z, betas, E_ML = thermodynamic_integration(K, N, loc_precs, grid, γ;
+            log_Z, betas, E_ML = thermodynamic_integration(K, N, loc_precs, log_area, γ;
                 n_beta=21, n_burn=2000, n_samples=5000)
             push!(log_Zs, log_Z)
             @printf("    log Z(%d) = %.4f\n", K, log_Z)
         end
 
-        # Compute P(K) ∝ P(N|K) × Z(K)
+        # Compute P(K) ∝ P(N|K) × P(K|ρ,A) × Z(K)
         println("\n  " * "="^60)
         println("  MARGINAL P(K|data) via Thermodynamic Integration")
         println("  " * "="^60)
-        @printf("  %3s  %8s  %10s  %10s  %10s\n", "K", "count", "log Z(K)", "log P(K)", "P/P(max)")
+        @printf("  %3s  %8s  %8s  %10s  %10s  %10s\n", "K", "count", "K prior", "log Z(K)", "log P(K)", "P/P(max)")
 
         log_PK = Float64[]
         for (i, K) in enumerate(K_range)
             K > N && break
             lc = logpdf(NegativeBinomial(K * shape, p), N)
-            lpk = lc + log_Zs[i]
+            lkp = SMLMBaGoL.log_prior_k_poisson(K, ρ, A)
+            lpk = lc + lkp + log_Zs[i]
             push!(log_PK, lpk)
         end
 
         max_lpk = maximum(log_PK)
-        println("  " * "-"^50)
+        println("  " * "-"^60)
         for (i, K) in enumerate(K_range)
             K > N && break
             lc = logpdf(NegativeBinomial(K * shape, p), N)
-            @printf("  %3d  %+8.2f  %+10.2f  %+10.2f  %10.4f\n",
-                    K, lc, log_Zs[i], log_PK[i], exp(log_PK[i] - max_lpk))
+            lkp = SMLMBaGoL.log_prior_k_poisson(K, ρ, A)
+            @printf("  %3d  %+8.2f  %+8.2f  %+10.2f  %+10.2f  %10.4f\n",
+                    K, lc, lkp, log_Zs[i], log_PK[i], exp(log_PK[i] - max_lpk))
         end
 
         map_K = K_range[argmax(log_PK)]

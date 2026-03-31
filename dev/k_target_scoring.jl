@@ -1,7 +1,7 @@
 # Target-vs-Kernel Diagnostic for the Octamer Problem
 #
 # Scores representative allocation states at K=4..8 under the full target.
-# Compares grid locmix (saddle-point) vs exact locmix (Gaussian integral).
+# Compares uniform spatial (log_area) vs exact locmix (Gaussian integral).
 #
 # If the target itself prefers K<8, it's a model problem.
 # If it prefers K=8 but the chain drifts down, it's a kernel/mixing problem.
@@ -88,12 +88,17 @@ end
 
 function score_allocation(z::Vector{Int}, K::Int, N::Int,
                           loc_precs::Vector{SMLMBaGoL.LocPrecision},
-                          grid::SMLMBaGoL.LocmixGrid,
-                          μ::Float64, shape::Float64)
+                          log_area::Float64,
+                          μ::Float64, shape::Float64, ρ::Float64)
     γ = shape
+
+    A = exp(log_area)
 
     # 1. Count model: P(N|K)
     log_count = SMLMBaGoL._log_count_posterior(K, N, shape, μ)
+
+    # 1b. Poisson(ρA) K prior
+    log_k_prior = SMLMBaGoL.log_prior_k_poisson(K, ρ, A)
 
     # 2. DM partition prior: P(z|K)
     sizes = zeros(Int, K)
@@ -118,7 +123,7 @@ function score_allocation(z::Vector{Int}, K::Int, N::Int,
                 cs = SMLMBaGoL.add_loc(cs, loc_precs[i])
             end
         end
-        ml_grid = SMLMBaGoL.log_marginal_likelihood_locmix(cs, grid)
+        ml_grid = SMLMBaGoL.log_marginal_likelihood(cs, log_area)
         ml_exact = log_ml_exact_locmix(cs, loc_precs, N)
         ml_flat = log_ml_flat(cs)
         log_spatial_grid += ml_grid
@@ -130,12 +135,13 @@ function score_allocation(z::Vector{Int}, K::Int, N::Int,
     return (K=K,
             sizes=sort(sizes, rev=true),
             count=log_count,
+            k_prior=log_k_prior,
             dm=log_dm,
             spatial_grid=log_spatial_grid,
             spatial_exact=log_spatial_exact,
             spatial_flat=log_spatial_flat,
-            total_grid=log_count + log_dm + log_spatial_grid,
-            total_exact=log_count + log_dm + log_spatial_exact,
+            total_grid=log_count + log_k_prior + log_dm + log_spatial_grid,
+            total_exact=log_count + log_k_prior + log_dm + log_spatial_exact,
             count_only=log_count,
             per_cluster=per_cluster)
 end
@@ -246,6 +252,7 @@ function main()
     σ = 0.007
     μ = 5.0
     shape = 2.0
+    ρ = 2.0
     n_per = 5
     NN_over_sigma = 1.9
 
@@ -260,7 +267,8 @@ function main()
 
     # Build infrastructure
     loc_precs = SMLMBaGoL.precompute_loc_precisions(locs)
-    grid = SMLMBaGoL.build_locmix_grid(loc_precs)
+    spatial_prior = SMLMBaGoL.UniformSpatialPrior(locs)
+    log_area = log(SMLMBaGoL.area(spatial_prior))
 
     # Q-PAINT reference
     println("\n--- Q-PAINT (count-only) ---")
@@ -290,7 +298,7 @@ function main()
         end
 
         # Score the merged/oracle allocation
-        s = score_allocation(z, K_target, N, loc_precs, grid, μ, shape)
+        s = score_allocation(z, K_target, N, loc_precs, log_area, μ, shape, ρ)
         @printf("  %s: sizes=%s\n", label, string(s.sizes))
         @printf("    count=%+9.2f  dm=%+9.2f  spatial_grid=%+9.2f  TOTAL_grid=%+9.2f\n",
                 s.count, s.dm, s.spatial_grid, s.total_grid)
@@ -306,7 +314,7 @@ function main()
             state = make_state_from_allocation(z, K_target, locs)
             gibbs_optimize!(state, locs, μ, shape, 500)
             z_opt = get_allocation(state, N)
-            s_opt = score_allocation(z_opt, K_target, N, loc_precs, grid, μ, shape)
+            s_opt = score_allocation(z_opt, K_target, N, loc_precs, log_area, μ, shape, ρ)
             @printf("  gibbs-opt: sizes=%s\n", string(s_opt.sizes))
             @printf("    count=%+9.2f  dm=%+9.2f  spatial_grid=%+9.2f  TOTAL_grid=%+9.2f\n",
                     s_opt.count, s_opt.dm, s_opt.spatial_grid, s_opt.total_grid)
@@ -366,7 +374,8 @@ function main()
 
     locs_coloc, _, _ = make_octamer_locs(; NN_over_sigma=0.0, σ=σ, n_per=n_per, seed=42)
     lp_coloc = SMLMBaGoL.precompute_loc_precisions(locs_coloc)
-    grid_coloc = SMLMBaGoL.build_locmix_grid(lp_coloc)
+    spatial_prior_coloc = SMLMBaGoL.UniformSpatialPrior(locs_coloc)
+    log_area_coloc = log(SMLMBaGoL.area(spatial_prior_coloc))
 
     # Score co-located at K=1..10
     println("\n  Co-located allocations (balanced, no Gibbs opt):")
@@ -379,7 +388,7 @@ function main()
         K > N && continue
         # Create balanced allocation: each loc i → cluster ((i-1) % K) + 1
         z_coloc = [(mod(i - 1, K) + 1) for i in 1:N]
-        s = score_allocation(z_coloc, K, N, lp_coloc, grid_coloc, μ, shape)
+        s = score_allocation(z_coloc, K, N, lp_coloc, log_area_coloc, μ, shape, ρ)
         @printf("  %3d  %+9.2f  %+9.2f  %+9.2f  %+9.2f  %+9.2f\n",
                 K, s.count, s.dm, s.spatial_grid, s.total_grid, s.total_exact)
     end
@@ -400,10 +409,10 @@ function main()
             if r < 0.50
                 SMLMBaGoL.gibbs_allocation_sweep!(state_coloc, locs_coloc, μ, shape)
             elseif r < 0.75
-                SMLMBaGoL.propose_split_merge!(state_coloc, locs_coloc, μ, shape)
+                SMLMBaGoL.propose_split_merge!(state_coloc, locs_coloc, μ, shape, ρ)
             else
                 for _ in 1:5
-                    SMLMBaGoL.propose_birth_death!(state_coloc, locs_coloc, μ, shape)
+                    SMLMBaGoL.propose_birth_death!(state_coloc, locs_coloc, μ, shape, ρ)
                 end
             end
             if iter > 20_000
@@ -431,10 +440,10 @@ function main()
             if r < 0.50
                 SMLMBaGoL.gibbs_allocation_sweep!(state, locs, μ, shape)
             elseif r < 0.75
-                SMLMBaGoL.propose_split_merge!(state, locs, μ, shape)
+                SMLMBaGoL.propose_split_merge!(state, locs, μ, shape, ρ)
             else
                 for _ in 1:5
-                    SMLMBaGoL.propose_birth_death!(state, locs, μ, shape)
+                    SMLMBaGoL.propose_birth_death!(state, locs, μ, shape, ρ)
                 end
             end
             if iter > 10_000
