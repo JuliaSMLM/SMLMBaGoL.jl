@@ -13,16 +13,22 @@ The spatial ML has a per-cluster Occam factor `-log(n_k)` (partition-dependent p
 
 **But:** the MARGINAL P(K|data) sums over all allocations at each K. The entropy of allocations at higher K compensates. Exact computation of the co-located marginal (composition enumeration for K=1..6) shows P(K) monotonically increasing through K=6:
 
-| K | count | E[-Σlog(n_k)] | P(K)/P(6) |
-|---|-------|---------------|-----------|
-| 1 | -12.25 | -3.69 | 0.016 |
-| 2 | -9.05 | -5.55 | 0.086 |
-| 3 | -6.96 | -6.92 | 0.241 |
-| 4 | -5.52 | -7.98 | 0.480 |
-| 5 | -4.54 | -8.82 | 0.756 |
-| 6 | -3.91 | -9.49 | 1.000 |
+**Thermodynamic integration (TI)** computes the exact marginal P(K|data) = P(N|K) × Z(K) where Z(K) = Σ_z P_DM(z|K) × exp(ML(z)), estimated by tempering the spatial likelihood β∈[0,1] and integrating E_β[ML]:
 
-The trend clearly continues to K≈7-8 (Q-PAINT MAP), confirming **the target is correct**. The sampler at K≈3 is far below the target peak — this is a severe mixing failure at N=40.
+| K | Co-located P/P(max) | Octamer P/P(max) |
+|---|--------------------:|------------------:|
+| 1 | 0.001 | 0.000 |
+| 4 | 0.352 | 0.000 |
+| 6 | 0.916 | 0.023 |
+| **7** | **1.000** | 0.106 |
+| 8 | 0.896 | 0.298 |
+| 9 | 0.565 | 0.632 |
+| **10** | 0.459 | **1.000** |
+
+- Co-located: TI MAP K=**7** (Q-PAINT=8), sampler gives K≈**3**
+- Octamer: TI MAP K=**10** (Q-PAINT=8, spatial helps!), sampler gives K≈**6**
+
+**This definitively proves MIXING FAILURE.** The marginal peaks at K=7-10, but the sampler is trapped at K=3-6. The target is correct — the sampler cannot reach it.
 
 **Why specific-allocation scoring was misleading:** K=4 gibbs-opt scores +26 above K=8 oracle for a SPECIFIC allocation. But P(K) requires summing over ALL allocations. The number of good allocations at K=8 vastly exceeds K=4, and the DM-weighted entropy compensates for the per-allocation penalty.
 
@@ -205,7 +211,7 @@ All 4 brute-force tests now PASS. The residual under-visiting (1.2-1.4× for wor
 | 9 | 2026-03-30 | BD burst | BD burst (n_bd_substeps=5): 5 sequential BD per selection. **4/4 brute-force PASS** (was 3/4). Single emitter FAIL→PASS (1.97×→1.40×). ESS +16-179%. Practical recall unchanged (59%). |
 | 9+ | 2026-03-30 | DM/Polya analysis | Optimality sweep + oracle init revealed DM creates systematic ↓K pressure. BaGoL worse than Q-PAINT for octamers at NN≈2σ. Root cause: Gibbs destabilizes balanced partitions, compounds with death/merge bias. Fix: time-scale separation. |
 | 10 | 2026-03-30 | MH-Gibbs diagnostic | Tested MH-corrected pred-only Gibbs. Both Gibbs variants give K≈4.5 from oracle K=8. Initially concluded "target is wrong" — **Codex corrected: diagnostic only changed within-K sweep, not K-changing moves.** K-kernel bias (SM-only FAIL at 1.76x) is the real suspect. γ=shape stays fixed. |
-| 11 | 2026-03-30 | Target scoring + marginal | **Per-allocation scoring misleading:** K=4 MAP scores +26 above K=8 oracle, but MARGINAL P(K) increases through K=6+ (exact enumeration). Target is correct — **mixing is the problem.** Sampler K≈3 at d=0 (both starts), target peak ≈ K=7-8. Saddle-point fine (<0.02/cluster). |
+| 11 | 2026-03-30 | Target scoring + TI marginal | **TI proves mixing failure.** Per-allocation K=4 MAP > K=8 oracle (misleading). TI marginal: co-located peak K=7, octamer peak K=10. Sampler: K≈3 and K≈6 respectively. Joint mode ≠ marginal mode — sampler tracks joint, can't reach marginal peak. Saddle-point fine (<0.02/cluster). |
 
 ## Future Priorities
 
