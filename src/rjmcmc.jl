@@ -147,7 +147,7 @@ function _run_bagol_collapsed(
     allocation_model = get(kwargs, :allocation_model, :dm)::Symbol
     allocation_model in (:dm, :decoupled) ||
         throw(ArgumentError("allocation_model must be :dm or :decoupled"))
-    use_dm = allocation_model === :dm
+    am = allocation_model === :dm ? DMAllocation() : DecoupledAllocation()
 
     # Hyperprior config
     μ_prior_shape = get(kwargs, :μ_prior_shape, 2.0)
@@ -171,7 +171,7 @@ function _run_bagol_collapsed(
         Threads.@spawn begin
             p_locs = partitions[i].locs
             spatial_prior = UniformSpatialPrior(p_locs)
-            states[i] = initialize_collapsed_state(p_locs, spatial_prior)
+            states[i] = initialize_collapsed_state(p_locs, spatial_prior, am)
 
             # Per-partition accumulators
             accs = AbstractAccumulator[]
@@ -234,8 +234,7 @@ function _run_bagol_collapsed(
                     partition_accumulators[i], burn_in, iter_counters[i];
                     acceptance=partition_acceptance[i],
                     n_restricted_scans=n_restricted_scans,
-                    n_bd_substeps=n_bd_substeps,
-                    use_dm=use_dm
+                    n_bd_substeps=n_bd_substeps
                 )
             end
         end
@@ -274,8 +273,7 @@ function _run_bagol_collapsed(
                     partition_accumulators[i], burn_in, iter_counters[i];
                     acceptance=partition_acceptance[i],
                     n_restricted_scans=n_restricted_scans,
-                    n_bd_substeps=n_bd_substeps,
-                    use_dm=use_dm
+                    n_bd_substeps=n_bd_substeps
                 )
             end
         end
