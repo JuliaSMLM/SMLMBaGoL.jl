@@ -144,12 +144,17 @@ function run_collapsed_chain(
     callback::Union{Function, Nothing} = nothing,
     callback_interval::Int = 1,
     n_restricted_scans::Int = 5,
-    n_bd_substeps::Int = 5
+    n_bd_substeps::Int = 5,
+    allocation_model::Symbol = :dm
 )
     N = length(locs)
     if N == 0
         error("No localizations provided")
     end
+
+    allocation_model in (:dm, :decoupled) ||
+        throw(ArgumentError("allocation_model must be :dm or :decoupled (got :$allocation_model)"))
+    use_dm = allocation_model === :dm
 
     # Validate learn_distribution
     if learn_distribution isa Symbol && learn_distribution ∉ (:mu, :shape)
@@ -193,19 +198,19 @@ function run_collapsed_chain(
 
         if r < 0.50
             # Gibbs allocation sweep (always "accepts" — it's exact Gibbs)
-            gibbs_allocation_sweep!(state, locs, μ, current_shape)
+            gibbs_allocation_sweep!(state, locs, μ, current_shape; use_dm=use_dm)
             prev = acceptance[:gibbs_sweep]
             acceptance[:gibbs_sweep] = (prev[1] + 1, prev[2] + 1)
         elseif r < 0.75
             # Split-merge
             accepted, move_type = propose_split_merge!(state, locs, μ, current_shape, ρ;
-                                                        n_restricted_scans = n_restricted_scans)
+                                                        n_restricted_scans=n_restricted_scans, use_dm=use_dm)
             prev = acceptance[move_type]
             acceptance[move_type] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
         else
             # Birth-death (multiple substeps for K-mixing throughput)
             for _bd in 1:n_bd_substeps
-                accepted, move_type = propose_birth_death!(state, locs, μ, current_shape, ρ)
+                accepted, move_type = propose_birth_death!(state, locs, μ, current_shape, ρ; use_dm=use_dm)
                 prev = acceptance[move_type]
                 acceptance[move_type] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
             end
@@ -276,28 +281,29 @@ function run_collapsed_iterations!(
     current_iter::Int;
     acceptance::Union{Dict{Symbol, Tuple{Int, Int}}, Nothing}=nothing,
     n_restricted_scans::Int = 5,
-    n_bd_substeps::Int = 5
+    n_bd_substeps::Int = 5,
+    use_dm::Bool = true
 )
     for _ in 1:n
         current_iter += 1
 
         r = rand()
         if r < 0.50
-            gibbs_allocation_sweep!(state, locs, μ, shape)
+            gibbs_allocation_sweep!(state, locs, μ, shape; use_dm=use_dm)
             if acceptance !== nothing
                 prev = acceptance[:gibbs_sweep]
                 acceptance[:gibbs_sweep] = (prev[1] + 1, prev[2] + 1)
             end
         elseif r < 0.75
             accepted, move_type = propose_split_merge!(state, locs, μ, shape, ρ;
-                                                        n_restricted_scans = n_restricted_scans)
+                                                        n_restricted_scans=n_restricted_scans, use_dm=use_dm)
             if acceptance !== nothing
                 prev = acceptance[move_type]
                 acceptance[move_type] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
             end
         else
             for _bd in 1:n_bd_substeps
-                accepted, move_type = propose_birth_death!(state, locs, μ, shape, ρ)
+                accepted, move_type = propose_birth_death!(state, locs, μ, shape, ρ; use_dm=use_dm)
                 if acceptance !== nothing
                     prev = acceptance[move_type]
                     acceptance[move_type] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
