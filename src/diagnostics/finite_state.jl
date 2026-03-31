@@ -65,19 +65,24 @@ function canonicalize(z::AbstractVector{<:Integer})
 end
 
 # ============================================================================
-# Exact posterior (with K! multiplicity)
+# Exact posterior over canonical partitions
 # ============================================================================
 
 """
-    exact_posterior(partitions, locs, td; μ, shape, ρ) -> (probs, log_targets)
+    exact_posterior(partitions, locs, td; μ, shape, ρ,
+                    label_multiplicity=:factorial) -> (probs, log_targets)
 
-Normalized exact posterior over canonical partitions. Includes K!
-label-multiplicity correction for comparison to canonicalized MCMC samples.
+Normalized exact posterior over canonical partitions.
+
+`label_multiplicity` controls how canonical partitions are weighted:
+- `:factorial` multiplies each K-cluster partition by `K!`
+- `:none` uses a single canonical representative with no multiplicity factor
 """
 function exact_posterior(partitions::Vector{Vector{Int}},
                           locs::Vector{<:SMLMData.AbstractEmitter},
                           td::AbstractTargetDensity;
-                          μ::Float64, shape::Float64, ρ::Float64=2.0)
+                          μ::Float64, shape::Float64, ρ::Float64=2.0,
+                          label_multiplicity::Symbol=:factorial)
     isempty(partitions) && return (Float64[], Float64[])
 
     loc_precs = precompute_loc_precisions(locs)
@@ -90,7 +95,7 @@ function exact_posterior(partitions::Vector{Vector{Int}},
     for i in 1:n_parts
         K = _count_clusters(partitions[i])
         log_targets[i] = log_target(td, partitions[i], loc_precs, log_area, μ, shape, ρ) +
-                          logfactorial(K)
+                         _log_label_multiplicity(K, label_multiplicity)
     end
 
     max_lt = maximum(log_targets)
@@ -106,6 +111,7 @@ end
 """
     run_kernel_invariance_test(locs, td; μ, shape, K_max=3,
                                 n_steps_per_state=1500,
+                                label_multiplicity=:factorial,
                                 seed=nothing, verbose=false) -> NamedTuple
 
 Build empirical one-step transition matrix P and verify:
@@ -125,6 +131,7 @@ function run_kernel_invariance_test(locs::Vector{<:SMLMData.AbstractEmitter},
                                      n_steps_per_state::Int=1500,
                                      n_mcmc_iterations::Int=100_000,
                                      mcmc_burn_in::Int=10_000,
+                                     label_multiplicity::Symbol=:factorial,
                                      seed::Union{Int, Nothing}=nothing,
                                      verbose::Bool=false)
     if seed !== nothing
@@ -134,7 +141,9 @@ function run_kernel_invariance_test(locs::Vector{<:SMLMData.AbstractEmitter},
     N = length(locs)
     partitions = enumerate_canonical_partitions(N, K_max)
     n_parts = length(partitions)
-    exact_probs, log_targets = exact_posterior(partitions, locs, td; μ=μ, shape=shape, ρ=ρ)
+    exact_probs, log_targets = exact_posterior(partitions, locs, td;
+                                               μ=μ, shape=shape, ρ=ρ,
+                                               label_multiplicity=label_multiplicity)
 
     # K-marginals from exact posterior
     per_K_exact = zeros(K_max)
@@ -161,6 +170,8 @@ function run_kernel_invariance_test(locs::Vector{<:SMLMData.AbstractEmitter},
                 n_iterations=1, burn_in=0,
                 initial_assignments=z_start,
                 shape=shape, learn_distribution=false,
+                hierarchical_interval=2,
+                ρ_prior_shape=ρ, ρ_prior_rate=1.0,
                 accumulators=AbstractAccumulator[ps_acc],
                 verbose=false)
             samples = accumulator_result(ps_acc)
@@ -198,6 +209,8 @@ function run_kernel_invariance_test(locs::Vector{<:SMLMData.AbstractEmitter},
     run_collapsed_chain(locs;
         n_iterations=n_mcmc_iterations, burn_in=mcmc_burn_in,
         shape=shape, learn_distribution=false,
+        hierarchical_interval=n_mcmc_iterations + 1,
+        ρ_prior_shape=ρ, ρ_prior_rate=1.0,
         accumulators=AbstractAccumulator[ps_acc, diag_acc],
         verbose=false)
     mcmc_samples = accumulator_result(ps_acc)
@@ -257,8 +270,19 @@ function run_kernel_invariance_test(locs::Vector{<:SMLMData.AbstractEmitter},
         pi_exact=exact_probs,
         per_K_exact=per_K_exact,
         partitions=partitions,
+        label_multiplicity=label_multiplicity,
         verdict=verdict,
     )
+end
+
+function _log_label_multiplicity(K::Int, mode::Symbol)
+    if mode === :factorial
+        return logfactorial(K)
+    elseif mode === :none
+        return 0.0
+    else
+        throw(ArgumentError("label_multiplicity must be :factorial or :none (got :$mode)"))
+    end
 end
 
 # ============================================================================
@@ -439,4 +463,219 @@ function _is_strongly_connected(adj::AbstractMatrix{Bool})
         end
     end
     return all(visited)
+end
+
+# ============================================================================
+# Labeled partition enumeration (no canonicalization)
+# ============================================================================
+
+"""
+    enumerate_labeled_partitions(N, K_max) -> Vector{Vector{Int}}
+
+All labeled (dense) partitions: z ∈ {1,...,K}^N where every label 1..K
+appears at least once, for K = 1..K_max. Label permutations ARE distinct.
+
+Count = Σ_{K=1}^{K_max} S(N,K) × K!  (ordered Bell numbers truncated at K_max).
+"""
+function enumerate_labeled_partitions(N::Int, K_max::Int)
+    partitions = Vector{Vector{Int}}()
+    z = ones(Int, N)
+    for K in 1:min(K_max, N)
+        _enum_labeled!(partitions, z, 1, K, N)
+    end
+    return partitions
+end
+
+function _enum_labeled!(result::Vector{Vector{Int}}, z::Vector{Int},
+                         pos::Int, K::Int, N::Int)
+    if pos > N
+        seen = falses(K)
+        @inbounds for v in z; seen[v] = true; end
+        all(seen) && push!(result, copy(z))
+        return
+    end
+    for k in 1:K
+        z[pos] = k
+        _enum_labeled!(result, z, pos + 1, K, N)
+    end
+end
+
+"""
+    _densify_by_slot(z) -> Vector{Int}
+
+Map slot indices to dense 1..K by sorting active slot indices.
+Lowest active slot → 1, next → 2, etc.
+
+This is NOT canonicalization (which maps by first-appearance order).
+"""
+function _densify_by_slot(z::AbstractVector{<:Integer})
+    active = sort(unique(z))
+    mapping = Dict{eltype(z), Int}()
+    for (i, s) in enumerate(active)
+        mapping[s] = i
+    end
+    return [mapping[zi] for zi in z]
+end
+
+# ============================================================================
+# Labeled-state kernel invariance test
+# ============================================================================
+
+"""
+    run_labeled_invariance_test(locs, td; μ, shape, ρ, K_max,
+                                 n_steps_per_state, seed, verbose) -> NamedTuple
+
+Kernel invariance test on the FULL labeled state space (no canonicalization).
+Each of the K! relabelings of a canonical partition is a distinct state.
+The target density is evaluated directly — no K! multiplicity correction.
+
+Tests:
+1. Invariance: π_L^T P ≈ π_L^T (Wald test)
+2. Irreducibility on labeled space
+3. Label symmetry: π^T P gives same value for all relabelings of each partition
+"""
+function run_labeled_invariance_test(locs::Vector{<:SMLMData.AbstractEmitter},
+                                      td::AbstractTargetDensity;
+                                      μ::Float64, shape::Float64, ρ::Float64=2.0,
+                                      K_max::Int=3,
+                                      n_steps_per_state::Int=2000,
+                                      seed::Union{Int, Nothing}=42,
+                                      verbose::Bool=true)
+    seed !== nothing && Random.seed!(seed)
+
+    N = length(locs)
+    labeled_parts = enumerate_labeled_partitions(N, K_max)
+    n_parts = length(labeled_parts)
+
+    # Exact labeled posterior — no multiplicity correction
+    loc_precs = precompute_loc_precisions(locs)
+    spatial_prior = UniformSpatialPrior(locs)
+    log_area = log(area(spatial_prior))
+
+    log_targets = [log_target(td, z, loc_precs, log_area, μ, shape, ρ)
+                   for z in labeled_parts]
+    max_lt = maximum(log_targets)
+    probs = exp.(log_targets .- max_lt)
+    probs ./= sum(probs)
+
+    verbose && println("Labeled state space: $n_parts states (N=$N, K_max=$K_max)")
+
+    # Lookup: labeled state → index
+    part_to_idx = Dict{Vector{Int}, Int}()
+    for (i, p) in enumerate(labeled_parts)
+        part_to_idx[p] = i
+    end
+
+    # --- Transition matrix ---
+    verbose && println("Building transition matrix: $n_parts × $n_steps_per_state steps")
+
+    P = zeros(n_parts, n_parts)
+    n_overflow = 0
+
+    for (i, z_start) in enumerate(labeled_parts)
+        for _ in 1:n_steps_per_state
+            ps_acc = PartitionSamples(; thin=1)
+            # Set μ_prior so that initial μ = μ_prior_shape × μ_prior_scale = μ
+            run_collapsed_chain(locs;
+                n_iterations=1, burn_in=0,
+                initial_assignments=z_start,
+                μ_prior_shape=1.0, μ_prior_scale=μ,
+                shape=shape, learn_distribution=false,
+                hierarchical_interval=2,
+                ρ_prior_shape=ρ, ρ_prior_rate=1.0,
+                accumulators=AbstractAccumulator[ps_acc],
+                verbose=false)
+            samples = accumulator_result(ps_acc)
+            if !isempty(samples)
+                z_end = _densify_by_slot(samples[end])
+                j = get(part_to_idx, z_end, 0)
+                if j > 0
+                    P[i, j] += 1.0
+                else
+                    n_overflow += 1
+                end
+            end
+        end
+        row_sum = sum(P[i, :])
+        row_sum > 0 && (P[i, :] ./= row_sum)
+        verbose && (i % 10 == 0) && println("  State $i / $n_parts done")
+    end
+
+    overflow_frac = n_overflow / (n_parts * n_steps_per_state)
+
+    # Wald test for π^T P ≈ π^T
+    wald = invariance_wald_test(P, probs, n_steps_per_state)
+
+    # Connectivity on labeled space
+    is_irreducible = _is_strongly_connected(P .> 0)
+
+    # --- Label symmetry diagnostic ---
+    # Group labeled states by canonical partition
+    canonical_groups = Dict{Vector{Int}, Vector{Int}}()
+    for (i, z) in enumerate(labeled_parts)
+        c = canonicalize(z)
+        gs = get!(canonical_groups, c, Int[])
+        push!(gs, i)
+    end
+
+    # For each group, compute π^T P[:, j] for each relabeling j
+    # These should all be equal if the kernel respects label invariance
+    label_sym_results = Dict{Vector{Int}, NamedTuple}()
+    for (canon, indices) in canonical_groups
+        K = maximum(canon)
+        expected_size = factorial(K)
+        piP_vals = [dot(probs, P[:, j]) for j in indices]
+        mean_piP = mean(piP_vals)
+        max_dev = length(piP_vals) > 1 ? maximum(abs.(piP_vals .- mean_piP)) : 0.0
+        rel_dev = mean_piP > 1e-300 ? max_dev / mean_piP : 0.0
+        label_sym_results[canon] = (K=K, n_relabelings=length(indices),
+                                     expected=expected_size,
+                                     mean_piP=mean_piP, max_deviation=max_dev,
+                                     relative_deviation=rel_dev)
+    end
+
+    # K-marginals
+    per_K_exact = zeros(K_max)
+    for (i, z) in enumerate(labeled_parts)
+        K = maximum(z)
+        K <= K_max && (per_K_exact[K] += probs[i])
+    end
+
+    # --- Report ---
+    if verbose
+        println("\nResults:")
+        println("  Wald test: $(wald.verdict)  TV=$(round(wald.tv_hat; digits=4))  p=$(round(wald.wald_pvalue; sigdigits=3))")
+        println("  Irreducible (labeled): $is_irreducible")
+        println("  Overflow: $(round(100 * overflow_frac; digits=1))%")
+
+        println("\n  K-marginals (exact labeled):")
+        for k in 1:K_max
+            per_K_exact[k] > 1e-6 && println("    K=$k: $(round(per_K_exact[k]; digits=4))")
+        end
+
+        println("\n  Label symmetry (π^T P deviation across relabelings):")
+        for canon in sort(collect(keys(label_sym_results)))
+            r = label_sym_results[canon]
+            r.mean_piP < 1e-10 && continue
+            flag = r.relative_deviation > 0.05 ? " ← ASYMMETRIC" : ""
+            println("    $canon (K=$(r.K), $(r.n_relabelings) relabelings): rel_dev=$(round(r.relative_deviation; digits=4))$flag")
+        end
+    end
+
+    verdict = wald.verdict == :pass && overflow_frac < 0.05
+
+    verbose && println("\n  Overall: $(verdict ? "PASS" : "FAIL")")
+
+    return (
+        transition_matrix=P,
+        wald=wald,
+        is_irreducible=is_irreducible,
+        overflow_fraction=overflow_frac,
+        pi_exact=probs,
+        per_K_exact=per_K_exact,
+        partitions=labeled_parts,
+        canonical_groups=canonical_groups,
+        label_symmetry=label_sym_results,
+        verdict=verdict,
+    )
 end

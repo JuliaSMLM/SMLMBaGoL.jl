@@ -50,12 +50,13 @@ export write_sweep, write_speed
 export plot_sweep, plot_speed  # extension stubs
 
 # Export diagnostics — target density
-export AbstractTargetDensity, DecoupledTarget
+export AbstractTargetDensity, DecoupledTarget, DMFlatTarget, DirectNegBinFlatTarget
 export log_target, evaluate_target
 
 # Export diagnostics — finite-state validation
 export enumerate_canonical_partitions, canonicalize, exact_posterior
-export run_kernel_invariance_test
+export enumerate_labeled_partitions
+export run_kernel_invariance_test, run_labeled_invariance_test
 
 # Export diagnostics — detailed balance
 export DetailedBalanceResult, check_detailed_balance
