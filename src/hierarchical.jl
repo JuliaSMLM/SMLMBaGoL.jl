@@ -127,6 +127,45 @@ function _update_shape_collapsed(state::CollapsedState, μ::Float64,
     return log(rand()) < log_accept ? shape_proposed : shape_current
 end
 
+# ============================================================================
+# Conjugate ρ (emitter density) update
+# ============================================================================
+
+"""
+    _update_rho_collapsed(state, A, config) -> Float64
+
+Conjugate Gamma update for emitter density ρ given one partition.
+
+Prior: ρ ~ Gamma(a, 1/b)  (shape/rate parameterization)
+Likelihood: K | ρ ~ Poisson(ρA)
+Posterior: ρ | K, A ~ Gamma(a + K, 1/(b + A))
+
+Returns a sample from the posterior.
+"""
+function _update_rho_collapsed(state::CollapsedState, A::Float64, config::NamedTuple)
+    a = config.ρ_prior_shape
+    b = config.ρ_prior_rate
+    K = state.n_active
+    return rand(Gamma(a + K, 1.0 / (b + A)))
+end
+
+"""
+    _update_rho_collapsed_global!(states, areas, config) -> Float64
+
+Conjugate Gamma update for ρ pooled across all partitions.
+
+Posterior: ρ | {K_j}, {A_j} ~ Gamma(a + ΣK_j, 1/(b + ΣA_j))
+"""
+function _update_rho_collapsed_global!(states::Vector{CollapsedState},
+                                       areas::Vector{Float64},
+                                       config::NamedTuple)
+    a = config.ρ_prior_shape
+    b = config.ρ_prior_rate
+    total_K = sum(s.n_active for s in states)
+    total_A = sum(areas)
+    return rand(Gamma(a + total_K, 1.0 / (b + total_A)))
+end
+
 """
     _update_mu_collapsed_global!(states, μ_current, shape, config) -> Float64
 

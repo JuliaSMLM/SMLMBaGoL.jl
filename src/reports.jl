@@ -268,6 +268,7 @@ function compute_report(
         grouping_ratio = n_locs > 0 ? n_locs / max(n_emitters, 1) : NaN,
         final_mu = diagnostics.final_μ,
         final_shape = diagnostics.final_shape,
+        final_rho = diagnostics.final_ρ,
         n_partitions = diagnostics.n_partitions,
         acceptance_rates = diagnostics.acceptance_rates,
         posterior_k = diagnostics.posterior_k,

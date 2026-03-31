@@ -100,18 +100,19 @@ end
 """
 Compute the exact (unnormalized) log target density for assignment vector z.
 
-log π(z) = log P_count(N|K) + log P_partition(z|K) + Σ_k log ML_k
+log π(z) = log P_count(N|K) + log P_partition(z|K) + Σ_k log ML_k + log P_K(K|ρ,A)
 
 where:
 - P_count uses _log_count_posterior (NegBin)
 - P_partition uses the Dirichlet-Multinomial formula (MFM)
-- ML_k uses log_marginal_likelihood_locmix with the locmix grid
+- ML_k uses log_marginal_likelihood with log_area (uniform spatial prior)
 """
 function log_target_density(z::Vector{Int}, K::Int, N::Int,
                             locs::Vector{<:SMLMData.AbstractEmitter},
                             loc_precs::Vector{SMLMBaGoL.LocPrecision},
-                            grid::SMLMBaGoL.LocmixGrid,
-                            μ::Float64, shape::Float64)
+                            log_area::Float64,
+                            μ::Float64, shape::Float64,
+                            ρ::Float64, A::Float64)
     # 1. Count model: P(N|K)
     log_count = SMLMBaGoL._log_count_posterior(K, N, shape, μ)
 
@@ -137,10 +138,13 @@ function log_target_density(z::Vector{Int}, K::Int, N::Int,
                 cs = SMLMBaGoL.add_loc(cs, loc_precs[i])
             end
         end
-        log_spatial += SMLMBaGoL.log_marginal_likelihood_locmix(cs, grid)
+        log_spatial += SMLMBaGoL.log_marginal_likelihood(cs, log_area)
     end
 
-    return log_count + log_partition + log_spatial
+    # 4. Poisson(ρA) prior on K
+    log_k_prior = SMLMBaGoL.log_prior_k_poisson(K, ρ, A)
+
+    return log_count + log_partition + log_spatial + log_k_prior
 end
 
 # ============================================================================
@@ -186,7 +190,8 @@ plus a K time series for ESS estimation.
 """
 function run_mcmc_with_tracking(locs::Vector{<:SMLMData.AbstractEmitter},
                                  n_iterations::Int, burn_in::Int,
-                                 μ::Float64, shape::Float64, K_max::Int;
+                                 μ::Float64, shape::Float64, ρ::Float64,
+                                 K_max::Int;
                                  seed::Int=123)
     Random.seed!(seed)
 
@@ -212,12 +217,12 @@ function run_mcmc_with_tracking(locs::Vector{<:SMLMData.AbstractEmitter},
             prev = acceptance[:gibbs_sweep]
             acceptance[:gibbs_sweep] = (prev[1] + 1, prev[2] + 1)
         elseif r < 0.75
-            accepted, move_type = SMLMBaGoL.propose_split_merge!(state, locs, μ, shape)
+            accepted, move_type = SMLMBaGoL.propose_split_merge!(state, locs, μ, shape, ρ)
             prev = acceptance[move_type]
             acceptance[move_type] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
         else
             for _bd in 1:5  # BD burst: 5 substeps per selection
-                accepted, move_type = SMLMBaGoL.propose_birth_death!(state, locs, μ, shape)
+                accepted, move_type = SMLMBaGoL.propose_birth_death!(state, locs, μ, shape, ρ)
                 prev = acceptance[move_type]
                 acceptance[move_type] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
             end
@@ -330,9 +335,12 @@ function run_test(;
         @printf("    loc %d: (%.4f, %.4f)\n", i, loc.x, loc.y)
     end
 
-    # Build locmix grid (same as the sampler uses internally)
+    # Build spatial prior and compute log_area
     loc_precs = SMLMBaGoL.precompute_loc_precisions(locs)
-    grid = SMLMBaGoL.build_locmix_grid(loc_precs)
+    spatial_prior = SMLMBaGoL.UniformSpatialPrior(locs)
+    log_area = log(SMLMBaGoL.area(spatial_prior))
+    ρ = 2.0  # Poisson rate for K prior
+    A = exp(log_area)
 
     # -----------------------------------------------------------------------
     # Step 1: Enumerate all canonical partitions
@@ -357,7 +365,7 @@ function run_test(;
     log_targets = Float64[]
     hashes = Int[]
     for (z, K) in partitions
-        lt = log_target_density(z, K, N, locs, loc_precs, grid, μ, shape)
+        lt = log_target_density(z, K, N, locs, loc_precs, log_area, μ, shape, ρ, A)
         push!(log_targets, lt)
         z_canon = canonicalize(z)
         push!(hashes, partition_hash(z_canon, K_max))
@@ -397,7 +405,7 @@ function run_test(;
     # -----------------------------------------------------------------------
     println("\n  Running MCMC: $n_iterations iterations, $burn_in burn-in...")
     visit_counts, n_samples, acceptance, k_trace = run_mcmc_with_tracking(
-        locs, n_iterations, burn_in, μ, shape, K_max; seed=seed_mcmc)
+        locs, n_iterations, burn_in, μ, shape, ρ, K_max; seed=seed_mcmc)
 
     println("  Collected $n_samples post-burn-in samples")
     ess_k = estimate_ess_from_trace(k_trace)
@@ -664,7 +672,8 @@ sweep is at fault.
 """
 function run_splitmerge_only_tracking(locs::Vector{<:SMLMData.AbstractEmitter},
                                       n_iterations::Int, burn_in::Int,
-                                      μ::Float64, shape::Float64, K_max::Int;
+                                      μ::Float64, shape::Float64, ρ::Float64,
+                                      K_max::Int;
                                       seed::Int=123)
     Random.seed!(seed)
 
@@ -682,7 +691,7 @@ function run_splitmerge_only_tracking(locs::Vector{<:SMLMData.AbstractEmitter},
 
     for iter in 1:n_iterations
         # ONLY split/merge — no Gibbs sweep
-        accepted, move_type = SMLMBaGoL.propose_split_merge!(state, locs, μ, shape)
+        accepted, move_type = SMLMBaGoL.propose_split_merge!(state, locs, μ, shape, ρ)
         prev = acceptance[move_type]
         acceptance[move_type] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
 
@@ -737,9 +746,12 @@ function run_splitmerge_only_test(;
         @printf("    loc %d: (%.4f, %.4f)\n", i, loc.x, loc.y)
     end
 
-    # Build locmix grid
+    # Build spatial prior and compute log_area
     loc_precs = SMLMBaGoL.precompute_loc_precisions(locs)
-    grid = SMLMBaGoL.build_locmix_grid(loc_precs)
+    spatial_prior = SMLMBaGoL.UniformSpatialPrior(locs)
+    log_area = log(SMLMBaGoL.area(spatial_prior))
+    ρ = 2.0
+    A = exp(log_area)
 
     # -----------------------------------------------------------------------
     # Step 1: Enumerate all canonical partitions
@@ -763,7 +775,7 @@ function run_splitmerge_only_test(;
     log_targets = Float64[]
     hashes = Int[]
     for (z, K) in partitions
-        lt = log_target_density(z, K, N, locs, loc_precs, grid, μ, shape)
+        lt = log_target_density(z, K, N, locs, loc_precs, log_area, μ, shape, ρ, A)
         push!(log_targets, lt)
         z_canon = canonicalize(z)
         push!(hashes, partition_hash(z_canon, K_max))
@@ -789,7 +801,7 @@ function run_splitmerge_only_test(;
     # -----------------------------------------------------------------------
     println("\n  Running SPLIT/MERGE ONLY MCMC: $n_iterations iterations, $burn_in burn-in...")
     visit_counts, n_samples, acceptance, k_trace = run_splitmerge_only_tracking(
-        locs, n_iterations, burn_in, μ, shape, K_max; seed=seed_mcmc)
+        locs, n_iterations, burn_in, μ, shape, ρ, K_max; seed=seed_mcmc)
 
     println("  Collected $n_samples post-burn-in samples")
     ess_k = estimate_ess_from_trace(k_trace)

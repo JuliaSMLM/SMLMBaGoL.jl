@@ -13,6 +13,7 @@ struct BaGoLDiagnostics
     acceptance_rates::Dict{Symbol, Float64}
     final_μ::Float64
     final_shape::Float64
+    final_ρ::Float64            # emitter density (emitters per μm²)
     n_partitions::Int  # 1 for non-partitioned runs
     cluster_sizes::Vector{Int}  # active cluster sizes from final state (what Gamma was fit to)
     partition_k::Vector{Int}    # emitters found per partition (from MAP-N extraction)
@@ -40,13 +41,10 @@ mutable struct CollapsedState
     clusters::Vector{ClusterStats}  # Pre-allocated slots
     active::BitVector               # Which slots are in use
     n_active::Int                   # Number of active clusters
-    log_area::Float64               # log(area) for spatial prior (kept for diagnostics)
+    log_area::Float64               # log(area) for flat spatial prior
 
     # Precomputed loc precisions (computed once, locs don't change)
     _loc_precs::Vector{LocPrecision}
-
-    # Grid-based locmix prior (precomputed once, O(1) lookup)
-    _locmix_grid::LocmixGrid
 
     # Workspace buffers (pre-allocated, reused across iterations)
     _perm::Vector{Int}              # Permutation for Gibbs sweep
@@ -79,6 +77,7 @@ struct CollapsedChainResult
     state::CollapsedState
     μ::Float64
     shape::Float64
+    ρ::Float64                 # emitter density (emitters per μm²)
     accumulators::Vector{Any}  # accumulator result objects
     acceptance::Dict{Symbol, Tuple{Int, Int}}  # (accepted, total) per move type
     n_iterations::Int

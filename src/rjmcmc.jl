@@ -135,7 +135,7 @@ function _run_bagol_collapsed(
     if isempty(partitions)
         @warn "No valid partitions"
         empty_smld = SMLMData.BasicSMLD(SMLMData.Emitter2DFit[], camera, 1, 1)
-        empty_diag = BaGoLDiagnostics(0, Int[], Dict{Symbol,Float64}(), 0.0, shape, 0, Int[], Int[], Int[], nothing)
+        empty_diag = BaGoLDiagnostics(0, Int[], Dict{Symbol,Float64}(), 0.0, shape, 0.0, 0, Int[], Int[], Int[], nothing)
         return empty_smld, empty_diag
     end
 
@@ -150,8 +150,11 @@ function _run_bagol_collapsed(
     μ_prior_scale = get(kwargs, :μ_prior_scale, 5.0)
     shape_prior_shape = get(kwargs, :shape_prior_shape, 2.0)
     shape_prior_scale = get(kwargs, :shape_prior_scale, 1.0)
+    ρ_prior_shape = get(kwargs, :ρ_prior_shape, 2.0)
+    ρ_prior_rate = get(kwargs, :ρ_prior_rate, 1.0)
     config_nt = (μ_prior_shape=μ_prior_shape, μ_prior_scale=μ_prior_scale,
-                 shape_prior_shape=shape_prior_shape, shape_prior_scale=shape_prior_scale)
+                 shape_prior_shape=shape_prior_shape, shape_prior_scale=shape_prior_scale,
+                 ρ_prior_shape=ρ_prior_shape, ρ_prior_rate=ρ_prior_rate)
 
     # Initialize collapsed states and accumulators per partition
     states = Vector{CollapsedState}(undef, n_partitions)
@@ -190,11 +193,15 @@ function _run_bagol_collapsed(
         end
     end
 
-    # Global μ, shape (shared across partitions)
+    # Global μ, shape, ρ (shared across partitions)
     # Direct μ kwarg takes precedence over hyperprior product
     μ_direct = get(kwargs, :μ, nothing)
     μ = μ_direct !== nothing ? Float64(μ_direct) : μ_prior_shape * μ_prior_scale
     current_shape = shape
+    ρ = ρ_prior_shape / ρ_prior_rate  # Initial ρ from prior mean
+
+    # Per-partition areas (for conjugate ρ update)
+    partition_areas = [area(UniformSpatialPrior(p.locs)) for p in partitions]
 
     # Initialize archive if requested
     archive = nothing
@@ -219,7 +226,7 @@ function _run_bagol_collapsed(
             Threads.@spawn begin
                 iter_counters[i] = run_collapsed_iterations!(
                     states[i], partitions[i].locs, sync_interval,
-                    μ, current_shape,
+                    μ, current_shape, ρ,
                     partition_accumulators[i], burn_in, iter_counters[i];
                     acceptance=partition_acceptance[i],
                     n_restricted_scans=n_restricted_scans,
@@ -242,11 +249,13 @@ function _run_bagol_collapsed(
         if _learn_shape
             current_shape = _update_shape_collapsed_global!(states, μ, current_shape, config_nt)
         end
+        # Conjugate ρ update (always — exact Gibbs, pooled across partitions)
+        ρ = _update_rho_collapsed_global!(states, partition_areas, config_nt)
 
         total_K = sum(s.n_active for s in states)
         shape_str = _learn_shape ? ", shape=$(round(current_shape, digits=2))" : ""
         iter_done = outer * sync_interval
-        _log_progress("Sync $outer/$n_outer (iter $iter_done): K=$total_K, μ=$(round(μ, digits=2))$shape_str")
+        _log_progress("Sync $outer/$n_outer (iter $iter_done): K=$total_K, μ=$(round(μ, digits=2))$shape_str, ρ=$(round(ρ, digits=4))")
     end
 
     # Run remaining iterations
@@ -256,7 +265,7 @@ function _run_bagol_collapsed(
             Threads.@spawn begin
                 iter_counters[i] = run_collapsed_iterations!(
                     states[i], partitions[i].locs, remaining,
-                    μ, current_shape,
+                    μ, current_shape, ρ,
                     partition_accumulators[i], burn_in, iter_counters[i];
                     acceptance=partition_acceptance[i],
                     n_restricted_scans=n_restricted_scans,
@@ -420,7 +429,7 @@ function _run_bagol_collapsed(
     # Build diagnostics
     diagnostics = BaGoLDiagnostics(
         length(merged_emitters), posterior_k, acceptance_rates,
-        μ, current_shape, n_partitions, cluster_sizes, partition_k,
+        μ, current_shape, ρ, n_partitions, cluster_sizes, partition_k,
         loc_partition_ids, post_img
     )
     result_smld = SMLMData.BasicSMLD(merged_emitters, camera, 1, 1)

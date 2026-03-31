@@ -69,7 +69,7 @@ end
 # ============================================================================
 
 """
-    exact_posterior(partitions, locs, td; μ, shape) -> (probs, log_targets)
+    exact_posterior(partitions, locs, td; μ, shape, ρ) -> (probs, log_targets)
 
 Normalized exact posterior over canonical partitions. Includes K!
 label-multiplicity correction for comparison to canonicalized MCMC samples.
@@ -77,18 +77,19 @@ label-multiplicity correction for comparison to canonicalized MCMC samples.
 function exact_posterior(partitions::Vector{Vector{Int}},
                           locs::Vector{<:SMLMData.AbstractEmitter},
                           td::AbstractTargetDensity;
-                          μ::Float64, shape::Float64)
+                          μ::Float64, shape::Float64, ρ::Float64=2.0)
     isempty(partitions) && return (Float64[], Float64[])
 
     loc_precs = precompute_loc_precisions(locs)
-    grid = build_locmix_grid(loc_precs)
+    spatial_prior = UniformSpatialPrior(locs)
+    log_area = log(area(spatial_prior))
 
     n_parts = length(partitions)
     log_targets = Vector{Float64}(undef, n_parts)
 
     for i in 1:n_parts
         K = _count_clusters(partitions[i])
-        log_targets[i] = log_target(td, partitions[i], loc_precs, grid, μ, shape) +
+        log_targets[i] = log_target(td, partitions[i], loc_precs, log_area, μ, shape, ρ) +
                           logfactorial(K)
     end
 
@@ -119,7 +120,7 @@ fixed. The transition matrix is for the z-marginal kernel only.
 """
 function run_kernel_invariance_test(locs::Vector{<:SMLMData.AbstractEmitter},
                                      td::AbstractTargetDensity;
-                                     μ::Float64, shape::Float64,
+                                     μ::Float64, shape::Float64, ρ::Float64=2.0,
                                      K_max::Int=3,
                                      n_steps_per_state::Int=1500,
                                      n_mcmc_iterations::Int=100_000,
@@ -133,7 +134,7 @@ function run_kernel_invariance_test(locs::Vector{<:SMLMData.AbstractEmitter},
     N = length(locs)
     partitions = enumerate_canonical_partitions(N, K_max)
     n_parts = length(partitions)
-    exact_probs, log_targets = exact_posterior(partitions, locs, td; μ=μ, shape=shape)
+    exact_probs, log_targets = exact_posterior(partitions, locs, td; μ=μ, shape=shape, ρ=ρ)
 
     # K-marginals from exact posterior
     per_K_exact = zeros(K_max)
