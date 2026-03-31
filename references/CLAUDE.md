@@ -10,4 +10,6 @@
 **Paper:** Fazel et al., "High-Precision Estimation of Emitter Positions using Bayesian Grouping of Localizations", *Nature Communications* 13, 7152 (2022). [doi:10.1038/s41467-022-34894-2](https://doi.org/10.1038/s41467-022-34894-2)
 
 ### Collapsed Gibbs Formulation (this package)
-- `math_reference.md` — Mathematical reference for the collapsed Gibbs sampler implemented in `src/collapsed_sampler.jl`, `src/collapsed_moves.jl`, and `src/cluster_stats.jl`. Derives the spatial Poisson process prior that makes the collapsed formulation area-invariant, matching the implicit cancellation in the RJMCMC sampler. This is the authoritative reference for the collapsed sampler's math.
+- `math_reference.md` — **STALE.** Predates all sampler research rounds. Do not treat as authoritative.
+
+**Authoritative math reference:** `docs/math_reference.md` — must be kept in sync with `dev/sampler_reference.md` after each sampler research round. If they conflict, `dev/sampler_reference.md` reflects the current implementation.

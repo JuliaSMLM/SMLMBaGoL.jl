@@ -1,6 +1,6 @@
 # Mathematical Reference: SMLMBaGoL Collapsed Gibbs Sampler
 
-*Authoritative specification for the `locmix-grid` branch.
+*Authoritative specification for `main` branch (post-Round 11, 2026-03-30).
 Update this document when the algorithm changes.*
 
 ---
@@ -52,6 +52,7 @@ This is hard because: (a) $K$ is unknown, (b) each localization has different pr
 |--------|------|---------|-------------|
 | $\mu$ | `μ` | 10.0 | Mean localizations per emitter |
 | $\alpha$ | `shape` | 2.0 | NegBin shape (1=geometric, $\infty$=Poisson) |
+| $\gamma$ | `shape` (same as $\alpha$) | 2.0 | DM concentration parameter |
 | $p$ | derived | $\alpha/(\alpha+\mu)$ | NegBin success probability |
 
 ### Derived quantities
@@ -66,7 +67,7 @@ This is hard because: (a) $K$ is unknown, (b) each localization has different pr
 
 ## 3. Generative Model
 
-$$K \sim (\text{no prior --- regularized by count model})$$
+$$K \sim (\text{no explicit prior --- regularized by count model})$$
 
 $$n_k \mid \mu, \alpha \stackrel{\text{iid}}{\sim} \text{NegBin}(\alpha,\; p), \quad p = \frac{\alpha}{\alpha+\mu}$$
 
@@ -88,34 +89,37 @@ The total count $N = \sum_k n_k \sim \text{NegBin}(K\alpha, p)$ by the NegBin su
 
 The sampler targets the collapsed posterior with positions integrated out:
 
-$$\boxed{P(z, K \mid \text{data}) \;\propto\; P_{\text{count}}(N \mid K) \;\times\; \prod_{k=1}^{K} \text{ML}_{\text{locmix},k}(z)}$$
+$$\boxed{P(z, K \mid \text{data}) \;\propto\; P_{\text{count}}(N \mid K) \;\times\; P_{\text{DM}}(z \mid K, N) \;\times\; \prod_{k=1}^{K} \text{ML}_{\text{locmix},k}(z)}$$
 
 where:
 
 - $P_{\text{count}}(N \mid K) = \text{NegBin}(N;\; K\alpha,\; p)$ --- total count model
+- $P_{\text{DM}}(z \mid K, N)$ --- Dirichlet-Multinomial partition prior (Section 4.1)
 - $\text{ML}_{\text{locmix},k}$ --- collapsed marginal likelihood under locmix prior (Section 5)
 
-**No partition prior** $P_{\text{partition}}(z \mid K)$ appears in the current formulation. The allocation prior $P(z \mid K)$ is flat: all labelings with $K$ non-empty groups are equally likely. The Gibbs conditional is therefore purely spatial.
+### 4.1 Dirichlet-Multinomial Partition Prior
 
-**No prior on** $K$. The NegBin likelihood $P(N \mid K)$ alone regularizes $K$; it has a well-defined mode near $K = N/\mu$ and penalizes both under- and over-splitting. There is no Poisson($\lambda_K$) prior because the locmix spatial prior eliminates the spatial Poisson process.
+$$P_{\text{DM}}(z \mid K, N) = \frac{\Gamma(K\gamma)}{\Gamma(\gamma)^K \,\Gamma(N + K\gamma)} \prod_{k=1}^{K} \Gamma(n_k + \gamma)$$
 
-**Code:** `DecoupledTarget` in `src/diagnostics/target.jl`. The `MFMTarget` (with DM partition prior) is retained for diagnostic comparison.
+with $\gamma = \alpha$ (the NegBin shape). This prior is the correct conditional distribution of allocations given $K$ and $N$ under the NegBin count model. It is NOT a tuning parameter --- it is a mathematical consequence of the generative model ($P_{\text{count}} \times P_{\text{DM}} = \prod_k \text{NegBin}(n_k) / \binom{N}{n_1 \cdots n_K}$).
+
+The DM prior provides a "rich-get-richer" effect that compensates for the combinatorial explosion of allocations at higher $K$ (Stirling number $S(N,K)$ grows rapidly). Without it, the implicit allocation prior is uniform-per-label, which overwhelmingly favors high $K$.
+
+**No separate prior on $K$.** The NegBin count model alone regularizes $K$. No Poisson prior is needed because the locmix spatial prior eliminates the spatial Poisson process.
+
+**Code:** `_log_dm_partition` in `src/collapsed_moves.jl`.
+
+### 4.2 Joint vs Marginal Mode (Round 11)
+
+**Important:** The joint mode (highest-probability individual allocation) is typically at lower $K$ than the marginal mode $P(K \mid \text{data}) = \sum_z P(z, K \mid \text{data})$. This is because the DM prior assigns very low probability to each specific allocation at high $K$, but the marginal sums over an enormous number of such allocations.
+
+Thermodynamic integration (Round 11) confirmed the marginal peaks near Q-PAINT's MAP $K$, while individual allocations at that $K$ score lower than allocations at lower $K$. This creates a K-mixing challenge for the collapsed sampler (see Section 10.1).
 
 ---
 
 ## 5. Collapsed Marginal Likelihood
 
-### 5.1 Uniform prior version
-
-Integrating $\theta_k$ against $P(\theta_k) = 1/|R|$ over region $R$ (assuming the posterior is interior to $R$, i.e., $\Phi_R \approx 1$):
-
-$$\log P(D_k \mid R) = (1 - n_k)\log(2\pi) - \tfrac{1}{2}S_k - \tfrac{1}{2}(Q_k - \eta_k^\top \Lambda_k^{-1} \eta_k) - \tfrac{1}{2}\log|\Lambda_k| - \log|R|$$
-
-**Code:** `log_marginal_likelihood(cs, log_area)` in `src/cluster_stats.jl`.
-
-### 5.2 Locmix prior version (grid-based, current branch)
-
-Replace $-\log|R|$ with $\log\pi_{\text{locmix}}(\hat{\theta}_k)$:
+### 5.1 Locmix prior version (grid-based, saddle-point)
 
 $$\log\text{ML}_{\text{locmix},k} = (1 - n_k)\log(2\pi) - \tfrac{1}{2}S_k - \tfrac{1}{2}(Q_k - \eta_k^\top \Lambda_k^{-1}\eta_k) - \tfrac{1}{2}\log|\Lambda_k| + \log\pi_{\text{locmix}}(\hat{\theta}_k)$$
 
@@ -123,31 +127,23 @@ This is the saddle-point (Laplace plug-in) approximation to the exact integral:
 
 $$\text{ML}_k^{\text{exact}} = \int \left[\prod_i \mathcal{N}(d_i;\theta,\Sigma_i)\right] \pi_{\text{locmix}}(\theta)\,d\theta$$
 
-The exact version factors as:
-
-$$\log\text{ML}_k^{\text{exact}} = \log\text{ML}_{\text{flat}}(\text{cs}_k) + \log E_{\text{post}}\!\left[\pi_{\text{locmix}}(\theta)\right]$$
-
-where $\text{ML}_{\text{flat}}$ is the flat-prior marginal and $E_{\text{post}}[\cdot]$ is the expectation under the improper flat posterior $q(\theta) \propto \prod_i \mathcal{N}(d_i;\theta,\Sigma_i)$. The grid approximation replaces $E_{\text{post}}[\pi(\theta)]$ with $\pi(\hat{\theta}_k)$. See Section 10.1 for error analysis.
+Round 11 confirmed the saddle-point error is $<0.02$ per cluster --- negligible.
 
 **Code:** `log_marginal_likelihood_locmix(cs, grid)` in `src/cluster_stats.jl`.
 
-### 5.3 Exact locmix integral (O(N) per cluster)
+### 5.2 Exact locmix integral (O(N) per cluster)
 
-The locmix prior is a mixture of Gaussians conjugate with the Gaussian likelihood:
+$$\text{ML}_k^{\text{exact}} = \frac{1}{N}\sum_{j=1}^{N} \text{ML}_{\text{flat}}(\text{cs}_k \cup \{\text{virtual}_j\})$$
 
-$$\text{ML}_k = \frac{1}{N}\sum_{j=1}^{N} \text{ML}_{\text{flat}}(\text{cs}_k \cup \{\text{virtual}_j\})$$
+Each term adds localization $j$ as a "virtual observation" (representing the prior component $\mathcal{N}(\theta; d_j, \Sigma_j)$) and computes the flat-prior ML.
 
-Each term adds localization $j$ as a "virtual observation" (representing the prior component $\mathcal{N}(\theta; d_j, \Sigma_j)$) and computes the flat-prior ML. This is exact, requires no grid, but costs $O(N)$ per cluster instead of $O(1)$.
-
-**Code:** `log_ml_locmix(cs, loc_precs)` in `src/cluster_stats.jl`.
-
-### 5.4 ClusterStats operations
+### 5.3 ClusterStats operations
 
 All operations are $O(1)$ via additive sufficient statistics:
 
 $$\text{add\_loc}(k, i): \quad \Lambda_k \mathrel{+}= \Lambda_i,\;\; \eta_k \mathrel{+}= \Lambda_i d_i,\;\; Q_k \mathrel{+}= d_i^\top \Lambda_i d_i,\;\; S_k \mathrel{+}= \log|\Sigma_i|,\;\; n_k \mathrel{+}= 1$$
 
-`remove_loc` is the exact inverse (subtract). `LocPrecision` caches the per-localization contributions, precomputed once at initialization.
+`remove_loc` is the exact inverse. `LocPrecision` caches per-localization contributions.
 
 **Code:** `ClusterStats`, `LocPrecision`, `add_loc`, `remove_loc` in `src/cluster_stats.jl`.
 
@@ -159,122 +155,131 @@ $$\text{add\_loc}(k, i): \quad \Lambda_k \mathrel{+}= \Lambda_i,\;\; \eta_k \mat
 
 $$\pi_{\text{locmix}}(\theta) = \frac{1}{N}\sum_{j=1}^{N}\mathcal{N}(\theta;\, d_j,\, \Sigma_j)$$
 
-Each localization contributes a Gaussian component centered at its measured position with its measurement covariance. This concentrates prior mass near the data.
-
 **Key properties:**
 
 - **No area dependence.** The $-\log|R|$ penalty from the uniform prior is eliminated.
 - **Automatic scale.** For co-located emitters, the prior concentrates at $\sigma$-scale.
 - **Split-neutral at $d=0$.** Both sub-clusters see the same concentrated prior mass.
 - **Split-positive at $d > 0$.** Each cluster's prior peaks near its own data.
+- **Residual Occam effect.** The $-\frac{1}{2}\log|\Lambda_k|$ term creates a per-cluster penalty of $\approx -\log(n_k)$ that the locmix only partially compensates. This is a fundamental property of Bayesian marginal likelihood, not an approximation error (Section 10.1).
 
 ### 6.2 Grid approximation (`LocmixGrid`)
 
-At initialization, evaluate $\log\pi_{\text{locmix}}(\theta)$ on a 2D grid covering the data bounding box plus $3\sigma_{\max}$ margin, with resolution $\sigma_{\max} / 2$. During MCMC, evaluate at a cluster's posterior mean $\hat{\theta}_k$ via bilinear interpolation in $O(1)$.
-
-The bilinear interpolation operates in **log-space** on the four surrounding grid values.
-
-**Grid construction cost:** $O(N \times n_x \times n_y)$, run once per partition.
+At initialization, evaluate $\log\pi_{\text{locmix}}(\theta)$ on a 2D grid covering the data bounding box plus $3\sigma_{\max}$ margin, with resolution $\sigma_{\max} / 2$. During MCMC, evaluate at $\hat{\theta}_k$ via bilinear interpolation in $O(1)$.
 
 **Code:** `LocmixGrid`, `build_locmix_grid`, `log_prior_locmix` in `src/cluster_stats.jl`.
-
-### 6.3 Approximation error
-
-The grid approximation replaces $E_{\text{post}}[\pi(\theta)]$ with $\pi(\hat{\theta})$. The error:
-
-$$\varepsilon = \log E_{\text{post}}[\pi(\theta)] - \log\pi(\hat{\theta})$$
-
-vanishes when (a) the posterior is concentrated (large $n_k$) or (b) the prior is locally flat. It is largest in the close-pair regime ($d \sim \sigma$) where the merged posterior straddles two locmix peaks and $\hat{\theta}$ falls in a saddle. See Section 10.1.
 
 ---
 
 ## 7. MCMC Moves
 
-### 7.1 Gibbs Allocation Sweep (K fixed)
+### 7.0 Move Selection
 
-For each localization $i$ in random order (Fisher-Yates shuffle), reassign among the $K$ active clusters:
+| Move | Probability | Function | $K$ change |
+|------|-------------|----------|-----------|
+| Gibbs allocation sweep | 50% | `gibbs_allocation_sweep!` | Fixed |
+| Split/merge | 25% | `propose_split_merge!` | $\pm 1$ |
+| Birth/death | 25% $\times$ `n_bd_substeps` | `propose_birth_death!` | $\pm 1$ |
 
-$$P(z_i = k \mid z_{-i}, K, \text{data}) \;\propto\; p_{\text{pred}}(d_i \mid D_k^{-i})$$
+**BD burst:** When birth/death is selected, `n_bd_substeps` (default 5) sequential BD attempts are made. Each is independent MH. This increases K-transition throughput at $\sim 2\times$ cost per outer iteration.
 
-where the **predictive** is:
+### 7.1 Gibbs Allocation Sweep ($K$ fixed)
+
+For each localization $i$ in random order (Fisher-Yates shuffle), reassign among $K$ active clusters:
+
+$$P(z_i = k \mid z_{-i}, K, \text{data}) \;\propto\; (n_{-i,k} + \gamma) \;\times\; p_{\text{pred}}(d_i \mid D_k^{-i})$$
+
+The $(n_{-i,k} + \gamma)$ factor is the **Dirichlet-Multinomial allocation weight**, implementing the partition prior within the Gibbs conditional. Without it, the implicit prior is uniform-per-label, which strongly favors higher $K$ (combinatorial explosion).
+
+The **predictive** is:
 
 $$\log p_{\text{pred}}(d_i \mid D_k^{-i}) = \log\text{ML}_{\text{locmix}}(D_k^{-i} \cup \{d_i\}) - \log\text{ML}_{\text{locmix}}(D_k^{-i})$$
 
-For an **empty cluster**: $p_{\text{pred}}(d_i) = \pi_{\text{locmix}}(d_i)$ (the prior density at $d_i$).
-
-**Sole occupant protection:** If $n_k = 1$ and $z_i = k$, skip $i$ to maintain $K$ during the sweep. Only split/merge changes $K$.
-
-**No count weights.** Under the decoupled model (no partition prior), the conditional depends only on the spatial predictive. No CRP $(n_{k,-i} + \gamma)$ factor appears.
-
-**Cost:** $O(N \cdot K)$ per sweep (each predictive is $O(1)$ with grid locmix).
+**Sole occupant protection:** If $n_k = 1$ and $z_i = k$, skip to maintain $K$.
 
 **Code:** `gibbs_allocation_sweep!` in `src/collapsed_moves.jl`.
 
-### 7.2 Split/Merge (Direct K Sampling + Spatial MH)
+### 7.2 RJMCMC Split/Merge ($|\Delta K| = 1$)
 
-A three-phase trans-dimensional move.
+#### Phase 1: Random split/merge selection
 
-#### Phase 1: Propose $K'$ from count-model posterior
+$$b_K = P(\text{split at } K), \quad d_K = 1 - b_K$$
 
-$$\pi_{\text{count}}(K) \;\propto\; P(N \mid K, \alpha, \mu) = \text{NegBin}(N;\; K\alpha,\; p)$$
+Boundary handling: $K = 1 \Rightarrow b_K = 1$; $K \geq N \Rightarrow d_K = 1$; otherwise $b_K = d_K = 0.5$.
 
-Evaluate for $K = 1, \ldots, K_{\max}$ where $K_{\max} = \max(2K, \min(N, 30))$. Sample $K'$ from this discrete distribution. If $K' = K$: no-op.
+#### Phase 2: Execute split or merge
 
-**No Poisson prior on $K$.** The NegBin likelihood alone regularizes $K$.
+**Split ($K \to K+1$):**
 
-**Code:** `_log_count_posterior(K, N, shape, μ)` in `src/collapsed_moves.jl`.
+1. Select parent cluster uniformly: $1/K$
+2. Random seed selection: pick two members (probability $1/(m(m-1))$, cancels in MH)
+3. Canonical ordering of remaining members (sorted by loc index)
+4. Sequential predictive allocation (launch):
 
-#### Phase 2: Heuristic restructuring + Gibbs relaxation
+$$\log w_A = \log(n_A + \gamma) + \log p_{\text{pred}}(d_j \mid \text{sub-A})$$
+$$\log w_B = \log(n_B + \gamma) + \log p_{\text{pred}}(d_j \mid \text{sub-B})$$
 
-**Split** ($K' > K$): Repeat $K' - K$ times: find the largest active cluster, move $\sim$half its locs (random coin-flip per loc) to a new cluster.
+5. **Restricted Gibbs scans (Jain-Neal):** `n_restricted_scans - 1` intermediate sweeps (no density tracking) + 1 final sweep (density tracked). Only the final sweep's density enters the MH ratio. Default `n_restricted_scans = 5`.
 
-**Merge** ($K' < K$): Repeat $K - K'$ times: find the smallest active cluster, merge into its nearest neighbor by posterior mean distance.
+**Merge ($K \to K-1$):**
 
-**Relaxation:** Run 5 Gibbs allocation sweeps at the new $K'$. This lets localizations migrate to spatially preferred clusters before the MH evaluation. Without relaxation, even correct splits are rejected because the random allocation has poor spatial likelihood.
+1. Select pair uniformly: $1/\binom{K}{2}$
+2. Random seed selection (matching bijection)
+3. Compute reverse allocation density via Jain-Neal: launch $\to$ intermediate sweeps $\to$ transition density from intermediate to current allocation
 
-**Code:** `_add_clusters!`, `_remove_clusters!` in `src/collapsed_moves.jl`.
+#### Phase 3: MH acceptance
 
-#### Phase 3: Spatial MH acceptance
+$$\log \alpha = \Delta_{\text{spatial}} + \Delta_{\text{partition}} + \Delta_{\text{proposal}} + \Delta_{\text{count}} + \Delta_{\text{move\_type}}$$
 
-$$\Delta_{\text{fit}} = \sum_k \log\text{ML}_{\text{locmix},k}^{\text{new}} - \sum_k \log\text{ML}_{\text{locmix},k}^{\text{old}}$$
+where:
+- $\Delta_{\text{spatial}} = \sum_k \log\text{ML}_k^{\text{new}} - \sum_k \log\text{ML}_k^{\text{old}}$
+- $\Delta_{\text{partition}} = \log P_{\text{DM}}(z' \mid K') - \log P_{\text{DM}}(z \mid K)$
+- $\Delta_{\text{proposal}} = \log q_{\text{rev}} - \log q_{\text{fwd}}$
+- $\Delta_{\text{count}} = \log P(N \mid K') - \log P(N \mid K)$ (uses fixed $\mu_0$, not adaptive)
+- $\Delta_{\text{move\_type}} = \log(d_{K'}/b_K)$ for splits
 
-Accept if $\Delta_{\text{fit}} \geq 0$ or $u < \exp(\Delta_{\text{fit}})$. On rejection, full rollback from saved state.
+**Fixed $\mu$ in count ratio:** The count-model ratio uses the initial $\mu$ (prior mean), not the adapted value, to prevent the $\mu$-$K$ positive feedback loop.
 
-**No area correction** needed under the locmix prior (no $-\log|R|$ terms to cancel). The count model is already incorporated in the $K'$ proposal; the MH step corrects only for spatial fit.
-
-**Properties of $\Delta_{\text{fit}}$:**
-
-| Regime | $\Delta_{\text{fit}}$ | What decides $K$ |
-|--------|----------------------|------------------|
-| Co-located ($d=0$) | $\approx 0$ | Count model only ($\equiv$ Q-PAINT) |
-| Separated ($d \gg \sigma$) | $> 0$ for correct splits | Spatial info adds to counts |
+**Seed selection cancellation:** The seed density $1/(m(m-1))$ appears in both split and merge via the RJMCMC bijection and cancels. It must NOT be included explicitly.
 
 **Code:** `propose_split_merge!` in `src/collapsed_moves.jl`.
 
-### 7.3 Move distribution
+### 7.3 Birth/Death Moves ($K \pm 1$, incremental)
 
-| Move | Probability | Type | $K$ change |
-|------|-------------|------|-----------|
-| Gibbs allocation sweep | 50% | Exact (K fixed) | No |
-| Split/merge (K proposal) | 50% | Count proposal + spatial MH | Yes |
+Birth/death provides cheaper K-transitions than split/merge. The DM penalty per birth is $\approx -1.2$ (vs $-2.5$ to $-5$ per split).
 
-### 7.4 Hierarchical Updates (mu and shape)
+**Birth ($K \to K+1$):**
+1. Pick random non-sole-occupant loc: $1/N_{\text{eligible}}$
+2. Detach as singleton cluster
+
+**Death ($K \to K-1$):**
+1. Pick random singleton: $1/n_{\text{singletons}}$
+2. Absorb into destination via DM-weighted predictive: $w(k) = (n_k + \gamma) \times \text{pred}(i \mid k)$
+
+**Proposal densities:**
+
+$$q_{\text{birth}} = p_{\text{birth}} \times \frac{1}{N_{\text{eligible}}}$$
+
+$$q_{\text{death}} = p_{\text{death}} \times \frac{1}{n_{\text{singletons}}} \times \frac{w(\text{dest})}{\sum_k w(k)}$$
+
+**MH acceptance:**
+
+$$\log \alpha = \Delta_{\text{spatial}} + \Delta_{\text{partition}} + \Delta_{\text{proposal}} + \Delta_{\text{count}}$$
+
+**Code:** `propose_birth_death!` in `src/collapsed_moves.jl`.
+
+### 7.4 Hierarchical Updates ($\mu$ and $\alpha$)
 
 Metropolis-Hastings with log-normal proposals, run every `hierarchical_interval` iterations (default 100).
 
-**mu update:**
+**$\mu$ update:**
 
 $$\mu' = \mu \cdot e^{\varepsilon}, \quad \varepsilon \sim \mathcal{N}(0, 0.3^2)$$
 
-$$\log\alpha_{\text{MH}} = \underbrace{\sum_k \log\text{NegBin}(n_k;\alpha,p') - \sum_k \log\text{NegBin}(n_k;\alpha,p)}_{\text{likelihood ratio}} + \underbrace{\log\text{Gamma}(\mu'; a_\mu, b_\mu) - \log\text{Gamma}(\mu; a_\mu, b_\mu)}_{\text{prior ratio}} + \underbrace{\log\mu' - \log\mu}_{\text{Jacobian}}$$
+$$\log\alpha_{\text{MH}} = \sum_k [\log\text{NegBin}(n_k;\alpha,p') - \log\text{NegBin}(n_k;\alpha,p)] + [\log P(\mu') - \log P(\mu)] + [\log\mu' - \log\mu]$$
 
-where $p = \alpha/(\alpha+\mu)$, $p' = \alpha/(\alpha+\mu')$. Bounds: $\mu \in [1, 500]$.
-
-**shape update:** Same structure, evaluating NegBin under $\alpha' = \text{shape}'$. Bounds: $\alpha \in [0.5, 50]$.
-
-**Hyperpriors (defaults):** $\mu \sim \text{Gamma}(2, 5)$, $\alpha \sim \text{Gamma}(2, 1)$.
-
-**learn_distribution options:** `true` (learn both), `false` (fix both), `:mu` (learn $\mu$ only), `:shape` (learn $\alpha$ only).
+**Hyperpriors:** $\mu \sim \text{Gamma}(2, 5)$, $\alpha \sim \text{Gamma}(2, 1)$.
+**Bounds:** $\mu \in [1, 500]$, $\alpha \in [0.5, 50]$.
 
 **Code:** `_update_mu_collapsed`, `_update_shape_collapsed` in `src/hierarchical.jl`.
 
@@ -282,13 +287,7 @@ where $p = \alpha/(\alpha+\mu)$, $p' = \alpha/(\alpha+\mu')$. Bounds: $\mu \in [
 
 ## 8. MAP-N Estimation
 
-### 8.1 Mode selection
-
-Build histogram of $K$ across post-burn-in samples. $\text{MAP-N} = \arg\max$ of histogram, with 3-bin smoothing to break near-ties.
-
-### 8.2 Dahl consensus (preferred default)
-
-Find the stored assignment sample closest to the posterior similarity matrix:
+### 8.1 Dahl consensus (preferred default)
 
 $$z_{\text{Dahl}} = \arg\min_t \sum_{i<j}\left(\mathbf{1}[z_i^t = z_j^t] - \text{PSM}_{ij}\right)^2$$
 
@@ -296,7 +295,7 @@ where $\text{PSM}_{ij} = \frac{1}{T}\sum_t \mathbf{1}[z_i^t = z_j^t]$.
 
 **Code:** `estimate_dahl(samples, locs, psm)` in `src/mapn.jl`.
 
-### 8.3 Overlap-Hungarian matching
+### 8.2 Overlap-Hungarian matching
 
 Uses Dahl assignments as template, then refines via overlap-based Hungarian:
 
@@ -310,11 +309,11 @@ $$\Sigma_{\text{total}} = \underbrace{E[\text{Var}(\theta \mid z)]}_{\text{analy
 
 **Code:** `estimate_mapn_overlap(samples, locs, dahl_assignments)` in `src/mapn.jl`.
 
-### 8.4 Other methods
+### 8.3 Other methods
 
 | Method | Function | Notes |
 |--------|----------|-------|
-| Collapsed (histogram + Hungarian) | `estimate_mapn_collapsed` | Mode of $K$ histogram + iterative position matching |
+| Collapsed (histogram + Hungarian) | `estimate_mapn_collapsed` | Mode of $K$ histogram + iterative matching |
 | PSM thresholding | `estimate_mapn_psm` | Union-Find on PSM $\geq 0.5$ |
 | VI greedy | `estimate_vi_greedy` | Minimize expected variation of information |
 | Final-state only | `extract_emitters` | Single sample, fallback only |
@@ -329,106 +328,74 @@ Two localizations are neighbors if:
 
 $$\frac{\|d_i - d_j\|}{\sigma_i + \sigma_j} < \text{partition\_sigma}$$
 
-Default `partition_sigma = 3.0`. Clusters below `min_size` are dropped as noise; clusters above `max_size` are sub-split.
+Default `partition_sigma = 3.0`.
 
 **Code:** `partition_locs` in `src/partition.jl`.
 
 ### 9.2 Parallel chain execution
 
-Each partition runs an independent collapsed Gibbs chain (via `Threads.@threads`). Hierarchical parameters $\mu$ and $\alpha$ are shared and updated at `sync_interval` (default 500) iterations: pool per-cluster counts across all partition states, run a single global MH step, broadcast accepted values.
-
-**Code:** `_update_mu_collapsed_global!`, `_update_shape_collapsed_global!` in `src/hierarchical.jl`.
+Each partition runs an independent collapsed Gibbs chain (via `Threads.@threads`). Hierarchical parameters $\mu$ and $\alpha$ are shared and updated at `sync_interval` (default 500) iterations.
 
 ### 9.3 Boundary deduplication
 
-After independent processing, emitters near partition boundaries are deduplicated via Hungarian matching based on position proximity. Boundary localizations are flagged using a margin of `partition_sigma * median(σ)`.
+After independent processing, emitters near partition boundaries are deduplicated via Hungarian matching.
 
 **Code:** `src/partitioned.jl`.
 
 ---
 
-## 10. Known Approximations
+## 10. Known Limitations
 
-### 10.1 Grid-based locmix (saddle-point vs exact integral)
+### 10.1 K-mixing at large N (Round 11)
 
-The grid approximation evaluates $\pi_{\text{locmix}}(\hat{\theta}_k)$ instead of $E_{\text{post}}[\pi(\theta)]$. The error is largest for close pairs ($d \sim \sigma$) where the merged cluster's posterior straddles two locmix peaks and $\hat{\theta}_k$ sits in a saddle between them, systematically underestimating the merged ML relative to the split ML.
+**The collapsed sampler has a fundamental K-mixing limitation at large $N$.** The joint posterior $P(z, K \mid \text{data})$ has its mode at lower $K$ than the marginal $P(K \mid \text{data})$, because the DM prior assigns very low probability to each specific allocation at high $K$, but there are exponentially many allocations.
 
-For well-separated ($d \gg \sigma$) or truly co-located ($d = 0$) emitters, the approximation is accurate. The exact $O(N)$ version (`log_ml_locmix`) does not suffer from this but is too expensive for the Gibbs hot path.
+Thermodynamic integration (Round 11) confirmed the marginal $P(K)$ peaks near Q-PAINT's MAP $K$ (e.g., $K \approx 7\text{--}10$ for $N=40$ octamers). But the sampler converges to $K \approx 3\text{--}6$ from both high and low initial $K$ --- a severe mixing failure.
 
-### 10.2 Heuristic split/merge (asymmetric proposals)
+**Root cause:** Each K-increasing move (birth, split) faces the per-allocation DM + Occam penalty. Even though the marginal favors high $K$, the chain's transition moves see the per-allocation landscape (which favors low $K$). The mixing time scales exponentially with $N$.
 
-The split/merge is a heuristic: random half-split of the largest cluster (split) or nearest-neighbor merge of the smallest cluster (merge). The 5-sweep Gibbs relaxation mitigates poor initial allocations but does not yield a well-defined proposal density. The MH correction accounts for the spatial fit change but not the proposal asymmetry. This is an **approximate** detailed-balance move.
+**Why Fazel's approach doesn't suffer:** The original Fazel et al. RJMCMC does NOT collapse positions. The chain state includes explicit emitter positions $\theta_k$. At good positions, the joint $P(\theta, z, K)$ has high probability at the correct $K$, so the chain can stay there. Collapsing creates the Occam factor that penalizes individual high-$K$ allocations.
 
-**Consequence:** On the `smc-split` branch (which uses a proper SMC proposal with MFM partition prior), brute-force enumeration (N=6--8) showed the sampler systematically under-visits $K \geq 2$ partitions by 1.3--25$\times$. Root cause: restricted proposal support from deterministic seeding, not incorrect acceptance arithmetic (spot-checked to machine precision). The current heuristic approach trades formal DB guarantees for unrestricted $K$-reachability and practical mixing.
+**Brute-force validation:** At $N = 6$, the mixing barriers are small enough for BD burst to overcome --- 4/4 brute-force PASS. The target distribution is correct at all $N$; only the mixing degrades.
 
-### 10.3 No partition prior (oversplitting risk at $d=0$)
+### 10.2 Grid-based locmix (saddle-point vs exact)
 
-Without the DM partition prior $P_{\text{partition}}(z \mid K)$, all allocations with the same $K$ are equally likely. This removes the combinatorial penalty for splitting (which stabilizes $K$ at the cost of under-counting --- see Section 11). The resulting target is purely driven by the count model at $d=0$ and by spatial evidence at $d > 0$.
+The grid approximation replaces $E_{\text{post}}[\pi(\theta)]$ with $\pi(\hat{\theta})$. Round 11 measured the error at $<0.02$ per cluster for octamers at NN$= 1.9\sigma$. **Not a significant source of bias.**
 
-**Risk:** The Stirling number $S(N,K)$ of labeled allocations grows explosively with $K$. Without a partition prior to offset this, the flat allocation prior may admit more total posterior mass at higher $K$ than the data supports. The count model $P(N \mid K)$ must provide sufficient regularization.
+### 10.3 Hierarchical learner feedback
 
-### 10.4 Current mu in K proposal
-
-The current branch uses the adaptive $\mu$ (not a fixed $\mu_0$) in the count-model $K$ proposal. Earlier branches used fixed $\mu_0 = \mu_{\text{prior\_shape}} \times \mu_{\text{prior\_scale}}$ to prevent a positive feedback loop ($K\!\uparrow \to \mu\!\downarrow \to \lambda_K\!\uparrow \to K\!\uparrow\!\uparrow$). The current branch accepts this coupling; monitor for runaway $K$ in practice.
+When the sampler under-splits ($K$ too low), each cluster has more locs $\to$ the hierarchical learner infers higher $\mu$ and $\alpha$ $\to$ the count model shifts toward lower $K$ $\to$ reinforcing under-splitting. This is a secondary effect caused by the K-mixing failure.
 
 ---
 
-## 11. Algorithm Variant History
+## 11. Constants and Magic Numbers
 
-| Branch | Variant | Key feature | DB? | Mixing | Outcome |
-|--------|---------|-------------|-----|--------|---------|
-| `rjmcmc` | Full RJMCMC | Explicit positions, birth/death | Exact | Slow | Replaced by collapsed |
-| `collapsed-gibbs` | Collapsed + uniform | Analytical position integration | $\approx$ | OK | Area sensitivity ($-\log\|R\|$) |
-| `loc-mixture-prior` | + locmix prior | $O(N^2 K)$, no area penalty | $\approx$ | OK | Split-neutral at $d=0$, slow |
-| `neighbor-locmix` | + KD-tree accel | $O(N \cdot K \cdot |A|)$ filtered | $\approx$ | OK | Performance viable |
-| `overlap-mapn` | + better MAP-N | Dahl, overlap-Hungarian | $\approx$ | OK | Better position estimates |
-| `smc-split` | + MFM + SMC proposal | Partition prior, proper DB | Exact | Restricted | Reachability problem (Section 10.2) |
-| **`locmix-grid`** | **+ grid prior** | **$O(1)$ per cluster** | $\approx$ | **OK** | **Current branch** |
-| (PPM variants) | Cancel Occam penalty | $|\Lambda|^{1/2}$ coupling | --- | --- | Runaway splitting |
-| (relaxation) | + Gibbs relaxation | Jain-Neal restricted sweeps | Design only | --- | Not implemented |
-
-**Key tradeoff** across branches: the `smc-split` branch had correct DB but restricted reachability (biased $K$ by 1.3--25$\times$ in brute-force tests). The `locmix-grid` branch uses a heuristic proposal with unrestricted reachability and approximate DB. Empirically, the heuristic approach matches or exceeds Q-PAINT performance at all separations.
+| Value | Where | What | Justification |
+|-------|-------|------|---------------|
+| 50/25/25 | `collapsed_sampler.jl` | Gibbs/SM/BD ratio | BD adds cheap K-mobility |
+| 5 | `collapsed_sampler.jl` | `n_bd_substeps` | 4/4 brute-force PASS at $N=6$ |
+| 50/50 | `collapsed_moves.jl` | Split/merge coin flip | Equal K$\pm$1; boundary-aware |
+| $\gamma = \alpha$ | `collapsed_moves.jl` | DM concentration | Derived from NegBin count model |
+| 5 | `collapsed_moves.jl` | `n_restricted_scans` | 4 intermediate + 1 final Jain-Neal sweep |
+| 0.3 | `hierarchical.jl` | Log-normal proposal $\sigma$ | ~25--35% acceptance |
+| [1, 500] | `hierarchical.jl` | $\mu$ bounds | Physical |
+| [0.5, 50] | `hierarchical.jl` | $\alpha$ bounds | Physical |
 
 ---
 
 ## 12. Open Questions
 
-1. **Should we include the DM partition prior?** The MFM partition prior $P_{\text{partition}}(z \mid K)$ with $\gamma = \alpha$ is the natural companion to the NegBin count model ($P_{\text{count}} \times P_{\text{partition}} = P(z \mid K)$ exactly; see `dev/math_refs/factorization_check.md`). But on `smc-split` it caused under-counting at $d=0$ due to proposal reachability issues.
+1. **How to improve K-mixing at large $N$?** The fundamental limitation is that the collapsed posterior's joint mode differs from the marginal mode. Possible approaches: (a) un-collapse for K-transitions (return to explicit positions for birth/death), (b) parallel tempering across $K$, (c) SMC-based K proposals, (d) hybrid collapsed/uncollapsed moves.
 
-2. **How to fix split/merge for exact DB without restricting reachability?** The Jain-Neal restricted Gibbs relaxation (sweeps within the split proposal) is the standard fix but has not been implemented. It would let the two seeded sub-clusters exchange members, making all partitions reachable.
+2. **Should we un-collapse entirely?** Fazel's uncollapsed RJMCMC doesn't have the K-mixing problem because the chain visits $(\theta, z, K)$ states where good positions make high-$K$ states attractive. The cost: slower within-K mixing (must sample positions).
 
-3. **Can we get better $K$ proposals than count-model-only?** The current proposal ignores spatial structure when proposing $K'$. A proposal informed by spatial clustering (e.g., using nearest-neighbor distances) could improve acceptance rates.
-
-4. **Grid approximation error at $d \sim \sigma$.** The saddle-point error (Section 10.1) is theoretically the worst in the close-pair regime, but empirically $\Delta_{\text{spatial}}$ is not the dominant blocker. Quantifying the error magnitude and its effect on MAP-N accuracy requires systematic comparison with the exact $O(N)$ version.
-
-5. **Fixed vs adaptive $\mu$ in K proposal.** The current branch uses adaptive $\mu$. The feedback loop risk needs monitoring, especially for large partitions with many clusters.
+3. **Octamer marginal beyond $K=10$.** TI showed P($K$) increasing through $K=10$ for the octamer at NN$=1.9\sigma$. Does it peak at $K=10$ or continue? Need TI at higher $K$ or SMC estimate.
 
 ---
 
-## 13. Diagnostics Module
+## 13. References
 
-The `src/diagnostics/` module provides algorithm-agnostic tools for validating sampler correctness:
-
-| File | Purpose |
-|------|---------|
-| `target.jl` | `AbstractTargetDensity` hierarchy: `DecoupledTarget`, `MFMTarget`, `UniformPriorTarget` |
-| `count_model.jl` | Count-model utilities, Q-PAINT MAP-K oracle |
-| `partition_metrics.jl` | Variation of information (Meila 2007), expected posterior loss (EPL) |
-| `enumeration.jl` | Brute-force enumeration of all labeled partitions for small $N$ |
-| `detailed_balance.jl` | Spot-check detailed balance on state pairs |
-| `chain_diagnostics.jl` | ESS, $\hat{R}$, autocorrelation |
-
-**Target density abstraction:** Different algorithm variants target different posteriors. The `AbstractTargetDensity` interface lets diagnostic tools work with any variant by parameterizing `log_target(td, z, loc_precs, grid, μ, shape)`.
-
-**Brute-force validation:** For small $N$ (6--8), `enumerate_partitions` computes the exact posterior over all labeled partitions and compares to MCMC visit frequencies. This is the gold standard for detecting DB violations.
-
-**VI decomposition:** `variation_of_information(z_1, z_2)` returns `(vi_total, overseg, underseg)` where `overseg = H(z_1 \mid z_2)` measures splits of true clusters and `underseg = H(z_2 \mid z_1)` measures merges.
-
----
-
-## 14. References
-
-1. Fazel, M., Greer, M.D., Hsu, H. *et al.* High-Precision Estimation of Emitter Positions using Bayesian Grouping of Localizations. *Nature Communications* **13**, 7152 (2022). [doi:10.1038/s41467-022-34894-2](https://doi.org/10.1038/s41467-022-34894-2)
+1. Fazel, M., Greer, M.D., Hsu, H. *et al.* High-Precision Estimation of Emitter Positions using Bayesian Grouping of Localizations. *Nature Communications* **13**, 7152 (2022).
 
 2. Miller, J.W. & Harrison, M.T. Mixture Models with a Prior on the Number of Components. *JASA* **113**(521):340--356 (2018).
 

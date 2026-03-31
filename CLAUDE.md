@@ -204,7 +204,8 @@ Multi-session research framework for improving the collapsed Gibbs sampler. Adap
 
 - `dev/STATUS.md` — Current research state. Read at start of session, update at end.
 - `dev/KNOWLEDGE_BASE.md` — Dead ends and working techniques. Check before proposing new approaches.
-- `dev/sampler_reference.md` — Authoritative mathematical reference for the sampler.
+- `docs/math_reference.md` — Authoritative mathematical reference for the sampler. Must be updated each research round.
+- `dev/sampler_reference.md` — Compact sampler reference kept in sync with docs/math_reference.md.
 
 ### Session Protocol
 
