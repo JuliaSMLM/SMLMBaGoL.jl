@@ -326,6 +326,31 @@ For merge reverse density: same launch mechanism, then intermediate sweeps, then
 
 ---
 
+### 18. DM/Polya Partition Prior: Correct Target, Wrong Dynamics (Round 9 analysis)
+
+**What was found:** The DM partition prior with γ=shape is provably the correct prior on assignment vectors z given the NegBin count model conditioned on N (see `docs/dm-polya-proof.md`). However, it creates systematic downward K pressure through ALL move types:
+
+- Gibbs: (n_k+γ) rich-get-richer destabilizes balanced partitions
+- Birth: Δ_DM ≈ -4 (opposed). Death: Δ_DM ≈ +4 (favored)
+- Split: Δ_DM ≈ -6 (opposed). Merge: Δ_DM ≈ +6 (favored)
+- Polya density favors UNBALANCED sizes (log Γ is convex)
+
+**Key evidence:** Fixed N=40, 8 emitters at NN=1.9σ, nohier:
+- Q-PAINT: K=8 100%. BaGoL from oracle K=8: drops to K≈6 (0% recovery)
+- Fixed-K=8 Gibbs drives sizes from [5,5,5,5,5,5,5,5] to [9,7,7,6,4,3,2,2]
+- 80-95% of locs misassigned. Small clusters become death targets.
+- Chain CONVERGES to K≈6 in 500K iter — not mixing failure, the posterior genuinely peaks at K≈6
+
+**Why it's not a mixing problem:** More iterations (10K→100K) don't help. Oracle init drops to same K≈6. The target distribution under DM+locmix+NegBin genuinely favors K≈6 for octamers at NN=1.9σ.
+
+**Why BaGoL < Q-PAINT:** Q-PAINT marginalizes over all z, automatically summing the astronomical multinomial multiplicity of balanced K=8 partitions. BaGoL's Gibbs sweep visits individual z vectors, where unbalanced K=8 has higher per-vector density but MUCH less multiplicity. The sampler can't explore the balanced K=8 configurations that dominate the marginal because the Gibbs immediately destabilizes them.
+
+**Proposed fix (Codex):** Time-scale separation. Protect fresh splits/births from immediate Gibbs erosion and death. Allow stabilization before ordinary moves act.
+
+**What was learned:** The DM is NOT a tuning knob — γ=shape is derived from the NegBin. But the Gibbs dynamics implementing the DM conditional have terrible mixing at intermediate separations. The fix is in the DYNAMICS (move scheduling), not the TARGET.
+
+---
+
 ## Theoretical Limits
 
 ### Co-Located MAP-N Accuracy

@@ -1,10 +1,23 @@
 # Sampler Research Status
 
-## Current State (2026-03-30, Round 9)
+## Current State (2026-03-30, post-Round 9)
 
-Round 9 added BD burst — multiple sequential birth/death substeps per BD selection (n_bd_substeps=5). This directly increases K-transition throughput by 5× at ~2× cost per outer iteration. Each substep is independent MH, so the target distribution is unchanged.
+Round 9 achieved 4/4 brute-force PASS via BD burst (n_bd_substeps=5). However, subsequent optimality sweep and oracle-init testing revealed a fundamental issue: **the DM/Polya partition prior creates systematic downward K pressure** that makes BaGoL worse than Q-PAINT for octamers at intermediate separations (NN≈2σ).
 
-**Result: 4/4 brute-force PASS (was 3/4).** Single emitter flipped from FAIL to PASS. KL improved 1.2-2× across all tests. ESS improved 30-93%.
+**Brute-force: 4/4 PASS.** Small-N sampler is correct.
+**Optimality: FAILING.** Octamers at d/σ=5 — Q-PAINT 100%, BaGoL 0% (from oracle K=8, chain drops to K≈6).
+
+### Root Cause: DM/Polya Dynamics
+
+The DM partition prior (γ=shape) is mathematically correct (proven derivation from NegBin count model). But it creates compounding K-reducing forces:
+- Gibbs: (n_k+γ) rich-get-richer destabilizes balanced partitions at NN≈2σ
+- Every birth: Δ_DM ≈ -4 (opposed). Every death: Δ_DM ≈ +4 (favored)
+- Every split: Δ_DM ≈ -6 (opposed). Every merge: Δ_DM ≈ +6 (favored)
+- log Γ convexity means Polya density favors UNBALANCED sizes
+
+At K=8 with NN=1.9σ: Gibbs creates sizes [9,7,7,6,4,3,2,2] from balanced [5,5,5,5,5,5,5,5]. Small clusters become death targets. Chain drops to K≈6. This is NOT mixing failure — chain converges to K≈6 from both K=1 and oracle K=8 in 500K iterations.
+
+See `docs/dm-polya-proof.md` for full derivation and evidence.
 
 ### Brute-Force Results (Round 9)
 
@@ -111,18 +124,20 @@ All 4 brute-force tests now PASS. The residual under-visiting (1.2-1.4× for wor
 
 ## Active Research Threads
 
-### Thread 1: Improve K-Mixing — RESOLVED (Brute-Force)
+### Thread 1: DM/Polya Dynamics — OPEN (Critical)
 
-**Status:** Round 9 added BD burst (n_bd_substeps=5). **4/4 brute-force PASS.** Single emitter FAIL→PASS (max ratio 1.97×→1.40×). ESS improved 16-179% across all tests.
+**Status:** Root cause identified. The DM partition prior creates systematic downward K pressure through all move types. The sampler correctly targets the DM posterior, but that posterior under-estimates K for octamers at NN≈2σ. Oracle init confirms: chain drops from K=8 to K≈6 in 500K iterations.
 
-**Analysis:** For co-located emitters (single emitter case), no proposal weighting improves acceptance — all births have identical acceptance probability (~5%). The only lever is more K-changing attempts. BD burst provides 5× more attempts per BD selection, sufficient to overcome the DM energy barrier.
+**Key insight (Codex):** The problem is time-scale mismatch. After a birth/split creates new small clusters, the Gibbs sweep immediately destabilizes them (rich-get-richer), and the next death absorbs them. Fresh splits never get a chance to stabilize.
 
-**Remaining:** Practical recall (smlmsim, 59%) is limited by split/merge dynamics in large partitions, not birth/death. Improving this requires better split/merge proposals.
+**Next: Round 10 — Time-Scale Separation**
 
-**Next steps (for practical performance):**
-1. **Multiple-try MH** for split/merge — propose M=5-10 independent split allocations, select best.
-2. **Targeted birth** — bias birth toward locs with low within-cluster fit. Helps large partitions but not co-located case.
-3. **Count-informed ±1 proposal** for split/merge direction.
+Architecture:
+1. **Global dimension-changing moves** create/destroy emitters (birth/death, split/merge)
+2. **Protected local reallocation** lets proposed splits stabilize before exposure to death
+3. **Only after stabilization** do ordinary Gibbs and death/merge act freely
+
+Do NOT remove birth/death — they're needed for K-mobility. Quarantine them from interleaving with fragile fresh splits.
 
 ### Thread 2: Hierarchical Learner Feedback
 
@@ -146,11 +161,13 @@ All 4 brute-force tests now PASS. The residual under-visiting (1.2-1.4× for wor
 | 7 | 2026-03-30 | |ΔK|=1 proposals | Replaced count-model K sampling with random ±1 split/merge. Split acceptance doubled (2.7%→6.7%), close dimer improved (2.18x→2.01x). Fundamental DM barrier persists. |
 | 8 | 2026-03-30 | Birth/death moves | Added B/D as third move type (50/25/25 mix). **3/4 brute-force PASS** (was 1/4). Close dimer FAIL→PASS, KL improved 2-15× across all tests. Birth acc. 5-20%, death 100%. Practical benchmarks unchanged (~59% recall on dense 6-mers). |
 | 9 | 2026-03-30 | BD burst | BD burst (n_bd_substeps=5): 5 sequential BD per selection. **4/4 brute-force PASS** (was 3/4). Single emitter FAIL→PASS (1.97×→1.40×). ESS +16-179%. Practical recall unchanged (59%). |
+| 9+ | 2026-03-30 | DM/Polya analysis | Optimality sweep + oracle init revealed DM creates systematic ↓K pressure. BaGoL worse than Q-PAINT for octamers at NN≈2σ. Root cause: Gibbs destabilizes balanced partitions, compounds with death/merge bias. Fix: time-scale separation. |
 
 ## Future Priorities
 
-1. **HIGH:** Multiple-try MH for split/merge — directly improves split acceptance in large partitions (practical recall bottleneck)
-2. **MEDIUM:** Targeted birth (bias toward locs with low within-cluster fit) — helps large partitions
-3. **MEDIUM:** Count-informed ±1 proposal for split/merge direction
-4. **LOW:** Parallel tempering or non-reversible lifting
-5. **COMPLETED:** Brute-force 4/4 PASS — all small-N K-mixing issues resolved
+1. **CRITICAL — Round 10:** Time-scale separation — protect fresh splits/births from immediate Gibbs/death erosion
+2. **HIGH:** Re-run optimality sweep after Round 10 to measure octamer improvement
+3. **MEDIUM:** MH-corrected predictive-only Gibbs (propose ∝ predictive, accept with DM ratio) — alternative to time-scale separation
+4. **MEDIUM:** Decoupled target (uniform P(z|K), per-emitter NegBin in MH only) — requires re-validation
+5. **COMPLETED:** Brute-force 4/4 PASS — small-N sampler is correct
+6. **DOCUMENTED:** DM/Polya root cause — see docs/dm-polya-proof.md
