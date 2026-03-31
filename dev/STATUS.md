@@ -162,6 +162,7 @@ All 4 brute-force tests now PASS. The residual under-visiting (1.2-1.4× for wor
 | `brute_force_enumeration.jl` | Exact posterior comparison | WORKING, **4/4 PASS** |
 | `prior_sensitivity.jl` | Exact P(K) under different priors | Working (Round 6) |
 | `mh_component_analysis.jl` | MH ratio component distributions | Working (Round 5) |
+| `move_barrier_analysis.jl` | Per-move Δ decomposition at N=40 | WORKING, TARGET-DOMINATED |
 | `detailed_balance_check.jl` | DB for specific state pairs | STALE |
 | `smlmsim_highdensity.jl` | Synthetic with ground truth | Re-run Round 9: Recall=0.592, RMSE=4.8nm |
 | `genmab_bagol.jl` | Real antibody data | Re-run Round 8: 2104 emitters, μ=8.44 |
@@ -173,7 +174,10 @@ All 4 brute-force tests now PASS. The residual under-visiting (1.2-1.4× for wor
 
 **Status:** Round 12 proved that DM proposal dynamics are NOT the bottleneck. Predictive-only proposals (remove all DM from proposals, MH-correct) give identical mixing at N=40: birth acceptance 0.12% in both cases, K stuck at 1.
 
-**Key insight (Round 12):** The N=40 co-located K=1 trap is a TARGET LANDSCAPE problem under Poisson K prior + flat spatial, not a proposal problem. The DM-weighted vs predictive-only proposals make no difference because the energy barrier for K=1→K=2 is dominated by Δ_partition + Δ_count + Δ_K_prior, not by proposal dynamics.
+**Key insight (Round 12):** DM-weighted vs predictive-only proposals give identical N=40 behavior. This rules out DM proposal weighting as the bottleneck. Two open hypotheses remain:
+  (a) The Poisson+flat target itself prefers low K (target problem)
+  (b) The marginal target still prefers high K but local K±1 moves cannot transport there (transport problem)
+TI on the new target + per-move Δ component logging will separate these.
 
 **Evidence (Round 12):**
 - Brute-force 4/4 PASS (both DM-weighted and predictive-only)
@@ -182,13 +186,11 @@ All 4 brute-force tests now PASS. The residual under-visiting (1.2-1.4× for wor
 - Close dimer improved slightly (1.30x → 1.27x) — small-N benefit only
 - SM-only PASS: 1.45x (baseline) vs 1.47x (pred-only) — equivalent
 
-**Root cause (refined):** The Poisson K prior + flat spatial creates a deep well at K=1 for co-located data. The per-cluster spatial penalty -log(A) combined with the Poisson log(ρ) - log(K+1) makes K=1 strongly favored in the target when A is large and ρ is moderate. This is a different problem from the locmix era where the target was correct but the sampler couldn't reach it.
-
 **Next directions:**
-1. Investigate whether the Poisson K prior target is correct at N=40 (TI on new prior)
-2. Consider whether locmix should be restored (locmix gave recall 0.592 vs 0.475)
-3. Parallel tempering / annealed approaches remain viable
-4. Block birth may help but won't fix a target problem
+1. **Per-move Δ component logging** at N=40: decompose birth/split rejection into Δ_spatial, Δ_partition, Δ_count, Δ_K_prior, Δ_proposal. Determines whether the well is target-side or transport-side.
+2. **TI on Poisson+flat target** at N=40: compute marginal P(K|data). If it peaks at K≫1, the target is correct and the problem is transport. If it peaks near K=1, the target is wrong.
+3. Consider restoring locmix (recall 0.592 vs 0.475). Philosophical cleanliness doesn't outweigh 12pp recall loss.
+4. A different proposal family (SMC, tempering) could still help if the target is correct.
 
 ### Thread 2: Hierarchical Learner Feedback
 
