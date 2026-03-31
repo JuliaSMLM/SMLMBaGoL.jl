@@ -156,7 +156,7 @@ Conjugate Gamma update for ρ pooled across all partitions.
 
 Posterior: ρ | {K_j}, {A_j} ~ Gamma(a + ΣK_j, 1/(b + ΣA_j))
 """
-function _update_rho_collapsed_global!(states::Vector{CollapsedState},
+function _update_rho_collapsed_global!(states::AbstractVector{<:CollapsedState},
                                        areas::Vector{Float64},
                                        config::NamedTuple)
     a = config.ρ_prior_shape
@@ -172,7 +172,7 @@ end
 Global MH update for μ using pooled counts across all collapsed partition states.
 Zero-allocation: iterates directly over clusters without collecting counts.
 """
-function _update_mu_collapsed_global!(states::Vector{CollapsedState},
+function _update_mu_collapsed_global!(states::AbstractVector{<:CollapsedState},
                                       μ_current::Float64, shape::Float64,
                                       config::NamedTuple)
     # Check any active clusters exist
@@ -209,7 +209,7 @@ end
 Global MH update for shape using pooled counts across all collapsed partition states.
 Zero-allocation: iterates directly over clusters without collecting counts.
 """
-function _update_shape_collapsed_global!(states::Vector{CollapsedState},
+function _update_shape_collapsed_global!(states::AbstractVector{<:CollapsedState},
                                          μ::Float64, shape_current::Float64,
                                          config::NamedTuple)
     total_active = sum(s.n_active for s in states)

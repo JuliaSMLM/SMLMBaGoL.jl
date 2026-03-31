@@ -149,6 +149,10 @@ function _run_bagol_collapsed(
         throw(ArgumentError("allocation_model must be :dm or :decoupled"))
     am = allocation_model === :dm ? DMAllocation() : DecoupledAllocation()
 
+    spatial_model_sym = get(kwargs, :spatial_model, :locmix)::Symbol
+    spatial_model_sym in (:locmix, :flat) ||
+        throw(ArgumentError("spatial_model must be :locmix or :flat"))
+
     # Hyperprior config
     μ_prior_shape = get(kwargs, :μ_prior_shape, 2.0)
     μ_prior_scale = get(kwargs, :μ_prior_scale, 5.0)
@@ -161,7 +165,10 @@ function _run_bagol_collapsed(
                  ρ_prior_shape=ρ_prior_shape, ρ_prior_rate=ρ_prior_rate)
 
     # Initialize collapsed states and accumulators per partition
-    states = Vector{CollapsedState}(undef, n_partitions)
+    # Use concrete parametric type for the state vector
+    _sp_type = spatial_model_sym === :locmix ? LocmixSpatial : FlatSpatial
+    _am_type = allocation_model === :dm ? DMAllocation : DecoupledAllocation
+    states = Vector{CollapsedState{_sp_type, _am_type}}(undef, n_partitions)
     partition_accumulators = Vector{Vector{AbstractAccumulator}}(undef, n_partitions)
     count_hists = Vector{EmitterCountHist}(undef, n_partitions)
     partition_samples = Vector{PartitionSamples}(undef, n_partitions)
@@ -170,8 +177,12 @@ function _run_bagol_collapsed(
     @sync for i in 1:n_partitions
         Threads.@spawn begin
             p_locs = partitions[i].locs
-            spatial_prior = UniformSpatialPrior(p_locs)
-            states[i] = initialize_collapsed_state(p_locs, spatial_prior, am)
+            sp = if spatial_model_sym === :locmix
+                LocmixSpatial(p_locs)
+            else
+                FlatSpatial(log(area(UniformSpatialPrior(p_locs))))
+            end
+            states[i] = initialize_collapsed_state(p_locs, sp, am)
 
             # Per-partition accumulators
             accs = AbstractAccumulator[]
@@ -205,7 +216,7 @@ function _run_bagol_collapsed(
     ρ = ρ_prior_shape / ρ_prior_rate  # Initial ρ from prior mean
 
     # Per-partition areas (for conjugate ρ update)
-    partition_areas = [area(UniformSpatialPrior(p.locs)) for p in partitions]
+    partition_areas = [spatial_area(states[i].spatial) for i in 1:n_partitions]
 
     # Initialize archive if requested
     archive = nothing

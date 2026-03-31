@@ -148,7 +148,8 @@ function run_collapsed_chain(
     callback_interval::Int = 1,
     n_restricted_scans::Int = 5,
     n_bd_substeps::Int = 5,
-    allocation_model::Symbol = :dm
+    allocation_model::Symbol = :dm,
+    spatial_model::Symbol = :locmix
 )
     N = length(locs)
     if N == 0
@@ -166,12 +167,20 @@ function run_collapsed_chain(
     _learn_mu = learn_distribution === true || learn_distribution === :mu
     _learn_shape = learn_distribution === true || learn_distribution === :shape
 
+    # Construct spatial model
+    spatial_model in (:locmix, :flat) ||
+        throw(ArgumentError("spatial_model must be :locmix or :flat (got :$spatial_model)"))
+    sp = if spatial_model === :locmix
+        LocmixSpatial(locs)
+    else
+        FlatSpatial(log(area(UniformSpatialPrior(locs))))
+    end
+
     # Initialize from explicit assignments or default (all-in-one)
     if initial_assignments !== nothing
-        state = initialize_from_assignments(initial_assignments, locs; am=am)
+        state = initialize_from_assignments(initial_assignments, locs; sp=sp, am=am)
     else
-        spatial_prior = UniformSpatialPrior(locs)
-        state = initialize_collapsed_state(locs, spatial_prior, am)
+        state = initialize_collapsed_state(locs, sp, am)
     end
 
     μ = μ_prior_shape * μ_prior_scale  # Initial μ from prior mean
