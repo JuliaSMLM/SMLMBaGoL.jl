@@ -316,6 +316,20 @@ For merge reverse density: same launch mechanism, then intermediate sweeps, then
 
 **Calibration:** n=3 gives 3/4 PASS (single emitter 1.76×, just above 1.65× threshold). n=5 gives comfortable 4/4 PASS (single emitter 1.40×). Cost: ~2× per outer iteration (BD is cheap relative to Gibbs/SM).
 
+### 19. MH-Corrected Predictive-Only Gibbs (Round 10 — DIAGNOSTIC, NO BENEFIT)
+
+**What was tried:** Replace exact DM Gibbs (sample z_i ∝ (n_{-i,k}+γ) × pred_k) with Metropolis-within-Gibbs (propose z_i ∝ pred_k, accept with α = min(1, (n_new+γ)/(n_old_after_removal+γ))). Same stationary distribution, slower DM equilibration.
+
+**Hypothesis:** The DM "rich get richer" dynamic was a mixing problem — standard Gibbs too quickly destabilizes balanced partitions. MH-Gibbs would preserve balance longer, giving birth/split more time to act.
+
+**Result: DIAGNOSTIC NEGATIVE.** Both Gibbs variants converge from oracle K=8 to K≈4.5 for octamers at NN=1.9σ. Brute-force: 4/4 PASS for both. ESS slightly lower for MH-Gibbs (MH rejections slow mixing). Single emitter max ratio slightly worse (1.40→1.54×).
+
+**What was learned:** The DM posterior genuinely peaks at K≈4-5 for octamers at NN≈2σ, not K=8. The problem is the TARGET DISTRIBUTION, not mixing dynamics. Time-scale separation (Round 9 hypothesis) and MH-Gibbs (Round 10) both fail because they only change HOW we sample the distribution, not WHAT distribution we sample. The fix must change the target by decoupling the partition prior concentration from the NegBin shape.
+
+**Branch/commit:** Implemented, tested, and reverted in Round 10. No code changes committed.
+
+---
+
 ### D. Hierarchical μ/shape Learning
 
 **What:** Global MH updates for count distribution parameters, pooling cluster sizes across all partitions.
@@ -326,28 +340,28 @@ For merge reverse density: same launch mechanism, then intermediate sweeps, then
 
 ---
 
-### 18. DM/Polya Partition Prior: Correct Target, Wrong Dynamics (Round 9 analysis)
+### 18. DM/Polya Partition Prior: Correct Derivation, Wrong Target (Rounds 9-10)
 
-**What was found:** The DM partition prior with γ=shape is provably the correct prior on assignment vectors z given the NegBin count model conditioned on N (see `docs/dm-polya-proof.md`). However, it creates systematic downward K pressure through ALL move types:
+**What was found:** The DM partition prior with γ=shape is provably the correct prior on assignment vectors z given the NegBin count model conditioned on N (see `docs/dm-polya-proof.md`). However, the resulting posterior genuinely under-estimates K for many-emitter configurations at intermediate separations.
 
-- Gibbs: (n_k+γ) rich-get-richer destabilizes balanced partitions
+**DM pressure mechanisms:**
+- Gibbs: (n_k+γ) rich-get-richer favors unbalanced partitions
 - Birth: Δ_DM ≈ -4 (opposed). Death: Δ_DM ≈ +4 (favored)
 - Split: Δ_DM ≈ -6 (opposed). Merge: Δ_DM ≈ +6 (favored)
-- Polya density favors UNBALANCED sizes (log Γ is convex)
+- Compounding: K=1→8 accumulates ~7×(-2.5) ≈ -17.5 in log-space
 
-**Key evidence:** Fixed N=40, 8 emitters at NN=1.9σ, nohier:
-- Q-PAINT: K=8 100%. BaGoL from oracle K=8: drops to K≈6 (0% recovery)
-- Fixed-K=8 Gibbs drives sizes from [5,5,5,5,5,5,5,5] to [9,7,7,6,4,3,2,2]
-- 80-95% of locs misassigned. Small clusters become death targets.
-- Chain CONVERGES to K≈6 in 500K iter — not mixing failure, the posterior genuinely peaks at K≈6
+**Key evidence (Rounds 9-10):** Fixed N=40, 8 emitters at NN=1.9σ, nohier:
+- Q-PAINT: MAP K=8 (correct).
+- Standard DM Gibbs from oracle K=8: drops to K≈4.5. K histogram: K=4 (56%), K=5 (34%).
+- MH-corrected predictive-only Gibbs from oracle K=8: drops to K≈4.5. K histogram: K=4 (55%), K=5 (38%).
+- Both Gibbs variants converge to the SAME K distribution → the target is wrong, not the mixing.
+- Final cluster sizes: [15, 13, 10, 2] (standard) vs [13, 11, 8, 4, 3, 1] (MH-Gibbs).
 
-**Why it's not a mixing problem:** More iterations (10K→100K) don't help. Oracle init drops to same K≈6. The target distribution under DM+locmix+NegBin genuinely favors K≈6 for octamers at NN=1.9σ.
+**Round 10 disproved the mixing hypothesis:** Replacing exact DM Gibbs with MH-corrected predictive-only Gibbs (propose ∝ pred, accept with DM ratio) changes the mixing dynamics but not the target distribution. Both variants converge to the same posterior mode (K≈4.5), confirming the problem is the target, not how we sample it.
 
-**Why BaGoL < Q-PAINT:** Q-PAINT marginalizes over all z, automatically summing the astronomical multinomial multiplicity of balanced K=8 partitions. BaGoL's Gibbs sweep visits individual z vectors, where unbalanced K=8 has higher per-vector density but MUCH less multiplicity. The sampler can't explore the balanced K=8 configurations that dominate the marginal because the Gibbs immediately destabilizes them.
+**Why BaGoL < Q-PAINT:** The DM partition penalty compounds across K transitions. At K=8 with NN≈2σ, the accumulated penalty (-17.5) overwhelms the weak spatial evidence (+1 to +2 per split). Q-PAINT avoids this because it marginalizes over z and uses only the count model.
 
-**Proposed fix (Codex):** Time-scale separation. Protect fresh splits/births from immediate Gibbs erosion and death. Allow stabilization before ordinary moves act.
-
-**What was learned:** The DM is NOT a tuning knob — γ=shape is derived from the NegBin. But the Gibbs dynamics implementing the DM conditional have terrible mixing at intermediate separations. The fix is in the DYNAMICS (move scheduling), not the TARGET.
+**What was learned:** The DM partition prior with γ=shape is mathematically derived from the NegBin count model, but the resulting posterior is too strongly biased toward low K for many-emitter configurations. The fix must change the TARGET DISTRIBUTION (decouple γ from shape), not the mixing dynamics. Time-scale separation (Round 9 hypothesis) does NOT help.
 
 ---
 

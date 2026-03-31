@@ -1,23 +1,24 @@
 # Sampler Research Status
 
-## Current State (2026-03-30, post-Round 9)
+## Current State (2026-03-30, post-Round 10)
 
-Round 9 achieved 4/4 brute-force PASS via BD burst (n_bd_substeps=5). However, subsequent optimality sweep and oracle-init testing revealed a fundamental issue: **the DM/Polya partition prior creates systematic downward K pressure** that makes BaGoL worse than Q-PAINT for octamers at intermediate separations (NN≈2σ).
+Round 10 tested MH-corrected predictive-only Gibbs as a diagnostic for the DM/Polya under-splitting problem. **Result: the target distribution itself is wrong, not the mixing dynamics.** Both standard DM Gibbs and MH-corrected Gibbs converge from oracle K=8 to K≈4.5 for octamers at NN=1.9σ. Changing the Gibbs kernel doesn't help because both target the same DM posterior, which genuinely under-estimates K.
 
-**Brute-force: 4/4 PASS.** Small-N sampler is correct.
-**Optimality: FAILING.** Octamers at d/σ=5 — Q-PAINT 100%, BaGoL 0% (from oracle K=8, chain drops to K≈6).
+**Brute-force: 4/4 PASS.** Small-N sampler is correct (both Gibbs variants).
+**Optimality: FAILING.** Octamers at d/σ=2 — Q-PAINT MAP K=8, BaGoL K≈4.5 (from oracle K=8, both Gibbs variants). **Confirmed: target problem, not mixing problem.**
 
-### Root Cause: DM/Polya Dynamics
+### Root Cause: DM Posterior Under-Weights Large K
 
-The DM partition prior (γ=shape) is mathematically correct (proven derivation from NegBin count model). But it creates compounding K-reducing forces:
-- Gibbs: (n_k+γ) rich-get-richer destabilizes balanced partitions at NN≈2σ
-- Every birth: Δ_DM ≈ -4 (opposed). Every death: Δ_DM ≈ +4 (favored)
-- Every split: Δ_DM ≈ -6 (opposed). Every merge: Δ_DM ≈ +6 (favored)
-- log Γ convexity means Polya density favors UNBALANCED sizes
+The DM partition prior (γ=shape) is mathematically derived from the NegBin count model. But the resulting posterior genuinely under-estimates K for many-emitter configurations at intermediate separations:
+- For N=40, K_true=8, NN=1.9σ: DM posterior peaks at K≈4-5
+- Q-PAINT (count-only) correctly gives K=8
+- The DM penalty compounds: going K=1→8 accumulates ~7×(-2.5) ≈ -17.5 in log-space
+- Spatial evidence at NN≈2σ adds only +1 to +2 per split — overwhelmed by DM penalty
+- **Round 10 confirmed:** replacing Gibbs sampling strategy (MH vs exact) doesn't change the posterior mode — both converge to K≈4.5
 
-At K=8 with NN=1.9σ: Gibbs creates sizes [9,7,7,6,4,3,2,2] from balanced [5,5,5,5,5,5,5,5]. Small clusters become death targets. Chain drops to K≈6. This is NOT mixing failure — chain converges to K≈6 from both K=1 and oracle K=8 in 500K iterations.
+The problem is NOT the Gibbs "rich get richer" dynamics (which was the Round 9 hypothesis). The Gibbs correctly samples the DM conditional. The DM conditional itself places too much mass on unbalanced, low-K partitions.
 
-See `docs/dm-polya-proof.md` for full derivation and evidence.
+See `docs/dm-polya-proof.md` for derivation and evidence.
 
 ### Brute-Force Results (Round 9)
 
@@ -124,20 +125,20 @@ All 4 brute-force tests now PASS. The residual under-visiting (1.2-1.4× for wor
 
 ## Active Research Threads
 
-### Thread 1: DM/Polya Dynamics — OPEN (Critical)
+### Thread 1: DM Target Distribution — OPEN (Critical)
 
-**Status:** Root cause identified. The DM partition prior creates systematic downward K pressure through all move types. The sampler correctly targets the DM posterior, but that posterior under-estimates K for octamers at NN≈2σ. Oracle init confirms: chain drops from K=8 to K≈6 in 500K iterations.
+**Status:** Round 10 confirmed that the DM posterior is the problem, not the mixing dynamics. Both standard DM Gibbs and MH-corrected predictive-only Gibbs converge to K≈4.5 from oracle K=8 (octamers at NN=1.9σ). Q-PAINT correctly gives K=8.
 
-**Key insight (Codex):** The problem is time-scale mismatch. After a birth/split creates new small clusters, the Gibbs sweep immediately destabilizes them (rich-get-richer), and the next death absorbs them. Fresh splits never get a chance to stabilize.
+**Round 9 hypothesis (DISPROVED):** Time-scale mismatch — Gibbs destabilizes balanced partitions before birth/split can act. This was wrong: replacing the Gibbs with a slower MH variant doesn't change the posterior mode.
 
-**Next: Round 10 — Time-Scale Separation**
+**Corrected diagnosis:** The DM posterior P(z|data) ∝ P(data|z) × P_DM(z|K) × P(N|K) genuinely peaks at K≈4-5 for this configuration. The DM penalty compounds across K transitions, overwhelming weak spatial evidence at NN≈2σ.
 
-Architecture:
-1. **Global dimension-changing moves** create/destroy emitters (birth/death, split/merge)
-2. **Protected local reallocation** lets proposed splits stabilize before exposure to death
-3. **Only after stabilization** do ordinary Gibbs and death/merge act freely
+**Next: Round 11 — Change the Target Distribution**
 
-Do NOT remove birth/death — they're needed for K-mobility. Quarantine them from interleaving with fragile fresh splits.
+The fix is to decouple the partition prior concentration from the NegBin shape. Options:
+1. **Separate γ_alloc parameter:** Keep DM in Gibbs but with γ_alloc < shape (weaker concentration). Must re-validate brute-force with modified target.
+2. **Predictive-only Gibbs + count model in MH only:** Remove DM from Gibbs conditional (uniform partition at fixed K), keep NegBin count model only in K-changing MH moves. Risk: over-splitting (KB #15 showed uniform catastrophically over-splits for N=6).
+3. **Scaled γ:** Use γ = shape/K or γ = shape/√K to reduce compounding at large K.
 
 ### Thread 2: Hierarchical Learner Feedback
 
@@ -162,12 +163,14 @@ Do NOT remove birth/death — they're needed for K-mobility. Quarantine them fro
 | 8 | 2026-03-30 | Birth/death moves | Added B/D as third move type (50/25/25 mix). **3/4 brute-force PASS** (was 1/4). Close dimer FAIL→PASS, KL improved 2-15× across all tests. Birth acc. 5-20%, death 100%. Practical benchmarks unchanged (~59% recall on dense 6-mers). |
 | 9 | 2026-03-30 | BD burst | BD burst (n_bd_substeps=5): 5 sequential BD per selection. **4/4 brute-force PASS** (was 3/4). Single emitter FAIL→PASS (1.97×→1.40×). ESS +16-179%. Practical recall unchanged (59%). |
 | 9+ | 2026-03-30 | DM/Polya analysis | Optimality sweep + oracle init revealed DM creates systematic ↓K pressure. BaGoL worse than Q-PAINT for octamers at NN≈2σ. Root cause: Gibbs destabilizes balanced partitions, compounds with death/merge bias. Fix: time-scale separation. |
+| 10 | 2026-03-30 | MH-Gibbs diagnostic | MH-corrected predictive-only Gibbs (propose ∝ pred, accept with DM ratio). **Diagnostic result: target is wrong, not mixing.** Both Gibbs variants converge from oracle K=8 to K≈4.5 for octamers at NN=1.9σ. Brute-force 4/4 PASS. Code reverted (no benefit). |
 
 ## Future Priorities
 
-1. **CRITICAL — Round 10:** Time-scale separation — protect fresh splits/births from immediate Gibbs/death erosion
-2. **HIGH:** Re-run optimality sweep after Round 10 to measure octamer improvement
-3. **MEDIUM:** MH-corrected predictive-only Gibbs (propose ∝ predictive, accept with DM ratio) — alternative to time-scale separation
-4. **MEDIUM:** Decoupled target (uniform P(z|K), per-emitter NegBin in MH only) — requires re-validation
-5. **COMPLETED:** Brute-force 4/4 PASS — small-N sampler is correct
-6. **DOCUMENTED:** DM/Polya root cause — see docs/dm-polya-proof.md
+1. **CRITICAL — Round 11:** Change the target distribution — decouple γ_alloc from NegBin shape to reduce compounding K penalty at large K
+2. **HIGH:** Re-validate brute-force after target change (new exact posterior)
+3. **HIGH:** Re-run optimality sweep to measure octamer improvement
+4. **COMPLETED:** MH-corrected Gibbs — targets same distribution, doesn't help (Round 10)
+5. **COMPLETED:** Time-scale separation hypothesis — disproved (Round 10, not a mixing problem)
+6. **COMPLETED:** Brute-force 4/4 PASS — small-N sampler is correct
+7. **DOCUMENTED:** DM/Polya root cause — see docs/dm-polya-proof.md
