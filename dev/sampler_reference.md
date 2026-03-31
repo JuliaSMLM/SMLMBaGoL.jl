@@ -2,7 +2,7 @@
 
 **Authoritative reference for the collapsed Gibbs sampler. Read before modifying. Update after modifying.**
 
-*Matches implementation on `main` branch (Round 10, 2026-03-30). No code changes from Round 9 — Round 10 was a diagnostic round (MH-Gibbs tested and reverted). 4/4 brute-force PASS. Known limitation: DM target under-estimates K for octamers at NN≈2σ (Round 10 confirmed target problem, not mixing).*
+*Matches implementation on `main` branch (Round 9, 2026-03-30). Round 9 added BD burst (n_bd_substeps=5) for improved K-mixing throughput. 4/4 brute-force PASS.*
 
 ---
 
