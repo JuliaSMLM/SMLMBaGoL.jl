@@ -263,3 +263,114 @@ if landscape_peak <= 2
 end
 println("  Mean birth acceptance: $(round(100*mean_accept, digits=4))%")
 println("=" ^ 70)
+
+# ============================================================================
+# Section 5: Best-split search — does ANY K=2 state have positive target ratio?
+# ============================================================================
+println()
+println("=" ^ 70)
+println("Section 5: BEST SPLIT SEARCH (K=1→K=2, target terms only)")
+println("=" ^ 70)
+println()
+println("  Searching over all two-way splits of N=$N locs...")
+println("  For each split size n_B = 1..$(N÷2), try 500 random assignments")
+println("  and report the best target ratio (Δ_spatial + Δ_partition + Δ_count + Δ_K_prior).")
+println()
+
+state_k1_fresh = SMLMBaGoL.initialize_collapsed_state(locs, prior)
+lml_k1 = SMLMBaGoL._total_spatial_lml(state_k1_fresh)
+dm_k1 = SMLMBaGoL._log_dm_partition(state_k1_fresh, N, γ)
+count_k1 = SMLMBaGoL._log_count_posterior(1, N, shape, μ)
+kp_k1 = SMLMBaGoL.log_prior_k_poisson(1, ρ, A)
+target_k1 = lml_k1 + dm_k1 + count_k1 + kp_k1
+
+count_k2 = SMLMBaGoL._log_count_posterior(2, N, shape, μ)
+kp_k2 = SMLMBaGoL.log_prior_k_poisson(2, ρ, A)
+Δ_count_12 = count_k2 - count_k1
+Δ_kp_12 = kp_k2 - kp_k1
+
+global best_overall = -Inf
+global best_overall_nb = 0
+global best_split_spatial = -Inf
+global best_split_dm = -Inf
+
+println("  n_B   best_Δ_target   best_Δ_spatial   best_Δ_partition   Δ_count   Δ_K_prior")
+for n_b in 1:(N÷2)
+    best_Δtarget_nb = -Inf
+    best_ds_nb = -Inf
+    best_dp_nb = -Inf
+
+    n_trials = n_b == 1 ? 1 : 500  # singleton is unique up to loc choice
+    for _ in 1:n_trials
+        # Random assignment: n_b locs to cluster B, rest to A
+        perm = randperm(N)
+        st = deepcopy(state_k1_fresh)
+
+        # Build K=2 state
+        cs_a = SMLMBaGoL.ClusterStats()
+        cs_b = SMLMBaGoL.ClusterStats()
+        for i in 1:N
+            lp = st._loc_precs[perm[i]]
+            if i <= n_b
+                cs_b = SMLMBaGoL.add_loc(cs_b, lp)
+                st.assignments[perm[i]] = Int16(2)
+            else
+                cs_a = SMLMBaGoL.add_loc(cs_a, lp)
+                st.assignments[perm[i]] = Int16(1)
+            end
+        end
+        st.clusters[1] = cs_a
+        if length(st.clusters) < 2
+            push!(st.clusters, cs_b)
+            push!(st.active, true)
+        else
+            st.clusters[2] = cs_b
+            st.active[2] = true
+        end
+        st.n_active = 2
+
+        lml_k2 = SMLMBaGoL._total_spatial_lml(st)
+        dm_k2 = SMLMBaGoL._log_dm_partition(st, N, γ)
+
+        ds = lml_k2 - lml_k1
+        dp = dm_k2 - dm_k1
+        Δtarget = ds + dp + Δ_count_12 + Δ_kp_12
+
+        if Δtarget > best_Δtarget_nb
+            best_Δtarget_nb = Δtarget
+            best_ds_nb = ds
+            best_dp_nb = dp
+        end
+    end
+
+    if best_Δtarget_nb > best_overall
+        global best_overall = best_Δtarget_nb
+        global best_overall_nb = n_b
+        global best_split_spatial = best_ds_nb
+        global best_split_dm = best_dp_nb
+    end
+
+    marker = best_Δtarget_nb > 0 ? " ← POSITIVE" : ""
+    println("  $(lpad(n_b,3))     $(lpad(round(best_Δtarget_nb, digits=2), 8))       $(lpad(round(best_ds_nb, digits=2), 8))         $(lpad(round(best_dp_nb, digits=2), 8))      $(round(Δ_count_12, digits=2))      $(round(Δ_kp_12, digits=2))$marker")
+end
+
+println()
+println("  Best overall: n_B=$best_overall_nb, Δ_target=$(round(best_overall, digits=3))")
+println("    Δ_spatial=$(round(best_split_spatial, digits=3)), Δ_partition=$(round(best_split_dm, digits=3))")
+println("    Δ_count=$(round(Δ_count_12, digits=3)), Δ_K_prior=$(round(Δ_kp_12, digits=3))")
+println()
+
+if best_overall > 0
+    println("  >>> SOME K=2 STATES HAVE POSITIVE TARGET RATIO <<<")
+    println("  The target does NOT prefer K=1. The problem is TRANSPORT:")
+    println("  current moves cannot propose these favorable K=2 states.")
+elseif best_overall > -2.0
+    println("  >>> BEST K=2 STATE IS NEAR-NEUTRAL (Δ > -2) <<<")
+    println("  The target weakly prefers K=1, but a good proposal could still")
+    println("  achieve ~10-15% acceptance. Transport improvements may help.")
+else
+    println("  >>> ALL K=2 STATES HAVE STRONGLY NEGATIVE TARGET RATIO <<<")
+    println("  Even the best possible K=2 split has Δ_target = $(round(best_overall, digits=1)).")
+    println("  The target itself prefers K=1 at this N. No proposal can fix this.")
+end
+println("=" ^ 70)
