@@ -36,12 +36,13 @@ Cluster slots are pre-allocated and reused via the `active` bitvector.
 Workspace buffers (`_perm`, `_active_slots`, `_log_probs`, `_rollback_*`)
 are pre-allocated for zero-allocation hot-path operation.
 """
-mutable struct CollapsedState
+mutable struct CollapsedState{S<:AbstractSpatialModel, A<:AbstractAllocationModel}
     assignments::Vector{Int16}      # assignments[i] = cluster label for loc i
     clusters::Vector{ClusterStats}  # Pre-allocated slots
     active::BitVector               # Which slots are in use
     n_active::Int                   # Number of active clusters
-    log_area::Float64               # log(area) for flat spatial prior
+    spatial::S                      # Spatial prior model (FlatSpatial or LocmixSpatial)
+    allocation::A                   # Allocation model (DMAllocation or DecoupledAllocation)
 
     # Precomputed loc precisions (computed once, locs don't change)
     _loc_precs::Vector{LocPrecision}

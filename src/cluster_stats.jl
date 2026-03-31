@@ -614,3 +614,39 @@ O(1) — just two marginal likelihood evaluations with grid lookups.
     return log_marginal_likelihood_locmix(cs_new, grid) -
            log_marginal_likelihood_locmix(cs, grid)
 end
+
+# ============================================================================
+# Spatial model dispatch (type-based switching between flat and locmix)
+# ============================================================================
+
+"""
+    FlatSpatial <: AbstractSpatialModel
+
+Flat uniform spatial prior over a region of area exp(log_area).
+Each cluster's marginal likelihood includes a -log(A) Occam factor.
+"""
+struct FlatSpatial <: AbstractSpatialModel
+    log_area::Float64
+end
+
+"""
+    LocmixSpatial <: AbstractSpatialModel
+
+Localization mixture spatial prior via grid-based bilinear interpolation.
+Evaluates P(s_j) = (1/N) Σ_i N(s_j; d_i, Σ_i) at the posterior mean.
+"""
+struct LocmixSpatial <: AbstractSpatialModel
+    grid::LocmixGrid
+end
+
+"""Cluster marginal likelihood under the spatial model."""
+@inline spatial_ml(cs::ClusterStats, sp::FlatSpatial) = log_marginal_likelihood(cs, sp.log_area)
+@inline spatial_ml(cs::ClusterStats, sp::LocmixSpatial) = log_marginal_likelihood_locmix(cs, sp.grid)
+
+"""Predictive probability for adding a loc to a cluster."""
+@inline spatial_pred(cs::ClusterStats, lp::LocPrecision, sp::FlatSpatial) = log_predictive(cs, lp, sp.log_area)
+@inline spatial_pred(cs::ClusterStats, lp::LocPrecision, sp::LocmixSpatial) = log_predictive_locmix(cs, lp, sp.grid)
+
+"""Area of the spatial prior region (for Poisson K prior cancellation)."""
+spatial_area(sp::FlatSpatial) = exp(sp.log_area)
+spatial_log_area(sp::FlatSpatial) = sp.log_area
