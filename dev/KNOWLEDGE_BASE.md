@@ -326,28 +326,26 @@ For merge reverse density: same launch mechanism, then intermediate sweeps, then
 
 ---
 
-### 18. DM/Polya Partition Prior: Correct Target, Wrong Dynamics (Round 9 analysis)
+### 18. DM/Polya Partition Prior: Correct Prior, K-Kernel Under Investigation (Rounds 9-10)
 
-**What was found:** The DM partition prior with γ=shape is provably the correct prior on assignment vectors z given the NegBin count model conditioned on N (see `docs/dm-polya-proof.md`). However, it creates systematic downward K pressure through ALL move types:
+**What was found:** The DM partition prior with γ=shape is provably the correct prior on assignment vectors z given the NegBin count model conditioned on N (see `docs/dm-polya-proof.md`). γ=shape is NOT a tuning knob — it is a mathematical consequence of the count model and must not be changed.
 
-- Gibbs: (n_k+γ) rich-get-richer destabilizes balanced partitions
-- Birth: Δ_DM ≈ -4 (opposed). Death: Δ_DM ≈ +4 (favored)
-- Split: Δ_DM ≈ -6 (opposed). Merge: Δ_DM ≈ +6 (favored)
-- Polya density favors UNBALANCED sizes (log Γ is convex)
+**Critical conceptual point (Codex, Round 10):** P(N|K) and the DM P(z|K,N) are NOT two independent forces fighting over K. They are a factorization of the same NegBin count model. After summing P_DM(z|K,N) over all allocations z at fixed K, the DM collapses back into P(N|K). Therefore, if Q-PAINT (count-only) correctly favors K=8, the full posterior with correct spatial likelihood should also favor K≥8 (spatial info can only help).
 
-**Key evidence:** Fixed N=40, 8 emitters at NN=1.9σ, nohier:
-- Q-PAINT: K=8 100%. BaGoL from oracle K=8: drops to K≈6 (0% recovery)
-- Fixed-K=8 Gibbs drives sizes from [5,5,5,5,5,5,5,5] to [9,7,7,6,4,3,2,2]
-- 80-95% of locs misassigned. Small clusters become death targets.
-- Chain CONVERGES to K≈6 in 500K iter — not mixing failure, the posterior genuinely peaks at K≈6
+**Observed failure:** N=40, 8 emitters at NN=1.9σ, nohier:
+- Q-PAINT: MAP K=8.
+- BaGoL from oracle K=8: drops to K≈4.5.
+- Both standard DM Gibbs and MH-corrected Gibbs give same K≈4.5.
+- SM-only diagnostic: FAILS at 1.76x (K-kernel has measurable bias).
 
-**Why it's not a mixing problem:** More iterations (10K→100K) don't help. Oracle init drops to same K≈6. The target distribution under DM+locmix+NegBin genuinely favors K≈6 for octamers at NN=1.9σ.
+**Round 10 diagnostic was inconclusive:** Changing the within-K Gibbs sweep doesn't test the K-changing moves (split/merge, birth/death), which are the actual bottleneck. Both Gibbs variants share identical K-changing kernels, so matching K≈4.5 doesn't distinguish "target wrong" from "K-kernel biased."
 
-**Why BaGoL < Q-PAINT:** Q-PAINT marginalizes over all z, automatically summing the astronomical multinomial multiplicity of balanced K=8 partitions. BaGoL's Gibbs sweep visits individual z vectors, where unbalanced K=8 has higher per-vector density but MUCH less multiplicity. The sampler can't explore the balanced K=8 configurations that dominate the marginal because the Gibbs immediately destabilizes them.
+**Open questions:**
+1. Does the K-changing kernel have systematic downward bias? (SM-only FAIL suggests yes)
+2. Does the locmix saddle-point approximation introduce bias at intermediate separations?
+3. Does the co-located limit work? (Full sampler should match Q-PAINT at d=0)
 
-**Proposed fix (Codex):** Time-scale separation. Protect fresh splits/births from immediate Gibbs erosion and death. Allow stabilization before ordinary moves act.
-
-**What was learned:** The DM is NOT a tuning knob — γ=shape is derived from the NegBin. But the Gibbs dynamics implementing the DM conditional have terrible mixing at intermediate separations. The fix is in the DYNAMICS (move scheduling), not the TARGET.
+**What was learned:** Do NOT conclude "target is wrong" without independent verification (tempered MCMC, SMC, or exact enumeration at the problem scale). Changing the within-K sweep is not a valid diagnostic for K-move bias.
 
 ---
 

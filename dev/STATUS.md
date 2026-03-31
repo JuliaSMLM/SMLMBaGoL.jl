@@ -1,6 +1,6 @@
 # Sampler Research Status
 
-## Current State (2026-03-30, post-Round 9)
+## Current State (2026-03-30, post-Round 10)
 
 Round 9 achieved 4/4 brute-force PASS via BD burst (n_bd_substeps=5). However, subsequent optimality sweep and oracle-init testing revealed a fundamental issue: **the DM/Polya partition prior creates systematic downward K pressure** that makes BaGoL worse than Q-PAINT for octamers at intermediate separations (NN≈2σ).
 
@@ -124,20 +124,23 @@ All 4 brute-force tests now PASS. The residual under-visiting (1.2-1.4× for wor
 
 ## Active Research Threads
 
-### Thread 1: DM/Polya Dynamics — OPEN (Critical)
+### Thread 1: K-Changing Kernel Bias — OPEN (Critical)
 
-**Status:** Root cause identified. The DM partition prior creates systematic downward K pressure through all move types. The sampler correctly targets the DM posterior, but that posterior under-estimates K for octamers at NN≈2σ. Oracle init confirms: chain drops from K=8 to K≈6 in 500K iterations.
+**Status:** Round 10 tested MH-corrected predictive-only Gibbs (propose ∝ pred, accept with DM ratio). Both standard and MH Gibbs converge from oracle K=8 to K≈4.5 for octamers at NN=1.9σ. Initially this was misinterpreted as "the target is wrong." Codex review corrected this: **the diagnostic only changed the within-K allocation sweep, not the K-changing moves.** Both variants share identical split/merge and birth/death kernels, which are the actual bottleneck.
 
-**Key insight (Codex):** The problem is time-scale mismatch. After a birth/split creates new small clusters, the Gibbs sweep immediately destabilizes them (rich-get-richer), and the next death absorbs them. Fresh splits never get a chance to stabilize.
+**Key insight (Codex Round 10 review):** P(N|K) and the DM prior are NOT two forces fighting — they are a factorization of the same NegBin count model. After summing over allocations at fixed K, the DM collapses back into the count model. If Q-PAINT (count-only) correctly favors K=8, the full posterior with correct spatial likelihood should also favor K≥8. The problem must be in the K-changing kernel or the spatial likelihood approximation.
 
-**Next: Round 10 — Time-Scale Separation**
+**Evidence of K-kernel bias:** SM-only diagnostic FAILS at 1.76x max ratio for well-separated dimers. This directly shows the split/merge kernel has bias that persists regardless of which Gibbs variant is used.
 
-Architecture:
-1. **Global dimension-changing moves** create/destroy emitters (birth/death, split/merge)
-2. **Protected local reallocation** lets proposed splits stabilize before exposure to death
-3. **Only after stabilization** do ordinary Gibbs and death/merge act freely
+**Next: Round 11 — Audit K-Changing Moves**
 
-Do NOT remove birth/death — they're needed for K-mobility. Quarantine them from interleaving with fragile fresh splits.
+Priority investigation:
+1. Measure K=8↔7↔6↔5 transition flux and acceptance rates individually (not just end-state K)
+2. Check locmix saddle-point approximation vs exact integration on octamer states
+3. Validate K-moves on small octamer-like toy (e.g., N=8, K=4, d/σ=2 brute-force)
+4. Verify co-located limit: full sampler must match Q-PAINT exactly at d=0
+
+γ=shape is mathematically correct and stays fixed. The target distribution is NOT the problem.
 
 ### Thread 2: Hierarchical Learner Feedback
 
@@ -162,12 +165,14 @@ Do NOT remove birth/death — they're needed for K-mobility. Quarantine them fro
 | 8 | 2026-03-30 | Birth/death moves | Added B/D as third move type (50/25/25 mix). **3/4 brute-force PASS** (was 1/4). Close dimer FAIL→PASS, KL improved 2-15× across all tests. Birth acc. 5-20%, death 100%. Practical benchmarks unchanged (~59% recall on dense 6-mers). |
 | 9 | 2026-03-30 | BD burst | BD burst (n_bd_substeps=5): 5 sequential BD per selection. **4/4 brute-force PASS** (was 3/4). Single emitter FAIL→PASS (1.97×→1.40×). ESS +16-179%. Practical recall unchanged (59%). |
 | 9+ | 2026-03-30 | DM/Polya analysis | Optimality sweep + oracle init revealed DM creates systematic ↓K pressure. BaGoL worse than Q-PAINT for octamers at NN≈2σ. Root cause: Gibbs destabilizes balanced partitions, compounds with death/merge bias. Fix: time-scale separation. |
+| 10 | 2026-03-30 | MH-Gibbs diagnostic | Tested MH-corrected pred-only Gibbs. Both Gibbs variants give K≈4.5 from oracle K=8. Initially concluded "target is wrong" — **Codex corrected: diagnostic only changed within-K sweep, not K-changing moves.** K-kernel bias (SM-only FAIL at 1.76x) is the real suspect. γ=shape stays fixed. |
 
 ## Future Priorities
 
-1. **CRITICAL — Round 10:** Time-scale separation — protect fresh splits/births from immediate Gibbs/death erosion
-2. **HIGH:** Re-run optimality sweep after Round 10 to measure octamer improvement
-3. **MEDIUM:** MH-corrected predictive-only Gibbs (propose ∝ predictive, accept with DM ratio) — alternative to time-scale separation
-4. **MEDIUM:** Decoupled target (uniform P(z|K), per-emitter NegBin in MH only) — requires re-validation
-5. **COMPLETED:** Brute-force 4/4 PASS — small-N sampler is correct
-6. **DOCUMENTED:** DM/Polya root cause — see docs/dm-polya-proof.md
+1. **CRITICAL — Round 11:** Audit K-changing kernel — measure transition flux K=8↔7↔...↔4, identify asymmetry source
+2. **HIGH:** Validate K-moves on small octamer-like brute-force (e.g., N=8, K=4, d/σ=2)
+3. **HIGH:** Check locmix saddle-point approximation vs exact integration on octamer states
+4. **HIGH:** Verify co-located limit: full sampler must match Q-PAINT at d=0
+5. **COMPLETED (Round 10):** MH-corrected Gibbs — doesn't isolate the problem (same K-changing kernel)
+6. **COMPLETED:** Brute-force 4/4 PASS — small-N sampler correct
+7. **DOCUMENTED:** DM/Polya derivation — see docs/dm-polya-proof.md. γ=shape is correct.
