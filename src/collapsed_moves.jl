@@ -77,14 +77,13 @@ end
 # ============================================================================
 
 """
-    gibbs_allocation_sweep!(state, locs, μ, shape)
+    gibbs_allocation_sweep!(state, locs, μ, shape; use_dm=true)
 
 Full Gibbs sweep: for each loc (random order), reassign among the K active
 clusters with weight proportional to the collapsed spatial predictive.
 
-At fixed K, the Gibbs conditional is purely spatial:
-  P(z_i = k | rest) ∝ predictive(d_i | cluster_k)
-Cluster sizes are determined by spatial evidence alone.
+If `use_dm=true` (`:dm` mode): propose from predictive, MH-correct with DM ratio.
+If `use_dm=false` (`:decoupled` mode): exact predictive Gibbs, no DM correction.
 
 Sole occupants are skipped to maintain K during the sweep. Only split/merge
 moves change K.
@@ -93,7 +92,8 @@ Uses precomputed LocPrecision data for zero-allocation inner loop.
 """
 function gibbs_allocation_sweep!(state::CollapsedState,
                                   locs::Vector{<:SMLMData.AbstractEmitter},
-                                  μ::Float64, shape::Float64)
+                                  μ::Float64, shape::Float64;
+                                  use_dm::Bool=true)
     N = length(locs)
     loc_precs = state._loc_precs
     log_area = state.log_area
@@ -170,10 +170,10 @@ function gibbs_allocation_sweep!(state::CollapsedState,
             end
         end
 
-        # MH correction: propose from predictive, accept with DM ratio
+        # MH correction (DM mode only): propose from predictive, accept with DM ratio
         proposed_slot = active_slots[chosen]
         final_slot = proposed_slot
-        if old_cluster > 0 && state.active[old_cluster] && proposed_slot != old_cluster
+        if use_dm && old_cluster > 0 && state.active[old_cluster] && proposed_slot != old_cluster
             n_proposed = Float64(state.clusters[proposed_slot].n)
             n_old = Float64(state.clusters[old_cluster].n)
             α = min(1.0, (n_proposed + γ) / (n_old + γ))
@@ -289,7 +289,8 @@ function _restricted_gibbs_sweep!(is_in_b::Union{BitVector, Vector{Bool}},
                                    member_indices::Vector{Int},
                                    loc_precs::Vector{LocPrecision},
                                    log_area::Float64, γ::Float64,
-                                   track_density::Bool)
+                                   track_density::Bool;
+                                   use_dm::Bool=true)
     m = length(member_indices)
     log_q = 0.0
 
@@ -315,43 +316,44 @@ function _restricted_gibbs_sweep!(is_in_b::Union{BitVector, Vector{Bool}},
         q_b = exp(log_pred_b - max_lp) / (exp(log_pred_a - max_lp) + exp(log_pred_b - max_lp))
         q_b = clamp(q_b, 1e-300, 1.0 - 1e-300)
 
-        # DM counts for MH correction (after removal of loc i)
-        n_a = Float64(cs_a.n)
-        n_b = Float64(cs_b.n)
+        if use_dm
+            # DM mode: MH-correct with DM ratio
+            n_a = Float64(cs_a.n)
+            n_b = Float64(cs_b.n)
 
-        # Sample from predictive-only proposal, MH-correct with DM ratio
-        if was_in_b
-            # Currently in B. α(B→A) = min(1, (n_a+γ)/(n_b+γ))
-            α_to_a = min(1.0, (n_a + γ) / (n_b + γ))
-            proposed_a = rand() >= q_b
-            ends_in_b = !(proposed_a && rand() < α_to_a)
-        else
-            # Currently in A. α(A→B) = min(1, (n_b+γ)/(n_a+γ))
-            α_to_b = min(1.0, (n_b + γ) / (n_a + γ))
-            proposed_b = rand() < q_b
-            ends_in_b = proposed_b && rand() < α_to_b
-        end
-
-        # Track transition density including stay-via-rejection
-        if track_density
             if was_in_b
                 α_to_a = min(1.0, (n_a + γ) / (n_b + γ))
-                if ends_in_b
-                    # Stayed in B: P = q_b + (1-q_b)×(1-α_to_a)
-                    log_q += log(max(q_b + (1.0 - q_b) * (1.0 - α_to_a), 1e-300))
-                else
-                    # Moved to A: P = (1-q_b) × α_to_a
-                    log_q += log(max((1.0 - q_b) * α_to_a, 1e-300))
-                end
+                proposed_a = rand() >= q_b
+                ends_in_b = !(proposed_a && rand() < α_to_a)
             else
                 α_to_b = min(1.0, (n_b + γ) / (n_a + γ))
-                if ends_in_b
-                    # Moved to B: P = q_b × α_to_b
-                    log_q += log(max(q_b * α_to_b, 1e-300))
+                proposed_b = rand() < q_b
+                ends_in_b = proposed_b && rand() < α_to_b
+            end
+
+            # Density includes stay-via-rejection terms
+            if track_density
+                if was_in_b
+                    α_to_a = min(1.0, (n_a + γ) / (n_b + γ))
+                    if ends_in_b
+                        log_q += log(max(q_b + (1.0 - q_b) * (1.0 - α_to_a), 1e-300))
+                    else
+                        log_q += log(max((1.0 - q_b) * α_to_a, 1e-300))
+                    end
                 else
-                    # Stayed in A: P = (1-q_b) + q_b×(1-α_to_b)
-                    log_q += log(max((1.0 - q_b) + q_b * (1.0 - α_to_b), 1e-300))
+                    α_to_b = min(1.0, (n_b + γ) / (n_a + γ))
+                    if ends_in_b
+                        log_q += log(max(q_b * α_to_b, 1e-300))
+                    else
+                        log_q += log(max((1.0 - q_b) + q_b * (1.0 - α_to_b), 1e-300))
+                    end
                 end
+            end
+        else
+            # Decoupled mode: exact predictive Gibbs, no MH correction
+            ends_in_b = rand() < q_b
+            if track_density
+                log_q += ends_in_b ? log(q_b) : log(1.0 - q_b)
             end
         end
 
@@ -389,7 +391,8 @@ function _restricted_gibbs_transition_density(start_is_in_b::Union{BitVector, Ve
                                                cs_a::ClusterStats, cs_b::ClusterStats,
                                                member_indices::Vector{Int},
                                                loc_precs::Vector{LocPrecision},
-                                               log_area::Float64, γ::Float64)
+                                               log_area::Float64, γ::Float64;
+                                               use_dm::Bool=true)
     m = length(member_indices)
     m < 3 && return 0.0
 
@@ -421,25 +424,26 @@ function _restricted_gibbs_transition_density(start_is_in_b::Union{BitVector, Ve
         n_a = Float64(cs_a.n)
         n_b = Float64(cs_b.n)
 
-        # MH-corrected transition density to target assignment
-        if was_in_b
-            α_to_a = min(1.0, (n_a + γ) / (n_b + γ))
-            if target_is_in_b[idx]
-                # Stayed in B: P = q_b + (1-q_b)×(1-α_to_a)
-                log_q += log(max(q_b + (1.0 - q_b) * (1.0 - α_to_a), 1e-300))
+        if use_dm
+            # MH-corrected transition density
+            if was_in_b
+                α_to_a = min(1.0, (n_a + γ) / (n_b + γ))
+                if target_is_in_b[idx]
+                    log_q += log(max(q_b + (1.0 - q_b) * (1.0 - α_to_a), 1e-300))
+                else
+                    log_q += log(max((1.0 - q_b) * α_to_a, 1e-300))
+                end
             else
-                # Moved to A: P = (1-q_b) × α_to_a
-                log_q += log(max((1.0 - q_b) * α_to_a, 1e-300))
+                α_to_b = min(1.0, (n_b + γ) / (n_a + γ))
+                if target_is_in_b[idx]
+                    log_q += log(max(q_b * α_to_b, 1e-300))
+                else
+                    log_q += log(max((1.0 - q_b) + q_b * (1.0 - α_to_b), 1e-300))
+                end
             end
         else
-            α_to_b = min(1.0, (n_b + γ) / (n_a + γ))
-            if target_is_in_b[idx]
-                # Moved to B: P = q_b × α_to_b
-                log_q += log(max(q_b * α_to_b, 1e-300))
-            else
-                # Stayed in A: P = (1-q_b) + q_b×(1-α_to_b)
-                log_q += log(max((1.0 - q_b) + q_b * (1.0 - α_to_b), 1e-300))
-            end
+            # Decoupled: simple Gibbs density
+            log_q += target_is_in_b[idx] ? log(max(q_b, 1e-300)) : log(max(1.0 - q_b, 1e-300))
         end
 
         # Add to TARGET position (building hybrid state for next step)
@@ -573,7 +577,8 @@ Returns (new_slot, log_q, member_indices, is_in_b).
 function _do_sequential_split!(state::CollapsedState, parent_slot::Int,
                                 locs::Vector{<:SMLMData.AbstractEmitter},
                                 γ::Float64;
-                                n_restricted_scans::Int = 5)
+                                n_restricted_scans::Int = 5,
+                                use_dm::Bool = true)
     loc_precs = state._loc_precs
     log_area = state.log_area
     N = length(locs)
@@ -644,12 +649,12 @@ function _do_sequential_split!(state::CollapsedState, parent_slot::Int,
         # Intermediate scans: improve allocation without tracking density
         for _ in 1:(n_restricted_scans - 1)
             cs_a, cs_b, _ = _restricted_gibbs_sweep!(is_in_b, cs_a, cs_b,
-                member_indices, loc_precs, log_area, γ, false)
+                member_indices, loc_precs, log_area, γ, false; use_dm=use_dm)
         end
         # Final scan: sample new allocation + track density
         # This density REPLACES the sequential allocation density
         cs_a, cs_b, log_q = _restricted_gibbs_sweep!(is_in_b, cs_a, cs_b,
-            member_indices, loc_precs, log_area, γ, true)
+            member_indices, loc_precs, log_area, γ, true; use_dm=use_dm)
     end
 
     # Apply the allocation to the state
@@ -692,7 +697,8 @@ Returns (accepted, move_type) where move_type is :split or :merge.
 function propose_split_merge!(state::CollapsedState,
                                locs::Vector{<:SMLMData.AbstractEmitter},
                                μ::Float64, shape::Float64, ρ::Float64;
-                               n_restricted_scans::Int = 5)
+                               n_restricted_scans::Int = 5,
+                               use_dm::Bool = true)
     N = length(locs)
     N < 2 && return false, :split
     K = state.n_active
@@ -721,7 +727,7 @@ function propose_split_merge!(state::CollapsedState,
 
     # Compute target density components BEFORE the move
     lml_before = _total_spatial_lml(state)
-    dm_before = _log_dm_partition(state, N, γ)
+    dm_before = use_dm ? _log_dm_partition(state, N, γ) : 0.0
 
     log_q_fwd = 0.0  # log forward structural proposal density
     log_q_rev = 0.0  # log reverse structural proposal density
@@ -749,7 +755,7 @@ function propose_split_merge!(state::CollapsedState,
 
         _, log_q_alloc, member_indices, is_in_b = _do_sequential_split!(
             state, target_slot, locs, γ;
-            n_restricted_scans = n_restricted_scans)
+            n_restricted_scans = n_restricted_scans, use_dm = use_dm)
 
         if log_q_alloc == -Inf
             # Can't split (cluster too small)
@@ -828,14 +834,16 @@ function propose_split_merge!(state::CollapsedState,
             for _ in 1:(n_restricted_scans - 1)
                 launch_cs_a, launch_cs_b, _ = _restricted_gibbs_sweep!(
                     launch_is_in_b, launch_cs_a, launch_cs_b,
-                    member_indices, state._loc_precs, log_area, γ, false)
+                    member_indices, state._loc_precs, log_area, γ, false;
+                    use_dm=use_dm)
             end
 
             # 3. Compute transition density: one Gibbs sweep from intermediate → current
             log_q_alloc_rev = _restricted_gibbs_transition_density(
                 launch_is_in_b, is_in_b,
                 launch_cs_a, launch_cs_b,
-                member_indices, state._loc_precs, log_area, γ)
+                member_indices, state._loc_precs, log_area, γ;
+                use_dm=use_dm)
         else
             # No restricted Gibbs: use sequential allocation density (Round 3 behavior)
             log_q_alloc_rev = _log_sequential_allocation(
@@ -863,14 +871,9 @@ function propose_split_merge!(state::CollapsedState,
 
     # Compute target density components AFTER the move
     lml_after = _total_spatial_lml(state)
-    dm_after = _log_dm_partition(state, N, γ)
 
-    # Full MH acceptance ratio:
-    #   log α = Δ_spatial + Δ_partition + Δ_proposal + Δ_count + Δ_K_prior + Δ_move_type
-    # Δ_K_prior: Poisson(ρA) prior on K. Combined with flat spatial -log(A) per cluster,
-    # the area factors cancel: split contributes log(ρ) - log(K+1).
     Δ_spatial = lml_after - lml_before
-    Δ_partition = dm_after - dm_before
+    Δ_partition = use_dm ? (_log_dm_partition(state, N, γ) - dm_before) : 0.0
     Δ_proposal = log_q_rev - log_q_fwd
     Δ_count = _log_count_posterior(K_new, N, shape, μ) -
               _log_count_posterior(K, N, shape, μ)
@@ -909,7 +912,8 @@ Returns (accepted, move_type) where move_type is :birth or :death.
 """
 function propose_birth_death!(state::CollapsedState,
                                locs::Vector{<:SMLMData.AbstractEmitter},
-                               μ::Float64, shape::Float64, ρ::Float64)
+                               μ::Float64, shape::Float64, ρ::Float64;
+                               use_dm::Bool=true)
     N = length(locs)
     K = state.n_active
     γ = Float64(shape)
@@ -944,7 +948,7 @@ function propose_birth_death!(state::CollapsedState,
     old_len = length(state.clusters)
 
     lml_before = _total_spatial_lml(state)
-    dm_before = _log_dm_partition(state, N, γ)
+    dm_before = use_dm ? _log_dm_partition(state, N, γ) : 0.0
 
     log_q_fwd = 0.0
     log_q_rev = 0.0
@@ -1119,10 +1123,9 @@ function propose_birth_death!(state::CollapsedState,
 
     # Post-move target densities
     lml_after = _total_spatial_lml(state)
-    dm_after = _log_dm_partition(state, N, γ)
 
     Δ_spatial = lml_after - lml_before
-    Δ_partition = dm_after - dm_before
+    Δ_partition = use_dm ? (_log_dm_partition(state, N, γ) - dm_before) : 0.0
     Δ_proposal = log_q_rev - log_q_fwd
     Δ_count = _log_count_posterior(K_new, N, shape, μ) -
               _log_count_posterior(K, N, shape, μ)
