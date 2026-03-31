@@ -81,6 +81,29 @@ function log_prior_k(k::Int, λ_K::Float64)
 end
 
 """
+    log_prior_k_poisson(K, ρ, A) -> Float64
+
+Log Poisson(ρA) prior on K emitters, with the flat-prior area factor cancelled.
+
+The joint spatial model is:
+  K ~ Poisson(ρA),  θ_k | K ~ iid Uniform(region of area A)
+
+The joint prior is p(K, θ_{1:K}) = e^{-ρA} (ρA)^K / K! × A^{-K} = e^{-ρA} ρ^K / K!.
+
+The A^{-K} from the flat location prior cancels against A^K from the Poisson,
+so a K→K+1 move contributes ρ/(K+1) — area-independent.
+
+This function returns the log of e^{-ρA} ρ^K / K! (the area-cancelled form).
+The collapsed marginal likelihood should use log_marginal_likelihood(cs, log_area)
+which contributes the remaining -log(A) per cluster.
+"""
+function log_prior_k_poisson(K::Int, ρ::Float64, A::Float64)
+    K < 0 && return -Inf
+    K == 0 && return -ρ * A
+    return -ρ * A + K * log(ρ) - logfactorial(K)
+end
+
+"""
 Log NegBin PMF for a single emitter's count.
 
 Model: n_k ~ NegBin(α, p) where p = α/(α+μ)

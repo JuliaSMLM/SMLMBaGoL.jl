@@ -31,9 +31,6 @@ function initialize_collapsed_state(locs::Vector{<:SMLMData.AbstractEmitter},
     # Precompute loc precisions (locs never change during chain)
     _loc_precs = precompute_loc_precisions(locs)
 
-    # Build grid-based locmix prior (O(N × grid_size) once)
-    _locmix_grid = build_locmix_grid(_loc_precs)
-
     # Pre-allocate workspace buffers
     max_K = max(N, 16)  # Upper bound on cluster count
     _perm = collect(1:N)
@@ -44,7 +41,7 @@ function initialize_collapsed_state(locs::Vector{<:SMLMData.AbstractEmitter},
     _rollback_active = similar(active)
 
     return CollapsedState(assignments, clusters, active, n_active, log_area,
-                          _loc_precs, _locmix_grid,
+                          _loc_precs,
                           _perm, _active_slots, _log_probs,
                           _rollback_assignments, _rollback_clusters, _rollback_active)
 end
@@ -56,7 +53,7 @@ Initialize a CollapsedState from an explicit assignment vector.
 Used for diagnostics (transition matrix test, kernel verification).
 
 `assignments[i]` is the 1-based cluster label for localization `i`.
-All workspace buffers and precomputed data (LocPrecision, LocmixGrid)
+All workspace buffers and precomputed data (LocPrecision)
 are built fresh.
 """
 function initialize_from_assignments(assignments::AbstractVector{<:Integer},
@@ -81,7 +78,6 @@ function initialize_from_assignments(assignments::AbstractVector{<:Integer},
     n_active = count(active)
 
     _loc_precs = precompute_loc_precisions(locs)
-    _locmix_grid = build_locmix_grid(_loc_precs)
 
     max_K = max(N, 16)
     _perm = collect(1:N)
@@ -92,7 +88,7 @@ function initialize_from_assignments(assignments::AbstractVector{<:Integer},
     _rollback_active = similar(active)
 
     return CollapsedState(assign16, clusters, active, n_active, log_area,
-                          _loc_precs, _locmix_grid,
+                          _loc_precs,
                           _perm, _active_slots, _log_probs,
                           _rollback_assignments, _rollback_clusters, _rollback_active)
 end
@@ -140,6 +136,8 @@ function run_collapsed_chain(
     μ_prior_scale::Float64 = 5.0,
     shape_prior_shape::Float64 = 2.0,
     shape_prior_scale::Float64 = 1.0,
+    ρ_prior_shape::Float64 = 2.0,
+    ρ_prior_rate::Float64 = 1.0,
     hierarchical_interval::Int = 100,
     accumulators::Vector{<:AbstractAccumulator} = AbstractAccumulator[],
     verbose::Bool = false,
@@ -170,6 +168,8 @@ function run_collapsed_chain(
 
     μ = μ_prior_shape * μ_prior_scale  # Initial μ from prior mean
     current_shape = shape
+    A = exp(state.log_area)
+    ρ = ρ_prior_shape / ρ_prior_rate  # Initial ρ from prior mean
 
     acceptance = Dict{Symbol, Tuple{Int, Int}}(
         :gibbs_sweep => (0, 0),
@@ -184,6 +184,8 @@ function run_collapsed_chain(
         μ_prior_scale = μ_prior_scale,
         shape_prior_shape = shape_prior_shape,
         shape_prior_scale = shape_prior_scale,
+        ρ_prior_shape = ρ_prior_shape,
+        ρ_prior_rate = ρ_prior_rate,
     )
 
     for iter in 1:n_iterations
@@ -196,14 +198,14 @@ function run_collapsed_chain(
             acceptance[:gibbs_sweep] = (prev[1] + 1, prev[2] + 1)
         elseif r < 0.75
             # Split-merge
-            accepted, move_type = propose_split_merge!(state, locs, μ, current_shape;
+            accepted, move_type = propose_split_merge!(state, locs, μ, current_shape, ρ;
                                                         n_restricted_scans = n_restricted_scans)
             prev = acceptance[move_type]
             acceptance[move_type] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
         else
             # Birth-death (multiple substeps for K-mixing throughput)
             for _bd in 1:n_bd_substeps
-                accepted, move_type = propose_birth_death!(state, locs, μ, current_shape)
+                accepted, move_type = propose_birth_death!(state, locs, μ, current_shape, ρ)
                 prev = acceptance[move_type]
                 acceptance[move_type] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)
             end
@@ -217,6 +219,8 @@ function run_collapsed_chain(
             if _learn_shape
                 current_shape = _update_shape_collapsed(state, μ, current_shape, config_nt)
             end
+            # Conjugate ρ update (always — it's exact Gibbs, not MH)
+            ρ = _update_rho_collapsed(state, A, config_nt)
         end
 
         # Update accumulators after burn-in
@@ -235,7 +239,7 @@ function run_collapsed_chain(
         if verbose && iter % 1000 == 0
             K = state.n_active
             shape_str = _learn_shape ? ", shape=$(round(current_shape, digits=2))" : ""
-            println("Iter $iter: K=$K, μ=$(round(μ, digits=2))$shape_str")
+            println("Iter $iter: K=$K, μ=$(round(μ, digits=2))$shape_str, ρ=$(round(ρ, digits=4))")
         end
     end
 
@@ -250,7 +254,7 @@ function run_collapsed_chain(
     # Collect accumulator results
     acc_results = [accumulator_result(acc) for acc in accumulators]
 
-    return CollapsedChainResult(state, μ, current_shape, acc_results, acceptance, n_iterations)
+    return CollapsedChainResult(state, μ, current_shape, ρ, acc_results, acceptance, n_iterations)
 end
 
 """
@@ -266,6 +270,7 @@ function run_collapsed_iterations!(
     n::Int,
     μ::Float64,
     shape::Float64,
+    ρ::Float64,
     accumulators::Vector{<:AbstractAccumulator},
     burn_in::Int,
     current_iter::Int;
@@ -284,7 +289,7 @@ function run_collapsed_iterations!(
                 acceptance[:gibbs_sweep] = (prev[1] + 1, prev[2] + 1)
             end
         elseif r < 0.75
-            accepted, move_type = propose_split_merge!(state, locs, μ, shape;
+            accepted, move_type = propose_split_merge!(state, locs, μ, shape, ρ;
                                                         n_restricted_scans = n_restricted_scans)
             if acceptance !== nothing
                 prev = acceptance[move_type]
@@ -292,7 +297,7 @@ function run_collapsed_iterations!(
             end
         else
             for _bd in 1:n_bd_substeps
-                accepted, move_type = propose_birth_death!(state, locs, μ, shape)
+                accepted, move_type = propose_birth_death!(state, locs, μ, shape, ρ)
                 if acceptance !== nothing
                     prev = acceptance[move_type]
                     acceptance[move_type] = (prev[1] + (accepted ? 1 : 0), prev[2] + 1)

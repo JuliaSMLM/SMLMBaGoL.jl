@@ -96,7 +96,7 @@ function gibbs_allocation_sweep!(state::CollapsedState,
                                   μ::Float64, shape::Float64)
     N = length(locs)
     loc_precs = state._loc_precs
-    grid = state._locmix_grid
+    log_area = state.log_area
     K = state.n_active  # Fixed for this sweep
 
     # In-place Fisher-Yates shuffle of workspace permutation buffer
@@ -142,7 +142,7 @@ function gibbs_allocation_sweep!(state::CollapsedState,
         for i in 1:K
             slot = active_slots[i]
             cs = state.clusters[slot]
-            log_probs[i] = log(Float64(cs.n) + γ) + log_predictive_locmix(cs, lp, grid)
+            log_probs[i] = log(Float64(cs.n) + γ) + log_predictive(cs, lp, log_area)
         end
 
         # In-place log-sum-exp normalization → probabilities in log_probs[1:K]
@@ -227,14 +227,14 @@ end
     _total_spatial_lml(state) -> Float64
 
 Sum of log marginal likelihoods across all active clusters.
-Uses neighbor-filtered locmix for O(K×|A|) instead of O(K×N).
+Uses flat uniform spatial prior with log_area.
 """
 function _total_spatial_lml(state::CollapsedState)
-    grid = state._locmix_grid
+    log_area = state.log_area
     total = 0.0
     @inbounds for j in eachindex(state.active)
         if state.active[j]
-            total += log_marginal_likelihood_locmix(state.clusters[j], grid)
+            total += log_marginal_likelihood(state.clusters[j], log_area)
         end
     end
     return total
@@ -282,7 +282,7 @@ function _restricted_gibbs_sweep!(is_in_b::Union{BitVector, Vector{Bool}},
                                    cs_a::ClusterStats, cs_b::ClusterStats,
                                    member_indices::Vector{Int},
                                    loc_precs::Vector{LocPrecision},
-                                   grid::LocmixGrid, γ::Float64,
+                                   log_area::Float64, γ::Float64,
                                    track_density::Bool)
     m = length(member_indices)
     log_q = 0.0
@@ -299,10 +299,10 @@ function _restricted_gibbs_sweep!(is_in_b::Union{BitVector, Vector{Bool}},
         end
 
         # DM-weighted spatial predictive for each sub-cluster
-        log_pred_a = log_marginal_likelihood_locmix(add_loc(cs_a, lp), grid) -
-                     log_marginal_likelihood_locmix(cs_a, grid)
-        log_pred_b = log_marginal_likelihood_locmix(add_loc(cs_b, lp), grid) -
-                     log_marginal_likelihood_locmix(cs_b, grid)
+        log_pred_a = log_marginal_likelihood(add_loc(cs_a, lp), log_area) -
+                     log_marginal_likelihood(cs_a, log_area)
+        log_pred_b = log_marginal_likelihood(add_loc(cs_b, lp), log_area) -
+                     log_marginal_likelihood(cs_b, log_area)
 
         log_w_a = log(Float64(cs_a.n) + γ) + log_pred_a
         log_w_b = log(Float64(cs_b.n) + γ) + log_pred_b
@@ -332,7 +332,7 @@ end
 
 """
     _restricted_gibbs_transition_density(start_is_in_b, target_is_in_b, cs_a, cs_b,
-                                          member_indices, loc_precs, grid, γ)
+                                          member_indices, loc_precs, log_area, γ)
 
 Compute the log transition density of one restricted Gibbs sweep producing
 `target_is_in_b` starting from state `(cs_a, cs_b, start_is_in_b)`.
@@ -353,7 +353,7 @@ function _restricted_gibbs_transition_density(start_is_in_b::Union{BitVector, Ve
                                                cs_a::ClusterStats, cs_b::ClusterStats,
                                                member_indices::Vector{Int},
                                                loc_precs::Vector{LocPrecision},
-                                               grid::LocmixGrid, γ::Float64)
+                                               log_area::Float64, γ::Float64)
     m = length(member_indices)
     m < 3 && return 0.0
 
@@ -371,10 +371,10 @@ function _restricted_gibbs_transition_density(start_is_in_b::Union{BitVector, Ve
         end
 
         # Compute conditionals
-        log_pred_a = log_marginal_likelihood_locmix(add_loc(cs_a, lp), grid) -
-                     log_marginal_likelihood_locmix(cs_a, grid)
-        log_pred_b = log_marginal_likelihood_locmix(add_loc(cs_b, lp), grid) -
-                     log_marginal_likelihood_locmix(cs_b, grid)
+        log_pred_a = log_marginal_likelihood(add_loc(cs_a, lp), log_area) -
+                     log_marginal_likelihood(cs_a, log_area)
+        log_pred_b = log_marginal_likelihood(add_loc(cs_b, lp), log_area) -
+                     log_marginal_likelihood(cs_b, log_area)
 
         log_w_a = log(Float64(cs_a.n) + γ) + log_pred_a
         log_w_b = log(Float64(cs_b.n) + γ) + log_pred_b
@@ -413,7 +413,7 @@ only the final restricted Gibbs scan density enters the MH ratio).
 """
 function _sample_sequential_launch(member_indices::Vector{Int},
                                     loc_precs::Vector{LocPrecision},
-                                    grid::LocmixGrid, γ::Float64)
+                                    log_area::Float64, γ::Float64)
     m = length(member_indices)
     is_in_b = falses(m)
     is_in_b[2] = true
@@ -425,10 +425,10 @@ function _sample_sequential_launch(member_indices::Vector{Int},
         loc_idx = member_indices[idx]
         lp = loc_precs[loc_idx]
 
-        log_pred_a = log_marginal_likelihood_locmix(add_loc(cs_a, lp), grid) -
-                     log_marginal_likelihood_locmix(cs_a, grid)
-        log_pred_b = log_marginal_likelihood_locmix(add_loc(cs_b, lp), grid) -
-                     log_marginal_likelihood_locmix(cs_b, grid)
+        log_pred_a = log_marginal_likelihood(add_loc(cs_a, lp), log_area) -
+                     log_marginal_likelihood(cs_a, log_area)
+        log_pred_b = log_marginal_likelihood(add_loc(cs_b, lp), log_area) -
+                     log_marginal_likelihood(cs_b, log_area)
 
         log_w_a = log(Float64(cs_a.n) + γ) + log_pred_a
         log_w_b = log(Float64(cs_b.n) + γ) + log_pred_b
@@ -468,7 +468,7 @@ assignment probabilities for members 3..m).
 function _log_sequential_allocation(member_indices::Vector{Int},
                                      is_in_b::Vector{Bool},
                                      loc_precs::Vector{LocPrecision},
-                                     grid::LocmixGrid,
+                                     log_area::Float64,
                                      γ::Float64)
     m = length(member_indices)
     m < 3 && return 0.0  # Only seeds, no choices
@@ -483,10 +483,10 @@ function _log_sequential_allocation(member_indices::Vector{Int},
         lp = loc_precs[loc_idx]
 
         # DM-weighted spatial predictive for each sub-cluster
-        log_pred_a = log_marginal_likelihood_locmix(add_loc(cs_a, lp), grid) -
-                     log_marginal_likelihood_locmix(cs_a, grid)
-        log_pred_b = log_marginal_likelihood_locmix(add_loc(cs_b, lp), grid) -
-                     log_marginal_likelihood_locmix(cs_b, grid)
+        log_pred_a = log_marginal_likelihood(add_loc(cs_a, lp), log_area) -
+                     log_marginal_likelihood(cs_a, log_area)
+        log_pred_b = log_marginal_likelihood(add_loc(cs_b, lp), log_area) -
+                     log_marginal_likelihood(cs_b, log_area)
 
         log_w_a = log(Float64(cs_a.n) + γ) + log_pred_a
         log_w_b = log(Float64(cs_b.n) + γ) + log_pred_b
@@ -529,7 +529,7 @@ function _do_sequential_split!(state::CollapsedState, parent_slot::Int,
                                 γ::Float64;
                                 n_restricted_scans::Int = 5)
     loc_precs = state._loc_precs
-    grid = state._locmix_grid
+    log_area = state.log_area
     N = length(locs)
 
     # Collect member indices
@@ -572,10 +572,10 @@ function _do_sequential_split!(state::CollapsedState, parent_slot::Int,
         loc_idx = member_indices[idx]
         lp = loc_precs[loc_idx]
 
-        log_pred_a = log_marginal_likelihood_locmix(add_loc(cs_a, lp), grid) -
-                     log_marginal_likelihood_locmix(cs_a, grid)
-        log_pred_b = log_marginal_likelihood_locmix(add_loc(cs_b, lp), grid) -
-                     log_marginal_likelihood_locmix(cs_b, grid)
+        log_pred_a = log_marginal_likelihood(add_loc(cs_a, lp), log_area) -
+                     log_marginal_likelihood(cs_a, log_area)
+        log_pred_b = log_marginal_likelihood(add_loc(cs_b, lp), log_area) -
+                     log_marginal_likelihood(cs_b, log_area)
 
         log_w_a = log(Float64(cs_a.n) + γ) + log_pred_a
         log_w_b = log(Float64(cs_b.n) + γ) + log_pred_b
@@ -600,12 +600,12 @@ function _do_sequential_split!(state::CollapsedState, parent_slot::Int,
         # Intermediate scans: improve allocation without tracking density
         for _ in 1:(n_restricted_scans - 1)
             cs_a, cs_b, _ = _restricted_gibbs_sweep!(is_in_b, cs_a, cs_b,
-                member_indices, loc_precs, grid, γ, false)
+                member_indices, loc_precs, log_area, γ, false)
         end
         # Final scan: sample new allocation + track density
         # This density REPLACES the sequential allocation density
         cs_a, cs_b, log_q = _restricted_gibbs_sweep!(is_in_b, cs_a, cs_b,
-            member_indices, loc_precs, grid, γ, true)
+            member_indices, loc_precs, log_area, γ, true)
     end
 
     # Apply the allocation to the state
@@ -628,7 +628,7 @@ function _do_sequential_split!(state::CollapsedState, parent_slot::Int,
 end
 
 """
-    propose_split_merge!(state, locs, μ, shape; n_restricted_scans=0) -> (Bool, Symbol)
+    propose_split_merge!(state, locs, μ, shape, ρ; n_restricted_scans=0) -> (Bool, Symbol)
 
 RJMCMC split/merge with |ΔK|=1 proposals and computable proposal densities.
 
@@ -637,26 +637,22 @@ RJMCMC split/merge with |ΔK|=1 proposals and computable proposal densities.
 2. Execute one split or merge with Jain-Neal restricted Gibbs scans.
 3. Accept/reject with full MH ratio:
 
-   log α = Δ_spatial + Δ_partition + Δ_proposal + Δ_count + Δ_move_type
+   log α = Δ_spatial + Δ_partition + Δ_proposal + Δ_count + Δ_K_prior + Δ_move_type
 
-Unlike the previous count-model K proposal (which sampled K_new from
-π_count(K) ∝ P(N|K) and canceled in the MH ratio), the |ΔK|=1 approach
-requires the count-model ratio explicitly:
-  Δ_count = log P(N|K') - log P(N|K)
-  Δ_move_type = log(d_{K'}) - log(b_K)  for splits (and vice versa for merges)
-
-This eliminates multi-step proposals that compound the DM penalty and are
-almost never accepted.
+The Poisson(ρA) K prior contributes Δ_K_prior = log_prior_k_poisson(K',ρ,A) - log_prior_k_poisson(K,ρ,A).
+Combined with the flat spatial prior's -log(A) per cluster, the area factors cancel:
+  split: Δ_K_prior = log(ρ) - log(K+1), independent of A.
 
 Returns (accepted, move_type) where move_type is :split or :merge.
 """
 function propose_split_merge!(state::CollapsedState,
                                locs::Vector{<:SMLMData.AbstractEmitter},
-                               μ::Float64, shape::Float64;
+                               μ::Float64, shape::Float64, ρ::Float64;
                                n_restricted_scans::Int = 5)
     N = length(locs)
     N < 2 && return false, :split
     K = state.n_active
+    A = exp(state.log_area)
 
     # Choose split or merge with boundary handling
     # b_K = P(proposing split at K), d_K = P(proposing merge at K)
@@ -775,29 +771,31 @@ function propose_split_merge!(state::CollapsedState,
         seed_b_cluster = state.assignments[member_indices[2]]
         is_in_b = [state.assignments[member_indices[i]] == seed_b_cluster for i in 1:m_merge]
 
+        log_area = state.log_area
+
         # Compute reverse (split) allocation density
         if n_restricted_scans > 0
             # Jain-Neal: launch → intermediate scans → transition density to current
             # 1. Sample a launch state via sequential allocation from merged cluster
             launch_is_in_b, launch_cs_a, launch_cs_b = _sample_sequential_launch(
-                member_indices, state._loc_precs, state._locmix_grid, γ)
+                member_indices, state._loc_precs, log_area, γ)
 
             # 2. Run intermediate restricted Gibbs scans on the launch state
             for _ in 1:(n_restricted_scans - 1)
                 launch_cs_a, launch_cs_b, _ = _restricted_gibbs_sweep!(
                     launch_is_in_b, launch_cs_a, launch_cs_b,
-                    member_indices, state._loc_precs, state._locmix_grid, γ, false)
+                    member_indices, state._loc_precs, log_area, γ, false)
             end
 
             # 3. Compute transition density: one Gibbs sweep from intermediate → current
             log_q_alloc_rev = _restricted_gibbs_transition_density(
                 launch_is_in_b, is_in_b,
                 launch_cs_a, launch_cs_b,
-                member_indices, state._loc_precs, state._locmix_grid, γ)
+                member_indices, state._loc_precs, log_area, γ)
         else
             # No restricted Gibbs: use sequential allocation density (Round 3 behavior)
             log_q_alloc_rev = _log_sequential_allocation(
-                member_indices, is_in_b, state._loc_precs, state._locmix_grid, γ)
+                member_indices, is_in_b, state._loc_precs, log_area, γ)
         end
 
         # Reverse: select cluster + allocation density (seed density cancels)
@@ -824,15 +822,17 @@ function propose_split_merge!(state::CollapsedState,
     dm_after = _log_dm_partition(state, N, γ)
 
     # Full MH acceptance ratio:
-    #   log α = Δ_spatial + Δ_partition + Δ_proposal + Δ_count + Δ_move_type
-    # Δ_count is needed because K is no longer proposed from the count model
-    # (which previously canceled against the posterior).
+    #   log α = Δ_spatial + Δ_partition + Δ_proposal + Δ_count + Δ_K_prior + Δ_move_type
+    # Δ_K_prior: Poisson(ρA) prior on K. Combined with flat spatial -log(A) per cluster,
+    # the area factors cancel: split contributes log(ρ) - log(K+1).
     Δ_spatial = lml_after - lml_before
     Δ_partition = dm_after - dm_before
     Δ_proposal = log_q_rev - log_q_fwd
     Δ_count = _log_count_posterior(K_new, N, shape, μ) -
               _log_count_posterior(K, N, shape, μ)
-    log_α = Δ_spatial + Δ_partition + Δ_proposal + Δ_count + Δ_move_type
+    Δ_K_prior = log_prior_k_poisson(K_new, ρ, A) -
+                log_prior_k_poisson(K, ρ, A)
+    log_α = Δ_spatial + Δ_partition + Δ_proposal + Δ_count + Δ_K_prior + Δ_move_type
 
     if log_α >= 0 || rand() < exp(log_α)
         return true, move_type
@@ -847,7 +847,7 @@ end
 # ============================================================================
 
 """
-    propose_birth_death!(state, locs, μ, shape) -> (Bool, Symbol)
+    propose_birth_death!(state, locs, μ, shape, ρ) -> (Bool, Symbol)
 
 Birth/death move for incremental K-mixing.
 
@@ -855,27 +855,23 @@ Birth (K → K+1): pick a random non-sole-occupant loc, detach it as a singleton
 Death (K → K-1): pick a random singleton, absorb it into a cluster via
 DM-weighted predictive.
 
-The DM partition penalty per birth is ~-1.2 (vs -2.5 to -5 for split),
-providing cheaper K±1 transitions. Subsequent Gibbs sweeps grow new
-singletons into proper clusters.
-
 MH acceptance:
-  log α = Δ_spatial + Δ_partition + Δ_proposal + Δ_count
+  log α = Δ_spatial + Δ_partition + Δ_proposal + Δ_count + Δ_K_prior
 
-Birth proposal: q_fwd = p_birth × (1/N_eligible)
-Death reverse:  q_rev = p_death' × (1/n_singletons') × w(dest)/Σw
-  where w(k) = (n_k + γ) × predictive(loc | cluster_k)
+The Poisson(ρA) K prior contributes Δ_K_prior. Combined with flat spatial
+prior's -log(A) per cluster, the area factors cancel.
 
 Returns (accepted, move_type) where move_type is :birth or :death.
 """
 function propose_birth_death!(state::CollapsedState,
                                locs::Vector{<:SMLMData.AbstractEmitter},
-                               μ::Float64, shape::Float64)
+                               μ::Float64, shape::Float64, ρ::Float64)
     N = length(locs)
     K = state.n_active
     γ = Float64(shape)
     loc_precs = state._loc_precs
-    grid = state._locmix_grid
+    log_area = state.log_area
+    A = exp(log_area)
 
     # Count singletons (clusters with n=1)
     n_singletons = 0
@@ -961,7 +957,7 @@ function propose_birth_death!(state::CollapsedState,
                 dest_count += 1
                 cs = state.clusters[j]
                 log_probs[dest_count] = log(Float64(cs.n) + γ) +
-                                         log_predictive_locmix(cs, lp, grid)
+                                         log_predictive(cs, lp, log_area)
                 if j == old_cluster
                     log_w_dest = log_probs[dest_count]
                 end
@@ -1018,7 +1014,7 @@ function propose_birth_death!(state::CollapsedState,
                 dest_count += 1
                 cs = state.clusters[j]
                 log_probs[dest_count] = log(Float64(cs.n) + γ) +
-                                         log_predictive_locmix(cs, lp, grid)
+                                         log_predictive(cs, lp, log_area)
                 dest_slots[dest_count] = j
             end
         end
@@ -1087,8 +1083,10 @@ function propose_birth_death!(state::CollapsedState,
     Δ_proposal = log_q_rev - log_q_fwd
     Δ_count = _log_count_posterior(K_new, N, shape, μ) -
               _log_count_posterior(K, N, shape, μ)
+    Δ_K_prior = log_prior_k_poisson(K_new, ρ, A) -
+                log_prior_k_poisson(K, ρ, A)
 
-    log_α = Δ_spatial + Δ_partition + Δ_proposal + Δ_count
+    log_α = Δ_spatial + Δ_partition + Δ_proposal + Δ_count + Δ_K_prior
 
     if log_α >= 0 || rand() < exp(log_α)
         return true, move_type
