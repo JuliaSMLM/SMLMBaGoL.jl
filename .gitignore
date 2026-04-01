@@ -12,6 +12,7 @@ dev/
 examples/output/
 
 *.swp
+.skill-build/
 .nfs*
 **/.nfs*
 **/.claude/settings.local.json
