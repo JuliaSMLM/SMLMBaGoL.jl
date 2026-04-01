@@ -602,6 +602,28 @@ using Distributions
             probs, log_targets = exact_posterior(parts, locs, td; μ=10.0, shape=2.0)
             @test sum(probs) ≈ 1.0 atol=1e-10
             @test all(isfinite, log_targets)
+
+            probs_none, log_targets_none = exact_posterior(
+                parts, locs, td; μ=10.0, shape=2.0, label_multiplicity=:none)
+            @test sum(probs_none) ≈ 1.0 atol=1e-10
+            for (i, z) in enumerate(parts)
+                K = maximum(z)
+                @test log_targets[i] ≈ log_targets_none[i] + SMLMBaGoL.logfactorial(K) atol=1e-10
+            end
+
+            # The collapsed DM form must match the direct NegBin-assignment form
+            # exactly for every labeled partition.
+            td_dm = DMFlatTarget()
+            td_direct = DirectNegBinFlatTarget()
+            for z in parts
+                lt_dm = evaluate_target(td_dm, z, locs; μ=10.0, shape=2.0, ρ=2.0)
+                lt_direct = evaluate_target(td_direct, z, locs; μ=10.0, shape=2.0, ρ=2.0)
+                @test lt_dm ≈ lt_direct atol=1e-10
+            end
+
+            probs_dm, _ = exact_posterior(parts, locs, td_dm; μ=10.0, shape=2.0, ρ=2.0)
+            probs_direct, _ = exact_posterior(parts, locs, td_direct; μ=10.0, shape=2.0, ρ=2.0)
+            @test all(isapprox.(probs_dm, probs_direct; atol=1e-12))
         end
 
     end
