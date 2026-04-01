@@ -102,6 +102,9 @@ $$P_{\text{DM}}(z \mid K, N) = \frac{\Gamma(K\gamma)}{\Gamma(\gamma)^K \,\Gamma(
 
 with $\gamma = \alpha$ (the NegBin shape). This prior is the correct conditional distribution of allocations given $K$ and $N$ under the NegBin count model. It is NOT a tuning parameter --- it is a mathematical consequence of the generative model ($P_{\text{count}} \times P_{\text{DM}} = \prod_k \text{NegBin}(n_k) / \binom{N}{n_1 \cdots n_K}$).
 
+For the more general derivation starting from an arbitrary iid emitter-count
+family `q(n)`, see [count-family-partition-prior.md](count-family-partition-prior.md).
+
 The DM prior provides a "rich-get-richer" effect that compensates for the combinatorial explosion of allocations at higher $K$ (Stirling number $S(N,K)$ grows rapidly). Without it, the implicit allocation prior is uniform-per-label, which overwhelmingly favors high $K$.
 
 **No separate prior on $K$.** The NegBin count model alone regularizes $K$.
