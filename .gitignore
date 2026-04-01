@@ -11,6 +11,7 @@ examples/.vscode/
 dev/
 examples/output/
 
+*.swp
 .nfs*
 **/.nfs*
 **/.claude/settings.local.json
