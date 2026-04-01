@@ -2,6 +2,9 @@
 
 **Why the Dirichlet-Multinomial partition prior arises from independent NegBin emitter counts, and why it may be the wrong model for BaGoL.**
 
+For the general derivation starting from an arbitrary iid emitter-count pmf
+`q(n)`, see [count-family-partition-prior.md](count-family-partition-prior.md).
+
 ---
 
 ## 1. Physical Model
@@ -53,6 +56,44 @@ where $n_j = |\{i : z_i = j\}|$ are the cluster sizes induced by $z$.
 ### Verification
 
 The identity $\text{DM}(\mathbf{n}) \times P(N \mid K) = \text{Polya}(z) \times \binom{N}{\mathbf{n}} \times P(N \mid K) = \prod_j \text{NegBin}(n_j; \alpha, p)$ holds exactly. The per-emitter NegBin likelihood decomposes into the Polya prior on $z$, the multinomial multiplicity of assignment vectors, and the marginal count likelihood.
+
+### What this does and does not assume
+
+It is important to be precise about the hidden assumption here.
+
+The derivation does **not** assume a distribution over $\alpha$ and then
+integrate $\alpha$ out. Here, $\alpha$ is fixed.
+
+What is assumed is the factorization
+
+$$P(n_1, \ldots, n_K \mid K, \alpha, p) = \prod_j \text{NegBin}(n_j; \alpha, p).$$
+
+That factorized finite-$\alpha$ NegBin model is enough by itself to imply the
+DM count prior and the Polya prior on $z$ after conditioning on $N$.
+
+An equivalent latent-variable interpretation is:
+
+$$\lambda_j \stackrel{\text{iid}}{\sim} \text{Gamma}(\alpha, \alpha/\mu), \qquad
+n_j \mid \lambda_j \sim \text{Poisson}(\lambda_j).$$
+
+Marginally, each emitter count is still Negative Binomial. But after
+conditioning on total count $N$, the normalized shares
+
+$$\pi_j = \lambda_j / \sum_\ell \lambda_\ell$$
+
+follow a Dirichlet distribution,
+
+$$\pi \sim \text{Dir}(\alpha, \ldots, \alpha),$$
+
+and
+
+$$\mathbf{n} \mid N, \pi \sim \text{Multinomial}(N, \pi).$$
+
+Integrating out $\pi$ gives the DM distribution on count vectors and the Polya
+prior on assignment vectors.
+
+So the physical content of `DM/Polya` is not "random $\alpha$." It is
+"emitter-specific random count shares, integrated out."
 
 ---
 
