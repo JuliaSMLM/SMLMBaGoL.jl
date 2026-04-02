@@ -229,6 +229,9 @@ function _run_bagol_collapsed(
     n_outer = div(n_iterations, sync_interval)
     iter_counters = zeros(Int, n_partitions)
 
+    # Per-partition timing (cumulative nanoseconds per partition)
+    partition_times_ns = zeros(UInt64, n_partitions)
+
     # Per-partition acceptance tracking
     _zero() = (0, 0)
     partition_acceptance = [Dict{Symbol, Tuple{Int, Int}}(
@@ -239,6 +242,7 @@ function _run_bagol_collapsed(
     for outer in 1:n_outer
         @sync for i in 1:n_partitions
             Threads.@spawn begin
+                t0 = time_ns()
                 iter_counters[i] = run_collapsed_iterations!(
                     states[i], partitions[i].locs, sync_interval,
                     μ, current_shape, ρ,
@@ -247,6 +251,7 @@ function _run_bagol_collapsed(
                     n_restricted_scans=n_restricted_scans,
                     n_bd_substeps=n_bd_substeps
                 )
+                partition_times_ns[i] += time_ns() - t0
             end
         end
 
@@ -448,6 +453,23 @@ function _run_bagol_collapsed(
         loc_partition_ids, post_img
     )
     result_smld = SMLMData.BasicSMLD(merged_emitters, camera, 1, 1)
+
+    # Per-partition timing summary
+    partition_sizes = [length(p.locs) for p in partitions]
+    partition_secs = partition_times_ns ./ 1e9
+    sort_idx = sortperm(partition_secs; rev=true)
+    total_cpu_s = sum(partition_secs)
+    _log_progress("  Partition timing: $(round(total_cpu_s, digits=1))s total CPU, " *
+                  "$(round(maximum(partition_secs), digits=1))s slowest, " *
+                  "$(round(median(partition_secs), digits=3))s median")
+    # Top 10 slowest partitions
+    n_show = min(10, n_partitions)
+    for rank in 1:n_show
+        i = sort_idx[rank]
+        _log_progress("    #$rank: pid=$i, N=$(partition_sizes[i]), " *
+                      "$(round(partition_secs[i], digits=2))s " *
+                      "($(round(partition_secs[i]/total_cpu_s*100, digits=1))% of CPU)")
+    end
 
     _log_progress("Done: $(length(merged_emitters)) emitters from $(length(locs)) localizations")
 
