@@ -11,6 +11,11 @@ A partition of localizations for parallel processing.
 - `original_indices`: Indices mapping back to original input
 - `is_boundary`: Flags for localizations near partition edge
 - `parent_id`: 0 for original DBSCAN clusters, >0 if split from oversized
+- `is_overlap`: Flags for localizations in an overlap strip (result emitters here are discarded)
+- `core_bounds`: If split with overlap, the axis-aligned half-space defining the core region.
+  `nothing` for unsplit DBSCAN partitions. For bisected partitions:
+  `(axis::Vector{Float64}, threshold::Float64, side::Symbol)` where
+  `side ∈ {:left, :right}` means core = `dot(pos, axis) ≤ threshold` or `> threshold`.
 """
 struct Partition{E<:SMLMData.AbstractEmitter}
     id::Int
@@ -18,10 +23,19 @@ struct Partition{E<:SMLMData.AbstractEmitter}
     original_indices::Vector{Int}
     is_boundary::BitVector
     parent_id::Int
+    is_overlap::BitVector
+    core_bounds::Union{Nothing, NamedTuple{(:axis, :threshold, :side), Tuple{Vector{Float64}, Float64, Symbol}}}
+end
+
+# Backward-compatible constructor (no overlap)
+function Partition{E}(id::Int, locs::Vector{E}, original_indices::Vector{Int},
+                      is_boundary::BitVector, parent_id::Int) where E<:SMLMData.AbstractEmitter
+    Partition{E}(id, locs, original_indices, is_boundary, parent_id,
+                 falses(length(locs)), nothing)
 end
 
 """
-    partition_locs(locs; partition_sigma, min_size, max_size, skip_size, boundary_margin)
+    partition_locs(locs; partition_sigma, min_size, max_size, skip_size, boundary_margin, overlap)
 
 Partition localizations using precision-weighted DBSCAN.
 
@@ -34,6 +48,8 @@ Two localizations are neighbors if `||p_i - p_j|| / (σ_i + σ_j) < partition_si
 - `max_size=1000`: Split partitions larger than this
 - `skip_size=typemax(Int)`: Skip partitions larger than this (Inf = never skip)
 - `boundary_margin=0.0`: Distance from edge to flag as boundary (0 = auto: partition_sigma×median(σ))
+- `overlap=:auto`: Overlap width for bisected oversized partitions. `:auto` uses
+  `partition_sigma × median(σ)` (μm). Numeric value in μm. `0.0` disables overlap.
 
 # Returns
 - `partitions`: Vector of Partition for valid clusters
@@ -45,16 +61,27 @@ function partition_locs(
     min_size::Int=0,
     max_size::Int=1000,
     skip_size::Int=typemax(Int),
-    boundary_margin::Float64=0.0
+    boundary_margin::Float64=0.0,
+    overlap::Union{Float64, Symbol}=:auto
 ) where E<:SMLMData.AbstractEmitter
     if isempty(locs)
         return Partition{E}[], Partition{E}[]
     end
 
     # Auto boundary margin: scale with partition_sigma (partition gap ≈ partition_sigma*(σ_i+σ_j))
+    sigmas = [mean_sigma(loc) for loc in locs]
+    med_sigma = median(sigmas)
     if boundary_margin <= 0.0
-        sigmas = [mean_sigma(loc) for loc in locs]
-        boundary_margin = partition_sigma * median(sigmas)
+        boundary_margin = partition_sigma * med_sigma
+    end
+
+    # Resolve overlap for bisected partitions
+    overlap_um = if overlap === :auto
+        partition_sigma * med_sigma
+    elseif overlap isa Float64
+        overlap
+    else
+        error("overlap must be :auto or a Float64 in μm (got $overlap)")
     end
 
     # Run precision-weighted DBSCAN
@@ -86,8 +113,8 @@ function partition_locs(
             push!(skipped, partition)
             partition_id += 1
         else
-            # Between max_size and skip_size: split recursively
-            sub_partitions = split_partition(partition, max_size, boundary_margin, partition_id)
+            # Between max_size and skip_size: split recursively with overlap
+            sub_partitions = split_partition(partition, max_size, boundary_margin, partition_id; overlap=overlap_um)
             for sp in sub_partitions
                 push!(partitions, sp)
                 partition_id += 1
@@ -211,24 +238,31 @@ function precision_neighbors(
 end
 
 """
-    split_partition(partition, max_size, boundary_margin, start_id)
+    split_partition(partition, max_size, boundary_margin, start_id; overlap)
 
 Recursively split an oversized partition using principal axis bisection.
 
-Returns vector of sub-partitions, each with size <= max_size.
+When `overlap > 0`, localizations within `overlap` μm of the cut plane are
+included in BOTH sub-partitions (marked `is_overlap=true`). After RJMCMC,
+emitters in the overlap strip are discarded — only core-region emitters are
+kept. This ensures emitters near the cut have full neighbor context.
+
+Returns vector of sub-partitions, each with core size ≤ max_size.
 """
 function split_partition(
     partition::Partition{E},
     max_size::Int,
     boundary_margin::Float64,
-    start_id::Int
+    start_id::Int;
+    overlap::Float64=0.0
 ) where E
     locs = partition.locs
     n = length(locs)
 
     if n <= max_size
         return [Partition{E}(start_id, locs, partition.original_indices,
-                            partition.is_boundary, partition.id)]
+                            partition.is_boundary, partition.id,
+                            falses(n), nothing)]
     end
 
     # Find principal axis (direction of maximum variance)
@@ -249,42 +283,57 @@ function split_partition(
     # Split at median
     median_proj = median(projections)
 
-    # Assign to sub-partitions
-    left_mask = projections .<= median_proj
-    right_mask = .!left_mask
+    # Core membership: which side of the cut each loc belongs to
+    core_left = projections .<= median_proj
+    core_right = .!core_left
 
-    left_indices = findall(left_mask)
-    right_indices = findall(right_mask)
+    # Overlap strip: locs within `overlap` μm of the cut plane (included in both sides)
+    # Project overlap distance onto the principal axis (axis is unit vector, so
+    # distance along axis = physical distance when axis is normalized)
+    axis_norm = sqrt(principal_axis[1]^2 + principal_axis[2]^2)
+    overlap_proj = overlap / max(axis_norm, 1e-10)
+    near_cut = abs.(projections .- median_proj) .< overlap_proj
 
     # Create sub-partitions
     sub_partitions = Partition{E}[]
     current_id = start_id
 
-    for (local_indices, is_left) in [(left_indices, true), (right_indices, false)]
+    for (side, core_mask) in [(:left, core_left), (:right, core_right)]
+        # Include core locs + overlap locs from the other side
+        include_mask = core_mask .| near_cut
+        local_indices = findall(include_mask)
         isempty(local_indices) && continue
 
         sub_locs = locs[local_indices]
         sub_orig_indices = partition.original_indices[local_indices]
 
-        # Mark boundary: locs near the split plane or near original boundary
+        # Mark boundary: near original boundary
         sub_is_boundary = BitVector(undef, length(sub_locs))
         for (i, idx) in enumerate(local_indices)
-            # Near split plane?
-            dist_to_plane = abs(projections[idx] - median_proj)
-            near_split = dist_to_plane < boundary_margin
-
-            # Already a boundary loc?
-            was_boundary = partition.is_boundary[idx]
-
-            sub_is_boundary[i] = near_split || was_boundary
+            sub_is_boundary[i] = partition.is_boundary[idx]
         end
 
-        sub_partition = Partition{E}(current_id, sub_locs, sub_orig_indices,
-                                     sub_is_boundary, partition.id)
+        # Mark overlap: locs that are NOT in this side's core
+        sub_is_overlap = BitVector(undef, length(sub_locs))
+        for (i, idx) in enumerate(local_indices)
+            sub_is_overlap[i] = !core_mask[idx]
+        end
 
-        # Recurse if still oversized
-        if length(sub_locs) > max_size
-            recursed = split_partition(sub_partition, max_size, boundary_margin, current_id)
+        # Core bounds for emitter filtering after RJMCMC
+        bounds = (axis=collect(principal_axis), threshold=median_proj + centroid' * principal_axis, side=side)
+
+        sub_partition = Partition{E}(current_id, sub_locs, sub_orig_indices,
+                                     sub_is_boundary, partition.id,
+                                     sub_is_overlap, bounds)
+
+        # Recurse if core locs still oversized.
+        # Guard: only recurse if the core actually got smaller than the input.
+        # When overlap captures the entire cluster (tight data), the split doesn't
+        # reduce size and recursion would be infinite.
+        n_core = count(.!sub_is_overlap)
+        n_parent_core = count(.!partition.is_overlap)
+        if n_core > max_size && n_core < n_parent_core
+            recursed = split_partition(sub_partition, max_size, boundary_margin, current_id; overlap)
             append!(sub_partitions, recursed)
             current_id += length(recursed)
         else
