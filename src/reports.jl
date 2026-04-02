@@ -184,37 +184,28 @@ end
 function _nn_distances(emitters::Vector{<:SMLMData.AbstractEmitter})
     n = length(emitters)
     n < 2 && return Float64[]
-    dists = Float64[]
-    for i in 1:n
-        min_d = Inf
-        for j in 1:n
-            i == j && continue
-            dx = emitters[i].x - emitters[j].x
-            dy = emitters[i].y - emitters[j].y
-            d = sqrt(dx^2 + dy^2)
-            d < min_d && (min_d = d)
-        end
-        push!(dists, min_d)
+    coords = Matrix{Float64}(undef, 2, n)
+    @inbounds for i in 1:n
+        coords[1, i] = emitters[i].x
+        coords[2, i] = emitters[i].y
     end
-    return dists
+    tree = KDTree(coords)
+    # k=2: nearest neighbor is self (distance 0), second is true NN
+    _, ds = knn(tree, coords, 2)
+    return [d[2] for d in ds]
 end
 
 function _nn_distances(positions::Vector{Tuple{Float64, Float64}})
     n = length(positions)
     n < 2 && return Float64[]
-    dists = Float64[]
-    for i in 1:n
-        min_d = Inf
-        for j in 1:n
-            i == j && continue
-            dx = positions[i][1] - positions[j][1]
-            dy = positions[i][2] - positions[j][2]
-            d = sqrt(dx^2 + dy^2)
-            d < min_d && (min_d = d)
-        end
-        push!(dists, min_d)
+    coords = Matrix{Float64}(undef, 2, n)
+    @inbounds for i in 1:n
+        coords[1, i] = positions[i][1]
+        coords[2, i] = positions[i][2]
     end
-    return dists
+    tree = KDTree(coords)
+    _, ds = knn(tree, coords, 2)
+    return [d[2] for d in ds]
 end
 
 # ============================================================================
