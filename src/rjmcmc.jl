@@ -352,6 +352,31 @@ function _run_bagol_collapsed(
         end
     end
 
+    # Filter overlap emitters: discard emitters whose posterior mean falls
+    # outside the core region (in the overlap strip) of bisected partitions.
+    n_overlap_discarded = 0
+    for pid in 1:n_partitions
+        bounds = partitions[pid].core_bounds
+        bounds === nothing && continue  # unsplit DBSCAN partition — keep all
+        axis = bounds.axis
+        threshold = bounds.threshold
+        keep = Bool[]
+        for e in partition_emitters[pid]
+            proj = axis[1] * e.x + axis[2] * e.y
+            in_core = bounds.side === :left ? proj <= threshold : proj > threshold
+            push!(keep, in_core)
+        end
+        n_discard = count(.!keep)
+        if n_discard > 0
+            partition_emitters[pid] = partition_emitters[pid][keep]
+            partition_boundary[pid] = partition_boundary[pid][keep]
+            n_overlap_discarded += n_discard
+        end
+    end
+    if n_overlap_discarded > 0
+        _log_progress("  Overlap discard: $n_overlap_discarded emitters removed from bisected partitions")
+    end
+
     # Flatten results (preserving partition order)
     all_emitters = SMLMData.Emitter2DFit[]
     partition_ids = Int[]
