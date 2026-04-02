@@ -11,11 +11,9 @@ A partition of localizations for parallel processing.
 - `original_indices`: Indices mapping back to original input
 - `is_boundary`: Flags for localizations near partition edge
 - `parent_id`: 0 for original DBSCAN clusters, >0 if split from oversized
-- `is_overlap`: Flags for localizations in an overlap strip (result emitters here are discarded)
-- `core_bounds`: If split with overlap, the axis-aligned half-space defining the core region.
-  `nothing` for unsplit DBSCAN partitions. For bisected partitions:
-  `(axis::Vector{Float64}, threshold::Float64, side::Symbol)` where
-  `side ∈ {:left, :right}` means core = `dot(pos, axis) ≤ threshold` or `> threshold`.
+- `is_overlap`: Flags for localizations included from sibling sub-partitions
+  for spatial context. Emitters primarily composed of overlap locs are discarded
+  after MAP-N extraction.
 """
 struct Partition{E<:SMLMData.AbstractEmitter}
     id::Int
@@ -24,14 +22,13 @@ struct Partition{E<:SMLMData.AbstractEmitter}
     is_boundary::BitVector
     parent_id::Int
     is_overlap::BitVector
-    core_bounds::Union{Nothing, NamedTuple{(:axis, :threshold, :side), Tuple{Vector{Float64}, Float64, Symbol}}}
 end
 
 # Backward-compatible constructor (no overlap)
 function Partition{E}(id::Int, locs::Vector{E}, original_indices::Vector{Int},
                       is_boundary::BitVector, parent_id::Int) where E<:SMLMData.AbstractEmitter
     Partition{E}(id, locs, original_indices, is_boundary, parent_id,
-                 falses(length(locs)), nothing)
+                 falses(length(locs)))
 end
 
 """
@@ -237,24 +234,67 @@ function precision_neighbors(
     return neighbors
 end
 
+# ============================================================================
+# MST-based partition splitting
+#
+# For oversized DBSCAN clusters: build a precision-weighted kNN graph,
+# extract MST via Kruskal's algorithm, then remove heaviest edges until
+# all components have ≤ max_size nodes. Each component becomes a sub-partition.
+# Overlap locs are added from sibling components via pointwise proximity.
+# ============================================================================
+
+# Union-Find for Kruskal's MST
+mutable struct _UnionFind
+    parent::Vector{Int}
+    rank::Vector{Int}
+    size::Vector{Int}
+end
+
+function _UnionFind(n::Int)
+    _UnionFind(collect(1:n), zeros(Int, n), ones(Int, n))
+end
+
+function _uf_find(uf::_UnionFind, x::Int)
+    while uf.parent[x] != x
+        uf.parent[x] = uf.parent[uf.parent[x]]  # path halving
+        x = uf.parent[x]
+    end
+    return x
+end
+
+function _uf_union!(uf::_UnionFind, a::Int, b::Int)
+    ra, rb = _uf_find(uf, a), _uf_find(uf, b)
+    ra == rb && return false
+    if uf.rank[ra] < uf.rank[rb]
+        ra, rb = rb, ra
+    end
+    uf.parent[rb] = ra
+    uf.size[ra] += uf.size[rb]
+    if uf.rank[ra] == uf.rank[rb]
+        uf.rank[ra] += 1
+    end
+    return true
+end
+
 """
-    split_partition(partition, max_size, boundary_margin, start_id; overlap)
+    split_partition(partition, max_size, boundary_margin, start_id; overlap, k_neighbors)
 
-Recursively split an oversized partition using principal axis bisection.
+Split an oversized partition using MST-based graph cutting.
 
-When `overlap > 0`, localizations within `overlap` μm of the cut plane are
-included in BOTH sub-partitions (marked `is_overlap=true`). After RJMCMC,
-emitters in the overlap strip are discarded — only core-region emitters are
-kept. This ensures emitters near the cut have full neighbor context.
+1. Build kNN graph with precision-weighted distances
+2. Extract MST via Kruskal's algorithm
+3. Remove heaviest edges until all components ≤ max_size
+4. Add overlap locs from sibling components (pointwise proximity)
 
-Returns vector of sub-partitions, each with core size ≤ max_size.
+Returns vector of sub-partitions with natural, data-driven boundaries.
 """
 function split_partition(
     partition::Partition{E},
     max_size::Int,
     boundary_margin::Float64,
     start_id::Int;
-    overlap::Float64=0.0
+    overlap::Float64=0.0,
+    k_neighbors::Int=15
 ) where E
     locs = partition.locs
     n = length(locs)
@@ -262,84 +302,120 @@ function split_partition(
     if n <= max_size
         return [Partition{E}(start_id, locs, partition.original_indices,
                             partition.is_boundary, partition.id,
-                            falses(n), nothing)]
+                            falses(n))]
     end
 
-    # Find principal axis (direction of maximum variance)
+    # --- Build kNN graph with precision-weighted distances ---
     coords = coords_matrix(locs)
-    centroid = vec(mean(coords, dims=2))
-    centered = coords .- centroid
+    tree = KDTree(coords)
+    max_sigma = maximum(mean_sigma(loc) for loc in locs)
+    k = min(k_neighbors, n - 1)
 
-    # Covariance matrix
-    cov_mat = (centered * centered') / (n - 1)
+    # Collect weighted edges (i, j, distance)
+    edges = Tuple{Int, Int, Float64}[]
+    for i in 1:n
+        # Use physical radius for KDTree query, then filter by precision distance
+        idxs, _ = knn(tree, coords[:, i], k + 1)  # +1 for self
+        for j in idxs
+            j == i && continue
+            d = precision_weighted_distance(locs[i], locs[j])
+            push!(edges, (i, j, d))
+        end
+    end
 
-    # Principal axis is eigenvector with largest eigenvalue
-    eigenvalues, eigenvectors = eigen(cov_mat)
-    principal_axis = eigenvectors[:, argmax(eigenvalues)]
+    # --- MST via Kruskal's ---
+    sort!(edges, by=e -> e[3])
+    uf = _UnionFind(n)
+    mst_edges = Tuple{Int, Int, Float64}[]
+    for (i, j, d) in edges
+        if _uf_union!(uf, i, j)
+            push!(mst_edges, (i, j, d))
+            length(mst_edges) == n - 1 && break
+        end
+    end
 
-    # Project onto principal axis
-    projections = vec(principal_axis' * centered)
+    # --- Size-constrained cuts: remove heaviest MST edges until all components ≤ max_size ---
+    # Sort MST edges by weight descending
+    sort!(mst_edges, by=e -> -e[3])
 
-    # Split at median
-    median_proj = median(projections)
+    # Rebuild components after removing edges
+    uf_cut = _UnionFind(n)
+    # Add edges lightest-first, skipping the heaviest ones that would create oversized components
+    # Simpler: iteratively remove heaviest edge if its component is oversized
+    cut_edges = Set{Int}()  # indices into mst_edges to skip
 
-    # Core membership: which side of the cut each loc belongs to
-    core_left = projections .<= median_proj
-    core_right = .!core_left
+    # Greedy: try adding all MST edges lightest-first, reject if would exceed max_size
+    sorted_by_weight = sortperm(mst_edges, by=e -> e[3])
+    uf_build = _UnionFind(n)
+    for idx in sorted_by_weight
+        i, j, d = mst_edges[idx]
+        ri, rj = _uf_find(uf_build, i), _uf_find(uf_build, j)
+        combined_size = uf_build.size[ri] + uf_build.size[rj]
+        if combined_size <= max_size
+            _uf_union!(uf_build, i, j)
+        end
+        # else: skip this edge (cut it), leaving the components separate
+    end
 
-    # Overlap strip: locs within `overlap` μm of the cut plane (included in both sides)
-    # Project overlap distance onto the principal axis (axis is unit vector, so
-    # distance along axis = physical distance when axis is normalized)
-    axis_norm = sqrt(principal_axis[1]^2 + principal_axis[2]^2)
-    overlap_proj = overlap / max(axis_norm, 1e-10)
-    near_cut = abs.(projections .- median_proj) .< overlap_proj
+    # --- Extract components ---
+    component_map = Dict{Int, Vector{Int}}()
+    for i in 1:n
+        root = _uf_find(uf_build, i)
+        if haskey(component_map, root)
+            push!(component_map[root], i)
+        else
+            component_map[root] = [i]
+        end
+    end
+    components = collect(values(component_map))
 
-    # Create sub-partitions
+    # --- Build sub-partitions with pointwise sibling overlap ---
+    # For each component, find locs in OTHER components within overlap distance
     sub_partitions = Partition{E}[]
     current_id = start_id
 
-    for (side, core_mask) in [(:left, core_left), (:right, core_right)]
-        # Include core locs + overlap locs from the other side
-        include_mask = core_mask .| near_cut
-        local_indices = findall(include_mask)
-        isempty(local_indices) && continue
-
-        sub_locs = locs[local_indices]
-        sub_orig_indices = partition.original_indices[local_indices]
-
-        # Mark boundary: near original boundary
-        sub_is_boundary = BitVector(undef, length(sub_locs))
-        for (i, idx) in enumerate(local_indices)
-            sub_is_boundary[i] = partition.is_boundary[idx]
+    # Component membership lookup
+    loc_component = zeros(Int, n)
+    for (ci, comp) in enumerate(components)
+        for idx in comp
+            loc_component[idx] = ci
         end
+    end
 
-        # Mark overlap: locs that are NOT in this side's core
-        sub_is_overlap = BitVector(undef, length(sub_locs))
-        for (i, idx) in enumerate(local_indices)
-            sub_is_overlap[i] = !core_mask[idx]
-        end
+    for (ci, core_indices) in enumerate(components)
+        if overlap > 0.0
+            # Find overlap locs: locs in sibling components within proximity
+            overlap_indices = Int[]
+            for core_idx in core_indices
+                loc_i = locs[core_idx]
+                σ_i = mean_sigma(loc_i)
+                # Query nearby locs
+                radius = overlap > 0 ? overlap : 3 * σ_i
+                nearby = inrange(tree, coords[:, core_idx], radius)
+                for j in nearby
+                    if loc_component[j] != ci && j ∉ overlap_indices
+                        push!(overlap_indices, j)
+                    end
+                end
+            end
+            unique!(overlap_indices)
 
-        # Core bounds for emitter filtering after RJMCMC
-        bounds = (axis=collect(principal_axis), threshold=median_proj + centroid' * principal_axis, side=side)
-
-        sub_partition = Partition{E}(current_id, sub_locs, sub_orig_indices,
-                                     sub_is_boundary, partition.id,
-                                     sub_is_overlap, bounds)
-
-        # Recurse if core locs still oversized.
-        # Guard: only recurse if the core actually got smaller than the input.
-        # When overlap captures the entire cluster (tight data), the split doesn't
-        # reduce size and recursion would be infinite.
-        n_core = count(.!sub_is_overlap)
-        n_parent_core = count(.!partition.is_overlap)
-        if n_core > max_size && n_core < n_parent_core
-            recursed = split_partition(sub_partition, max_size, boundary_margin, current_id; overlap)
-            append!(sub_partitions, recursed)
-            current_id += length(recursed)
+            # Combine core + overlap
+            all_indices = vcat(core_indices, overlap_indices)
+            is_overlap = BitVector(vcat(falses(length(core_indices)),
+                                         trues(length(overlap_indices))))
         else
-            push!(sub_partitions, sub_partition)
-            current_id += 1
+            all_indices = core_indices
+            is_overlap = falses(length(core_indices))
         end
+
+        sub_locs = locs[all_indices]
+        sub_orig = partition.original_indices[all_indices]
+        sub_boundary = BitVector([partition.is_boundary[idx] for idx in all_indices])
+
+        push!(sub_partitions, Partition{E}(current_id, sub_locs, sub_orig,
+                                            sub_boundary, partition.id, is_overlap))
+        current_id += 1
     end
 
     return sub_partitions
