@@ -158,11 +158,17 @@ Posterior: ρ | {K_j}, {A_j} ~ Gamma(a + ΣK_j, 1/(b + ΣA_j))
 """
 function _update_rho_collapsed_global!(states::AbstractVector{<:CollapsedState},
                                        areas::Vector{Float64},
-                                       config::NamedTuple)
+                                       config::NamedTuple;
+                                       mask::Union{Nothing, BitVector}=nothing)
     a = config.ρ_prior_shape
     b = config.ρ_prior_rate
-    total_K = sum(s.n_active for s in states)
-    total_A = sum(areas)
+    total_K = 0
+    total_A = 0.0
+    for i in eachindex(states)
+        (mask !== nothing && !mask[i]) && continue
+        total_K += states[i].n_active
+        total_A += areas[i]
+    end
     return rand(Gamma(a + total_K, 1.0 / (b + total_A)))
 end
 
@@ -174,9 +180,11 @@ Zero-allocation: iterates directly over clusters without collecting counts.
 """
 function _update_mu_collapsed_global!(states::AbstractVector{<:CollapsedState},
                                       μ_current::Float64, shape::Float64,
-                                      config::NamedTuple)
+                                      config::NamedTuple;
+                                      mask::Union{Nothing, BitVector}=nothing)
     # Check any active clusters exist
-    total_active = sum(s.n_active for s in states)
+    total_active = sum(s.n_active for (i, s) in enumerate(states)
+                       if mask === nothing || mask[i])
     total_active == 0 && return μ_current
 
     μ_proposed = μ_current * exp(randn() * 0.3)
@@ -187,8 +195,10 @@ function _update_mu_collapsed_global!(states::AbstractVector{<:CollapsedState},
     dist_current = NegativeBinomial(shape, p_current)
     dist_proposed = NegativeBinomial(shape, p_proposed)
 
-    log_lik_current = sum(_collapsed_count_loglik(s, dist_current) for s in states)
-    log_lik_proposed = sum(_collapsed_count_loglik(s, dist_proposed) for s in states)
+    log_lik_current = sum(_collapsed_count_loglik(s, dist_current) for (i, s) in enumerate(states)
+                          if mask === nothing || mask[i])
+    log_lik_proposed = sum(_collapsed_count_loglik(s, dist_proposed) for (i, s) in enumerate(states)
+                           if mask === nothing || mask[i])
 
     prior_dist = Gamma(config.μ_prior_shape, config.μ_prior_scale)
     log_prior_current = logpdf(prior_dist, μ_current)
@@ -211,8 +221,10 @@ Zero-allocation: iterates directly over clusters without collecting counts.
 """
 function _update_shape_collapsed_global!(states::AbstractVector{<:CollapsedState},
                                          μ::Float64, shape_current::Float64,
-                                         config::NamedTuple)
-    total_active = sum(s.n_active for s in states)
+                                         config::NamedTuple;
+                                         mask::Union{Nothing, BitVector}=nothing)
+    total_active = sum(s.n_active for (i, s) in enumerate(states)
+                       if mask === nothing || mask[i])
     total_active == 0 && return shape_current
 
     shape_proposed = shape_current * exp(randn() * 0.3)
@@ -223,8 +235,10 @@ function _update_shape_collapsed_global!(states::AbstractVector{<:CollapsedState
     dist_current = NegativeBinomial(shape_current, p_current)
     dist_proposed = NegativeBinomial(shape_proposed, p_proposed)
 
-    log_lik_current = sum(_collapsed_count_loglik(s, dist_current) for s in states)
-    log_lik_proposed = sum(_collapsed_count_loglik(s, dist_proposed) for s in states)
+    log_lik_current = sum(_collapsed_count_loglik(s, dist_current) for (i, s) in enumerate(states)
+                          if mask === nothing || mask[i])
+    log_lik_proposed = sum(_collapsed_count_loglik(s, dist_proposed) for (i, s) in enumerate(states)
+                           if mask === nothing || mask[i])
 
     prior_dist = Gamma(config.shape_prior_shape, config.shape_prior_scale)
     log_prior_current = logpdf(prior_dist, shape_current)
