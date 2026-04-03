@@ -73,6 +73,38 @@ function run_bagol(
 end
 
 # ============================================================================
+# Per-cluster overlap masks for hierarchical learning
+# ============================================================================
+
+"""
+    _compute_cluster_overlap_masks(states, partitions) -> Vector{BitVector}
+
+Compute per-cluster overlap masks for all partitions. Returns masks where
+`masks[i][j] = true` iff cluster j in partition i contains NO overlap locs.
+
+Used to exclude overlap-contaminated clusters from hierarchical μ/shape/ρ
+learning and from the reported cluster size histogram.
+"""
+function _compute_cluster_overlap_masks(states, partitions)
+    masks = Vector{BitVector}(undef, length(states))
+    for i in eachindex(states)
+        n_slots = length(states[i].clusters)
+        m = trues(n_slots)
+        is_ov = partitions[i].is_overlap
+        if any(is_ov)
+            @inbounds for loc_idx in eachindex(states[i].assignments)
+                if is_ov[loc_idx]
+                    cj = states[i].assignments[loc_idx]
+                    cj > 0 && (m[cj] = false)
+                end
+            end
+        end
+        masks[i] = m
+    end
+    return masks
+end
+
+# ============================================================================
 # Collapsed Gibbs sampler dispatch
 # ============================================================================
 
@@ -142,12 +174,7 @@ function _run_bagol_collapsed(
         return empty_smld, empty_diag
     end
 
-    # Mask for hierarchical updates: exclude partitions containing overlap locs
-    hier_mask = BitVector([!any(p.is_overlap) for p in partitions])
-    n_masked = count(.!hier_mask)
-    if n_masked > 0
-        _log_progress("  Hierarchical mask: $n_masked/$(length(partitions)) partitions excluded (contain overlap locs)")
-    end
+    n_overlap_locs = sum(count(p.is_overlap) for p in partitions)
 
     n_partitions = length(partitions)
 
@@ -228,6 +255,16 @@ function _run_bagol_collapsed(
     # Per-partition areas (for conjugate ρ update)
     partition_areas = [spatial_area(states[i].spatial) for i in 1:n_partitions]
 
+    # Log cluster-level overlap stats (now that states exist)
+    if n_overlap_locs > 0
+        init_masks = _compute_cluster_overlap_masks(states, partitions)
+        n_total_clusters = sum(s.n_active for s in states)
+        n_excluded = sum(count(j -> states[i].active[j] && !init_masks[i][j],
+                               eachindex(states[i].active))
+                         for (i, _) in enumerate(states))
+        _log_progress("  Overlap filtering: $n_excluded/$n_total_clusters clusters excluded ($n_overlap_locs overlap locs)")
+    end
+
     # Initialize archive if requested
     archive = nothing
     if archive_path !== nothing
@@ -272,19 +309,22 @@ function _run_bagol_collapsed(
             end
         end
 
-        # Global hierarchical updates — exclude partitions with overlap locs
+        # Per-cluster overlap masks (recomputed each sync — assignments change during MCMC)
+        cluster_masks = _compute_cluster_overlap_masks(states, partitions)
+
+        # Global hierarchical updates — exclude clusters containing overlap locs
         # to prevent overlap inflation from biasing learned μ/shape/ρ
         if _learn_mu
             μ = _update_mu_collapsed_global!(states, μ, current_shape, config_nt;
-                                              mask=hier_mask)
+                                              cluster_masks=cluster_masks)
         end
         if _learn_shape
             current_shape = _update_shape_collapsed_global!(states, μ, current_shape, config_nt;
-                                                             mask=hier_mask)
+                                                             cluster_masks=cluster_masks)
         end
         # Conjugate ρ update (always — exact Gibbs, pooled across partitions)
         ρ = _update_rho_collapsed_global!(states, partition_areas, config_nt;
-                                           mask=hier_mask)
+                                           cluster_masks=cluster_masks)
 
         total_K = sum(s.n_active for s in states)
         shape_str = _learn_shape ? ", shape=$(round(current_shape, digits=2))" : ""
@@ -484,11 +524,13 @@ function _run_bagol_collapsed(
         acceptance_rates[move] = tot > 0 ? acc / tot : 0.0
     end
 
-    # Pool cluster sizes from all partition final states (what the Gamma was fit to)
+    # Pool cluster sizes from clusters without overlap locs (consistent with hierarchical learner)
+    final_cluster_masks = _compute_cluster_overlap_masks(states, partitions)
     cluster_sizes = Int[]
-    for s in states
+    for (i, s) in enumerate(states)
         for (j, cs) in enumerate(s.clusters)
             s.active[j] || continue
+            final_cluster_masks[i][j] || continue  # skip clusters with overlap locs
             push!(cluster_sizes, Int(cs.n))
         end
     end
