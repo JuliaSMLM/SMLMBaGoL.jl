@@ -184,7 +184,8 @@ function _run_bagol_collapsed(
     allocation_model = get(kwargs, :allocation_model, :dm)::Symbol
     allocation_model in (:dm, :decoupled) ||
         throw(ArgumentError("allocation_model must be :dm or :decoupled"))
-    am = allocation_model === :dm ? DMAllocation() : DecoupledAllocation()
+    gamma = get(kwargs, :gamma, nothing)::Union{Nothing, Float64}
+    am = allocation_model === :dm ? DMAllocation(gamma) : DecoupledAllocation()
 
     spatial_model_sym = get(kwargs, :spatial_model, :locmix)::Symbol
     spatial_model_sym in (:locmix, :flat) ||

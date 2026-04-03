@@ -11,14 +11,28 @@
 # Allocation model dispatch
 # ============================================================================
 
-"""DM/Polya partition prior: P(z|K,N) ∝ ∏_k Γ(n_k + γ) with γ=shape."""
-struct DMAllocation <: AbstractAllocationModel end
+"""
+    DMAllocation(gamma=nothing)
+
+DM/Polya partition prior: P(z|K,N) ∝ ∏_k Γ(n_k + γ).
+
+- `gamma=nothing`: use count-distribution shape as γ (default, preserves NegBin identity)
+- `gamma=<Float64>`: fixed DM concentration, independent of count shape
+"""
+struct DMAllocation <: AbstractAllocationModel
+    gamma::Union{Nothing, Float64}
+end
+DMAllocation() = DMAllocation(nothing)
 
 """Decoupled allocation: no partition prior. Spatial ML determines z."""
 struct DecoupledAllocation <: AbstractAllocationModel end
 
+"""Effective DM concentration: explicit gamma if set, otherwise fall back to shape."""
+@inline dm_gamma(am::DMAllocation, shape::Float64) = am.gamma === nothing ? shape : am.gamma
+@inline dm_gamma(::DecoupledAllocation, shape::Float64) = shape
+
 """Partition prior log-ratio for MH acceptance."""
-@inline partition_prior(::DMAllocation, state, N, shape) = _log_dm_partition(state, N, Float64(shape))
+@inline partition_prior(am::DMAllocation, state, N, shape) = _log_dm_partition(state, N, dm_gamma(am, Float64(shape)))
 @inline partition_prior(::DecoupledAllocation, state, N, shape) = 0.0
 
 """MH correction factor for Gibbs allocation (DM ratio or 1.0)."""
@@ -207,7 +221,7 @@ function gibbs_allocation_sweep!(state::CollapsedState,
         # Predictive-only proposal weights (MH-corrected for DM target):
         #   q(z_i = k) ∝ predictive(x_i | cluster_k)
         # MH acceptance handles (n_{-i,k} + γ) DM factor: α = (n_new+γ)/(n_old+γ)
-        γ = shape
+        γ = dm_gamma(state.allocation, Float64(shape))
         for i in 1:K
             slot = active_slots[i]
             cs = state.clusters[slot]
@@ -739,7 +753,7 @@ function propose_split_merge!(state::CollapsedState,
     old_n_active = K
     old_len = length(state.clusters)
 
-    γ = Float64(shape)
+    γ = dm_gamma(state.allocation, Float64(shape))
 
     # Compute target density components BEFORE the move
     lml_before = _total_spatial_lml(state)
@@ -931,7 +945,7 @@ function propose_birth_death!(state::CollapsedState,
                                μ::Float64, shape::Float64, ρ::Float64)
     N = length(locs)
     K = state.n_active
-    γ = Float64(shape)
+    γ = dm_gamma(state.allocation, Float64(shape))
     loc_precs = state._loc_precs
     log_area = spatial_log_area(state.spatial)
     A = exp(log_area)
@@ -1011,7 +1025,8 @@ function propose_birth_death!(state::CollapsedState,
         can_b = (N - n_sing_x) > 0 && K_new < N
         p_death_x = can_d && can_b ? 0.5 : can_d ? 1.0 : 0.0
 
-        # DM-weighted predictive for absorbing loc i into each cluster (excl new singleton)
+        # Predictive-only absorb weights (must match death forward proposal;
+        # DM contribution enters via Δ_partition in MH acceptance)
         log_probs = state._log_probs
         dest_count = 0
         log_w_dest = -Inf
@@ -1019,8 +1034,7 @@ function propose_birth_death!(state::CollapsedState,
             if state.active[j] && j != new_slot
                 dest_count += 1
                 cs = state.clusters[j]
-                log_probs[dest_count] = log(Float64(cs.n) + γ) +
-                                         log_predictive(cs, lp, log_area)
+                log_probs[dest_count] = log_predictive(cs, lp, log_area)
                 if j == old_cluster
                     log_w_dest = log_probs[dest_count]
                 end
