@@ -45,15 +45,19 @@ function _get_collapsed_counts(state::CollapsedState)
 end
 
 """
-    _collapsed_count_loglik(state, dist) -> Float64
+    _collapsed_count_loglik(state, dist; cluster_mask=nothing) -> Float64
 
 Compute sum of logpdf(dist, n) over active cluster counts.
+If `cluster_mask` is provided, skip clusters where `cluster_mask[j] == false`
+(used to exclude clusters containing overlap locs).
 Zero-allocation: iterates directly over clusters without collecting counts.
 """
-function _collapsed_count_loglik(state::CollapsedState, dist::UnivariateDistribution)
+function _collapsed_count_loglik(state::CollapsedState, dist::UnivariateDistribution;
+                                  cluster_mask::Union{Nothing, BitVector}=nothing)
     ll = 0.0
     @inbounds for (j, cs) in enumerate(state.clusters)
         state.active[j] || continue
+        (cluster_mask !== nothing && !cluster_mask[j]) && continue
         ll += logpdf(dist, Int(cs.n))
     end
     return ll
@@ -150,41 +154,54 @@ function _update_rho_collapsed(state::CollapsedState, A::Float64, config::NamedT
 end
 
 """
-    _update_rho_collapsed_global!(states, areas, config) -> Float64
+    _update_rho_collapsed_global!(states, areas, config; cluster_masks=nothing) -> Float64
 
 Conjugate Gamma update for ρ pooled across all partitions.
+If `cluster_masks` is provided, only counts non-overlap active clusters per partition.
+Includes a partition's area only if it contributes ≥1 unmasked active cluster.
 
 Posterior: ρ | {K_j}, {A_j} ~ Gamma(a + ΣK_j, 1/(b + ΣA_j))
 """
 function _update_rho_collapsed_global!(states::AbstractVector{<:CollapsedState},
                                        areas::Vector{Float64},
                                        config::NamedTuple;
-                                       mask::Union{Nothing, BitVector}=nothing)
+                                       cluster_masks::Union{Nothing, Vector{BitVector}}=nothing)
     a = config.ρ_prior_shape
     b = config.ρ_prior_rate
     total_K = 0
     total_A = 0.0
     for i in eachindex(states)
-        (mask !== nothing && !mask[i]) && continue
-        total_K += states[i].n_active
+        k_i = if cluster_masks === nothing
+            states[i].n_active
+        else
+            count(j -> states[i].active[j] && cluster_masks[i][j],
+                  eachindex(states[i].active))
+        end
+        k_i == 0 && continue  # skip partitions with zero unmasked active clusters
+        total_K += k_i
         total_A += areas[i]
     end
     return rand(Gamma(a + total_K, 1.0 / (b + total_A)))
 end
 
 """
-    _update_mu_collapsed_global!(states, μ_current, shape, config) -> Float64
+    _update_mu_collapsed_global!(states, μ_current, shape, config; cluster_masks=nothing) -> Float64
 
 Global MH update for μ using pooled counts across all collapsed partition states.
-Zero-allocation: iterates directly over clusters without collecting counts.
+If `cluster_masks` is provided (Vector{BitVector}), only clusters where
+`cluster_masks[i][j] == true` contribute (excludes clusters with overlap locs).
 """
 function _update_mu_collapsed_global!(states::AbstractVector{<:CollapsedState},
                                       μ_current::Float64, shape::Float64,
                                       config::NamedTuple;
-                                      mask::Union{Nothing, BitVector}=nothing)
-    # Check any active clusters exist
-    total_active = sum(s.n_active for (i, s) in enumerate(states)
-                       if mask === nothing || mask[i])
+                                      cluster_masks::Union{Nothing, Vector{BitVector}}=nothing)
+    # Check any active (unmasked) clusters exist
+    total_active = if cluster_masks === nothing
+        sum(s.n_active for s in states)
+    else
+        sum(count(j -> s.active[j] && cluster_masks[i][j], eachindex(s.active))
+            for (i, s) in enumerate(states))
+    end
     total_active == 0 && return μ_current
 
     μ_proposed = μ_current * exp(randn() * 0.3)
@@ -195,10 +212,12 @@ function _update_mu_collapsed_global!(states::AbstractVector{<:CollapsedState},
     dist_current = NegativeBinomial(shape, p_current)
     dist_proposed = NegativeBinomial(shape, p_proposed)
 
-    log_lik_current = sum(_collapsed_count_loglik(s, dist_current) for (i, s) in enumerate(states)
-                          if mask === nothing || mask[i])
-    log_lik_proposed = sum(_collapsed_count_loglik(s, dist_proposed) for (i, s) in enumerate(states)
-                           if mask === nothing || mask[i])
+    log_lik_current = sum(_collapsed_count_loglik(s, dist_current;
+                              cluster_mask=cluster_masks !== nothing ? cluster_masks[i] : nothing)
+                          for (i, s) in enumerate(states))
+    log_lik_proposed = sum(_collapsed_count_loglik(s, dist_proposed;
+                               cluster_mask=cluster_masks !== nothing ? cluster_masks[i] : nothing)
+                           for (i, s) in enumerate(states))
 
     prior_dist = Gamma(config.μ_prior_shape, config.μ_prior_scale)
     log_prior_current = logpdf(prior_dist, μ_current)
@@ -214,17 +233,22 @@ function _update_mu_collapsed_global!(states::AbstractVector{<:CollapsedState},
 end
 
 """
-    _update_shape_collapsed_global!(states, μ, shape_current, config) -> Float64
+    _update_shape_collapsed_global!(states, μ, shape_current, config; cluster_masks=nothing) -> Float64
 
 Global MH update for shape using pooled counts across all collapsed partition states.
-Zero-allocation: iterates directly over clusters without collecting counts.
+If `cluster_masks` is provided (Vector{BitVector}), only clusters where
+`cluster_masks[i][j] == true` contribute (excludes clusters with overlap locs).
 """
 function _update_shape_collapsed_global!(states::AbstractVector{<:CollapsedState},
                                          μ::Float64, shape_current::Float64,
                                          config::NamedTuple;
-                                         mask::Union{Nothing, BitVector}=nothing)
-    total_active = sum(s.n_active for (i, s) in enumerate(states)
-                       if mask === nothing || mask[i])
+                                         cluster_masks::Union{Nothing, Vector{BitVector}}=nothing)
+    total_active = if cluster_masks === nothing
+        sum(s.n_active for s in states)
+    else
+        sum(count(j -> s.active[j] && cluster_masks[i][j], eachindex(s.active))
+            for (i, s) in enumerate(states))
+    end
     total_active == 0 && return shape_current
 
     shape_proposed = shape_current * exp(randn() * 0.3)
@@ -235,10 +259,12 @@ function _update_shape_collapsed_global!(states::AbstractVector{<:CollapsedState
     dist_current = NegativeBinomial(shape_current, p_current)
     dist_proposed = NegativeBinomial(shape_proposed, p_proposed)
 
-    log_lik_current = sum(_collapsed_count_loglik(s, dist_current) for (i, s) in enumerate(states)
-                          if mask === nothing || mask[i])
-    log_lik_proposed = sum(_collapsed_count_loglik(s, dist_proposed) for (i, s) in enumerate(states)
-                           if mask === nothing || mask[i])
+    log_lik_current = sum(_collapsed_count_loglik(s, dist_current;
+                              cluster_mask=cluster_masks !== nothing ? cluster_masks[i] : nothing)
+                          for (i, s) in enumerate(states))
+    log_lik_proposed = sum(_collapsed_count_loglik(s, dist_proposed;
+                               cluster_mask=cluster_masks !== nothing ? cluster_masks[i] : nothing)
+                           for (i, s) in enumerate(states))
 
     prior_dist = Gamma(config.shape_prior_shape, config.shape_prior_scale)
     log_prior_current = logpdf(prior_dist, shape_current)
