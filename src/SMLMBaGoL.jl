@@ -3,10 +3,12 @@ module SMLMBaGoL
 using Distributions
 using Hungarian
 using LinearAlgebra
+using Metis
 using Mmap
 using NearestNeighbors
 using Random
 using SMLMData
+using SparseArrays
 using SpecialFunctions: logfactorial, logabsbinomial, loggamma
 using StaticArrays
 using Statistics
