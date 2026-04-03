@@ -82,10 +82,10 @@ function _plot_cluster_sizes(report, output_dir)
     ec = report.empirical_counts
     has_gt_counts = !isempty(ec)
 
-    # BaGoL's inferred cluster sizes (what the chain found)
-    k_max = maximum(cs) + 5
+    # BaGoL's inferred cluster sizes — cap x-axis at 99th percentile for readability
+    k_max = min(maximum(cs) + 5, round(Int, quantile(Float64.(cs), 0.99)) + 10)
     if has_gt_counts
-        k_max = max(k_max, maximum(ec) + 5)
+        k_max = max(k_max, min(maximum(ec) + 5, round(Int, quantile(Float64.(ec), 0.99)) + 10))
     end
     k_range = 1:k_max
 
