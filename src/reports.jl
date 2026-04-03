@@ -190,9 +190,10 @@ function _nn_distances(emitters::Vector{<:SMLMData.AbstractEmitter})
         coords[2, i] = emitters[i].y
     end
     tree = KDTree(coords)
-    # k=2: nearest neighbor is self (distance 0), second is true NN
+    # k=2: self (distance 0) + true NN. knn returns sorted ascending,
+    # so d[1] is the true NN and d[2] is self.
     _, ds = knn(tree, coords, 2)
-    return [d[2] for d in ds]
+    return [d[1] for d in ds]
 end
 
 function _nn_distances(positions::Vector{Tuple{Float64, Float64}})
@@ -205,7 +206,7 @@ function _nn_distances(positions::Vector{Tuple{Float64, Float64}})
     end
     tree = KDTree(coords)
     _, ds = knn(tree, coords, 2)
-    return [d[2] for d in ds]
+    return [d[1] for d in ds]
 end
 
 # ============================================================================
