@@ -148,6 +148,7 @@ function run_collapsed_chain(
     callback_interval::Int = 1,
     n_restricted_scans::Int = 5,
     n_bd_substeps::Int = 5,
+    gamma::Union{Nothing, Float64} = nothing,
     allocation_model::Symbol = :dm,
     spatial_model::Symbol = :locmix
 )
@@ -158,7 +159,7 @@ function run_collapsed_chain(
 
     allocation_model in (:dm, :decoupled) ||
         throw(ArgumentError("allocation_model must be :dm or :decoupled (got :$allocation_model)"))
-    am = allocation_model === :dm ? DMAllocation() : DecoupledAllocation()
+    am = allocation_model === :dm ? DMAllocation(gamma) : DecoupledAllocation()
 
     # Validate learn_distribution
     if learn_distribution isa Symbol && learn_distribution ∉ (:mu, :shape)
