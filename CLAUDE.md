@@ -57,7 +57,12 @@ src/
 ├── archive.jl             # Mmap-based binary chain archive
 ├── simulation.jl          # simulate_localizations, nmer_positions, simulate_nmer, simulate_nmer_grid
 ├── reports.jl             # compute_report, write_report, match_positions (standard outputs)
-└── optimality.jl          # run_optimality_sweep, run_speed_test (Cat 3)
+├── optimality.jl          # run_optimality_sweep, run_speed_test (Cat 3)
+└── diagnostics/           # Sampler validation and correctness tools
+    ├── target.jl          # AbstractTargetDensity: DecoupledTarget, DMFlatTarget, DirectNegBinFlatTarget
+    ├── finite_state.jl    # Brute-force enumeration, kernel invariance, exact posterior
+    ├── mixing.jl          # ESS, autocorrelation, R-hat, indicator ESS
+    └── detailed_balance.jl # DetailedBalanceResult, check_detailed_balance
 
 ext/
 ├── BaGoLMakieExt/         # CairoMakie extension: plot_report, plot_sweep, plot_speed
@@ -105,12 +110,19 @@ result_smld, diagnostics = run_bagol(smld; n_iterations=10000, burn_in=2000)
 result_smld, diagnostics = run_bagol(locs; camera=camera, n_iterations=10000)
 
 # Key parameters:
-#   μ=10.0                        # Mean locs per emitter
+#   μ=10.0                        # Mean locs per emitter (via kwargs)
 #   shape=2.0                     # Count distribution shape (1=exp, >1=peaked)
 #   learn_distribution=true       # true/false/:mu/:shape — control count distribution learning
 #   partition_sigma=3.0           # DBSCAN threshold (Inf = no partitioning)
+#   overlap=:auto                 # Overlap fraction for boundary dedup (:auto or Float64)
 #   sync_interval=500             # Iterations between global μ/shape updates
 #   posterior_pixel_size=0.002    # Rao-Blackwellized posterior image (0.0 to disable)
+#
+# Advanced kwargs (forwarded to chain):
+#   spatial_model=:locmix         # :locmix or :flat
+#   allocation_model=:dm          # :dm (Dirichlet-Multinomial) or :decoupled
+#   n_restricted_scans=5          # Jain-Neal restricted Gibbs scans for split/merge
+#   n_bd_substeps=3               # Birth/death substeps per iteration
 
 # 2. Standard report (compute metrics + write files + plot + render)
 report = compute_report(result_smld, diagnostics;
@@ -179,6 +191,15 @@ The main `run_bagol` always partitions data using precision-weighted DBSCAN.
 Boundary emitters are deduplicated via Hungarian matching after merge.
 
 **Count Prior (from Fazel et al. 2022):** Uses P(N|K) = Gamma(N; K*shape, μ/shape) where N is total localizations.
+
+### Diagnostics Infrastructure
+
+Sampler correctness validation tools in `src/diagnostics/`. See `src/diagnostics/DIAGNOSTICS.md` for full math and interpretation guide.
+
+- **Target densities** (`target.jl`): `AbstractTargetDensity` with implementations `DecoupledTarget`, `DMFlatTarget`, `DirectNegBinFlatTarget`. Decouple diagnostics from specific posterior formulations.
+- **Finite-state validation** (`finite_state.jl`): `enumerate_canonical_partitions`, `exact_posterior`, `run_kernel_invariance_test`. Brute-force correctness proofs for small N.
+- **Detailed balance** (`detailed_balance.jl`): `check_detailed_balance` verifies DB holds for specific transitions.
+- **Mixing diagnostics** (`mixing.jl`): `effective_sample_size`, `split_gelman_rubin`, `indicator_ess`, `run_mixing_test`. Chain efficiency assessment (not correctness).
 
 ## Dependencies
 
