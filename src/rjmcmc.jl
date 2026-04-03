@@ -142,6 +142,13 @@ function _run_bagol_collapsed(
         return empty_smld, empty_diag
     end
 
+    # Mask for hierarchical updates: exclude partitions containing overlap locs
+    hier_mask = BitVector([!any(p.is_overlap) for p in partitions])
+    n_masked = count(.!hier_mask)
+    if n_masked > 0
+        _log_progress("  Hierarchical mask: $n_masked/$(length(partitions)) partitions excluded (contain overlap locs)")
+    end
+
     n_partitions = length(partitions)
 
     # Restricted Gibbs scans (Jain-Neal)
@@ -265,15 +272,19 @@ function _run_bagol_collapsed(
             end
         end
 
-        # Global hierarchical updates
+        # Global hierarchical updates — exclude partitions with overlap locs
+        # to prevent overlap inflation from biasing learned μ/shape/ρ
         if _learn_mu
-            μ = _update_mu_collapsed_global!(states, μ, current_shape, config_nt)
+            μ = _update_mu_collapsed_global!(states, μ, current_shape, config_nt;
+                                              mask=hier_mask)
         end
         if _learn_shape
-            current_shape = _update_shape_collapsed_global!(states, μ, current_shape, config_nt)
+            current_shape = _update_shape_collapsed_global!(states, μ, current_shape, config_nt;
+                                                             mask=hier_mask)
         end
         # Conjugate ρ update (always — exact Gibbs, pooled across partitions)
-        ρ = _update_rho_collapsed_global!(states, partition_areas, config_nt)
+        ρ = _update_rho_collapsed_global!(states, partition_areas, config_nt;
+                                           mask=hier_mask)
 
         total_K = sum(s.n_active for s in states)
         shape_str = _learn_shape ? ", shape=$(round(current_shape, digits=2))" : ""
