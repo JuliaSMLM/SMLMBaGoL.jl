@@ -235,58 +235,29 @@ function precision_neighbors(
 end
 
 # ============================================================================
-# MST-based partition splitting
+# METIS-based partition splitting
 #
 # For oversized DBSCAN clusters: build a precision-weighted kNN graph,
-# extract MST via Kruskal's algorithm, then remove heaviest edges until
-# all components have ≤ max_size nodes. Each component becomes a sub-partition.
-# Overlap locs are added from sibling components via pointwise proximity.
+# then use METIS multilevel k-way partitioning to split into balanced
+# sub-partitions. METIS cuts at weak graph connections (density valleys)
+# in non-uniform data, and produces compact balanced pieces in uniform data.
+# Overlap locs are added from neighboring partitions via pointwise proximity.
 # ============================================================================
 
-# Union-Find for Kruskal's MST
-mutable struct _UnionFind
-    parent::Vector{Int}
-    rank::Vector{Int}
-    size::Vector{Int}
-end
-
-function _UnionFind(n::Int)
-    _UnionFind(collect(1:n), zeros(Int, n), ones(Int, n))
-end
-
-function _uf_find(uf::_UnionFind, x::Int)
-    while uf.parent[x] != x
-        uf.parent[x] = uf.parent[uf.parent[x]]  # path halving
-        x = uf.parent[x]
-    end
-    return x
-end
-
-function _uf_union!(uf::_UnionFind, a::Int, b::Int)
-    ra, rb = _uf_find(uf, a), _uf_find(uf, b)
-    ra == rb && return false
-    if uf.rank[ra] < uf.rank[rb]
-        ra, rb = rb, ra
-    end
-    uf.parent[rb] = ra
-    uf.size[ra] += uf.size[rb]
-    if uf.rank[ra] == uf.rank[rb]
-        uf.rank[ra] += 1
-    end
-    return true
-end
 
 """
     split_partition(partition, max_size, boundary_margin, start_id; overlap, k_neighbors)
 
-Split an oversized partition using MST-based graph cutting.
+Split an oversized partition using METIS multilevel graph partitioning.
 
-1. Build kNN graph with precision-weighted distances
-2. Extract MST via Kruskal's algorithm
-3. Remove heaviest edges until all components ≤ max_size
-4. Add overlap locs from sibling components (pointwise proximity)
+1. Build symmetric kNN graph with precision-weighted affinity weights
+2. METIS k-way partition into ceil(N/target_size) balanced parts
+3. Add overlap locs from neighboring partitions (pointwise proximity)
 
-Returns vector of sub-partitions with natural, data-driven boundaries.
+METIS cuts at weak graph connections (density valleys) in non-uniform data,
+and produces compact balanced pieces in uniform data.
+
+Returns vector of sub-partitions with balanced sizes and natural boundaries.
 """
 function split_partition(
     partition::Partition{E},
@@ -305,69 +276,49 @@ function split_partition(
                             falses(n))]
     end
 
-    # --- Build kNN graph with precision-weighted distances ---
+    # --- Build symmetric kNN graph with precision-weighted affinity ---
     coords = coords_matrix(locs)
     tree = KDTree(coords)
-    max_sigma = maximum(mean_sigma(loc) for loc in locs)
     k = min(k_neighbors, n - 1)
 
-    # Collect weighted edges (i, j, distance)
-    edges = Tuple{Int, Int, Float64}[]
+    # Collect edges: precision-weighted distance per pair, keep closest
+    edge_dict = Dict{Tuple{Int,Int}, Float64}()
     for i in 1:n
-        # Use physical radius for KDTree query, then filter by precision distance
-        idxs, _ = knn(tree, coords[:, i], k + 1)  # +1 for self
+        idxs, _ = knn(tree, coords[:, i], k + 1)
         for j in idxs
             j == i && continue
             d = precision_weighted_distance(locs[i], locs[j])
-            push!(edges, (i, j, d))
+            key = i < j ? (i, j) : (j, i)
+            if !haskey(edge_dict, key) || d < edge_dict[key]
+                edge_dict[key] = d
+            end
         end
     end
 
-    # --- MST via Kruskal's ---
-    sort!(edges, by=e -> e[3])
-    uf = _UnionFind(n)
-    mst_edges = Tuple{Int, Int, Float64}[]
-    for (i, j, d) in edges
-        if _uf_union!(uf, i, j)
-            push!(mst_edges, (i, j, d))
-            length(mst_edges) == n - 1 && break
-        end
+    # --- METIS k-way partition ---
+    # Convert distances to integer affinities (closer = heavier = don't cut)
+    max_d = maximum(values(edge_dict))
+    I = Int[]; J = Int[]; W = Int[]
+    for ((i, j), d) in edge_dict
+        w = max(1, round(Int, 1000.0 * (max_d / max(d, 1e-10))))
+        push!(I, i); push!(J, j); push!(W, w)
+        push!(I, j); push!(J, i); push!(W, w)
     end
+    adj = sparse(I, J, W, n, n)
 
-    # --- Size-constrained cuts: remove heaviest MST edges until all components ≤ max_size ---
-    # Sort MST edges by weight descending
-    sort!(mst_edges, by=e -> -e[3])
+    # Target ~90% of max_size per partition (leave room for halo)
+    target_core = max(div(max_size * 9, 10), 1)
+    nparts = max(2, cld(n, target_core))
 
-    # Rebuild components after removing edges
-    uf_cut = _UnionFind(n)
-    # Add edges lightest-first, skipping the heaviest ones that would create oversized components
-    # Simpler: iteratively remove heaviest edge if its component is oversized
-    cut_edges = Set{Int}()  # indices into mst_edges to skip
+    g = Metis.graph(adj)
+    partition_vec = Metis.partition(g, nparts)
 
-    # Greedy: try adding all MST edges lightest-first, reject if would exceed max_size
-    sorted_by_weight = sortperm(mst_edges, by=e -> e[3])
-    uf_build = _UnionFind(n)
-    for idx in sorted_by_weight
-        i, j, d = mst_edges[idx]
-        ri, rj = _uf_find(uf_build, i), _uf_find(uf_build, j)
-        combined_size = uf_build.size[ri] + uf_build.size[rj]
-        if combined_size <= max_size
-            _uf_union!(uf_build, i, j)
-        end
-        # else: skip this edge (cut it), leaving the components separate
-    end
-
-    # --- Extract components ---
-    component_map = Dict{Int, Vector{Int}}()
+    # Extract components
+    components = [Int[] for _ in 1:nparts]
     for i in 1:n
-        root = _uf_find(uf_build, i)
-        if haskey(component_map, root)
-            push!(component_map[root], i)
-        else
-            component_map[root] = [i]
-        end
+        push!(components[partition_vec[i]], i)
     end
-    components = collect(values(component_map))
+    filter!(!isempty, components)
 
     # --- Build sub-partitions with pointwise sibling overlap ---
     # For each component, find locs in OTHER components within overlap distance
