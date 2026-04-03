@@ -139,15 +139,18 @@ end
 
 function _plot_nn_distances(report, output_dir)
     dists = report.nn_distances .* 1000  # nm
+    # Truncate at 99th percentile for readability
+    cutoff = quantile(dists, 0.99)
+    dists_trunc = filter(d -> d <= cutoff, dists)
     n_bins = 30
     fig = Figure(size=(500, 350))
     ax = Axis(fig[1, 1], xlabel="Nearest-neighbor distance (nm)", ylabel="Count",
-              title="NN distances between emitters")
-    hist!(ax, dists; bins=n_bins, color=:steelblue)
+              title="NN distances between emitters ($(length(dists)) total)")
+    hist!(ax, dists_trunc; bins=n_bins, color=:steelblue)
 
     # Mode: bin data manually and find peak
-    if length(dists) >= 2
-        edges = range(minimum(dists), maximum(dists); length=n_bins + 1)
+    if length(dists_trunc) >= 2
+        edges = range(minimum(dists_trunc), maximum(dists_trunc); length=n_bins + 1)
         counts = zeros(Int, n_bins)
         for d in dists
             idx = clamp(searchsortedlast(edges, d), 1, n_bins)
