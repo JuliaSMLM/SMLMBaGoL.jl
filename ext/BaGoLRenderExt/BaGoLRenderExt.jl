@@ -100,7 +100,7 @@ function SMLMBaGoL.render_report(
         # Oracle MAP-N (green) if track_id available
         has_oracle = any(e.track_id != 0 for e in locs_smld.emitters)
         if has_oracle
-            oracle_assignments = Int16[loc.track_id for loc in locs_smld.emitters]
+            oracle_assignments = Int32[loc.track_id for loc in locs_smld.emitters]
             oracle_emitters = SMLMBaGoL._emitters_from_assignments(
                 oracle_assignments, locs_smld.emitters)
             oracle_smld = SMLMData.BasicSMLD(oracle_emitters, locs_smld.camera, 1, 1)

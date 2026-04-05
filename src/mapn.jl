@@ -756,7 +756,7 @@ Build emitters from a single assignment vector using ClusterStats posteriors.
 Each cluster becomes one emitter with analytical position and covariance.
 """
 function _emitters_from_assignments(
-    assignments::Vector{Int16},
+    assignments::AbstractVector{<:Integer},
     locs::Vector{<:SMLMData.AbstractEmitter}
 )
     unique_labels = sort!(unique(assignments))
