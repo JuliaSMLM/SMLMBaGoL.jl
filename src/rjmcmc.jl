@@ -47,29 +47,80 @@ n_j ~ Gamma(shape, μ/shape) where:
 """
 function run_bagol(
     smld::SMLMData.SMLD;
+    # Count model
+    μ::Union{Nothing, Float64} = nothing,
+    shape::Float64 = 2.0,
+    learn_distribution::Union{Bool, Symbol} = true,
+    gamma::Union{Nothing, Float64} = nothing,
+    # MCMC
+    n_iterations::Int = 10000,
+    burn_in::Int = 2000,
+    sync_interval::Int = 500,
+    allocation_model::Symbol = :dm,
+    spatial_model::Symbol = :locmix,
+    n_restricted_scans::Int = 5,
+    n_bd_substeps::Int = 5,
+    # Partitioning
     partition_sigma::Float64 = 3.0,
     min_partition_size::Int = 0,
     max_partition_size::Int = 1000,
     skip_partition_size::Int = typemax(Int),
     overlap::Union{Float64, Symbol} = :auto,
-    sync_interval::Int = 500,
-    n_iterations::Int = 10000,
-    burn_in::Int = 2000,
-    shape::Float64 = 2.0,
-    learn_distribution::Union{Bool, Symbol} = true,
+    # Output
     posterior_pixel_size::Float64 = 0.002,
     posterior_xlim::Union{Nothing, Tuple{<:Real, <:Real}} = nothing,
     posterior_ylim::Union{Nothing, Tuple{<:Real, <:Real}} = nothing,
     archive_path::Union{Nothing, String} = nothing,
     progress_file::Union{Nothing, String} = nothing,
     verbose::Bool = true,
-    kwargs...
+    # Hyperpriors (rarely changed)
+    μ_prior_shape::Float64 = 2.0,
+    μ_prior_scale::Float64 = 5.0,
+    shape_prior_shape::Float64 = 2.0,
+    shape_prior_scale::Float64 = 1.0,
+    ρ_prior_shape::Float64 = 2.0,
+    ρ_prior_rate::Float64 = 1.0,
 )
     return _run_bagol_collapsed(smld;
         partition_sigma, min_partition_size, max_partition_size, skip_partition_size,
         overlap, sync_interval, n_iterations, burn_in, shape, learn_distribution,
         posterior_pixel_size, posterior_xlim, posterior_ylim,
-        archive_path, progress_file, verbose, kwargs...)
+        archive_path, progress_file, verbose,
+        μ=μ, gamma=gamma, allocation_model=allocation_model,
+        spatial_model=spatial_model, n_restricted_scans=n_restricted_scans,
+        n_bd_substeps=n_bd_substeps,
+        μ_prior_shape=μ_prior_shape, μ_prior_scale=μ_prior_scale,
+        shape_prior_shape=shape_prior_shape, shape_prior_scale=shape_prior_scale,
+        ρ_prior_shape=ρ_prior_shape, ρ_prior_rate=ρ_prior_rate)
+end
+
+"""
+    run_bagol(smld, cfg::BaGoLConfig; posterior_xlim=nothing, posterior_ylim=nothing)
+
+Run BaGoL from a config struct. Runtime-only kwargs (posterior bounds) are separate.
+"""
+function run_bagol(
+    smld::SMLMData.SMLD,
+    cfg::BaGoLConfig;
+    posterior_xlim::Union{Nothing, Tuple{<:Real, <:Real}} = nothing,
+    posterior_ylim::Union{Nothing, Tuple{<:Real, <:Real}} = nothing,
+)
+    return run_bagol(smld;
+        μ=cfg.μ, shape=cfg.shape, learn_distribution=cfg.learn_distribution,
+        gamma=cfg.gamma,
+        n_iterations=cfg.n_iterations, burn_in=cfg.burn_in,
+        sync_interval=cfg.sync_interval,
+        allocation_model=cfg.allocation_model, spatial_model=cfg.spatial_model,
+        n_restricted_scans=cfg.n_restricted_scans, n_bd_substeps=cfg.n_bd_substeps,
+        partition_sigma=cfg.partition_sigma,
+        min_partition_size=cfg.min_partition_size,
+        max_partition_size=cfg.max_partition_size,
+        skip_partition_size=cfg.skip_partition_size,
+        overlap=cfg.overlap,
+        posterior_pixel_size=cfg.posterior_pixel_size,
+        posterior_xlim=posterior_xlim, posterior_ylim=posterior_ylim,
+        archive_path=cfg.archive_path, progress_file=cfg.progress_file,
+        verbose=cfg.verbose)
 end
 
 # ============================================================================
@@ -126,7 +177,18 @@ function _run_bagol_collapsed(
     archive_path::Union{Nothing, String} = nothing,
     progress_file::Union{Nothing, String} = nothing,
     verbose::Bool = true,
-    kwargs...
+    μ::Union{Nothing, Float64} = nothing,
+    gamma::Union{Nothing, Float64} = nothing,
+    allocation_model::Symbol = :dm,
+    spatial_model::Symbol = :locmix,
+    n_restricted_scans::Int = 5,
+    n_bd_substeps::Int = 3,
+    μ_prior_shape::Float64 = 2.0,
+    μ_prior_scale::Float64 = 5.0,
+    shape_prior_shape::Float64 = 2.0,
+    shape_prior_scale::Float64 = 1.0,
+    ρ_prior_shape::Float64 = 2.0,
+    ρ_prior_rate::Float64 = 1.0,
 )
     # Convert bounds to Float64 (GPU fitters produce Float32 coordinates)
     posterior_xlim = posterior_xlim === nothing ? nothing : (Float64(posterior_xlim[1]), Float64(posterior_xlim[2]))
@@ -178,26 +240,16 @@ function _run_bagol_collapsed(
 
     n_partitions = length(partitions)
 
-    # Restricted Gibbs scans (Jain-Neal)
-    n_restricted_scans = get(kwargs, :n_restricted_scans, 5)
-    n_bd_substeps = get(kwargs, :n_bd_substeps, 3)
-    allocation_model = get(kwargs, :allocation_model, :dm)::Symbol
+    # Allocation model
     allocation_model in (:dm, :decoupled) ||
         throw(ArgumentError("allocation_model must be :dm or :decoupled"))
-    gamma = get(kwargs, :gamma, nothing)::Union{Nothing, Float64}
     am = allocation_model === :dm ? DMAllocation(gamma) : DecoupledAllocation()
 
-    spatial_model_sym = get(kwargs, :spatial_model, :locmix)::Symbol
+    spatial_model_sym = spatial_model
     spatial_model_sym in (:locmix, :flat) ||
         throw(ArgumentError("spatial_model must be :locmix or :flat"))
 
     # Hyperprior config
-    μ_prior_shape = get(kwargs, :μ_prior_shape, 2.0)
-    μ_prior_scale = get(kwargs, :μ_prior_scale, 5.0)
-    shape_prior_shape = get(kwargs, :shape_prior_shape, 2.0)
-    shape_prior_scale = get(kwargs, :shape_prior_scale, 1.0)
-    ρ_prior_shape = get(kwargs, :ρ_prior_shape, 2.0)
-    ρ_prior_rate = get(kwargs, :ρ_prior_rate, 1.0)
     config_nt = (μ_prior_shape=μ_prior_shape, μ_prior_scale=μ_prior_scale,
                  shape_prior_shape=shape_prior_shape, shape_prior_scale=shape_prior_scale,
                  ρ_prior_shape=ρ_prior_shape, ρ_prior_rate=ρ_prior_rate)
@@ -248,8 +300,7 @@ function _run_bagol_collapsed(
 
     # Global μ, shape, ρ (shared across partitions)
     # Direct μ kwarg takes precedence over hyperprior product
-    μ_direct = get(kwargs, :μ, nothing)
-    μ = μ_direct !== nothing ? Float64(μ_direct) : μ_prior_shape * μ_prior_scale
+    μ = μ !== nothing ? Float64(μ) : μ_prior_shape * μ_prior_scale
     current_shape = shape
     ρ = ρ_prior_shape / ρ_prior_rate  # Initial ρ from prior mean
 
