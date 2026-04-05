@@ -222,7 +222,7 @@ end
 function _oracle_rmse(locs::Vector{<:SMLMData.AbstractEmitter},
                       true_positions::Vector{Tuple{Float64, Float64}};
                       threshold::Float64 = 0.020)
-    oracle_assignments = Int16[loc.track_id for loc in locs]
+    oracle_assignments = [Int32(loc.track_id) for loc in locs]
     any(a != 0 for a in oracle_assignments) || return NaN
 
     oracle_emitters = _emitters_from_assignments(oracle_assignments, locs)
