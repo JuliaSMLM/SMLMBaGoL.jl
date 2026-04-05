@@ -218,6 +218,17 @@ The count+K_prior landscape peaks at K=3, but the DM partition penalty for split
 | 11 | 2026-03-30 | Target scoring + TI marginal | **TI proves mixing failure.** Per-allocation K=4 MAP > K=8 oracle (misleading). TI marginal: co-located peak K=7, octamer peak K=10. Sampler: K≈3 and K≈6 respectively. Joint mode ≠ marginal mode — sampler tracks joint, can't reach marginal peak. Saddle-point fine (<0.02/cluster). |
 | 12 | 2026-03-31 | Predictive-only proposals | Removed DM `(n+γ)` from all proposal kernels (Gibbs, split, restricted Gibbs, death). MH-corrected against unchanged target. **4/4 brute-force PASS** (close dimer improved 1.30x→1.27x). Practical recall unchanged (0.478 vs 0.475 baseline). N=40 co-located stuck at K=1 — same as baseline (Poisson K prior issue). Conclusion: DM proposal dynamics are not the bottleneck at practical N. |
 
+## Recent Activity (2026-04-03 — 2026-04-05)
+
+### Separate DM gamma from count shape (committed dda254c)
+Added `gamma` kwarg to decouple DM concentration from count shape. Also fixed pre-existing birth reverse proposal bug (DM-weighted absorb in birth reverse didn't match predictive-only death forward). Tests pass, highdensity benchmarks re-run with all configs (default, γ=20, γ=100, decoupled, nohier). γ=100 gave best Jaccard (0.597) on highdensity benchmark.
+
+### GenMAb experimental data comparison (ongoing)
+Running BaGoL on JuliaSMLM pipeline output (GaussMLE→Filter→FrameConnect→DriftCorrect) vs SMITE for same RGY Cell_01. Key finding: JuliaSMLM pipeline's tighter precision (σ=5nm vs SMITE's 7.3nm) gives lower compression (4.5× vs 9.1×) because precision-weighted DBSCAN radius scales with σ. Both results are correct for their input uncertainties — the difference is upstream, not BaGoL.
+
+### Partitioning improvement opportunity (noted, not started)
+Current precision-weighted DBSCAN uses transitive closure, which chains through intermediaries and merges visually distinct clusters into one oversized DBSCAN cluster. METIS then splits by balanced graph cut, not by density valleys. A density-based approach (HDBSCAN mutual reachability, or local density thresholding) would keep isolated clusters separate from the start, producing partitions that respect natural cluster boundaries. METIS would only be needed for genuinely oversized single clusters. This could improve both partition quality and runtime for dense experimental data.
+
 ## Future Priorities
 
 1. **CRITICAL:** Poisson K prior + flat spatial creates deep K=1 well at large N. Birth acceptance <0.2% at N=40 co-located, identical before and after predictive-only changes. Need to address the target/prior landscape, not just proposal dynamics.

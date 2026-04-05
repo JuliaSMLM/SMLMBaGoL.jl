@@ -13,6 +13,9 @@ using SpecialFunctions: logfactorial, logabsbinomial, loggamma
 using StaticArrays
 using Statistics
 
+# Export config
+export BaGoLConfig
+
 # Export main API
 export run_bagol
 export run_collapsed_chain, initialize_from_assignments
@@ -75,6 +78,7 @@ export indicator_ess, run_mixing_test
 include("spatial.jl")
 include("cluster_stats.jl")
 include("types.jl")
+include("config.jl")
 include("priors.jl")
 include("hierarchical.jl")
 include("mapn.jl")

@@ -3,27 +3,28 @@
 # Dense hexamers (25 nm diameter) + equal density of monomers, with
 # blinking stats learned from GenMAb HexaBody RGY data (Cell_01):
 # μ ≈ 8.7 locs/emitter, shape ≈ 1.5
-# 4× hexamer density (32/μm²) + 32/μm² monomers — stress test for BaGoL
-# with mixed cluster sizes.
+# 128/μm² hexamers + 128/μm² monomers — extreme density stress test
+# (~36K emitters, ~350K locs in 6.4×6.4 μm FOV)
 #
 # Run with: julia --threads=auto --project=dev dev/smlmsim_highdensity.jl
 # Set GEN_PLOTS=false to skip rendering (timing-only mode)
 
 GEN_PLOTS = get(ENV, "GEN_PLOTS", "true") != "false"
-PROGRESS_FILE = get(ENV, "PROGRESS_FILE", "/tmp/smlmsim_progress.txt")
-_log(msg) = (println(msg); open(io -> println(io, msg), PROGRESS_FILE, "a"); flush(stdout))
 
-_log("Loading packages...")
 using SMLMBaGoL, SMLMData, SMLMSim
 if GEN_PLOTS
     using SMLMRender, CairoMakie
 end
 using Statistics, Random
-_log("Packages loaded.")
 
 OUTPUT_DIR = joinpath(@__DIR__, "output", "smlmsim_highdensity")
 rm(OUTPUT_DIR; force=true, recursive=true)
 mkpath(OUTPUT_DIR)
+
+PROGRESS_FILE = joinpath(OUTPUT_DIR, "progress.log")
+_log(msg) = (println(msg); open(io -> println(io, msg), PROGRESS_FILE, "a"); flush(stdout))
+
+_log("Packages loaded.")
 
 Random.seed!(42)
 
@@ -42,12 +43,12 @@ CAMERA_PIXELS = 64
 PIXEL_SIZE = 0.100                  # μm → 6.4 × 6.4 μm FOV
 fov_size = CAMERA_PIXELS * PIXEL_SIZE
 
-# Pattern — hexamers at high density so clusters frequently overlap
+# Pattern — hexamers at extreme density so clusters frequently overlap
 # d=0.025 μm (25 nm) hexamer diameter
-# At density=32 patterns/μm² → ~1311 hexamers in FOV → ~7864 emitters
-# Plus ~1311 monomers scattered randomly (equal pattern count)
-# Mean inter-pattern distance ≈ 1/√(density_total) ≈ 0.125 μm
-DENSITY_NMER = 32.0                 # hexamers/μm² (4× original)
+# At density=128 patterns/μm² → ~5243 hexamers in FOV → ~31457 emitters
+# Plus ~5243 monomers scattered randomly (equal pattern count)
+# Mean inter-pattern distance ≈ 1/√(density_total) ≈ 62 nm
+DENSITY_NMER = 128.0                # hexamers/μm²
 DENSITY_MONO = DENSITY_NMER         # monomers/μm² (equal count)
 PATTERN_N = 6                       # hexamers
 PATTERN_D = 0.025                   # 25 nm diameter
@@ -220,6 +221,7 @@ t_bagol = @elapsed begin
         posterior_pixel_size = GEN_PLOTS ? 0.002 : 0.0,
         posterior_xlim = (fov[1], fov[2]),
         posterior_ylim = (fov[3], fov[4]),
+        progress_file = PROGRESS_FILE,
         verbose = true)
 end
 _log("\n  run_bagol: $(round(t_bagol, digits=1))s")
@@ -233,20 +235,18 @@ _log("  Live bytes: $(round(Base.gc_live_bytes() / 1024^2, digits=1)) MB")
 _log("\n" * "-"^60)
 _log("Computing report...")
 
+# Skip true_positions — Hungarian matching is O(n³), intractable at ~36K emitters.
+# True emitter count printed separately for reference.
 report = compute_report(result_smld, diag;
-    true_positions = true_positions,
     locs_smld = smld_noisy,
     count_params = (μ = TRUE_MU, shape = TRUE_SHAPE))
 
 write_report(report; output_dir=OUTPUT_DIR)
 
 println("\n-- Results --")
-println("  True emitters: $(report.k_true)")
+println("  True emitters: $n_true")
 println("  Estimated emitters: $(report.n_emitters)")
-println("  Jaccard: $(round(report.jaccard, digits=3))")
-println("  Precision: $(round(report.precision, digits=3))")
-println("  Recall: $(round(report.recall, digits=3))")
-println("  RMSE: $(round(report.rmse * 1000, digits=1)) nm")
+println("  Compression: $(round(n_locs / report.n_emitters, digits=1))×")
 println("  Learned μ: $(round(report.final_mu, digits=2))")
 println("  Learned shape: $(round(report.final_shape, digits=2))")
 
@@ -262,7 +262,6 @@ _log("Generating plots and renders...")
 plot_report(report; output_dir=OUTPUT_DIR)
 render_report(smld_noisy, result_smld;
     output_dir = OUTPUT_DIR,
-    true_positions = true_positions,
     partition_ids = report.partition_ids,
     fov = fov)
 
