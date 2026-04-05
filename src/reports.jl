@@ -81,6 +81,8 @@ Threshold in μm (default 20 nm).
 Returns `(assignments, matched_distances, cost_matrix)` where
 `assignments[i]` = matched true index for estimated emitter i (0 if unmatched).
 """
+const _HUNGARIAN_MAX = 5000  # max(n_est, n_true) above which we fall back to greedy
+
 function match_positions(
     estimated::Vector{<:SMLMData.AbstractEmitter},
     true_positions::Vector{Tuple{Float64, Float64}};
@@ -92,6 +94,12 @@ function match_positions(
     if n_est == 0 || n_true == 0
         return (assignments=zeros(Int, n_est), matched_distances=Float64[],
                 cost_matrix=zeros(0, 0))
+    end
+
+    if max(n_est, n_true) > _HUNGARIAN_MAX
+        @warn "match_positions: $(max(n_est, n_true)) emitters exceeds Hungarian limit " *
+              "($_HUNGARIAN_MAX). Using greedy KDTree matching (not globally optimal)."
+        return _match_greedy(estimated, true_positions; threshold)
     end
 
     cost = zeros(n_est, n_true)
@@ -114,6 +122,52 @@ function match_positions(
 
     return (assignments=assignments, matched_distances=matched_distances,
             cost_matrix=cost)
+end
+
+"""
+    _match_greedy(estimated, true_positions; threshold) -> NamedTuple
+
+Greedy KDTree matching for large datasets. For each found emitter (sorted by
+distance to nearest true), assign to nearest unmatched true within threshold.
+
+O(n log n) vs Hungarian O(n³). NOT globally optimal — may produce suboptimal
+assignments when multiple found emitters compete for the same true position.
+"""
+function _match_greedy(
+    estimated::Vector{<:SMLMData.AbstractEmitter},
+    true_positions::Vector{Tuple{Float64, Float64}};
+    threshold::Float64 = 0.020
+)
+    n_est = length(estimated)
+    n_true = length(true_positions)
+
+    # Build KDTree on true positions
+    true_coords = hcat([[p[1], p[2]] for p in true_positions]...)
+    tree = KDTree(true_coords)
+
+    # For each estimated emitter, find nearest true within threshold
+    est_coords = hcat([[e.x, e.y] for e in estimated]...)
+    nn_idxs, nn_dists = knn(tree, est_coords, 1)
+
+    # Sort by distance (closest first → best matches assigned first)
+    order = sortperm([d[1] for d in nn_dists])
+
+    assignments = zeros(Int, n_est)
+    matched_distances = Float64[]
+    claimed = falses(n_true)
+
+    for i in order
+        j = nn_idxs[i][1]
+        d = nn_dists[i][1]
+        if d <= threshold && !claimed[j]
+            assignments[i] = j
+            claimed[j] = true
+            push!(matched_distances, d)
+        end
+    end
+
+    return (assignments=assignments, matched_distances=matched_distances,
+            cost_matrix=zeros(0, 0))
 end
 
 # ============================================================================
