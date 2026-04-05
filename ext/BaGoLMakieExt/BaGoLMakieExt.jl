@@ -139,18 +139,35 @@ end
 
 function _plot_nn_distances(report, output_dir)
     dists = report.nn_distances .* 1000  # nm
-    # Truncate at 99th percentile for readability
+    has_gt = hasproperty(report, :gt_nn_distances) && !isempty(report.gt_nn_distances)
+    gt_dists = has_gt ? report.gt_nn_distances .* 1000 : Float64[]
+
+    # Truncate at 99th percentile for readability (use max of both distributions)
     cutoff = quantile(dists, 0.99)
+    if has_gt
+        cutoff = max(cutoff, quantile(gt_dists, 0.99))
+    end
     dists_trunc = filter(d -> d <= cutoff, dists)
     n_bins = 30
+
     fig = Figure(size=(500, 350))
     ax = Axis(fig[1, 1], xlabel="Nearest-neighbor distance (nm)", ylabel="Count",
               title="NN distances between emitters ($(length(dists)) total)")
-    hist!(ax, dists_trunc; bins=n_bins, color=:steelblue)
 
-    # Mode: bin data manually and find peak
+    # GT histogram (behind, if available)
+    if has_gt
+        gt_trunc = filter(d -> d <= cutoff, gt_dists)
+        hist!(ax, gt_trunc; bins=n_bins, color=(:gray70, 0.4), label="GT ($(length(gt_dists)))")
+    end
+
+    # BaGoL histogram
+    hist!(ax, dists_trunc; bins=n_bins, color=(:steelblue, 0.6), label="BaGoL ($(length(dists)))")
+
+    # Shared bin edges for mode computation
     if length(dists_trunc) >= 2
         edges = range(minimum(dists_trunc), maximum(dists_trunc); length=n_bins + 1)
+
+        # BaGoL mode
         counts = zeros(Int, n_bins)
         for d in dists
             idx = clamp(searchsortedlast(edges, d), 1, n_bins)
@@ -160,16 +177,27 @@ function _plot_nn_distances(report, output_dir)
         mode_val = (edges[max_idx] + edges[max_idx + 1]) / 2
         vlines!(ax, [mode_val]; color=:orange, linewidth=2, linestyle=:solid,
                 label="Mode = $(round(mode_val, digits=1)) nm")
+
+        # GT mode
+        if has_gt
+            gt_counts = zeros(Int, n_bins)
+            for d in gt_dists
+                idx = clamp(searchsortedlast(edges, d), 1, n_bins)
+                gt_counts[idx] += 1
+            end
+            gt_max_idx = argmax(gt_counts)
+            gt_mode = (edges[gt_max_idx] + edges[gt_max_idx + 1]) / 2
+            vlines!(ax, [gt_mode]; color=:green3, linewidth=2, linestyle=:solid,
+                    label="GT mode = $(round(gt_mode, digits=1)) nm")
+        end
     end
 
+    # Median lines
     vlines!(ax, [median(dists)]; color=:red, linewidth=2, linestyle=:dash,
             label="Median = $(round(median(dists), digits=1)) nm")
-
-    # GT NN distances if available
-    if hasproperty(report, :gt_nn_distances) && !isempty(report.gt_nn_distances)
-        gt_median = median(report.gt_nn_distances) .* 1000
-        vlines!(ax, [gt_median]; color=:green3, linewidth=2, linestyle=:dashdot,
-                label="GT median = $(round(gt_median, digits=1)) nm")
+    if has_gt
+        vlines!(ax, [median(gt_dists)]; color=:green3, linewidth=2, linestyle=:dashdot,
+                label="GT median = $(round(median(gt_dists), digits=1)) nm")
     end
 
     axislegend(ax; position=:rt, framevisible=false)
