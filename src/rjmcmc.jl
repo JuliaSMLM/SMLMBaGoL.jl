@@ -31,6 +31,13 @@ n_j ~ Gamma(shape, μ/shape) where:
 - `learn_distribution=true`: Control count distribution learning.
   `true`=learn both μ and shape, `false`=fix both,
   `:mu`=learn μ only (fix shape), `:shape`=learn shape only (fix μ)
+- `allocation_model=:dm`: `:dm` (Dirichlet-Multinomial), `:decoupled`
+  (no partition prior), or `:categorical` (labeled K^(-N) — Fazel-equivalent
+  when paired with `spatial_model=:flat` + `k_prior=:none`)
+- `spatial_model=:locmix`: `:locmix` (localization mixture) or `:flat`
+- `k_prior=:auto`: K-prior gating. `:auto` uses spatial-model default
+  (Poisson(ρA) under `:flat`, none under `:locmix`); `:poisson` always
+  include (only valid with `:flat`); `:none` always disable
 - `verbose=true`: Print progress
 
 # Posterior Image
@@ -283,6 +290,13 @@ function _run_bagol_collapsed(
     partition_samples = Vector{PartitionSamples}(undef, n_partitions)
     partition_psms = Vector{PSMAccumulator}(undef, n_partitions)
 
+    # Validate k_prior compatibility with spatial model BEFORE the @spawn
+    # loop — otherwise the ArgumentError gets wrapped in CompositeException
+    # and is hard to surface cleanly to callers.
+    if k_prior === :poisson && spatial_model_sym !== :flat
+        throw(ArgumentError("k_prior=:poisson is only valid with spatial_model=:flat (the prior is the flat-area-cancelled form). Got spatial_model=:$spatial_model_sym"))
+    end
+
     @sync for i in 1:n_partitions
         Threads.@spawn begin
             p_locs = partitions[i].locs
@@ -292,10 +306,8 @@ function _run_bagol_collapsed(
                 FlatSpatial(log(area(UniformSpatialPrior(p_locs))))
             end
             # Resolve k_prior into a concrete bool for this partition.
-            # Disallow :poisson under non-flat (see collapsed_sampler.jl).
+            # (Compatibility check already done outside the @spawn block.)
             use_kprior_i = if k_prior === :poisson
-                spatial_model_sym === :flat ||
-                    throw(ArgumentError("k_prior=:poisson is only valid with spatial_model=:flat (the prior is the flat-area-cancelled form). Got spatial_model=:$spatial_model_sym"))
                 true
             elseif k_prior === :none
                 false

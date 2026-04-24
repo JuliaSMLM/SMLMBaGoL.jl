@@ -842,6 +842,15 @@ using Distributions
             @test_throws ArgumentError run_collapsed_chain(locs;
                 spatial_model=:locmix, k_prior=:poisson,
                 n_iterations=10, burn_in=0, verbose=false)
+
+            # Same check on the run_bagol public path. Validation must
+            # happen BEFORE the @spawn partition loop or the ArgumentError
+            # gets wrapped in CompositeException.
+            @test_throws ArgumentError run_bagol(sim.smld;
+                spatial_model=:locmix, k_prior=:poisson,
+                n_iterations=10, burn_in=0,
+                partition_sigma=Inf, posterior_pixel_size=0.0,
+                verbose=false)
         end
 
         @testset "Fazel exact configuration runs" begin
