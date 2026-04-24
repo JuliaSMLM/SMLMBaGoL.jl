@@ -27,17 +27,36 @@ DMAllocation() = DMAllocation(nothing)
 """Decoupled allocation: no partition prior. Spatial ML determines z."""
 struct DecoupledAllocation <: AbstractAllocationModel end
 
+"""
+    CategoricalAllocation
+
+Labeled categorical allocation with equal-weight categories: each loc
+independently picks a label uniformly from {1..K}. Yields P(z|K) = K^(-N)
+regardless of resulting cluster sizes — matches Fazel et al. supplement
+(after analytically integrating θ_k under uniform prior, the labeled
+allocation factor is exactly K^(-N)).
+
+At fixed K, behavior matches DecoupledAllocation: predictive-only Gibbs,
+no DM correction. At K-changing MH (split/merge, birth/death), this
+allocation contributes Δ_alloc = -N·log(K_new/K_old), which previous
+:decoupled was missing (it contributed 0 across K).
+"""
+struct CategoricalAllocation <: AbstractAllocationModel end
+
 """Effective DM concentration: explicit gamma if set, otherwise fall back to shape."""
 @inline dm_gamma(am::DMAllocation, shape::Float64) = am.gamma === nothing ? shape : am.gamma
 @inline dm_gamma(::DecoupledAllocation, shape::Float64) = shape
+@inline dm_gamma(::CategoricalAllocation, shape::Float64) = shape  # unused
 
 """Partition prior log-ratio for MH acceptance."""
 @inline partition_prior(am::DMAllocation, state, N, shape) = _log_dm_partition(state, N, dm_gamma(am, Float64(shape)))
 @inline partition_prior(::DecoupledAllocation, state, N, shape) = 0.0
+@inline partition_prior(::CategoricalAllocation, state, N, shape) = -Float64(N) * log(Float64(state.n_active))
 
 """MH correction factor for Gibbs allocation (DM ratio or 1.0)."""
 @inline mh_correction(::DMAllocation, n_new, n_old, γ) = min(1.0, (n_new + γ) / (n_old + γ))
 @inline mh_correction(::DecoupledAllocation, n_new, n_old, γ) = 1.0
+@inline mh_correction(::CategoricalAllocation, n_new, n_old, γ) = 1.0
 
 """Restricted Gibbs step: sample + density for DM (MH-corrected) allocation."""
 function _restricted_step(::DMAllocation, was_in_b, q_b, n_a, n_b, γ, track_density)
@@ -74,6 +93,10 @@ function _restricted_step(::DecoupledAllocation, was_in_b, q_b, n_a, n_b, γ, tr
     return ends_in_b, log_q_step
 end
 
+"""Restricted Gibbs step: categorical allocation behaves like decoupled at fixed K."""
+_restricted_step(::CategoricalAllocation, was_in_b, q_b, n_a, n_b, γ, track_density) =
+    _restricted_step(DecoupledAllocation(), was_in_b, q_b, n_a, n_b, γ, track_density)
+
 """Transition density step for DM (MH-corrected)."""
 function _transition_density_step(::DMAllocation, was_in_b, target_in_b, q_b, n_a, n_b, γ)
     if was_in_b
@@ -93,6 +116,10 @@ end
 function _transition_density_step(::DecoupledAllocation, was_in_b, target_in_b, q_b, n_a, n_b, γ)
     return target_in_b ? log(max(q_b, 1e-300)) : log(max(1.0 - q_b, 1e-300))
 end
+
+"""Transition density step for categorical: same as decoupled at fixed K."""
+_transition_density_step(::CategoricalAllocation, was_in_b, target_in_b, q_b, n_a, n_b, γ) =
+    _transition_density_step(DecoupledAllocation(), was_in_b, target_in_b, q_b, n_a, n_b, γ)
 
 # ============================================================================
 # Helpers
@@ -319,14 +346,20 @@ end
 """
     _uses_poisson_k_prior(sp) -> Bool
 
-True iff the spatial model's target includes an explicit Poisson(ρA) K prior
-and requires ρ hierarchical updates. FlatSpatial legacy path keeps this;
-LocmixSpatial per docs/math_reference.md does NOT use a K prior — the
-count model (NegBin) and DM partition prior fully specify P(K,z).
+True iff the target includes an explicit Poisson(ρA) K prior and requires
+ρ hierarchical updates.
+
+Default policy by spatial model (used when the user passes k_prior=:auto):
+- FlatSpatial: true (legacy Fazel-with-Poisson-K behavior)
+- LocmixSpatial: false (locmix target per docs/math_reference.md)
+
+The CollapsedState method consults the resolved field set at init time —
+this allows the user to override the spatial-derived default via
+k_prior=:none or :poisson on `run_collapsed_chain` / `run_bagol`.
 """
 _uses_poisson_k_prior(::FlatSpatial) = true
 _uses_poisson_k_prior(::LocmixSpatial) = false
-_uses_poisson_k_prior(state::CollapsedState) = _uses_poisson_k_prior(state.spatial)
+_uses_poisson_k_prior(state::CollapsedState) = state.use_poisson_k_prior
 
 """
     _total_spatial_lml(state) -> Float64
