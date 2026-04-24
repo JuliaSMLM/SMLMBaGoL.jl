@@ -14,7 +14,8 @@ Initialize collapsed state: all locs in one cluster.
 """
 function initialize_collapsed_state(locs::Vector{<:SMLMData.AbstractEmitter},
                                      sp::AbstractSpatialModel,
-                                     am::AbstractAllocationModel=DMAllocation())
+                                     am::AbstractAllocationModel=DMAllocation();
+                                     use_poisson_k_prior::Bool=_uses_poisson_k_prior(sp))
     N = length(locs)
 
     cs = ClusterStats()
@@ -38,6 +39,7 @@ function initialize_collapsed_state(locs::Vector{<:SMLMData.AbstractEmitter},
     _rollback_active = similar(active)
 
     return CollapsedState(assignments, clusters, active, n_active, sp, am,
+                          use_poisson_k_prior,
                           _loc_precs,
                           _perm, _active_slots, _log_probs,
                           _rollback_assignments, _rollback_clusters, _rollback_active)
@@ -46,8 +48,9 @@ end
 # Backward-compatible: accept UniformSpatialPrior → FlatSpatial
 function initialize_collapsed_state(locs::Vector{<:SMLMData.AbstractEmitter},
                                      spatial_prior::UniformSpatialPrior,
-                                     am::AbstractAllocationModel=DMAllocation())
-    initialize_collapsed_state(locs, FlatSpatial(log(area(spatial_prior))), am)
+                                     am::AbstractAllocationModel=DMAllocation();
+                                     kwargs...)
+    initialize_collapsed_state(locs, FlatSpatial(log(area(spatial_prior))), am; kwargs...)
 end
 
 """
@@ -63,7 +66,8 @@ are built fresh.
 function initialize_from_assignments(assignments::AbstractVector{<:Integer},
                                       locs::Vector{<:SMLMData.AbstractEmitter};
                                       sp::AbstractSpatialModel=FlatSpatial(log(area(UniformSpatialPrior(locs)))),
-                                      am::AbstractAllocationModel=DMAllocation())
+                                      am::AbstractAllocationModel=DMAllocation(),
+                                      use_poisson_k_prior::Bool=_uses_poisson_k_prior(sp))
     N = length(locs)
     @assert length(assignments) == N "Assignment length must match number of locs"
 
@@ -91,6 +95,7 @@ function initialize_from_assignments(assignments::AbstractVector{<:Integer},
     _rollback_active = similar(active)
 
     return CollapsedState(assign16, clusters, active, n_active, sp, am,
+                          use_poisson_k_prior,
                           _loc_precs,
                           _perm, _active_slots, _log_probs,
                           _rollback_assignments, _rollback_clusters, _rollback_active)
@@ -150,16 +155,26 @@ function run_collapsed_chain(
     n_bd_substeps::Int = 5,
     gamma::Union{Nothing, Float64} = nothing,
     allocation_model::Symbol = :dm,
-    spatial_model::Symbol = :locmix
+    spatial_model::Symbol = :locmix,
+    k_prior::Symbol = :auto,
 )
     N = length(locs)
     if N == 0
         error("No localizations provided")
     end
 
-    allocation_model in (:dm, :decoupled) ||
-        throw(ArgumentError("allocation_model must be :dm or :decoupled (got :$allocation_model)"))
-    am = allocation_model === :dm ? DMAllocation(gamma) : DecoupledAllocation()
+    allocation_model in (:dm, :decoupled, :categorical) ||
+        throw(ArgumentError("allocation_model must be :dm, :decoupled, or :categorical (got :$allocation_model)"))
+    am = if allocation_model === :dm
+        DMAllocation(gamma)
+    elseif allocation_model === :decoupled
+        DecoupledAllocation()
+    else  # :categorical
+        CategoricalAllocation()
+    end
+
+    k_prior in (:auto, :poisson, :none) ||
+        throw(ArgumentError("k_prior must be :auto, :poisson, or :none (got :$k_prior)"))
 
     # Validate learn_distribution
     if learn_distribution isa Symbol && learn_distribution ∉ (:mu, :shape)
@@ -177,11 +192,28 @@ function run_collapsed_chain(
         FlatSpatial(log(area(UniformSpatialPrior(locs))))
     end
 
+    # Resolve k_prior into a concrete bool. The Poisson(ρA) prior in the
+    # current sampler is the flat-area-cancelled form e^{-ρA}ρ^K/K! — it
+    # only matches a true Poisson(ρA) K prior when paired with flat ML's
+    # A^-K cancellation. Disallow :poisson under non-flat to avoid
+    # silently mixing inconsistent target pieces.
+    use_poisson_k_prior = if k_prior === :poisson
+        spatial_model === :flat ||
+            throw(ArgumentError("k_prior=:poisson is only valid with spatial_model=:flat (the prior is the flat-area-cancelled form). Got spatial_model=:$spatial_model"))
+        true
+    elseif k_prior === :none
+        false
+    else  # :auto — derive from spatial model
+        _uses_poisson_k_prior(sp)
+    end
+
     # Initialize from explicit assignments or default (all-in-one)
     if initial_assignments !== nothing
-        state = initialize_from_assignments(initial_assignments, locs; sp=sp, am=am)
+        state = initialize_from_assignments(initial_assignments, locs;
+            sp=sp, am=am, use_poisson_k_prior=use_poisson_k_prior)
     else
-        state = initialize_collapsed_state(locs, sp, am)
+        state = initialize_collapsed_state(locs, sp, am;
+            use_poisson_k_prior=use_poisson_k_prior)
     end
 
     μ = μ_prior_shape * μ_prior_scale  # Initial μ from prior mean
