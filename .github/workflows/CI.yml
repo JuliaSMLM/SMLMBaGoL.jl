@@ -10,7 +10,8 @@ jobs:
       fail-fast: false
       matrix:
         version:
-          - '1.6'
+          - '1.10'   # minimum supported; matches Project.toml [compat] julia
+          - '1'      # latest stable
           - 'nightly'
         os:
           - ubuntu-latest
