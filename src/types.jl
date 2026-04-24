@@ -42,7 +42,8 @@ mutable struct CollapsedState{S<:AbstractSpatialModel, A<:AbstractAllocationMode
     active::BitVector               # Which slots are in use
     n_active::Int                   # Number of active clusters
     spatial::S                      # Spatial prior model (FlatSpatial or LocmixSpatial)
-    allocation::A                   # Allocation model (DMAllocation or DecoupledAllocation)
+    allocation::A                   # Allocation model
+    use_poisson_k_prior::Bool       # Whether the target includes Poisson(ρA) K prior + ρ updates
 
     # Precomputed loc precisions (computed once, locs don't change)
     _loc_precs::Vector{LocPrecision}

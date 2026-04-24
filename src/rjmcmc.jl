@@ -58,6 +58,7 @@ function run_bagol(
     sync_interval::Int = 500,
     allocation_model::Symbol = :dm,
     spatial_model::Symbol = :locmix,
+    k_prior::Symbol = :auto,
     n_restricted_scans::Int = 5,
     n_bd_substeps::Int = 5,
     # Partitioning
@@ -87,7 +88,8 @@ function run_bagol(
         posterior_pixel_size, posterior_xlim, posterior_ylim,
         archive_path, progress_file, verbose,
         μ=μ, gamma=gamma, allocation_model=allocation_model,
-        spatial_model=spatial_model, n_restricted_scans=n_restricted_scans,
+        spatial_model=spatial_model, k_prior=k_prior,
+        n_restricted_scans=n_restricted_scans,
         n_bd_substeps=n_bd_substeps,
         μ_prior_shape=μ_prior_shape, μ_prior_scale=μ_prior_scale,
         shape_prior_shape=shape_prior_shape, shape_prior_scale=shape_prior_scale,
@@ -111,6 +113,7 @@ function run_bagol(
         n_iterations=cfg.n_iterations, burn_in=cfg.burn_in,
         sync_interval=cfg.sync_interval,
         allocation_model=cfg.allocation_model, spatial_model=cfg.spatial_model,
+        k_prior=cfg.k_prior,
         n_restricted_scans=cfg.n_restricted_scans, n_bd_substeps=cfg.n_bd_substeps,
         partition_sigma=cfg.partition_sigma,
         min_partition_size=cfg.min_partition_size,
@@ -181,6 +184,7 @@ function _run_bagol_collapsed(
     gamma::Union{Nothing, Float64} = nothing,
     allocation_model::Symbol = :dm,
     spatial_model::Symbol = :locmix,
+    k_prior::Symbol = :auto,
     n_restricted_scans::Int = 5,
     n_bd_substeps::Int = 3,
     μ_prior_shape::Float64 = 2.0,
@@ -241,13 +245,22 @@ function _run_bagol_collapsed(
     n_partitions = length(partitions)
 
     # Allocation model
-    allocation_model in (:dm, :decoupled) ||
-        throw(ArgumentError("allocation_model must be :dm or :decoupled"))
-    am = allocation_model === :dm ? DMAllocation(gamma) : DecoupledAllocation()
+    allocation_model in (:dm, :decoupled, :categorical) ||
+        throw(ArgumentError("allocation_model must be :dm, :decoupled, or :categorical"))
+    am = if allocation_model === :dm
+        DMAllocation(gamma)
+    elseif allocation_model === :decoupled
+        DecoupledAllocation()
+    else
+        CategoricalAllocation()
+    end
 
     spatial_model_sym = spatial_model
     spatial_model_sym in (:locmix, :flat) ||
         throw(ArgumentError("spatial_model must be :locmix or :flat"))
+
+    k_prior in (:auto, :poisson, :none) ||
+        throw(ArgumentError("k_prior must be :auto, :poisson, or :none (got :$k_prior)"))
 
     # Hyperprior config
     config_nt = (μ_prior_shape=μ_prior_shape, μ_prior_scale=μ_prior_scale,
@@ -257,7 +270,13 @@ function _run_bagol_collapsed(
     # Initialize collapsed states and accumulators per partition
     # Use concrete parametric type for the state vector
     _sp_type = spatial_model_sym === :locmix ? LocmixSpatial : FlatSpatial
-    _am_type = allocation_model === :dm ? DMAllocation : DecoupledAllocation
+    _am_type = if allocation_model === :dm
+        DMAllocation
+    elseif allocation_model === :decoupled
+        DecoupledAllocation
+    else
+        CategoricalAllocation
+    end
     states = Vector{CollapsedState{_sp_type, _am_type}}(undef, n_partitions)
     partition_accumulators = Vector{Vector{AbstractAccumulator}}(undef, n_partitions)
     count_hists = Vector{EmitterCountHist}(undef, n_partitions)
@@ -272,7 +291,16 @@ function _run_bagol_collapsed(
             else
                 FlatSpatial(log(area(UniformSpatialPrior(p_locs))))
             end
-            states[i] = initialize_collapsed_state(p_locs, sp, am)
+            # Resolve k_prior into a concrete bool for this partition
+            use_kprior_i = if k_prior === :poisson
+                true
+            elseif k_prior === :none
+                false
+            else
+                _uses_poisson_k_prior(sp)
+            end
+            states[i] = initialize_collapsed_state(p_locs, sp, am;
+                use_poisson_k_prior=use_kprior_i)
 
             # Per-partition accumulators
             accs = AbstractAccumulator[]

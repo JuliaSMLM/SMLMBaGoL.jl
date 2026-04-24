@@ -53,6 +53,9 @@ Base.@kwdef struct BaGoLConfig <: SMLMData.AbstractSMLMConfig
     sync_interval::Int = 500
     allocation_model::Symbol = :dm
     spatial_model::Symbol = :locmix
+    # K prior gating (:auto = use spatial-model default; :poisson = always include
+    # Poisson(ρA) + ρ updates; :none = never). :auto preserves existing behavior.
+    k_prior::Symbol = :auto
     n_restricted_scans::Int = 5
     n_bd_substeps::Int = 5
 

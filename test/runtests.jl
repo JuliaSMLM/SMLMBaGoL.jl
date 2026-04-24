@@ -696,6 +696,26 @@ using Distributions
             @test SMLMBaGoL._diagnostic_sampler_kwargs(td_locmix).spatial_model == :locmix
             @test SMLMBaGoL._diagnostic_sampler_kwargs(DecoupledTarget()).allocation_model == :decoupled
             @test SMLMBaGoL._diagnostic_sampler_kwargs(DecoupledLocmixTarget()).allocation_model == :decoupled
+
+            # FazelFlatTarget: count × K^-N × ∏ ML_flat, NO K prior
+            td_fazel = FazelFlatTarget()
+            for z in parts
+                lt_fazel = evaluate_target(td_fazel, z, locs; μ=10.0, shape=2.0, ρ=2.0)
+                @test isfinite(lt_fazel)
+                K = maximum(z); N = length(z)
+                # Verify the log target differs from DMFlatTarget by exactly
+                # (-N log K) - log_dm_term - log_poisson_k_prior, which the
+                # helper algebra proves indirectly. Here we just check
+                # ρ-invariance: no Poisson(ρA) dependence on ρ.
+                lt_fazel_ρ5 = evaluate_target(td_fazel, z, locs; μ=10.0, shape=2.0, ρ=5.0)
+                @test lt_fazel ≈ lt_fazel_ρ5 atol=1e-10
+            end
+            probs_fazel, _ = exact_posterior(parts, locs, td_fazel; μ=10.0, shape=2.0, ρ=2.0)
+            @test sum(probs_fazel) ≈ 1.0 atol=1e-10
+            kw_fazel = SMLMBaGoL._diagnostic_sampler_kwargs(td_fazel)
+            @test kw_fazel.spatial_model == :flat
+            @test kw_fazel.allocation_model == :categorical
+            @test kw_fazel.k_prior == :none
         end
 
     end
@@ -764,6 +784,88 @@ using Distributions
                 verbose=false)
             @test result.state.n_active >= 1
             @test isa(result.state.spatial, LocmixSpatial)
+        end
+    end
+
+    @testset "Fazel Target Configuration" begin
+        # Verify the public API for the Fazel-equivalent target:
+        # allocation_model=:categorical + k_prior=:none.
+
+        @testset "CategoricalAllocation K^-N partition prior" begin
+            sim = simulate_localizations([(0.0, 0.0), (0.05, 0.0)];
+                count_model=:fixed, mean_count=6.0, fixed_sigma=0.005)
+            locs = sim.smld.emitters
+            N = length(locs)
+            # Build states at K=1 and K=2 manually to verify partition_prior
+            sp = FlatSpatial(log(SMLMBaGoL.area(UniformSpatialPrior(locs))))
+            am = CategoricalAllocation()
+            state_k1 = SMLMBaGoL.initialize_from_assignments(fill(1, N), locs;
+                sp=sp, am=am)
+            state_k2 = SMLMBaGoL.initialize_from_assignments(
+                [i <= N÷2 ? 1 : 2 for i in 1:N], locs; sp=sp, am=am)
+            pp_k1 = SMLMBaGoL.partition_prior(am, state_k1, N, 2.0)
+            pp_k2 = SMLMBaGoL.partition_prior(am, state_k2, N, 2.0)
+            # partition_prior = -N·log(K) — K=1 gives 0, K=2 gives -N·log(2)
+            @test pp_k1 ≈ 0.0 atol=1e-10
+            @test pp_k2 ≈ -N * log(2.0) atol=1e-10
+        end
+
+        @testset "k_prior=:none disables Poisson K prior on flat" begin
+            sim = simulate_localizations([(0.0, 0.0)];
+                count_model=:fixed, mean_count=5.0, fixed_sigma=0.005)
+            locs = sim.smld.emitters
+            result_default = run_collapsed_chain(locs;
+                spatial_model=:flat, allocation_model=:dm,
+                n_iterations=200, burn_in=100, learn_distribution=false,
+                shape=2.0, μ_prior_shape=2.0, μ_prior_scale=2.5, verbose=false)
+            @test result_default.state.use_poisson_k_prior == true
+
+            result_none = run_collapsed_chain(locs;
+                spatial_model=:flat, allocation_model=:dm, k_prior=:none,
+                n_iterations=200, burn_in=100, learn_distribution=false,
+                shape=2.0, μ_prior_shape=2.0, μ_prior_scale=2.5, verbose=false)
+            @test result_none.state.use_poisson_k_prior == false
+        end
+
+        @testset "k_prior=:poisson enables under locmix" begin
+            sim = simulate_localizations([(0.0, 0.0)];
+                count_model=:fixed, mean_count=5.0, fixed_sigma=0.005)
+            locs = sim.smld.emitters
+            result_default = run_collapsed_chain(locs;
+                spatial_model=:locmix, allocation_model=:dm,
+                n_iterations=200, burn_in=100, learn_distribution=false,
+                shape=2.0, μ_prior_shape=2.0, μ_prior_scale=2.5, verbose=false)
+            @test result_default.state.use_poisson_k_prior == false
+
+            result_pois = run_collapsed_chain(locs;
+                spatial_model=:locmix, allocation_model=:dm, k_prior=:poisson,
+                n_iterations=200, burn_in=100, learn_distribution=false,
+                shape=2.0, μ_prior_shape=2.0, μ_prior_scale=2.5, verbose=false)
+            @test result_pois.state.use_poisson_k_prior == true
+        end
+
+        @testset "Fazel exact configuration runs" begin
+            sim = simulate_localizations([(0.0, 0.0), (0.05, 0.0)];
+                count_model=:fixed, mean_count=6.0, fixed_sigma=0.005)
+            locs = sim.smld.emitters
+            # Exact Fazel config: flat + categorical + no K prior
+            result = run_collapsed_chain(locs;
+                spatial_model=:flat, allocation_model=:categorical, k_prior=:none,
+                n_iterations=500, burn_in=200, learn_distribution=false,
+                shape=2.0, μ_prior_shape=2.0, μ_prior_scale=3.0, verbose=false)
+            @test isa(result.state.allocation, CategoricalAllocation)
+            @test isa(result.state.spatial, FlatSpatial)
+            @test result.state.use_poisson_k_prior == false
+        end
+
+        @testset "Invalid kwargs error" begin
+            sim = simulate_localizations([(0.0, 0.0)];
+                count_model=:fixed, mean_count=3.0, fixed_sigma=0.005)
+            locs = sim.smld.emitters
+            @test_throws ArgumentError run_collapsed_chain(locs;
+                allocation_model=:bogus, n_iterations=10, burn_in=0, verbose=false)
+            @test_throws ArgumentError run_collapsed_chain(locs;
+                k_prior=:bogus, n_iterations=10, burn_in=0, verbose=false)
         end
     end
 end

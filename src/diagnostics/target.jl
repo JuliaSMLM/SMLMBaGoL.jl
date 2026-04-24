@@ -93,6 +93,25 @@ algebraic check of the DM decomposition under locmix spatial likelihoods.
 struct DirectNegBinLocmixTarget <: AbstractTargetDensity end
 
 """
+    FazelFlatTarget <: AbstractTargetDensity
+
+Fazel-equivalent no-drift collapsed target after analytically integrating
+θ_k ~ Uniform(R):
+
+    π(K, Z | Y, Σ) ∝ P_count(N | K, μ, shape) × P(Z | K) × ∏_k ML_flat(D_k)
+
+with labeled equal-weight allocation P(Z|K) = K^(-N). Spatial = flat
+(uniform prior). NO K prior (ρA) and no DM/Polya term. Matches:
+
+    spatial_model=:flat, allocation_model=:categorical, k_prior=:none.
+
+Count distribution: NegBin(N; K·shape, shape/(shape+μ)). (Fazel's original
+supplement uses Poisson(Kμ); here we keep NegBin and note that Poisson
+is recovered in the limit shape→∞ for fixed μ.)
+"""
+struct FazelFlatTarget <: AbstractTargetDensity end
+
+"""
     log_target(td, z, loc_precs, log_area, μ, shape, ρ) -> Float64
 
 Evaluate the unnormalized log target density for assignment vector `z`.
@@ -179,6 +198,17 @@ function log_target(::DirectNegBinLocmixTarget, z::AbstractVector{<:Integer},
     return log_counts + log_assign + log_spatial
 end
 
+function log_target(::FazelFlatTarget, z::AbstractVector{<:Integer},
+                    loc_precs::Vector{LocPrecision}, sp::AbstractSpatialModel,
+                    μ::Float64, shape::Float64, ρ::Float64)
+    N = length(z)
+    K = _count_clusters(z)
+    log_count = _log_count_term(K, N, shape, μ)
+    log_alloc = -Float64(N) * log(Float64(K))   # labeled K^(-N)
+    log_spatial = _sum_cluster_ml_spatial(z, loc_precs, sp)
+    return log_count + log_alloc + log_spatial
+end
+
 """
     evaluate_target(td, z, locs; μ, shape, ρ) -> Float64
 
@@ -205,13 +235,15 @@ _target_spatial(::DirectNegBinFlatTarget, loc_precs::Vector{LocPrecision}, log_a
 _target_spatial(::DecoupledLocmixTarget, loc_precs::Vector{LocPrecision}, log_area::Float64) = LocmixSpatial(loc_precs)
 _target_spatial(::DMLocmixTarget, loc_precs::Vector{LocPrecision}, log_area::Float64) = LocmixSpatial(loc_precs)
 _target_spatial(::DirectNegBinLocmixTarget, loc_precs::Vector{LocPrecision}, log_area::Float64) = LocmixSpatial(loc_precs)
+_target_spatial(::FazelFlatTarget, loc_precs::Vector{LocPrecision}, log_area::Float64) = FlatSpatial(log_area)
 
-_diagnostic_sampler_kwargs(::DecoupledTarget) = (spatial_model=:flat, allocation_model=:decoupled)
-_diagnostic_sampler_kwargs(::DMFlatTarget) = (spatial_model=:flat, allocation_model=:dm)
-_diagnostic_sampler_kwargs(::DirectNegBinFlatTarget) = (spatial_model=:flat, allocation_model=:dm)
-_diagnostic_sampler_kwargs(::DecoupledLocmixTarget) = (spatial_model=:locmix, allocation_model=:decoupled)
-_diagnostic_sampler_kwargs(::DMLocmixTarget) = (spatial_model=:locmix, allocation_model=:dm)
-_diagnostic_sampler_kwargs(::DirectNegBinLocmixTarget) = (spatial_model=:locmix, allocation_model=:dm)
+_diagnostic_sampler_kwargs(::DecoupledTarget) = (spatial_model=:flat, allocation_model=:decoupled, k_prior=:poisson)
+_diagnostic_sampler_kwargs(::DMFlatTarget) = (spatial_model=:flat, allocation_model=:dm, k_prior=:poisson)
+_diagnostic_sampler_kwargs(::DirectNegBinFlatTarget) = (spatial_model=:flat, allocation_model=:dm, k_prior=:poisson)
+_diagnostic_sampler_kwargs(::DecoupledLocmixTarget) = (spatial_model=:locmix, allocation_model=:decoupled, k_prior=:none)
+_diagnostic_sampler_kwargs(::DMLocmixTarget) = (spatial_model=:locmix, allocation_model=:dm, k_prior=:none)
+_diagnostic_sampler_kwargs(::DirectNegBinLocmixTarget) = (spatial_model=:locmix, allocation_model=:dm, k_prior=:none)
+_diagnostic_sampler_kwargs(::FazelFlatTarget) = (spatial_model=:flat, allocation_model=:categorical, k_prior=:none)
 
 function _count_clusters(z::AbstractVector{<:Integer})
     max_k = 0
