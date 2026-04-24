@@ -25,6 +25,18 @@ the A^{-K} from K clusters' uniform position priors.
 struct DecoupledTarget <: AbstractTargetDensity end
 
 """
+    DecoupledLocmixTarget <: AbstractTargetDensity
+
+Count model × locmix spatial likelihood, with no explicit K prior and no
+DM/Polya allocation term.
+
+    P(z, K | data) ∝ P_count(N | K, μ, α) × ∏_k ML_locmix_k(z)
+
+This matches `allocation_model=:decoupled, spatial_model=:locmix`.
+"""
+struct DecoupledLocmixTarget <: AbstractTargetDensity end
+
+"""
     DMFlatTarget <: AbstractTargetDensity
 
 Collapsed target implied by:
@@ -44,6 +56,18 @@ the correct consequence of the NegBin generative model.
 struct DMFlatTarget <: AbstractTargetDensity end
 
 """
+    DMLocmixTarget <: AbstractTargetDensity
+
+Default collapsed locmix target:
+
+    P(z, K | data) ∝ P_count(N | K, μ, shape) ×
+                     P_DM(z | N, K, shape) × ∏_k ML_locmix_k(z)
+
+No separate Poisson K prior is included.
+"""
+struct DMLocmixTarget <: AbstractTargetDensity end
+
+"""
     DirectNegBinFlatTarget <: AbstractTargetDensity
 
 Direct form of the same flat/NegBin target before rewriting the count model
@@ -61,50 +85,98 @@ vector given the count vector. This target is algebraically identical to
 struct DirectNegBinFlatTarget <: AbstractTargetDensity end
 
 """
+    DirectNegBinLocmixTarget <: AbstractTargetDensity
+
+Direct NegBin-count form of `DMLocmixTarget`, useful as an independent
+algebraic check of the DM decomposition under locmix spatial likelihoods.
+"""
+struct DirectNegBinLocmixTarget <: AbstractTargetDensity end
+
+"""
     log_target(td, z, loc_precs, log_area, μ, shape, ρ) -> Float64
 
 Evaluate the unnormalized log target density for assignment vector `z`.
 """
 function log_target end
 
-function log_target(::DecoupledTarget, z::AbstractVector{<:Integer},
+function log_target(td::AbstractTargetDensity, z::AbstractVector{<:Integer},
                     loc_precs::Vector{LocPrecision}, log_area::Float64,
+                    μ::Float64, shape::Float64, ρ::Float64)
+    sp = _target_spatial(td, loc_precs, log_area)
+    return log_target(td, z, loc_precs, sp, μ, shape, ρ)
+end
+
+function log_target(::DecoupledTarget, z::AbstractVector{<:Integer},
+                    loc_precs::Vector{LocPrecision}, sp::AbstractSpatialModel,
                     μ::Float64, shape::Float64, ρ::Float64)
     N = length(z)
     K = _count_clusters(z)
-    A = exp(log_area)
+    A = spatial_area(sp)
     log_count = _log_count_term(K, N, shape, μ)
     log_k_prior = log_prior_k_poisson(K, ρ, A)
-    log_spatial = _sum_cluster_ml_flat(z, K, loc_precs, log_area)
+    log_spatial = _sum_cluster_ml_spatial(z, loc_precs, sp)
     return log_count + log_k_prior + log_spatial
 end
 
-function log_target(::DMFlatTarget, z::AbstractVector{<:Integer},
-                    loc_precs::Vector{LocPrecision}, log_area::Float64,
+function log_target(::DecoupledLocmixTarget, z::AbstractVector{<:Integer},
+                    loc_precs::Vector{LocPrecision}, sp::AbstractSpatialModel,
                     μ::Float64, shape::Float64, ρ::Float64)
     N = length(z)
     K = _count_clusters(z)
-    A = exp(log_area)
+    log_count = _log_count_term(K, N, shape, μ)
+    log_spatial = _sum_cluster_ml_spatial(z, loc_precs, sp)
+    return log_count + log_spatial
+end
+
+function log_target(::DMFlatTarget, z::AbstractVector{<:Integer},
+                    loc_precs::Vector{LocPrecision}, sp::AbstractSpatialModel,
+                    μ::Float64, shape::Float64, ρ::Float64)
+    N = length(z)
+    K = _count_clusters(z)
+    A = spatial_area(sp)
     counts = _cluster_counts(z)
     log_count = _log_count_term(K, N, shape, μ)
     log_k_prior = log_prior_k_poisson(K, ρ, A)
     log_dm = _log_dm_term(counts, N, shape)
-    log_spatial = _sum_cluster_ml_flat(z, K, loc_precs, log_area)
+    log_spatial = _sum_cluster_ml_spatial(z, loc_precs, sp)
     return log_k_prior + log_count + log_dm + log_spatial
 end
 
-function log_target(::DirectNegBinFlatTarget, z::AbstractVector{<:Integer},
-                    loc_precs::Vector{LocPrecision}, log_area::Float64,
+function log_target(::DMLocmixTarget, z::AbstractVector{<:Integer},
+                    loc_precs::Vector{LocPrecision}, sp::AbstractSpatialModel,
                     μ::Float64, shape::Float64, ρ::Float64)
     N = length(z)
     K = _count_clusters(z)
-    A = exp(log_area)
+    counts = _cluster_counts(z)
+    log_count = _log_count_term(K, N, shape, μ)
+    log_dm = _log_dm_term(counts, N, shape)
+    log_spatial = _sum_cluster_ml_spatial(z, loc_precs, sp)
+    return log_count + log_dm + log_spatial
+end
+
+function log_target(::DirectNegBinFlatTarget, z::AbstractVector{<:Integer},
+                    loc_precs::Vector{LocPrecision}, sp::AbstractSpatialModel,
+                    μ::Float64, shape::Float64, ρ::Float64)
+    N = length(z)
+    K = _count_clusters(z)
+    A = spatial_area(sp)
     counts = _cluster_counts(z)
     log_k_prior = log_prior_k_poisson(K, ρ, A)
     log_counts = _log_product_nb_counts(counts, shape, μ)
     log_assign = _log_assignment_given_counts(counts, N)
-    log_spatial = _sum_cluster_ml_flat(z, K, loc_precs, log_area)
+    log_spatial = _sum_cluster_ml_spatial(z, loc_precs, sp)
     return log_k_prior + log_counts + log_assign + log_spatial
+end
+
+function log_target(::DirectNegBinLocmixTarget, z::AbstractVector{<:Integer},
+                    loc_precs::Vector{LocPrecision}, sp::AbstractSpatialModel,
+                    μ::Float64, shape::Float64, ρ::Float64)
+    N = length(z)
+    counts = _cluster_counts(z)
+    log_counts = _log_product_nb_counts(counts, shape, μ)
+    log_assign = _log_assignment_given_counts(counts, N)
+    log_spatial = _sum_cluster_ml_spatial(z, loc_precs, sp)
+    return log_counts + log_assign + log_spatial
 end
 
 """
@@ -119,12 +191,27 @@ function evaluate_target(td::AbstractTargetDensity,
     loc_precs = precompute_loc_precisions(locs)
     spatial_prior = UniformSpatialPrior(locs)
     log_area = log(area(spatial_prior))
-    return log_target(td, z, loc_precs, log_area, μ, shape, ρ)
+    sp = _target_spatial(td, loc_precs, log_area)
+    return log_target(td, z, loc_precs, sp, μ, shape, ρ)
 end
 
 # ============================================================================
 # Internal helpers
 # ============================================================================
+
+_target_spatial(::DecoupledTarget, loc_precs::Vector{LocPrecision}, log_area::Float64) = FlatSpatial(log_area)
+_target_spatial(::DMFlatTarget, loc_precs::Vector{LocPrecision}, log_area::Float64) = FlatSpatial(log_area)
+_target_spatial(::DirectNegBinFlatTarget, loc_precs::Vector{LocPrecision}, log_area::Float64) = FlatSpatial(log_area)
+_target_spatial(::DecoupledLocmixTarget, loc_precs::Vector{LocPrecision}, log_area::Float64) = LocmixSpatial(loc_precs)
+_target_spatial(::DMLocmixTarget, loc_precs::Vector{LocPrecision}, log_area::Float64) = LocmixSpatial(loc_precs)
+_target_spatial(::DirectNegBinLocmixTarget, loc_precs::Vector{LocPrecision}, log_area::Float64) = LocmixSpatial(loc_precs)
+
+_diagnostic_sampler_kwargs(::DecoupledTarget) = (spatial_model=:flat, allocation_model=:decoupled)
+_diagnostic_sampler_kwargs(::DMFlatTarget) = (spatial_model=:flat, allocation_model=:dm)
+_diagnostic_sampler_kwargs(::DirectNegBinFlatTarget) = (spatial_model=:flat, allocation_model=:dm)
+_diagnostic_sampler_kwargs(::DecoupledLocmixTarget) = (spatial_model=:locmix, allocation_model=:decoupled)
+_diagnostic_sampler_kwargs(::DMLocmixTarget) = (spatial_model=:locmix, allocation_model=:dm)
+_diagnostic_sampler_kwargs(::DirectNegBinLocmixTarget) = (spatial_model=:locmix, allocation_model=:dm)
 
 function _count_clusters(z::AbstractVector{<:Integer})
     max_k = 0
@@ -202,10 +289,16 @@ end
 
 function _sum_cluster_ml_flat(z::AbstractVector{<:Integer}, K::Int,
                                loc_precs::Vector{LocPrecision}, log_area::Float64)
+    return _sum_cluster_ml_spatial(z, loc_precs, FlatSpatial(log_area))
+end
+
+function _sum_cluster_ml_spatial(z::AbstractVector{<:Integer},
+                                  loc_precs::Vector{LocPrecision},
+                                  sp::AbstractSpatialModel)
     clusters, active = _build_clusters_from_z(z, loc_precs)
     total = 0.0
     for k in active
-        total += log_marginal_likelihood(clusters[k], log_area)
+        total += spatial_ml(clusters[k], sp)
     end
     return total
 end

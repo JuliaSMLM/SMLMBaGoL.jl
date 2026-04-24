@@ -78,9 +78,12 @@ function _plot_cluster_sizes(report, output_dir)
     ax = Axis(fig[1, 1], xlabel="Localizations per emitter", ylabel="Probability",
               title="Count distribution (locs/emitter)")
 
-    # Ground truth empirical counts (if available from track_id)
-    ec = report.empirical_counts
-    has_gt_counts = !isempty(ec)
+    # Ground truth empirical counts: only show when true_positions was
+    # provided (simulation). For real SMLM data, track_id is often set by
+    # FrameConnect or upstream pipelines and is NOT ground truth — do not
+    # present it as such.
+    has_gt_counts = report.has_gt && !isempty(report.empirical_counts)
+    ec = has_gt_counts ? report.empirical_counts : Int[]
 
     # BaGoL's inferred cluster sizes — cap x-axis at 99th percentile for readability
     k_max = min(maximum(cs) + 5, round(Int, quantile(Float64.(cs), 0.99)) + 10)

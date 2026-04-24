@@ -237,8 +237,12 @@ function run_collapsed_chain(
             if _learn_shape
                 current_shape = _update_shape_collapsed(state, μ, current_shape, config_nt)
             end
-            # Conjugate ρ update (always — it's exact Gibbs, not MH)
-            ρ = _update_rho_collapsed(state, A, config_nt)
+            # Conjugate ρ update only under the FlatSpatial legacy path that
+            # actually uses the Poisson(ρA) K prior. Under LocmixSpatial the
+            # target has no ρ (K prior is absent per docs/math_reference.md).
+            if _uses_poisson_k_prior(state)
+                ρ = _update_rho_collapsed(state, A, config_nt)
+            end
         end
 
         # Update accumulators after burn-in

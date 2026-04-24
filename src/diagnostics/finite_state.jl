@@ -88,13 +88,14 @@ function exact_posterior(partitions::Vector{Vector{Int}},
     loc_precs = precompute_loc_precisions(locs)
     spatial_prior = UniformSpatialPrior(locs)
     log_area = log(area(spatial_prior))
+    sp = _target_spatial(td, loc_precs, log_area)
 
     n_parts = length(partitions)
     log_targets = Vector{Float64}(undef, n_parts)
 
     for i in 1:n_parts
         K = _count_clusters(partitions[i])
-        log_targets[i] = log_target(td, partitions[i], loc_precs, log_area, μ, shape, ρ) +
+        log_targets[i] = log_target(td, partitions[i], loc_precs, sp, μ, shape, ρ) +
                          _log_label_multiplicity(K, label_multiplicity)
     end
 
@@ -141,6 +142,7 @@ function run_kernel_invariance_test(locs::Vector{<:SMLMData.AbstractEmitter},
     N = length(locs)
     partitions = enumerate_canonical_partitions(N, K_max)
     n_parts = length(partitions)
+    sampler_kwargs = _diagnostic_sampler_kwargs(td)
     exact_probs, log_targets = exact_posterior(partitions, locs, td;
                                                μ=μ, shape=shape, ρ=ρ,
                                                label_multiplicity=label_multiplicity)
@@ -169,9 +171,11 @@ function run_kernel_invariance_test(locs::Vector{<:SMLMData.AbstractEmitter},
             run_collapsed_chain(locs;
                 n_iterations=1, burn_in=0,
                 initial_assignments=z_start,
+                μ_prior_shape=1.0, μ_prior_scale=μ,
                 shape=shape, learn_distribution=false,
                 hierarchical_interval=2,
                 ρ_prior_shape=ρ, ρ_prior_rate=1.0,
+                sampler_kwargs...,
                 accumulators=AbstractAccumulator[ps_acc],
                 verbose=false)
             samples = accumulator_result(ps_acc)
@@ -208,9 +212,11 @@ function run_kernel_invariance_test(locs::Vector{<:SMLMData.AbstractEmitter},
     diag_acc = ChainDiagnosticAccumulator(; thin=1)
     run_collapsed_chain(locs;
         n_iterations=n_mcmc_iterations, burn_in=mcmc_burn_in,
+        μ_prior_shape=1.0, μ_prior_scale=μ,
         shape=shape, learn_distribution=false,
         hierarchical_interval=n_mcmc_iterations + 1,
         ρ_prior_shape=ρ, ρ_prior_rate=1.0,
+        sampler_kwargs...,
         accumulators=AbstractAccumulator[ps_acc, diag_acc],
         verbose=false)
     mcmc_samples = accumulator_result(ps_acc)
@@ -551,8 +557,9 @@ function run_labeled_invariance_test(locs::Vector{<:SMLMData.AbstractEmitter},
     loc_precs = precompute_loc_precisions(locs)
     spatial_prior = UniformSpatialPrior(locs)
     log_area = log(area(spatial_prior))
+    sp = _target_spatial(td, loc_precs, log_area)
 
-    log_targets = [log_target(td, z, loc_precs, log_area, μ, shape, ρ)
+    log_targets = [log_target(td, z, loc_precs, sp, μ, shape, ρ)
                    for z in labeled_parts]
     max_lt = maximum(log_targets)
     probs = exp.(log_targets .- max_lt)
@@ -571,6 +578,7 @@ function run_labeled_invariance_test(locs::Vector{<:SMLMData.AbstractEmitter},
 
     P = zeros(n_parts, n_parts)
     n_overflow = 0
+    sampler_kwargs = _diagnostic_sampler_kwargs(td)
 
     for (i, z_start) in enumerate(labeled_parts)
         for _ in 1:n_steps_per_state
@@ -583,6 +591,7 @@ function run_labeled_invariance_test(locs::Vector{<:SMLMData.AbstractEmitter},
                 shape=shape, learn_distribution=false,
                 hierarchical_interval=2,
                 ρ_prior_shape=ρ, ρ_prior_rate=1.0,
+                sampler_kwargs...,
                 accumulators=AbstractAccumulator[ps_acc],
                 verbose=false)
             samples = accumulator_result(ps_acc)

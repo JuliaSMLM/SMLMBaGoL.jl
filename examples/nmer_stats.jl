@@ -13,6 +13,8 @@ using CairoMakie   # activates BaGoLMakieExt
 # =============================================================================
 
 output_dir = joinpath(@__DIR__, "output", "optimality")
+rm(output_dir; force=true, recursive=true)
+mkpath(output_dir)
 
 sweep = run_optimality_sweep(;
     n_values = [2, 8],

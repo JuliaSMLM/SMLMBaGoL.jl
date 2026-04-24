@@ -47,6 +47,10 @@ Two localizations are neighbors if `||p_i - p_j|| / (σ_i + σ_j) < partition_si
 - `boundary_margin=0.0`: Distance from edge to flag as boundary (0 = auto: partition_sigma×median(σ))
 - `overlap=:auto`: Overlap width for bisected oversized partitions. `:auto` uses
   `partition_sigma × median(σ)` (μm). Numeric value in μm. `0.0` disables overlap.
+- `bridge_ratio=0.0`: Split DBSCAN clusters joined only by low-density bridges.
+  Disabled by default. Values in (0, 1] prune points whose local DBSCAN-neighbor
+  count is below this fraction of the cluster's median neighbor count.
+- `min_split_size=3`: Minimum core component size retained by bridge refinement.
 
 # Returns
 - `partitions`: Vector of Partition for valid clusters
@@ -59,8 +63,14 @@ function partition_locs(
     max_size::Int=1000,
     skip_size::Int=typemax(Int),
     boundary_margin::Float64=0.0,
-    overlap::Union{Float64, Symbol}=:auto
+    overlap::Union{Float64, Symbol}=:auto,
+    bridge_ratio::Float64=0.0,
+    min_split_size::Int=3,
 ) where E<:SMLMData.AbstractEmitter
+    bridge_ratio >= 0.0 ||
+        throw(ArgumentError("bridge_ratio must be non-negative (got $bridge_ratio)"))
+    min_split_size >= 1 ||
+        throw(ArgumentError("min_split_size must be positive (got $min_split_size)"))
     if isempty(locs)
         return Partition{E}[], Partition{E}[]
     end
@@ -81,8 +91,14 @@ function partition_locs(
         error("overlap must be :auto or a Float64 in μm (got $overlap)")
     end
 
-    # Run precision-weighted DBSCAN
-    labels = precision_dbscan(locs, partition_sigma, min_size)
+    # Run precision-weighted DBSCAN. `precision_neighbors` excludes the query
+    # point, while public `min_size` is the total DBSCAN min-points convention.
+    labels = precision_dbscan(locs, partition_sigma, max(min_size - 1, 0))
+    if bridge_ratio > 0.0
+        labels = refine_bridge_clusters(locs, labels, partition_sigma;
+                                        bridge_ratio=bridge_ratio,
+                                        min_split_size=min_split_size)
+    end
 
     # Group by cluster label
     cluster_ids = unique(labels)
@@ -120,6 +136,142 @@ function partition_locs(
     end
 
     return partitions, skipped
+end
+
+"""
+    refine_bridge_clusters(locs, labels, nsigma; bridge_ratio, min_split_size)
+
+Split DBSCAN clusters that are connected only by sparse bridge points.
+
+DBSCAN's transitive closure can merge nearby structures through a thin chain of
+localizations. This pass computes the within-cluster DBSCAN-neighbor count for
+each point, removes low-count bridge candidates, finds connected components of
+the remaining core graph, then assigns bridge points to the nearest retained
+component. If refinement does not produce at least two components of
+`min_split_size`, the original cluster is preserved.
+"""
+function refine_bridge_clusters(
+    locs::Vector{<:SMLMData.AbstractEmitter},
+    labels::Vector{Int},
+    nsigma::Float64;
+    bridge_ratio::Float64,
+    min_split_size::Int=3,
+)
+    n = length(locs)
+    n == 0 && return Int[]
+
+    coords = coords_matrix(locs)
+    tree = KDTree(coords)
+    max_sigma = maximum(mean_sigma(loc) for loc in locs)
+    max_radius = nsigma * 2 * max_sigma
+
+    refined = zeros(Int, n)
+    next_label = 0
+
+    cluster_ids = sort!(filter(>(0), unique(labels)))
+    for cid in cluster_ids
+        cluster_indices = findall(==(cid), labels)
+        m = length(cluster_indices)
+        if m < 2 * min_split_size
+            next_label += 1
+            refined[cluster_indices] .= next_label
+            continue
+        end
+
+        local_index = Dict{Int, Int}(gi => li for (li, gi) in enumerate(cluster_indices))
+        neighbors = [Int[] for _ in 1:m]
+        degrees = zeros(Int, m)
+
+        for (li, gi) in enumerate(cluster_indices)
+            for gj in precision_neighbors(tree, locs, gi, nsigma, max_radius)
+                labels[gj] == cid || continue
+                lj = local_index[gj]
+                push!(neighbors[li], lj)
+            end
+            degrees[li] = length(neighbors[li])
+        end
+
+        median_degree = median(degrees)
+        min_core_degree = max(1, ceil(Int, bridge_ratio * median_degree))
+        is_core = degrees .>= min_core_degree
+
+        # Connected components in the core-only neighbor graph.
+        component_id = zeros(Int, m)
+        components = Vector{Int}[]
+        for li in 1:m
+            is_core[li] || continue
+            component_id[li] != 0 && continue
+
+            push!(components, Int[])
+            cid_local = length(components)
+            stack = [li]
+            component_id[li] = cid_local
+            while !isempty(stack)
+                u = pop!(stack)
+                push!(components[cid_local], u)
+                for v in neighbors[u]
+                    is_core[v] || continue
+                    component_id[v] == 0 || continue
+                    component_id[v] = cid_local
+                    push!(stack, v)
+                end
+            end
+        end
+
+        keep = [length(c) >= min_split_size for c in components]
+        if count(keep) < 2
+            next_label += 1
+            refined[cluster_indices] .= next_label
+            continue
+        end
+
+        kept_components = components[keep]
+        new_labels = collect((next_label + 1):(next_label + length(kept_components)))
+        local_to_new = zeros(Int, m)
+        for (comp_idx, comp) in enumerate(kept_components)
+            for li in comp
+                local_to_new[li] = new_labels[comp_idx]
+            end
+        end
+
+        # Attach pruned bridge points and undersized core fragments to the
+        # nearest retained component, preserving all original localizations.
+        for li in 1:m
+            local_to_new[li] != 0 && continue
+            local_to_new[li] = _nearest_component_label(
+                li, kept_components, new_labels, cluster_indices, locs)
+        end
+
+        for li in 1:m
+            refined[cluster_indices[li]] = local_to_new[li]
+        end
+        next_label += length(kept_components)
+    end
+
+    return refined
+end
+
+function _nearest_component_label(
+    li::Int,
+    components::Vector{Vector{Int}},
+    labels::Vector{Int},
+    cluster_indices::Vector{Int},
+    locs::Vector{<:SMLMData.AbstractEmitter},
+)
+    gi = cluster_indices[li]
+    best_label = labels[1]
+    best_d = Inf
+    for (comp_idx, comp) in enumerate(components)
+        for lj in comp
+            gj = cluster_indices[lj]
+            d = precision_weighted_distance(locs[gi], locs[gj])
+            if d < best_d
+                best_d = d
+                best_label = labels[comp_idx]
+            end
+        end
+    end
+    return best_label
 end
 
 """

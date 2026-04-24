@@ -55,7 +55,8 @@ export write_sweep, write_speed
 export plot_sweep, plot_speed  # extension stubs
 
 # Export diagnostics — target density
-export AbstractTargetDensity, DecoupledTarget, DMFlatTarget, DirectNegBinFlatTarget
+export AbstractTargetDensity, DecoupledTarget, DecoupledLocmixTarget
+export DMFlatTarget, DMLocmixTarget, DirectNegBinFlatTarget, DirectNegBinLocmixTarget
 export log_target, evaluate_target
 
 # Export diagnostics — finite-state validation

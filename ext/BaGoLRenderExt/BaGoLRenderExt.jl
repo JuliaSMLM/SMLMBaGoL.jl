@@ -74,8 +74,9 @@ function SMLMBaGoL.render_report(
         part_path = joinpath(output_dir, "$(prefix)_partitions.png")
         # Set dataset field to partition ID for categorical coloring
         part_emitters = [SMLMData.Emitter2DFit{Float64}(
-            e.x, e.y, e.photons, e.bg, e.σ_x, e.σ_y, e.σ_photons, e.σ_bg;
-            σ_xy=e.σ_xy, frame=e.frame, dataset=partition_ids[i],
+            Float64(e.x), Float64(e.y), Float64(e.photons), Float64(e.bg),
+            Float64(e.σ_x), Float64(e.σ_y), Float64(e.σ_photons), Float64(e.σ_bg);
+            σ_xy=Float64(e.σ_xy), frame=e.frame, dataset=partition_ids[i],
             track_id=e.track_id, id=e.id
         ) for (i, e) in enumerate(locs_smld.emitters)]
         part_smld = SMLMData.BasicSMLD(part_emitters, locs_smld.camera, 1, 1)

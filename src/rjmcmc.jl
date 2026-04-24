@@ -374,9 +374,16 @@ function _run_bagol_collapsed(
             current_shape = _update_shape_collapsed_global!(states, μ, current_shape, config_nt;
                                                              cluster_masks=cluster_masks)
         end
-        # Conjugate ρ update (always — exact Gibbs, pooled across partitions)
-        ρ = _update_rho_collapsed_global!(states, partition_areas, config_nt;
-                                           cluster_masks=cluster_masks)
+        # Conjugate ρ update — gated on spatial model. Only the FlatSpatial
+        # legacy path uses a Poisson(ρA) K prior; LocmixSpatial target has no
+        # ρ per docs/math_reference.md. Partitions share spatial-model type
+        # within a run, so it's enough to check the first state.
+        ρ = if !isempty(states) && _uses_poisson_k_prior(states[1])
+            _update_rho_collapsed_global!(states, partition_areas, config_nt;
+                                          cluster_masks=cluster_masks)
+        else
+            ρ
+        end
 
         total_K = sum(s.n_active for s in states)
         shape_str = _learn_shape ? ", shape=$(round(current_shape, digits=2))" : ""
