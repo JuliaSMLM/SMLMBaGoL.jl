@@ -251,30 +251,35 @@ function fit_bleach_curve(smld; t_min::Union{Int,Nothing}=nothing,
             note="A = N₀·λ identified; μ = λ/β requires external N₀.")
 end
 
-"Convert (A, β, T_obs, N₀) → (μ, α_mixture) with exact finite-window count law."
+"""
+    bleach_to_count_params(bleach, N₀) -> (μ, α, λ, F)
+
+Convert (A, β, T_obs, N₀) to NegBin(μ, α) count-prior params.
+Exact mean under compound Poisson(λ·min(T_bleach, T_obs)):
+
+    E[K] = (λ/β) · F  where F = 1 - exp(-β·T_obs)
+
+α mapping is heuristic (Geometric limit as F→1, Poisson limit as F→0).
+For a principled α, use the exact pmf of the finite-window mixture.
+"""
 function bleach_to_count_params(bleach::NamedTuple, N₀::Real)
     A = bleach.A; β = bleach.β; T_obs = bleach.T_obs
-    λ = A / N₀           # blink rate per emitter per frame
-    μ_ub = λ / β          # upper bound: mean K if full bleach
-    F = bleach.F          # fraction bleached before T_obs
+    λ = A / N₀
+    F = bleach.F
+    μ = (λ/β) * F  # correct finite-window mean
 
-    # Exact expected K under partial bleach:
-    # K | survived ~ Poisson(λ·T_obs), K | bleached ~ Geom(β/(λ+β)) truncated
-    # E[K] = (1-F)·λ·T_obs + F·(λ/β)·(1 - adjust)
-    # For simplicity, take E[K] ≈ λ/β · F + λ·T_obs · (1-F)
-    μ = λ/β * F + λ * T_obs * (1 - F)
-
-    # Variance: Geom has var λ/β·(1+λ/β) ≈ (λ/β)² for large λ/β;
-    # Poisson has var = mean. Over-dispersion α = μ²/(var - μ) heuristic:
-    var_bleach = λ/β * (1 + λ/β)
-    var_surv = λ * T_obs
-    var_mix = F * var_bleach + (1-F) * var_surv + F*(1-F)*(λ/β - λ*T_obs)^2
-    α_est = if var_mix > μ
-        μ^2 / (var_mix - μ)
+    # α interpolation between Geometric (F=1, α=1) and Poisson (F=0, α=∞).
+    # Heuristic: Var(K)/E[K] = (1 + μ/α); Poisson has ratio 1 (α=∞), Geometric has ratio (1+μ) (α=1).
+    # As F→0, variance drops toward Poisson (emitters all survive → Poisson(λ·T_obs) per emitter).
+    # As F→1, variance rises toward Geometric.
+    α_est = if F ≥ 0.99
+        1.0                     # full bleach → Geometric
+    elseif F ≤ 0.01
+        1.0 / eps()              # no bleach → Poisson (α → ∞)
     else
-        Inf  # Poisson limit (no over-dispersion)
+        # Interpolate in log-α space: log α = (1-F) · large + F · 0
+        exp((1 - F) * log(100.0))
     end
-    # For F → 1, α → 1 (geometric limit); for F → 0, α → ∞ (Poisson limit).
     return (μ=μ, α=α_est, λ=λ, F=F)
 end
 
