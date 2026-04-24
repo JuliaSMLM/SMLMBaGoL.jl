@@ -324,6 +324,51 @@ using Distributions
                 @test p.locs[i] === locs[idx]
             end
         end
+
+        # Public min_size counts the point itself; precision_neighbors excludes
+        # self internally, so exactly-min-size dense clusters should survive.
+        σ = 0.005
+        tiny = [
+            SMLMData.Emitter2DFit(0.1 + 0.001 * i, 0.1, 1000.0, 10.0,
+                                  σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, i)
+            for i in 1:3
+        ]
+        tiny_parts, _ = partition_locs(tiny; partition_sigma=3.0, min_size=3, max_size=100)
+        @test length(tiny_parts) == 1
+        @test length(tiny_parts[1].locs) == 3
+    end
+
+    @testset "Bridge Refinement" begin
+        σ = 0.005
+        locs = SMLMData.Emitter2DFit[]
+        id = 0
+
+        # Two dense groups connected by a sparse transitive DBSCAN bridge.
+        for x0 in (0.1, 0.2)
+            for dx in (-0.002, -0.001, 0.0, 0.001, 0.002, 0.003)
+                id += 1
+                push!(locs, SMLMData.Emitter2DFit(
+                    x0 + dx, 0.1, 1000.0, 10.0,
+                    σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, id))
+            end
+        end
+        for x in (0.128, 0.156, 0.184)
+            id += 1
+            push!(locs, SMLMData.Emitter2DFit(
+                x, 0.1, 1000.0, 10.0,
+                σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, id))
+        end
+
+        plain, _ = partition_locs(locs; partition_sigma=3.0, min_size=0,
+                                  max_size=100, bridge_ratio=0.0)
+        refined, _ = partition_locs(locs; partition_sigma=3.0, min_size=0,
+                                    max_size=100, bridge_ratio=0.6,
+                                    min_split_size=3)
+
+        @test length(plain) == 1
+        @test length(refined) == 2
+        @test sum(length(p.locs) for p in refined) == length(locs)
+        @test all(length(p.locs) >= 3 for p in refined)
     end
 
     @testset "Oversized Cluster Splitting" begin
@@ -630,7 +675,95 @@ using Distributions
             probs_dm, _ = exact_posterior(parts, locs, td_dm; μ=10.0, shape=2.0, ρ=2.0)
             probs_direct, _ = exact_posterior(parts, locs, td_direct; μ=10.0, shape=2.0, ρ=2.0)
             @test all(isapprox.(probs_dm, probs_direct; atol=1e-12))
+
+            # Locmix targets should also normalize and the DM decomposition should
+            # match the direct NegBin assignment form, without a Poisson K prior.
+            td_locmix = DMLocmixTarget()
+            td_direct_locmix = DirectNegBinLocmixTarget()
+            for z in parts
+                lt_dm = evaluate_target(td_locmix, z, locs; μ=10.0, shape=2.0, ρ=2.0)
+                lt_direct = evaluate_target(td_direct_locmix, z, locs; μ=10.0, shape=2.0, ρ=2.0)
+                @test isfinite(lt_dm)
+                @test lt_dm ≈ lt_direct atol=1e-10
+            end
+
+            probs_locmix, _ = exact_posterior(parts, locs, td_locmix; μ=10.0, shape=2.0, ρ=2.0)
+            probs_direct_locmix, _ = exact_posterior(parts, locs, td_direct_locmix; μ=10.0, shape=2.0, ρ=2.0)
+            @test sum(probs_locmix) ≈ 1.0 atol=1e-10
+            @test all(isapprox.(probs_locmix, probs_direct_locmix; atol=1e-12))
+
+            @test SMLMBaGoL._diagnostic_sampler_kwargs(td_dm).spatial_model == :flat
+            @test SMLMBaGoL._diagnostic_sampler_kwargs(td_locmix).spatial_model == :locmix
+            @test SMLMBaGoL._diagnostic_sampler_kwargs(DecoupledTarget()).allocation_model == :decoupled
+            @test SMLMBaGoL._diagnostic_sampler_kwargs(DecoupledLocmixTarget()).allocation_model == :decoupled
         end
 
+    end
+
+    @testset "Locmix vs Flat Target Routing" begin
+        # P0 fix verification: the sampler must route through spatial_ml /
+        # spatial_pred dispatch on state.spatial, not hardcoded flat calls;
+        # and the Poisson K prior + ρ hier update must be gated off under
+        # LocmixSpatial per docs/math_reference.md.
+
+        @testset "_uses_poisson_k_prior dispatch" begin
+            # Flat uses the K prior + ρ update
+            @test SMLMBaGoL._uses_poisson_k_prior(FlatSpatial(log(1.0)))
+            # Locmix does not
+            sim = simulate_localizations([(0.0, 0.0), (0.05, 0.0)];
+                count_model=:fixed, mean_count=5.0,
+                fixed_sigma=0.005)
+            loc_precs = SMLMBaGoL.precompute_loc_precisions(sim.smld.emitters)
+            grid = SMLMBaGoL.build_locmix_grid(loc_precs)
+            @test !SMLMBaGoL._uses_poisson_k_prior(LocmixSpatial(grid))
+        end
+
+        @testset "_total_spatial_lml dispatches on spatial model" begin
+            sim = simulate_localizations([(0.0, 0.0)];
+                count_model=:fixed, mean_count=8.0,
+                fixed_sigma=0.005)
+            locs = sim.smld.emitters
+
+            # Flat state
+            state_flat = SMLMBaGoL.initialize_collapsed_state(locs,
+                FlatSpatial(log(SMLMBaGoL.area(UniformSpatialPrior(locs)))))
+            lml_flat = SMLMBaGoL._total_spatial_lml(state_flat)
+
+            # Locmix state
+            state_lm = SMLMBaGoL.initialize_collapsed_state(locs, LocmixSpatial(locs))
+            lml_lm = SMLMBaGoL._total_spatial_lml(state_lm)
+
+            # Flat and locmix produce different values for same allocation —
+            # this fails if both paths are secretly using the flat formula.
+            @test isfinite(lml_flat) && isfinite(lml_lm)
+            @test lml_flat != lml_lm
+        end
+
+        @testset "Flat path still runs and converges" begin
+            sim = simulate_localizations([(0.0, 0.0), (0.05, 0.0)];
+                count_model=:fixed, mean_count=10.0,
+                fixed_sigma=0.005)
+            result = run_collapsed_chain(sim.smld.emitters;
+                spatial_model=:flat, allocation_model=:dm,
+                n_iterations=1000, burn_in=500,
+                learn_distribution=false, shape=2.0,
+                μ_prior_shape=2.0, μ_prior_scale=2.5,
+                verbose=false)
+            @test result.state.n_active >= 1
+        end
+
+        @testset "Locmix path runs and converges" begin
+            sim = simulate_localizations([(0.0, 0.0), (0.05, 0.0)];
+                count_model=:fixed, mean_count=10.0,
+                fixed_sigma=0.005)
+            result = run_collapsed_chain(sim.smld.emitters;
+                spatial_model=:locmix, allocation_model=:dm,
+                n_iterations=1000, burn_in=500,
+                learn_distribution=false, shape=2.0,
+                μ_prior_shape=2.0, μ_prior_scale=2.5,
+                verbose=false)
+            @test result.state.n_active >= 1
+            @test isa(result.state.spatial, LocmixSpatial)
+        end
     end
 end
