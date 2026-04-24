@@ -20,8 +20,13 @@ Configuration for BaGoL analysis. All fields correspond 1:1 to `run_bagol` kwarg
 - `n_iterations=10000`: Total MCMC iterations
 - `burn_in=2000`: Burn-in before accumulating
 - `sync_interval=500`: Iterations between global hierarchical updates
-- `allocation_model=:dm`: `:dm` (Dirichlet-Multinomial) or `:decoupled`
+- `allocation_model=:dm`: `:dm` (Dirichlet-Multinomial), `:decoupled`
+  (no partition prior), or `:categorical` (labeled K^(-N) — Fazel-equivalent
+  when paired with `spatial_model=:flat` + `k_prior=:none`)
 - `spatial_model=:locmix`: `:locmix` (localization mixture) or `:flat`
+- `k_prior=:auto`: K-prior gating. `:auto` uses spatial-model default
+  (Poisson(ρA) under `:flat`, none under `:locmix`); `:poisson` always
+  include (only valid with `:flat`); `:none` always disable
 - `n_restricted_scans=5`: Jain-Neal restricted Gibbs scans for split/merge
 - `n_bd_substeps=5`: Birth/death substeps per BD selection
 
@@ -53,6 +58,9 @@ Base.@kwdef struct BaGoLConfig <: SMLMData.AbstractSMLMConfig
     sync_interval::Int = 500
     allocation_model::Symbol = :dm
     spatial_model::Symbol = :locmix
+    # K prior gating (:auto = use spatial-model default; :poisson = always include
+    # Poisson(ρA) + ρ updates; :none = never). :auto preserves existing behavior.
+    k_prior::Symbol = :auto
     n_restricted_scans::Int = 5
     n_bd_substeps::Int = 5
 

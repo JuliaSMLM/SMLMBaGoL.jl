@@ -57,11 +57,12 @@ export plot_sweep, plot_speed  # extension stubs
 # Export diagnostics — target density
 export AbstractTargetDensity, DecoupledTarget, DecoupledLocmixTarget
 export DMFlatTarget, DMLocmixTarget, DirectNegBinFlatTarget, DirectNegBinLocmixTarget
+export FazelFlatTarget
 export log_target, evaluate_target
 
 # Export diagnostics — finite-state validation
 export AbstractSpatialModel, FlatSpatial, LocmixSpatial, spatial_ml, spatial_pred
-export AbstractAllocationModel, DMAllocation, DecoupledAllocation
+export AbstractAllocationModel, DMAllocation, DecoupledAllocation, CategoricalAllocation
 
 export enumerate_canonical_partitions, canonicalize, exact_posterior
 export enumerate_labeled_partitions
