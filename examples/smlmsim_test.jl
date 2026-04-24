@@ -83,6 +83,8 @@ result_smld, diagnostics = run_bagol(smld_sim;
 # =============================================================================
 
 output_dir = joinpath(@__DIR__, "output", "smlmsim")
+rm(output_dir; force=true, recursive=true)
+mkpath(output_dir)
 
 # Empirical count params from simulation (shape unknown, use Poisson approx)
 empirical_μ = n_locs / length(true_positions)

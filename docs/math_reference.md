@@ -1,6 +1,7 @@
 # Mathematical Reference: SMLMBaGoL Collapsed Gibbs Sampler
 
-*Authoritative specification for `main` branch (post-Round 11, 2026-03-31).
+*Authoritative specification for the current collapsed sampler target
+(spatial-model routing update, 2026-04-24).
 This file covers the static model. For K-changing moves see:
 [split-merge.md](split-merge.md) and [birth-death.md](birth-death.md).*
 
@@ -51,8 +52,9 @@ In single-molecule localization microscopy (SMLM), fluorescent emitters activate
 |--------|------|---------|-------------|
 | $\mu$ | `μ` | 10.0 | Mean localizations per emitter |
 | $\alpha$ | `shape` | 2.0 | NegBin shape (1=geometric, $\infty$=Poisson) |
-| $\gamma$ | `shape` (same as $\alpha$) | 2.0 | DM concentration parameter |
+| $\gamma$ | `gamma` or `shape` | 2.0 | DM concentration. Default `nothing` uses $\gamma=\alpha$; explicit `gamma` decouples it. |
 | $p$ | derived | $\alpha/(\alpha+\mu)$ | NegBin success probability |
+| $\rho$ | `ρ` | 2.0 | Emitter density used only by the flat-spatial legacy Poisson K prior |
 
 ### Derived quantities
 
@@ -66,11 +68,20 @@ In single-molecule localization microscopy (SMLM), fluorescent emitters activate
 
 ## 3. Generative Model
 
-$$K \sim (\text{no explicit prior --- regularized by count model})$$
+BaGoL supports two spatial targets:
+
+- `spatial_model=:locmix` (default): no explicit prior on $K$; $K$ is regularized by the count model.
+- `spatial_model=:flat` (legacy): $K \sim \text{Poisson}(\rho A)$ with a flat spatial prior over area $A$.
 
 $$n_k \mid \mu, \alpha \stackrel{\text{iid}}{\sim} \text{NegBin}(\alpha,\; p), \quad p = \frac{\alpha}{\alpha+\mu}$$
 
+For the default locmix target:
+
 $$\theta_k \sim \pi_{\text{locmix}}(\theta) = \frac{1}{N}\sum_{j=1}^{N}\mathcal{N}(\theta;\, d_j,\, \Sigma_j)$$
+
+For the flat legacy target:
+
+$$\theta_k \sim \text{Uniform}(R), \qquad A = |R|$$
 
 $$d_i \mid z_i, \theta_{z_i} \sim \mathcal{N}(\theta_{z_i},\, \Sigma_i)$$
 
@@ -88,30 +99,76 @@ The total count $N = \sum_k n_k \sim \text{NegBin}(K\alpha, p)$ by the NegBin su
 
 The sampler targets the collapsed posterior with positions integrated out:
 
+### 4.1 Default locmix target
+
 $$\boxed{P(z, K \mid \text{data}) \;\propto\; P_{\text{count}}(N \mid K) \;\times\; P_{\text{DM}}(z \mid K, N) \;\times\; \prod_{k=1}^{K} \text{ML}_{\text{locmix},k}(z)}$$
 
 where:
 
 - $P_{\text{count}}(N \mid K) = \text{NegBin}(N;\; K\alpha,\; p)$ --- total count model
-- $P_{\text{DM}}(z \mid K, N)$ --- Dirichlet-Multinomial partition prior (Section 4.1)
+- $P_{\text{DM}}(z \mid K, N)$ --- Dirichlet-Multinomial partition prior (Section 4.4)
 - $\text{ML}_{\text{locmix},k}$ --- collapsed marginal likelihood under locmix prior (Section 5)
 
-### 4.1 Dirichlet-Multinomial Partition Prior
+There is no separate $P(K)$ term in the locmix target. The previous bug was that
+`spatial_model=:locmix` constructed a `LocmixSpatial` object but sampler moves
+still evaluated flat likelihoods and included the flat Poisson K prior. The
+current sampler routes all spatial marginal likelihoods and predictives through:
+
+- `spatial_ml(cs, state.spatial)`
+- `spatial_pred(cs, lp, state.spatial)`
+
+so `LocmixSpatial` uses `log_marginal_likelihood_locmix` and
+`log_predictive_locmix`, while `FlatSpatial` uses the uniform-area formulas.
+
+### 4.2 Flat legacy target
+
+For `spatial_model=:flat`, the target is:
+
+$$\boxed{P_{\text{flat}}(z, K \mid \text{data}) \;\propto\; P_K(K \mid \rho,A) \;\times\; P_{\text{count}}(N \mid K) \;\times\; P_{\text{DM}}(z \mid K,N) \;\times\; \prod_{k=1}^{K} \text{ML}_{\text{flat},k}(z)}$$
+
+with:
+
+$$P_K(K \mid \rho,A) = \text{Poisson}(K;\rho A)$$
+
+and $\text{ML}_{\text{flat},k}$ contains one $-\log A$ term per cluster.
+The $A^K$ factor in the Poisson K prior cancels the $A^{-K}$ factor from
+$K$ flat spatial priors, leaving a target that is area-independent up to
+constants when $K$ changes.
+
+### 4.3 Decoupled allocation variant
+
+With `allocation_model=:decoupled`, the same spatial and count model are used
+but $P_{\text{DM}}(z \mid K,N)$ is omitted. Thus the locmix decoupled target is:
+
+$$P(z,K \mid \text{data}) \propto P_{\text{count}}(N \mid K)\prod_k \text{ML}_{\text{locmix},k}$$
+
+and the flat decoupled target additionally includes $P_K(K\mid\rho,A)$ and
+uses $\text{ML}_{\text{flat}}$.
+
+### 4.4 Dirichlet-Multinomial Partition Prior
 
 $$P_{\text{DM}}(z \mid K, N) = \frac{\Gamma(K\gamma)}{\Gamma(\gamma)^K \,\Gamma(N + K\gamma)} \prod_{k=1}^{K} \Gamma(n_k + \gamma)$$
 
-with $\gamma = \alpha$ (the NegBin shape). This prior is the correct conditional distribution of allocations given $K$ and $N$ under the NegBin count model. It is NOT a tuning parameter --- it is a mathematical consequence of the generative model ($P_{\text{count}} \times P_{\text{DM}} = \prod_k \text{NegBin}(n_k) / \binom{N}{n_1 \cdots n_K}$).
+with $\gamma = \alpha$ by default. If the user supplies an explicit `gamma`,
+that value is used as a deliberate modeling override. With the default
+$\gamma=\alpha$, this prior is the correct conditional distribution of
+allocations given $K$ and $N$ under the NegBin count model. It is a mathematical
+consequence of the generative model
+($P_{\text{count}} \times P_{\text{DM}} = \prod_k \text{NegBin}(n_k) / \binom{N}{n_1 \cdots n_K}$).
 
 For the more general derivation starting from an arbitrary iid emitter-count
 family `q(n)`, see [count-family-partition-prior.md](count-family-partition-prior.md).
 
 The DM prior provides a "rich-get-richer" effect that compensates for the combinatorial explosion of allocations at higher $K$ (Stirling number $S(N,K)$ grows rapidly). Without it, the implicit allocation prior is uniform-per-label, which overwhelmingly favors high $K$.
 
-**No separate prior on $K$.** The NegBin count model alone regularizes $K$.
+**No separate prior on $K$ for locmix.** The NegBin count model alone
+regularizes $K$ under `spatial_model=:locmix`. The flat legacy path retains
+the Poisson $K$ prior described in Section 4.2.
 
-**Code:** `_log_dm_partition` in `src/collapsed_moves.jl`.
+**Code:** `_log_dm_partition`, `partition_prior`, and `_uses_poisson_k_prior`
+in `src/collapsed_moves.jl`.
 
-### 4.2 Joint vs Marginal Mode (Round 11)
+### 4.5 Joint vs Marginal Mode (Round 11)
 
 **Important:** The joint mode (highest-probability individual allocation) is typically at lower $K$ than the marginal mode $P(K \mid \text{data}) = \sum_z P(z, K \mid \text{data})$. This is because the DM prior assigns very low probability to each specific allocation at high $K$, but the marginal sums over an enormous number of such allocations.
 
@@ -129,13 +186,39 @@ This is the saddle-point (Laplace plug-in) approximation to the exact integral. 
 
 **Code:** `log_marginal_likelihood_locmix(cs, grid)` in `src/cluster_stats.jl`.
 
-### 5.2 Exact locmix integral (O(N) per cluster)
+### 5.2 Flat prior version
+
+For `spatial_model=:flat`, replace the locmix prior term with the uniform
+spatial density:
+
+$$\log\text{ML}_{\text{flat},k} = (1 - n_k)\log(2\pi) - \tfrac{1}{2}S_k - \tfrac{1}{2}(Q_k - \eta_k^\top \Lambda_k^{-1}\eta_k) - \tfrac{1}{2}\log|\Lambda_k| - \log A$$
+
+**Code:** `log_marginal_likelihood(cs, log_area)` in `src/cluster_stats.jl`.
+
+### 5.3 Exact locmix integral (O(N) per cluster)
 
 $$\text{ML}_k^{\text{exact}} = \frac{1}{N}\sum_{j=1}^{N} \text{ML}_{\text{flat}}(\text{cs}_k \cup \{\text{virtual}_j\})$$
 
 Each term adds localization $j$ as a "virtual observation" and computes the flat-prior ML.
 
-### 5.3 ClusterStats operations
+The sampler uses the grid saddle-point approximation for speed.
+
+### 5.4 Predictive probabilities
+
+For any spatial model:
+
+$$\log p_{\text{pred}}(d_i \mid D_k) = \log \text{ML}(D_k \cup \{d_i\}) - \log \text{ML}(D_k)$$
+
+Implementation dispatch:
+
+| Spatial model | ML function | Predictive function |
+|---------------|-------------|---------------------|
+| `LocmixSpatial` | `log_marginal_likelihood_locmix` | `log_predictive_locmix` |
+| `FlatSpatial` | `log_marginal_likelihood` | `log_predictive` |
+
+**Code:** `spatial_ml`, `spatial_pred` in `src/cluster_stats.jl`.
+
+### 5.5 ClusterStats operations
 
 All operations are $O(1)$ via additive sufficient statistics:
 
@@ -184,15 +267,35 @@ Evaluate $\log\pi_{\text{locmix}}(\theta)$ on a 2D grid ($3\sigma_{\max}$ margin
 
 $$P(z_i = k \mid z_{-i}, K, \text{data}) \;\propto\; (n_{-i,k} + \gamma) \;\times\; p_{\text{pred}}(d_i \mid D_k^{-i})$$
 
-The $(n_{-i,k} + \gamma)$ factor is the **DM allocation weight**. Sole occupants are skipped to maintain $K$.
+The $(n_{-i,k} + \gamma)$ factor is the **DM allocation weight**. The code
+proposes from the spatial predictive and applies an MH correction for the DM
+factor. Under `allocation_model=:decoupled`, the correction is 1. Sole
+occupants are skipped to maintain $K$.
 
 **Code:** `gibbs_allocation_sweep!` in `src/collapsed_moves.jl`.
 
 ### 7.2 Split/Merge --- see [split-merge.md](split-merge.md)
 
+The MH log ratio contains:
+
+$$\log\alpha = \Delta_{\text{spatial}} + \Delta_{\text{partition}} + \Delta_{\text{proposal}} + \Delta_{\text{count}} + \Delta_{K\text{-prior}} + \Delta_{\text{move-type}}$$
+
+where $\Delta_{\text{spatial}}$ is computed with `spatial_ml` and
+$\Delta_{K\text{-prior}}$ is:
+
+$$\Delta_{K\text{-prior}} =
+\begin{cases}
+\log P_K(K'\mid\rho,A)-\log P_K(K\mid\rho,A), & \text{FlatSpatial}\\
+0, & \text{LocmixSpatial}
+\end{cases}$$
+
 ### 7.3 Birth/Death --- see [birth-death.md](birth-death.md)
 
-### 7.4 Hierarchical Updates ($\mu$ and $\alpha$)
+The MH log ratio is the same as split/merge except there is no
+$\Delta_{\text{move-type}}$ term. Destination choices use `spatial_pred` so
+birth/death follows the selected spatial target.
+
+### 7.4 Hierarchical Updates ($\mu$, $\alpha$, and flat-only $\rho$)
 
 MH with log-normal proposals every `hierarchical_interval` (default 100) iterations.
 
@@ -201,7 +304,13 @@ $$\mu' = \mu \cdot e^{\varepsilon}, \quad \varepsilon \sim \mathcal{N}(0, 0.3^2)
 **Hyperpriors:** $\mu \sim \text{Gamma}(2, 5)$, $\alpha \sim \text{Gamma}(2, 1)$.
 **Bounds:** $\mu \in [1, 500]$, $\alpha \in [0.5, 50]$.
 
-**Code:** `_update_mu_collapsed`, `_update_shape_collapsed` in `src/hierarchical.jl`.
+The density parameter $\rho$ is conjugate-updated only for `FlatSpatial`,
+because only that target contains $P_K(K\mid\rho,A)$. For `LocmixSpatial`,
+$\rho$ is not part of the target and remains at its initialized value in
+diagnostics.
+
+**Code:** `_update_mu_collapsed`, `_update_shape_collapsed`,
+`_update_rho_collapsed`, and their global variants in `src/hierarchical.jl`.
 
 ---
 
@@ -254,11 +363,72 @@ Under-splitting $\to$ higher $\mu/\alpha$ $\to$ count model shifts toward lower 
 
 ## 10. Partitioned BaGoL
 
-Precision-weighted DBSCAN partitioning, parallel chains per partition, boundary deduplication via Hungarian matching. See `src/partition.jl`, `src/partitioned.jl`.
+Precision-weighted DBSCAN partitioning, optional bridge refinement, parallel
+chains per partition, boundary deduplication via Hungarian matching. See
+`src/partition.jl`, `src/partitioned.jl`.
+
+### 10.1 Precision-weighted DBSCAN
+
+Two localizations are neighbors if:
+
+$$\frac{\|d_i-d_j\|}{\bar{\sigma}_i+\bar{\sigma}_j} < \texttt{partition\_sigma}$$
+
+where $\bar{\sigma}_i$ is the geometric mean localization uncertainty.
+
+The public `min_partition_size`/`min_size` parameter uses standard DBSCAN
+minimum-points semantics: it counts the point itself. Internally
+`precision_neighbors` excludes self, so the implementation passes
+`max(min_size - 1, 0)` to the neighbor-count threshold.
+
+### 10.2 Bridge refinement
+
+Precision-weighted DBSCAN can merge separate dense objects through a sparse
+transitive bridge. When `bridge_ratio > 0`, each DBSCAN cluster is refined:
+
+1. Compute each point's within-cluster precision-neighbor count.
+2. Define core points as those with neighbor count at least
+   `ceil(bridge_ratio * median_degree)`.
+3. Find connected components of the core-only graph.
+4. Keep components with at least `min_split_size` points.
+5. Assign pruned bridge points and undersized core fragments to the nearest
+   retained component.
+
+If fewer than two retained components remain, the original DBSCAN cluster is
+kept unchanged. `bridge_ratio=0.0` disables this pass and preserves the old
+plain-DBSCAN behavior.
+
+### 10.3 Oversized partitions and overlap
+
+Clusters larger than `max_partition_size` are split by METIS on a
+precision-weighted kNN graph. Optional overlap localizations are added around
+sub-partition boundaries so local chains have spatial context. Emitters
+primarily supported by overlap localizations are discarded during final
+partition merge.
 
 ---
 
-## 11. References
+## 11. Diagnostic Target Types
+
+The finite-state diagnostics use explicit target marker types:
+
+| Target type | Spatial model | Allocation model | Explicit K prior |
+|-------------|---------------|------------------|------------------|
+| `DMFlatTarget` | flat | DM | $\text{Poisson}(\rho A)$ |
+| `DirectNegBinFlatTarget` | flat | direct NegBin assignment form | $\text{Poisson}(\rho A)$ |
+| `DecoupledTarget` | flat | decoupled | $\text{Poisson}(\rho A)$ |
+| `DMLocmixTarget` | locmix | DM | none |
+| `DirectNegBinLocmixTarget` | locmix | direct NegBin assignment form | none |
+| `DecoupledLocmixTarget` | locmix | decoupled | none |
+
+`DM*Target` and `DirectNegBin*Target` are algebraically identical within the
+same spatial model; tests verify their exact posterior distributions match.
+The diagnostics route sampler runs through `_diagnostic_sampler_kwargs(td)` so
+a flat target is tested against `spatial_model=:flat` and a locmix target is
+tested against `spatial_model=:locmix`.
+
+---
+
+## 12. References
 
 1. Fazel, M. *et al.* Nature Communications **13**, 7152 (2022).
 2. Miller & Harrison. JASA **113**(521):340--356 (2018).
