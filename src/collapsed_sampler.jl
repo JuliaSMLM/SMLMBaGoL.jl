@@ -192,8 +192,14 @@ function run_collapsed_chain(
         FlatSpatial(log(area(UniformSpatialPrior(locs))))
     end
 
-    # Resolve k_prior into a concrete bool
+    # Resolve k_prior into a concrete bool. The Poisson(ρA) prior in the
+    # current sampler is the flat-area-cancelled form e^{-ρA}ρ^K/K! — it
+    # only matches a true Poisson(ρA) K prior when paired with flat ML's
+    # A^-K cancellation. Disallow :poisson under non-flat to avoid
+    # silently mixing inconsistent target pieces.
     use_poisson_k_prior = if k_prior === :poisson
+        spatial_model === :flat ||
+            throw(ArgumentError("k_prior=:poisson is only valid with spatial_model=:flat (the prior is the flat-area-cancelled form). Got spatial_model=:$spatial_model"))
         true
     elseif k_prior === :none
         false

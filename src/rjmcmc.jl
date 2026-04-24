@@ -291,8 +291,11 @@ function _run_bagol_collapsed(
             else
                 FlatSpatial(log(area(UniformSpatialPrior(p_locs))))
             end
-            # Resolve k_prior into a concrete bool for this partition
+            # Resolve k_prior into a concrete bool for this partition.
+            # Disallow :poisson under non-flat (see collapsed_sampler.jl).
             use_kprior_i = if k_prior === :poisson
+                spatial_model_sym === :flat ||
+                    throw(ArgumentError("k_prior=:poisson is only valid with spatial_model=:flat (the prior is the flat-area-cancelled form). Got spatial_model=:$spatial_model_sym"))
                 true
             elseif k_prior === :none
                 false

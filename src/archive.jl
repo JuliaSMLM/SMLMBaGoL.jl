@@ -232,8 +232,14 @@ function _reconstruct_state(assignments::Vector{Int16},
     N = length(assignments)
     _loc_precs = precompute_loc_precisions(locs)
     max_K = max(N, 16)
+    # Archived state predates explicit k_prior config — assume legacy flat
+    # behavior (Poisson K prior + ρ updates). Archive format does not yet
+    # carry target metadata; downstream callers can override the field on
+    # the returned state if they reconstructed under a different target.
+    sp = FlatSpatial(log_area)
     return CollapsedState(assignments, clusters, active, n_active,
-                          FlatSpatial(log_area), DMAllocation(),
+                          sp, DMAllocation(),
+                          _uses_poisson_k_prior(sp),
                           _loc_precs, collect(1:N), Vector{Int}(undef, max_K),
                           Vector{Float64}(undef, max_K + 1),
                           similar(assignments), similar(clusters), similar(active))

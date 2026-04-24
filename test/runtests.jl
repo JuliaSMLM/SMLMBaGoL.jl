@@ -827,7 +827,7 @@ using Distributions
             @test result_none.state.use_poisson_k_prior == false
         end
 
-        @testset "k_prior=:poisson enables under locmix" begin
+        @testset "k_prior=:poisson rejected outside :flat" begin
             sim = simulate_localizations([(0.0, 0.0)];
                 count_model=:fixed, mean_count=5.0, fixed_sigma=0.005)
             locs = sim.smld.emitters
@@ -837,11 +837,11 @@ using Distributions
                 shape=2.0, μ_prior_shape=2.0, μ_prior_scale=2.5, verbose=false)
             @test result_default.state.use_poisson_k_prior == false
 
-            result_pois = run_collapsed_chain(locs;
-                spatial_model=:locmix, allocation_model=:dm, k_prior=:poisson,
-                n_iterations=200, burn_in=100, learn_distribution=false,
-                shape=2.0, μ_prior_shape=2.0, μ_prior_scale=2.5, verbose=false)
-            @test result_pois.state.use_poisson_k_prior == true
+            # k_prior=:poisson is the flat-area-cancelled prior; mixing it
+            # with :locmix would silently combine inconsistent target pieces.
+            @test_throws ArgumentError run_collapsed_chain(locs;
+                spatial_model=:locmix, k_prior=:poisson,
+                n_iterations=10, burn_in=0, verbose=false)
         end
 
         @testset "Fazel exact configuration runs" begin
@@ -866,6 +866,21 @@ using Distributions
                 allocation_model=:bogus, n_iterations=10, burn_in=0, verbose=false)
             @test_throws ArgumentError run_collapsed_chain(locs;
                 k_prior=:bogus, n_iterations=10, burn_in=0, verbose=false)
+        end
+
+        @testset "Archive _reconstruct_state populates use_poisson_k_prior" begin
+            # Regression for the new positional field on CollapsedState —
+            # previously _reconstruct_state used the old field list and
+            # threw MethodError after the use_poisson_k_prior field landed.
+            sim = simulate_localizations([(0.0, 0.0), (0.05, 0.0)];
+                count_model=:fixed, mean_count=4.0, fixed_sigma=0.005)
+            locs = sim.smld.emitters
+            assignments = Vector{Int16}(repeat(1:2, outer=cld(length(locs), 2))[1:length(locs)])
+            log_area = log(SMLMBaGoL.area(UniformSpatialPrior(locs)))
+            state = SMLMBaGoL._reconstruct_state(assignments, locs, log_area)
+            @test state.n_active >= 1
+            @test isa(state.spatial, FlatSpatial)
+            @test state.use_poisson_k_prior == true   # legacy flat default
         end
     end
 end
