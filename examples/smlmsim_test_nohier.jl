@@ -79,6 +79,8 @@ result_smld, diagnostics = run_bagol(smld_sim;
 # =============================================================================
 
 output_dir = joinpath(@__DIR__, "output", "smlmsim_nohier")
+rm(output_dir; force=true, recursive=true)
+mkpath(output_dir)
 
 report = compute_report(result_smld, diagnostics;
     true_positions=true_positions, locs_smld=smld_sim,
