@@ -324,6 +324,51 @@ using Distributions
                 @test p.locs[i] === locs[idx]
             end
         end
+
+        # Public min_size counts the point itself; precision_neighbors excludes
+        # self internally, so exactly-min-size dense clusters should survive.
+        σ = 0.005
+        tiny = [
+            SMLMData.Emitter2DFit(0.1 + 0.001 * i, 0.1, 1000.0, 10.0,
+                                  σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, i)
+            for i in 1:3
+        ]
+        tiny_parts, _ = partition_locs(tiny; partition_sigma=3.0, min_size=3, max_size=100)
+        @test length(tiny_parts) == 1
+        @test length(tiny_parts[1].locs) == 3
+    end
+
+    @testset "Bridge Refinement" begin
+        σ = 0.005
+        locs = SMLMData.Emitter2DFit[]
+        id = 0
+
+        # Two dense groups connected by a sparse transitive DBSCAN bridge.
+        for x0 in (0.1, 0.2)
+            for dx in (-0.002, -0.001, 0.0, 0.001, 0.002, 0.003)
+                id += 1
+                push!(locs, SMLMData.Emitter2DFit(
+                    x0 + dx, 0.1, 1000.0, 10.0,
+                    σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, id))
+            end
+        end
+        for x in (0.128, 0.156, 0.184)
+            id += 1
+            push!(locs, SMLMData.Emitter2DFit(
+                x, 0.1, 1000.0, 10.0,
+                σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, id))
+        end
+
+        plain, _ = partition_locs(locs; partition_sigma=3.0, min_size=0,
+                                  max_size=100, bridge_ratio=0.0)
+        refined, _ = partition_locs(locs; partition_sigma=3.0, min_size=0,
+                                    max_size=100, bridge_ratio=0.6,
+                                    min_split_size=3)
+
+        @test length(plain) == 1
+        @test length(refined) == 2
+        @test sum(length(p.locs) for p in refined) == length(locs)
+        @test all(length(p.locs) >= 3 for p in refined)
     end
 
     @testset "Oversized Cluster Splitting" begin
@@ -630,6 +675,27 @@ using Distributions
             probs_dm, _ = exact_posterior(parts, locs, td_dm; μ=10.0, shape=2.0, ρ=2.0)
             probs_direct, _ = exact_posterior(parts, locs, td_direct; μ=10.0, shape=2.0, ρ=2.0)
             @test all(isapprox.(probs_dm, probs_direct; atol=1e-12))
+
+            # Locmix targets should also normalize and the DM decomposition should
+            # match the direct NegBin assignment form, without a Poisson K prior.
+            td_locmix = DMLocmixTarget()
+            td_direct_locmix = DirectNegBinLocmixTarget()
+            for z in parts
+                lt_dm = evaluate_target(td_locmix, z, locs; μ=10.0, shape=2.0, ρ=2.0)
+                lt_direct = evaluate_target(td_direct_locmix, z, locs; μ=10.0, shape=2.0, ρ=2.0)
+                @test isfinite(lt_dm)
+                @test lt_dm ≈ lt_direct atol=1e-10
+            end
+
+            probs_locmix, _ = exact_posterior(parts, locs, td_locmix; μ=10.0, shape=2.0, ρ=2.0)
+            probs_direct_locmix, _ = exact_posterior(parts, locs, td_direct_locmix; μ=10.0, shape=2.0, ρ=2.0)
+            @test sum(probs_locmix) ≈ 1.0 atol=1e-10
+            @test all(isapprox.(probs_locmix, probs_direct_locmix; atol=1e-12))
+
+            @test SMLMBaGoL._diagnostic_sampler_kwargs(td_dm).spatial_model == :flat
+            @test SMLMBaGoL._diagnostic_sampler_kwargs(td_locmix).spatial_model == :locmix
+            @test SMLMBaGoL._diagnostic_sampler_kwargs(DecoupledTarget()).allocation_model == :decoupled
+            @test SMLMBaGoL._diagnostic_sampler_kwargs(DecoupledLocmixTarget()).allocation_model == :decoupled
         end
 
     end

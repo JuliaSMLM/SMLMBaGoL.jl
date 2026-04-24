@@ -31,6 +31,8 @@ Configuration for BaGoL analysis. All fields correspond 1:1 to `run_bagol` kwarg
 - `max_partition_size=1000`: METIS-split partitions larger than this
 - `skip_partition_size=typemax(Int)`: Skip partitions larger than this
 - `overlap=:auto`: Overlap width for bisected partitions (`:auto` or Float64 in μm)
+- `bridge_ratio=0.0`: Optional bridge refinement strength for DBSCAN clusters
+- `min_split_size=3`: Minimum core component size for bridge refinement
 
 # Output
 - `posterior_pixel_size=0.002`: Rao-Blackwellized posterior image pixel size (0.0=disable)
@@ -60,6 +62,8 @@ Base.@kwdef struct BaGoLConfig <: SMLMData.AbstractSMLMConfig
     max_partition_size::Int = 1000
     skip_partition_size::Int = typemax(Int)
     overlap::Union{Float64, Symbol} = :auto
+    bridge_ratio::Float64 = 0.0
+    min_split_size::Int = 3
 
     # Output
     posterior_pixel_size::Float64 = 0.002

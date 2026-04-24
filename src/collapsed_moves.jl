@@ -721,9 +721,10 @@ RJMCMC split/merge with |ΔK|=1 proposals and computable proposal densities.
 
    log α = Δ_spatial + Δ_partition + Δ_proposal + Δ_count + Δ_K_prior + Δ_move_type
 
-The Poisson(ρA) K prior contributes Δ_K_prior = log_prior_k_poisson(K',ρ,A) - log_prior_k_poisson(K,ρ,A).
-Combined with the flat spatial prior's -log(A) per cluster, the area factors cancel:
-  split: Δ_K_prior = log(ρ) - log(K+1), independent of A.
+For FlatSpatial, the legacy Poisson(ρA) K prior contributes
+Δ_K_prior = log_prior_k_poisson(K',ρ,A) - log_prior_k_poisson(K,ρ,A).
+For LocmixSpatial, Δ_K_prior = 0 because the documented locmix target has no
+separate K prior.
 
 Returns (accepted, move_type) where move_type is :split or :merge.
 """
@@ -944,8 +945,8 @@ DM-weighted predictive.
 MH acceptance:
   log α = Δ_spatial + Δ_partition + Δ_proposal + Δ_count + Δ_K_prior
 
-The Poisson(ρA) K prior contributes Δ_K_prior. Combined with flat spatial
-prior's -log(A) per cluster, the area factors cancel.
+The Poisson(ρA) K prior contributes only under FlatSpatial. Under LocmixSpatial
+the count model and allocation prior define P(K,z), so Δ_K_prior = 0.
 
 Returns (accepted, move_type) where move_type is :birth or :death.
 """
@@ -1183,4 +1184,3 @@ function propose_birth_death!(state::CollapsedState,
         return false, move_type
     end
 end
-
