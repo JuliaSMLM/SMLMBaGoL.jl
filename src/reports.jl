@@ -263,31 +263,17 @@ function _nn_distances(positions::Vector{Tuple{Float64, Float64}})
     return [d[1] for d in ds]
 end
 
-# σ-scaled NND: r_i = d_NN(i) / (σ_i + σ_NN(i)) using mean(σ_x, σ_y) per loc.
-# Theory: if NN is a sibling from the same emitter (both σ=σ), r ~ Rayleigh
-# with PDF f(r) = 2r·exp(-r²), mode = 1/√2 ≈ 0.71. Empirical NND is generally
-# lower (NND minimizes over multiple siblings).
-function _sigma_scaled_nnd(emitters::Vector{<:SMLMData.AbstractEmitter})
-    n = length(emitters)
-    n < 2 && return Float64[]
-    coords = Matrix{Float64}(undef, 2, n)
-    @inbounds for i in 1:n
-        coords[1, i] = emitters[i].x
-        coords[2, i] = emitters[i].y
-    end
-    tree = KDTree(coords)
-    idxs, ds = knn(tree, coords, 2)
-    r = Vector{Float64}(undef, n)
-    @inbounds for i in 1:n
-        # k=2 returns [self, NN] in some order; pick the non-self entry.
-        j = idxs[i][1] == i ? idxs[i][2] : idxs[i][1]
-        d = idxs[i][1] == i ? ds[i][2] : ds[i][1]
-        σi = (emitters[i].σ_x + emitters[i].σ_y) / 2
-        σj = (emitters[j].σ_x + emitters[j].σ_y) / 2
-        r[i] = d / (σi + σj)
-    end
-    return r
-end
+# σ-scaled NND: r_i = min_j [ d_ij / √(σ_i² + σ_j²) ], with QUADRATURE denominator
+# and NN picked in SCALED space (not raw). Forwards to the canonical
+# implementation in count_prior_estimation.jl so there is ONE definition.
+#
+# Under this convention, if NN is a sibling from the same emitter, pair
+# differences are N(0, (σ_i²+σ_j²)·I) → r_ij ~ Rayleigh(1) regardless of σ
+# heterogeneity. Per-loc NND PDF under N siblings:
+#   f(r|K) = (K-1)·r·exp(-(K-1)·r²/2)   mode = 1/√(K-1)
+# For K=2: f(r) = r·exp(-r²/2), mode = 1, mean = √(π/2) ≈ 1.25.
+_sigma_scaled_nnd(emitters::Vector{<:SMLMData.AbstractEmitter}) =
+    isempty(emitters) ? Float64[] : sigma_scaled_nnd(emitters; quadrature=true)
 
 # ============================================================================
 # compute_report

@@ -218,9 +218,9 @@ function _plot_sigma_scaled_nnd(report, output_dir)
 
     fig = Figure(size=(550, 380))
     ax = Axis(fig[1, 1],
-              xlabel="r = d_NN / (σ_i + σ_NN)",
+              xlabel="r = d_NN / √(σ_i² + σ_NN²)",
               ylabel="density",
-              title="σ-scaled NND vs same-emitter theory")
+              title="σ-scaled NND (quadrature) vs same-emitter theory")
 
     bins = range(0, 5, length=51)
 
@@ -231,12 +231,14 @@ function _plot_sigma_scaled_nnd(report, output_dir)
     hist!(ax, filter(<=(5), r_emit); bins, normalization=:pdf,
           color=(:steelblue, 0.65), label="BaGoL emitters ($(length(r_emit)))")
 
-    # Theory: f(r) = 2r·exp(-r²) (two locs from one emitter, σ_i=σ_j)
+    # Theory for N=2 (one sibling): r ~ Rayleigh(1) under QUADRATURE scaling.
+    # f(r) = r·exp(-r²/2), mode=1. For higher K (more siblings), mode shifts
+    # to 1/√(K-1) (independent-pairs approx; left-biased vs exact).
     rs = range(0, 5, length=300)
-    fr = [2r * exp(-r^2) for r in rs]
+    fr = [r * exp(-r^2 / 2) for r in rs]
     lines!(ax, rs, fr; color=:black, linewidth=2.5, linestyle=:dash,
-           label="Theory 2r·e^(−r²), mode=0.71")
-    vlines!(ax, [1/sqrt(2)]; color=:black, linestyle=:dot, linewidth=1)
+           label="Theory r·e^(−r²/2), K=2 mode=1")
+    vlines!(ax, [1.0]; color=:black, linestyle=:dot, linewidth=1)
 
     # Empirical modes
     function _mode(xs)
