@@ -49,6 +49,10 @@ export make_camera, print_simulation_summary
 export compute_report, write_report, match_positions, compute_fov
 export plot_report, render_report  # extension stubs
 
+# Export count-prior estimation
+export fit_count_prior, fit_bleach_curve, fit_nnd_count, build_nnd_table
+export combine_count_prior, sigma_scaled_nnd, NNDTable, bleach_to_count_params
+
 # Export optimality
 export run_optimality_sweep, run_speed_test, count_model_map_k
 export write_sweep, write_speed
@@ -91,6 +95,7 @@ include("rjmcmc.jl")
 include("posterior_image.jl")
 include("archive.jl")
 include("simulation.jl")
+include("count_prior_estimation.jl")
 include("reports.jl")
 include("optimality.jl")
 

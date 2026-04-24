@@ -26,6 +26,12 @@ function SMLMBaGoL.plot_report(report; output_dir::String = "output")
     if !isempty(report.nn_distances)
         _plot_nn_distances(report, output_dir)
     end
+    if hasproperty(report, :sigma_nnd_emitters) && !isempty(report.sigma_nnd_emitters)
+        _plot_sigma_scaled_nnd(report, output_dir)
+    end
+    if hasproperty(report, :bleach_fit) && report.bleach_fit !== nothing
+        _plot_bleach_curve(report, output_dir)
+    end
 
     if report.has_gt
         _plot_k_recovery(report, output_dir)
@@ -203,6 +209,133 @@ function _plot_nn_distances(report, output_dir)
     axislegend(ax; position=:rt, framevisible=false)
     save(joinpath(output_dir, "nn_distances.png"), fig, px_per_unit=2)
     println("Saved: $(joinpath(output_dir, "nn_distances.png"))")
+end
+
+function _plot_sigma_scaled_nnd(report, output_dir)
+    r_emit = report.sigma_nnd_emitters
+    r_locs = hasproperty(report, :sigma_nnd_locs) ? report.sigma_nnd_locs : Float64[]
+    has_locs = !isempty(r_locs)
+
+    fig = Figure(size=(550, 380))
+    ax = Axis(fig[1, 1],
+              xlabel="r = d_NN / (σ_i + σ_NN)",
+              ylabel="density",
+              title="σ-scaled NND vs same-emitter theory")
+
+    bins = range(0, 5, length=51)
+
+    if has_locs
+        hist!(ax, filter(<=(5), r_locs); bins, normalization=:pdf,
+              color=(:gray60, 0.55), label="Input locs ($(length(r_locs)))")
+    end
+    hist!(ax, filter(<=(5), r_emit); bins, normalization=:pdf,
+          color=(:steelblue, 0.65), label="BaGoL emitters ($(length(r_emit)))")
+
+    # Theory: f(r) = 2r·exp(-r²) (two locs from one emitter, σ_i=σ_j)
+    rs = range(0, 5, length=300)
+    fr = [2r * exp(-r^2) for r in rs]
+    lines!(ax, rs, fr; color=:black, linewidth=2.5, linestyle=:dash,
+           label="Theory 2r·e^(−r²), mode=0.71")
+    vlines!(ax, [1/sqrt(2)]; color=:black, linestyle=:dot, linewidth=1)
+
+    # Empirical modes
+    function _mode(xs)
+        edges = collect(bins)
+        n = length(edges) - 1
+        cnt = zeros(Int, n)
+        for v in xs
+            v > 5 && continue
+            idx = clamp(searchsortedlast(edges, v), 1, n)
+            cnt[idx] += 1
+        end
+        i = argmax(cnt)
+        return (edges[i] + edges[i+1]) / 2
+    end
+    if has_locs
+        m_locs = _mode(r_locs)
+        vlines!(ax, [m_locs]; color=:gray40, linewidth=1.5,
+                label="Loc mode = $(round(m_locs, digits=2))")
+    end
+    m_emit = _mode(r_emit)
+    vlines!(ax, [m_emit]; color=:steelblue, linewidth=1.5,
+            label="Emitter mode = $(round(m_emit, digits=2))")
+
+    xlims!(ax, 0, 5)
+    axislegend(ax; position=:rt, framevisible=false)
+
+    save(joinpath(output_dir, "sigma_scaled_nnd.png"), fig, px_per_unit=2)
+    println("Saved: $(joinpath(output_dir, "sigma_scaled_nnd.png"))")
+end
+
+function _plot_bleach_curve(report, output_dir)
+    bl = report.bleach_fit
+    N_t = bl.N_t
+    ts = (bl.t_lo - 1) .+ (1:length(N_t))
+    fit_curve = bl.A .* exp.(-bl.β .* (ts .- bl.t_lo))
+
+    fig = Figure(size=(600, 380))
+    ax = Axis(fig[1, 1];
+              xlabel="frame",
+              ylabel="locs / frame",
+              title="Bleach curve: β̂=$(round(bl.β, digits=4))  τ̂=$(round(bl.τ, digits=1)) frames  F̂=$(round(bl.F, digits=2))")
+    lines!(ax, ts, Float64.(N_t); color=(:steelblue, 0.6), linewidth=1,
+           label="raw (N=$(sum(N_t)))")
+    lines!(ax, ts, fit_curve; color=:firebrick, linewidth=2.5,
+           label="fit A·exp(-β·t)")
+    axislegend(ax; position=:rt, framevisible=false)
+
+    save(joinpath(output_dir, "bleach_curve.png"), fig, px_per_unit=2)
+    println("Saved: $(joinpath(output_dir, "bleach_curve.png"))")
+end
+
+function _plot_nnd_count_fit(report, output_dir)
+    nf = report.nnd_count_fit
+    isnan(nf.μ̂) && return
+    table = nf.table
+
+    # Recompute σ-scaled NND (quadrature) on input locs
+    rs = if hasproperty(report, :sigma_nnd_locs) && !isempty(report.sigma_nnd_locs)
+        report.sigma_nnd_locs
+    else
+        return  # plot needs raw locs
+    end
+
+    fig = Figure(size=(650, 420))
+    ax = Axis(fig[1, 1];
+              xlabel="r = d_NN / (σ_i + σ_NN)",
+              ylabel="density",
+              title="Size-biased NegBin mixture fit  →  μ̂=$(round(nf.μ̂, digits=2))  α̂=$(round(nf.α̂, digits=2))")
+    bins = range(0, 3, length=61)
+    hist!(ax, filter(<=(3), rs); bins, normalization=:pdf,
+          color=(:steelblue, 0.55), label="empirical ($(length(rs)))")
+
+    # Plot fitted mixture (using the stored NND table)
+    μ, α = nf.μ̂, nf.α̂
+    p_nb = α / (α + μ)
+    EK = 1 + μ
+    rs_grid = range(0.01, 3, length=300)
+    fpop = Float64[]
+    for r in rs_grid
+        v = 0.0
+        for K in table.K_range
+            K < 2 && continue
+            ki = K - first(table.K_range) + 1
+            ri_raw = (r - table.r_edges[1]) / (table.r_edges[2] - table.r_edges[1])
+            ri = clamp(floor(Int, ri_raw) + 1, 1, length(table.r_centers))
+            pmfK = exp(SpecialFunctions.loggamma(K-1+α) - SpecialFunctions.loggamma(K) - SpecialFunctions.loggamma(α) + α*log(p_nb) + (K-1)*log(1-p_nb))
+            v += K * pmfK * table.pdfs[ri, ki]
+        end
+        push!(fpop, v / EK)
+    end
+    # Normalize on the displayed range
+    Z = sum(fpop) * (rs_grid[2] - rs_grid[1])
+    Z > 0 || (Z = 1.0)
+    lines!(ax, rs_grid, fpop ./ Z; color=:firebrick, linewidth=2.5,
+           label="fit (μ̂, α̂)")
+
+    axislegend(ax; position=:rt, framevisible=false)
+    save(joinpath(output_dir, "nnd_count_fit.png"), fig, px_per_unit=2)
+    println("Saved: $(joinpath(output_dir, "nnd_count_fit.png"))")
 end
 
 function _plot_k_recovery(report, output_dir)
