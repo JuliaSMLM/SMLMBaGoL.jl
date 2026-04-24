@@ -263,6 +263,32 @@ function _nn_distances(positions::Vector{Tuple{Float64, Float64}})
     return [d[1] for d in ds]
 end
 
+# σ-scaled NND: r_i = d_NN(i) / (σ_i + σ_NN(i)) using mean(σ_x, σ_y) per loc.
+# Theory: if NN is a sibling from the same emitter (both σ=σ), r ~ Rayleigh
+# with PDF f(r) = 2r·exp(-r²), mode = 1/√2 ≈ 0.71. Empirical NND is generally
+# lower (NND minimizes over multiple siblings).
+function _sigma_scaled_nnd(emitters::Vector{<:SMLMData.AbstractEmitter})
+    n = length(emitters)
+    n < 2 && return Float64[]
+    coords = Matrix{Float64}(undef, 2, n)
+    @inbounds for i in 1:n
+        coords[1, i] = emitters[i].x
+        coords[2, i] = emitters[i].y
+    end
+    tree = KDTree(coords)
+    idxs, ds = knn(tree, coords, 2)
+    r = Vector{Float64}(undef, n)
+    @inbounds for i in 1:n
+        # k=2 returns [self, NN] in some order; pick the non-self entry.
+        j = idxs[i][1] == i ? idxs[i][2] : idxs[i][1]
+        d = idxs[i][1] == i ? ds[i][2] : ds[i][1]
+        σi = (emitters[i].σ_x + emitters[i].σ_y) / 2
+        σj = (emitters[j].σ_x + emitters[j].σ_y) / 2
+        r[i] = d / (σi + σj)
+    end
+    return r
+end
+
 # ============================================================================
 # compute_report
 # ============================================================================
@@ -288,13 +314,29 @@ function compute_report(
     diagnostics::BaGoLDiagnostics;
     true_positions::Union{Nothing, Vector{Tuple{Float64, Float64}}} = nothing,
     locs_smld::Union{Nothing, SMLMData.SMLD} = nothing,
-    count_params::Union{Nothing, NamedTuple} = nothing
+    count_params::Union{Nothing, NamedTuple} = nothing,
+    fit_count_prior_from_data::Bool = false,
+    count_prior_table::Union{NNDTable, Nothing} = nothing
 )
     emitters = result_smld.emitters
     n_emitters = diagnostics.n_emitters
     n_locs = locs_smld !== nothing ? length(locs_smld.emitters) : 0
 
     nn_dists = _nn_distances(emitters)
+    sigma_nnd_emitters = _sigma_scaled_nnd(emitters)
+    sigma_nnd_locs = locs_smld !== nothing ? _sigma_scaled_nnd(locs_smld.emitters) : Float64[]
+
+    # Data-driven bleach curve fit — physics-grounded count prior source (S1).
+    # NND fit (S2) is research-grade: needs heteroscedastic σ + cross-emitter NN
+    # handling per Codex 2026-04-24. Exposed via fit_count_prior(); not auto-run here.
+    bleach_fit = nothing
+    if fit_count_prior_from_data && locs_smld !== nothing && n_locs >= 50
+        try
+            bleach_fit = fit_bleach_curve(locs_smld)
+        catch err
+            @warn "compute_report: bleach curve fit failed" err
+        end
+    end
 
     # Empirical locs/emitter from track_id (simulation GT)
     empirical_counts = if locs_smld !== nothing && any(e.track_id != 0 for e in locs_smld.emitters)
@@ -324,6 +366,9 @@ function compute_report(
         empirical_counts = empirical_counts,
         posterior_image = diagnostics.posterior_image,
         nn_distances = nn_dists,
+        sigma_nnd_emitters = sigma_nnd_emitters,
+        sigma_nnd_locs = sigma_nnd_locs,
+        bleach_fit = bleach_fit,
         true_count_params = count_params,
         emitters = emitters,
         has_gt = true_positions !== nothing,
