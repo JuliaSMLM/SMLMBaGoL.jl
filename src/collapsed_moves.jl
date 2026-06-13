@@ -418,7 +418,7 @@ Modifies `is_in_b` in place and returns updated (cs_a, cs_b, log_q).
 function _restricted_gibbs_sweep!(is_in_b::Union{BitVector, Vector{Bool}},
                                    cs_a::ClusterStats, cs_b::ClusterStats,
                                    member_indices::Vector{Int},
-                                   loc_precs::Vector{LocPrecision},
+                                   loc_precs::Vector{<:LocPrecision},
                                    sp::AbstractSpatialModel, γ::Float64,
                                    track_density::Bool,
                                    am::AbstractAllocationModel=DMAllocation())
@@ -484,7 +484,7 @@ function _restricted_gibbs_transition_density(start_is_in_b::Union{BitVector, Ve
                                                target_is_in_b::Union{BitVector, Vector{Bool}},
                                                cs_a::ClusterStats, cs_b::ClusterStats,
                                                member_indices::Vector{Int},
-                                               loc_precs::Vector{LocPrecision},
+                                               loc_precs::Vector{<:LocPrecision},
                                                sp::AbstractSpatialModel, γ::Float64,
                                                am::AbstractAllocationModel=DMAllocation())
     m = length(member_indices)
@@ -541,7 +541,7 @@ Returns (is_in_b, cs_a, cs_b). Does NOT compute density (it's not needed —
 only the final restricted Gibbs scan density enters the MH ratio).
 """
 function _sample_sequential_launch(member_indices::Vector{Int},
-                                    loc_precs::Vector{LocPrecision},
+                                    loc_precs::Vector{<:LocPrecision},
                                     sp::AbstractSpatialModel, γ::Float64)
     m = length(member_indices)
     is_in_b = falses(m)
@@ -592,7 +592,7 @@ assignment probabilities for members 3..m).
 """
 function _log_sequential_allocation(member_indices::Vector{Int},
                                      is_in_b::Vector{Bool},
-                                     loc_precs::Vector{LocPrecision},
+                                     loc_precs::Vector{<:LocPrecision},
                                      sp::AbstractSpatialModel,
                                      γ::Float64)
     m = length(member_indices)

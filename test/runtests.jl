@@ -37,20 +37,20 @@ using Distributions
         # add/remove are exact inverses
         cs_back = SMLMBaGoL.remove_loc(cs3, locs[3])
         @test cs_back.n == 2
-        @test cs_back.Λ_xx ≈ cs2.Λ_xx atol=1e-12
-        @test cs_back.η_x ≈ cs2.η_x atol=1e-12
+        @test cs_back.Λ[1,1] ≈ cs2.Λ[1,1] atol=1e-12
+        @test cs_back.η[1] ≈ cs2.η[1] atol=1e-12
         @test cs_back.quad ≈ cs2.quad atol=1e-12
 
         # Remove all → back to empty
         cs_empty = SMLMBaGoL.remove_loc(SMLMBaGoL.remove_loc(cs_back, locs[2]), locs[1])
         @test cs_empty.n == 0
-        @test abs(cs_empty.Λ_xx) < 1e-10
+        @test abs(cs_empty.Λ[1,1]) < 1e-10
 
         # build_cluster_stats matches sequential add
         cs_bulk = SMLMBaGoL.build_cluster_stats(locs, 1:3)
         @test cs_bulk.n == cs3.n
-        @test cs_bulk.Λ_xx ≈ cs3.Λ_xx atol=1e-12
-        @test cs_bulk.η_x ≈ cs3.η_x atol=1e-12
+        @test cs_bulk.Λ[1,1] ≈ cs3.Λ[1,1] atol=1e-12
+        @test cs_bulk.η[1] ≈ cs3.η[1] atol=1e-12
 
         # Posterior covariance should be positive definite
         Σ_xx, Σ_xy, Σ_yy = SMLMBaGoL.posterior_cov(cs3)
