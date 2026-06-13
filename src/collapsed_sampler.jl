@@ -378,7 +378,7 @@ using posterior mean and covariance from ClusterStats.
 """
 function extract_emitters(state::CollapsedState,
                            locs::Vector{<:SMLMData.AbstractEmitter})
-    emitters = SMLMData.Emitter2DFit[]
+    emitters = SMLMData.Emitter2DFit{Float64}[]
     id = 0
     for (j, cs) in enumerate(state.clusters)
         state.active[j] || continue

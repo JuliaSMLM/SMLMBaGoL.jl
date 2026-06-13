@@ -242,7 +242,7 @@ function _run_bagol_collapsed(
 
     if isempty(partitions)
         @warn "No valid partitions"
-        empty_smld = SMLMData.BasicSMLD(SMLMData.Emitter2DFit[], camera, 1, 1)
+        empty_smld = SMLMData.BasicSMLD(SMLMData.Emitter2DFit{Float64}[], camera, 1, 1)
         empty_diag = BaGoLDiagnostics(0, Int[], Dict{Symbol,Float64}(), 0.0, shape, 0.0, 0, Int[], Int[], Int[], nothing)
         return empty_smld, empty_diag
     end
@@ -460,7 +460,7 @@ function _run_bagol_collapsed(
     boundary_margin = partition_sigma * median(sigmas)
 
     # Per-partition results (filled in parallel, largest-first for load balance)
-    partition_emitters = Vector{Vector{SMLMData.Emitter2DFit}}(undef, n_partitions)
+    partition_emitters = Vector{Vector{SMLMData.Emitter2DFit{Float64}}}(undef, n_partitions)
     partition_boundary = Vector{Vector{Bool}}(undef, n_partitions)
 
     # Sort by partition size descending so large (expensive) partitions start first.
@@ -553,7 +553,7 @@ function _run_bagol_collapsed(
     end
 
     # Flatten results (preserving partition order)
-    all_emitters = SMLMData.Emitter2DFit[]
+    all_emitters = SMLMData.Emitter2DFit{Float64}[]
     partition_ids = Int[]
     is_near_boundary = Bool[]
     for pid in 1:n_partitions
@@ -571,7 +571,7 @@ function _run_bagol_collapsed(
             all_emitters, partition_ids, is_near_boundary, boundary_margin
         )
     else
-        merged_emitters = SMLMData.Emitter2DFit[]
+        merged_emitters = SMLMData.Emitter2DFit{Float64}[]
     end
     n_deduped = n_pre_dedup - length(merged_emitters)
     _log_progress("  Dedup: $n_pre_dedup → $(length(merged_emitters)) emitters ($n_deduped removed, $n_boundary near boundary)")
