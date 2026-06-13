@@ -38,14 +38,15 @@ ClusterStats{D,L}() where {D,L} =
     ClusterStats{D,L}(zero(SMatrix{D,D,Float64,L}), zero(SVector{D,Float64}), 0.0, Int32(0), 0.0)
 Base.zero(::Type{ClusterStats{D,L}}) where {D,L} = ClusterStats{D,L}()
 
-# Step 1 (feature-model-dispatch) compatibility: a no-arg empty defaults to the
-# 2D position feature so existing call sites keep working unchanged. The
-# container is still made concrete via CollapsedState's type parameters.
-# Dimension-derived empty construction (3D / multi-cue) replaces this in Step 2.
+# No-arg empty defaults to the 2D position feature. Retained only for the
+# 2D-only paths (MAP-N, archive, diagnostics). The sampler engine and chain
+# initialization use the dimension-derived `empty_cluster` (defined after the
+# LocPrecision struct below), so they run at any feature dimension.
 ClusterStats() = ClusterStats{2,4}()
 
 """Feature dimension for an emitter type (extend for new emitter/feature types)."""
 feature_dim(::Type{<:SMLMData.Emitter2DFit}) = 2
+feature_dim(::Type{<:SMLMData.Emitter3DFit}) = 3
 
 """
     LocPrecision{D,L}
@@ -65,6 +66,18 @@ struct LocPrecision{D,L}
     pos::SVector{D,Float64}       # observed coordinates
     σ::Float64                    # sqrt(Σ tr) proxy for distance thresholds
 end
+
+"""
+    empty_cluster(container) -> ClusterStats
+
+Dimension-derived empty cluster: the ClusterStats dimension is taken from a
+precomputed-contribution vector (`LocPrecision{D,L}`) or a localization vector
+(`Emitter2DFit`→2D, `Emitter3DFit`→3D). Used by the engine and chain init so
+empties match the data's feature dimension.
+"""
+@inline empty_cluster(precs::AbstractVector{LocPrecision{D,L}}) where {D,L} = zero(ClusterStats{D,L})
+@inline empty_cluster(::AbstractVector{<:SMLMData.Emitter2DFit}) = ClusterStats{2,4}()
+@inline empty_cluster(::AbstractVector{<:SMLMData.Emitter3DFit}) = ClusterStats{3,9}()
 
 """
     _loc_precision(loc::Emitter2DFit) -> LocPrecision{2,4}
@@ -100,6 +113,28 @@ their own `_loc_precision` methods.)
     σ = sqrt(var_x + var_y)
 
     return LocPrecision{2,4}(Λ, η, q, log_det, pos, σ)
+end
+
+"""
+    _loc_precision(loc::Emitter3DFit) -> LocPrecision{3,9}
+
+3D position contribution — full 3×3 covariance from (σ_x,σ_y,σ_z,σ_xy,σ_xz,σ_yz).
+"""
+@inline function _loc_precision(loc::SMLMData.Emitter3DFit)
+    vx = loc.σ_x^2; vy = loc.σ_y^2; vz = loc.σ_z^2
+    cxy = loc.σ_xy; cxz = loc.σ_xz; cyz = loc.σ_yz
+    Σ = SMatrix{3,3,Float64}(vx, cxy, cxz, cxy, vy, cyz, cxz, cyz, vz)
+    dΣ = det(Σ)
+    if dΣ <= 0
+        # Fallback to diagonal covariance if degenerate
+        Σ = SMatrix{3,3,Float64}(vx, 0.0, 0.0, 0.0, vy, 0.0, 0.0, 0.0, vz)
+        dΣ = vx * vy * vz
+    end
+    Λ = inv(Σ)
+    pos = SVector{3,Float64}(loc.x, loc.y, loc.z)
+    η = Λ * pos
+    q = dot(η, pos)
+    return LocPrecision{3,9}(Λ, η, q, log(dΣ), pos, sqrt(vx + vy + vz))
 end
 
 """
@@ -173,6 +208,14 @@ function posterior_mean(cs::ClusterStats{2})
     return (μ[1], μ[2])
 end
 
+"""3D posterior mean → (x, y, z)."""
+function posterior_mean(cs::ClusterStats{3})
+    det_Λ = det(cs.Λ)
+    det_Λ <= 0 && return (0.0, 0.0, 0.0)
+    μ = cs.Λ \ cs.η
+    return (μ[1], μ[2], μ[3])
+end
+
 """
     posterior_cov(cs::ClusterStats{2}) -> (Σ_xx, Σ_xy, Σ_yy)
 
@@ -185,6 +228,14 @@ function posterior_cov(cs::ClusterStats{2})
     end
     Σ = inv(cs.Λ)
     return Σ[1,1], Σ[1,2], Σ[2,2]
+end
+
+"""3D posterior covariance → (Σ_xx, Σ_yy, Σ_zz, Σ_xy, Σ_xz, Σ_yz)."""
+function posterior_cov(cs::ClusterStats{3})
+    det_Λ = det(cs.Λ)
+    det_Λ <= 0 && return (Inf, Inf, Inf, 0.0, 0.0, 0.0)
+    Σ = inv(cs.Λ)
+    return Σ[1,1], Σ[2,2], Σ[3,3], Σ[1,2], Σ[1,3], Σ[2,3]
 end
 
 """

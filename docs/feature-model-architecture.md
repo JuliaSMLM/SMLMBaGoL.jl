@@ -129,9 +129,13 @@ not part of the Markov state. Feature priors must be **proper**.
 
 ## Implementation sequence + validation gates
 
-1. **Behavior-preserving refactor to a single `GaussianFeature{2}`.**
-   GATE: full test suite + `dev/brute_force_enumeration.jl` + `dev/detailed_balance_check.jl`
-   stay green; `@code_warntype` clean on the Gibbs inner loop; zero-allocation parity vs the
-   current concrete 2×2 struct.
-2. **Add `GaussianFeature{3}`** + a 3D round-trip test.
-3. **Add spectral `GaussianFeature{1}`** + missing-cue handling; a joint multi-cue grouping test.
+1. **DONE — Behavior-preserving refactor to a dimension-parametric `ClusterStats{D,L}`**
+   (the single-feature 2D core). GATE met: 296/296 tests + brute-force 4/4 +
+   detailed-balance bias 0.0; `@inferred`/`isbits` zero-alloc hot loop.
+2. **DONE — `GaussianFeature{3}` (3D position).** `feature_dim`/`_loc_precision`/`posterior_*`
+   for D=3; dimension-derived engine empties (`empty_cluster` / `zero(eltype(clusters))`);
+   `make_emitter` output seam (2D→Emitter2DFit, 3D→Emitter3DFit). GATE met: 307/307 tests
+   (incl. 3D core + z-separation round-trip) + detailed balance holds + brute-force 2D green.
+   Follow-ups: 3D-locmix, full `run_bagol`-3D (MAP-N/dedup/posterior-image), 3D volume flat prior.
+3. **Add spectral `GaussianFeature{1}`** + missing-cue (`n_obs`) handling; tuple-of-blocks
+   multi-cue; a joint multi-cue grouping test.

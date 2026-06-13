@@ -138,7 +138,7 @@ function _find_inactive_slot(state::CollapsedState)
         end
     end
     # Grow arrays
-    push!(state.clusters, ClusterStats())
+    push!(state.clusters, zero(eltype(state.clusters)))
     push!(state.active, false)
     return length(state.clusters)
 end
@@ -160,7 +160,7 @@ end
 Deactivate a cluster slot.
 """
 function _deactivate_cluster!(state::CollapsedState, slot::Integer)
-    state.clusters[slot] = ClusterStats()
+    state.clusters[slot] = zero(eltype(state.clusters))
     state.active[slot] = false
     state.n_active -= 1
 end
@@ -547,8 +547,8 @@ function _sample_sequential_launch(member_indices::Vector{Int},
     is_in_b = falses(m)
     is_in_b[2] = true
 
-    cs_a = add_loc(ClusterStats(), loc_precs[member_indices[1]])
-    cs_b = add_loc(ClusterStats(), loc_precs[member_indices[2]])
+    cs_a = add_loc(empty_cluster(loc_precs), loc_precs[member_indices[1]])
+    cs_b = add_loc(empty_cluster(loc_precs), loc_precs[member_indices[2]])
 
     for idx in 3:m
         loc_idx = member_indices[idx]
@@ -599,8 +599,8 @@ function _log_sequential_allocation(member_indices::Vector{Int},
     m < 3 && return 0.0  # Only seeds, no choices
 
     # Seed: member[1] → A, member[2] → B
-    cs_a = add_loc(ClusterStats(), loc_precs[member_indices[1]])
-    cs_b = add_loc(ClusterStats(), loc_precs[member_indices[2]])
+    cs_a = add_loc(empty_cluster(loc_precs), loc_precs[member_indices[1]])
+    cs_b = add_loc(empty_cluster(loc_precs), loc_precs[member_indices[2]])
 
     log_q = 0.0
     for idx in 3:m
@@ -682,8 +682,8 @@ function _do_sequential_split!(state::CollapsedState, parent_slot::Int,
     is_in_b = falses(m)
     is_in_b[2] = true
 
-    cs_a = add_loc(ClusterStats(), loc_precs[member_indices[1]])
-    cs_b = add_loc(ClusterStats(), loc_precs[member_indices[2]])
+    cs_a = add_loc(empty_cluster(loc_precs), loc_precs[member_indices[1]])
+    cs_b = add_loc(empty_cluster(loc_precs), loc_precs[member_indices[2]])
     log_q = 0.0
 
     # Sequential allocation for remaining members (launch state)
@@ -725,8 +725,8 @@ function _do_sequential_split!(state::CollapsedState, parent_slot::Int,
 
     # Apply the allocation to the state
     # Rebuild parent (A) from scratch, build new (B)
-    state.clusters[parent_slot] = ClusterStats()
-    new_cs = ClusterStats()
+    state.clusters[parent_slot] = zero(eltype(state.clusters))
+    new_cs = zero(eltype(state.clusters))
     @inbounds for idx in 1:m
         loc_idx = member_indices[idx]
         lp = loc_precs[loc_idx]
@@ -1050,7 +1050,7 @@ function propose_birth_death!(state::CollapsedState,
         # Execute: detach loc as singleton
         state.clusters[old_cluster] = remove_loc(state.clusters[old_cluster], lp)
         new_slot = _find_inactive_slot(state)
-        _activate_cluster!(state, new_slot, add_loc(ClusterStats(), lp))
+        _activate_cluster!(state, new_slot, add_loc(empty_cluster(loc_precs), lp))
         state.assignments[chosen_loc] = Int16(new_slot)
 
         # Forward density: p_birth × (1/N_eligible)
