@@ -33,8 +33,8 @@ The total count `N = Σ n_j ~ NegBin(Kα, p)` by NegBin additivity, where `p = �
 | μ | `mu` | Float64 | Mean locs per emitter, E[n_j] |
 | α | `shape` | Float64 | NegBin shape; CV[n_j] = √(1/α + 1/μ) |
 | γ | `shape` (same as α) | Float64 | DM concentration parameter |
-| Λ | `cs.Λ_xx, cs.Λ_xy, cs.Λ_yy` | 2×2 sym | Posterior precision = Σᵢ Σᵢ⁻¹ |
-| η | `cs.η_x, cs.η_y` | 2-vec | Natural parameter = Σᵢ Σᵢ⁻¹ dᵢ |
+| Λ | `cs.Λ` (`SMatrix{D,D}`) | D×D sym | Posterior precision = Σᵢ Σᵢ⁻¹ |
+| η | `cs.η` (`SVector{D}`) | D-vec | Natural parameter = Σᵢ Σᵢ⁻¹ dᵢ |
 | Q | `cs.quad` | Float64 | Quadratic form = Σᵢ dᵢᵀ Σᵢ⁻¹ dᵢ |
 | n_j | `cs.n` | Int32 | Locs in cluster j |
 

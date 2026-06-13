@@ -36,9 +36,9 @@ Cluster slots are pre-allocated and reused via the `active` bitvector.
 Workspace buffers (`_perm`, `_active_slots`, `_log_probs`, `_rollback_*`)
 are pre-allocated for zero-allocation hot-path operation.
 """
-mutable struct CollapsedState{S<:AbstractSpatialModel, A<:AbstractAllocationModel}
+mutable struct CollapsedState{S<:AbstractSpatialModel, A<:AbstractAllocationModel, CS<:ClusterStats, LP<:LocPrecision}
     assignments::Vector{Int16}      # assignments[i] = cluster label for loc i
-    clusters::Vector{ClusterStats}  # Pre-allocated slots
+    clusters::Vector{CS}            # Pre-allocated slots (concrete ClusterStats{D,L})
     active::BitVector               # Which slots are in use
     n_active::Int                   # Number of active clusters
     spatial::S                      # Spatial prior model (FlatSpatial or LocmixSpatial)
@@ -46,14 +46,14 @@ mutable struct CollapsedState{S<:AbstractSpatialModel, A<:AbstractAllocationMode
     use_poisson_k_prior::Bool       # Whether the target includes Poisson(ρA) K prior + ρ updates
 
     # Precomputed loc precisions (computed once, locs don't change)
-    _loc_precs::Vector{LocPrecision}
+    _loc_precs::Vector{LP}          # concrete LocPrecision{D,L}
 
     # Workspace buffers (pre-allocated, reused across iterations)
     _perm::Vector{Int}              # Permutation for Gibbs sweep
     _active_slots::Vector{Int}      # Active cluster indices
     _log_probs::Vector{Float64}     # Log probabilities for categorical
     _rollback_assignments::Vector{Int16}  # Rollback buffer for MH moves
-    _rollback_clusters::Vector{ClusterStats}
+    _rollback_clusters::Vector{CS}
     _rollback_active::BitVector
 end
 

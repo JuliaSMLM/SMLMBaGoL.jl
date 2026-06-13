@@ -109,7 +109,7 @@ where:
 """
 function log_target_density(z::Vector{Int}, K::Int, N::Int,
                             locs::Vector{<:SMLMData.AbstractEmitter},
-                            loc_precs::Vector{SMLMBaGoL.LocPrecision},
+                            loc_precs::Vector{<:SMLMBaGoL.LocPrecision},
                             log_area::Float64,
                             μ::Float64, shape::Float64,
                             ρ::Float64, A::Float64)

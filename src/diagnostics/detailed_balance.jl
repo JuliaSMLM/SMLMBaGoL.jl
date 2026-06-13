@@ -55,7 +55,7 @@ Precomputed-arguments version for checking multiple transitions efficiently.
 """
 function check_detailed_balance(z_from::AbstractVector{<:Integer},
                                  z_to::AbstractVector{<:Integer},
-                                 loc_precs::Vector{LocPrecision},
+                                 loc_precs::Vector{<:LocPrecision},
                                  log_area::Float64,
                                  td::AbstractTargetDensity;
                                  μ::Float64, shape::Float64, ρ::Float64=2.0,
