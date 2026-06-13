@@ -18,7 +18,7 @@ function initialize_collapsed_state(locs::Vector{<:SMLMData.AbstractEmitter},
                                      use_poisson_k_prior::Bool=_uses_poisson_k_prior(sp))
     N = length(locs)
 
-    cs = ClusterStats()
+    cs = empty_cluster(locs)
     for loc in locs
         cs = add_loc(cs, loc)
     end
@@ -73,7 +73,7 @@ function initialize_from_assignments(assignments::AbstractVector{<:Integer},
 
     assign16 = Vector{Int16}(assignments)
     max_cluster = maximum(assign16)
-    clusters = [ClusterStats() for _ in 1:max_cluster]
+    clusters = [empty_cluster(locs) for _ in 1:max_cluster]
     active = falses(max_cluster)
 
     for (i, a) in enumerate(assign16)
@@ -370,32 +370,46 @@ function run_collapsed_iterations!(
     return current_iter
 end
 
-"""
-    extract_emitters(state, locs) -> Vector{Emitter2DFit}
+"""Output emitter type for a given cluster-stats feature dimension."""
+output_emitter_type(::Type{<:ClusterStats{2}}) = SMLMData.Emitter2DFit{Float64}
+output_emitter_type(::Type{<:ClusterStats{3}}) = SMLMData.Emitter3DFit{Float64}
 
-Extract emitter positions and uncertainties from current collapsed state
-using posterior mean and covariance from ClusterStats.
 """
+    make_emitter(cs, id) -> Emitter2DFit / Emitter3DFit
+
+Build the output emitter for a cluster from its posterior mean + covariance.
+Dispatches on the feature dimension: 2D → Emitter2DFit, 3D → Emitter3DFit.
+photons = number of localizations in the cluster.
+"""
+function make_emitter(cs::ClusterStats{2}, id::Int)
+    mx, my = posterior_mean(cs)
+    Σ_xx, Σ_xy, Σ_yy = posterior_cov(cs)
+    return SMLMData.Emitter2DFit{Float64}(
+        mx, my, Float64(cs.n), 0.0,
+        sqrt(max(Σ_xx, 0.0)), sqrt(max(Σ_yy, 0.0)), Σ_xy,
+        0.0, 0.0, 1, 1, 0, id)
+end
+
+function make_emitter(cs::ClusterStats{3}, id::Int)
+    mx, my, mz = posterior_mean(cs)
+    Σ_xx, Σ_yy, Σ_zz, Σ_xy, Σ_xz, Σ_yz = posterior_cov(cs)
+    return SMLMData.Emitter3DFit{Float64}(
+        mx, my, mz, Float64(cs.n), 0.0,
+        sqrt(max(Σ_xx, 0.0)), sqrt(max(Σ_yy, 0.0)), sqrt(max(Σ_zz, 0.0)),
+        Σ_xy, Σ_xz, Σ_yz,
+        0.0, 0.0, 1, 1, 0, id)
+end
+
 function extract_emitters(state::CollapsedState,
                            locs::Vector{<:SMLMData.AbstractEmitter})
-    emitters = SMLMData.Emitter2DFit[]
+    ET = output_emitter_type(eltype(state.clusters))
+    emitters = ET[]
     id = 0
     for (j, cs) in enumerate(state.clusters)
         state.active[j] || continue
         cs.n == 0 && continue
         id += 1
-
-        mx, my = posterior_mean(cs)
-        Σ_xx, Σ_xy, Σ_yy = posterior_cov(cs)
-
-        σ_x = sqrt(max(Σ_xx, 0.0))
-        σ_y = sqrt(max(Σ_yy, 0.0))
-
-        push!(emitters, SMLMData.Emitter2DFit(
-            mx, my, Float64(cs.n), 0.0,  # photons = n_locs in cluster
-            σ_x, σ_y, Σ_xy,
-            0.0, 0.0, 1, 1, 0, id
-        ))
+        push!(emitters, make_emitter(cs, id))
     end
     return emitters
 end
