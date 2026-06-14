@@ -137,5 +137,12 @@ not part of the Markov state. Feature priors must be **proper**.
    `make_emitter` output seam (2D→Emitter2DFit, 3D→Emitter3DFit). GATE met: 307/307 tests
    (incl. 3D core + z-separation round-trip) + detailed balance holds + brute-force 2D green.
    Follow-ups: 3D-locmix, full `run_bagol`-3D (MAP-N/dedup/posterior-image), 3D volume flat prior.
-3. **Add spectral `GaussianFeature{1}`** + missing-cue (`n_obs`) handling; tuple-of-blocks
-   multi-cue; a joint multi-cue grouping test.
+3. **DONE — multi-cue (block-diagonal) composite.** `MultiClusterStats` = tuple of per-feature
+   blocks; `add_loc` maps, marginal/predictive sum. Abstract supertypes
+   (`AbstractClusterStats`/`AbstractLocPrecision`) let it plug into the engine unchanged.
+   API: `gaussian_contribution` / `FeatureSet` / `run_multicue_chain` / `extract_multicue`.
+   GATE met: 314/314 tests (composite math + joint grouping), detailed balance holds,
+   brute-force 2D green. Round-trip: two emitters at the SAME (x,y) separated only by spectral
+   λ → K=2 recovered (λ≈579/620, n=12/12).
+   Follow-ups: missing-cue `n_obs`; SMLMData-augmented multi-cue emitter output; 3D-locmix;
+   full `run_bagol` multi-cue/3D; 3D volume-based flat prior.

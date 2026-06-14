@@ -26,6 +26,7 @@ export BaGoLDiagnostics
 # Export collapsed types
 export CollapsedState, CollapsedChainResult, BaGoLResult
 export ClusterStats
+export MultiClusterStats, FeatureSet, run_multicue_chain, build_multicue_precisions, extract_multicue, gaussian_contribution
 export AbstractAccumulator, EmitterCountHist, PosteriorImage, NNDistHist
 export PartitionSamples, PSMAccumulator
 
@@ -87,6 +88,7 @@ include("mapn.jl")
 include("accumulators.jl")
 include("collapsed_moves.jl")
 include("collapsed_sampler.jl")
+include("multicue.jl")
 include("partition.jl")
 include("partitioned.jl")
 include("rjmcmc.jl")

@@ -5,6 +5,10 @@
 abstract type AbstractSpatialModel end
 """Base type for allocation models (DMAllocation, DecoupledAllocation)."""
 abstract type AbstractAllocationModel end
+"""Base type for cluster sufficient statistics (ClusterStats, MultiClusterStats)."""
+abstract type AbstractClusterStats end
+"""Base type for per-loc precomputed contributions (LocPrecision, MultiLocPrecision)."""
+abstract type AbstractLocPrecision end
 
 """
     get_coords(loc)
