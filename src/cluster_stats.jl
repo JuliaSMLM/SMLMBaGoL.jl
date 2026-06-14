@@ -25,7 +25,7 @@ posterior position/covariance without storing individual localization data.
 
 All operations (`add_loc`, `remove_loc`) are O(1) and exact inverses.
 """
-struct ClusterStats{D,L}
+struct ClusterStats{D,L} <: AbstractClusterStats
     Λ::SMatrix{D,D,Float64,L}     # posterior precision (Σ⁻¹), symmetric
     η::SVector{D,Float64}         # natural parameter: Σ_i Λ_i μ_i
     quad::Float64                 # Σ_i μ_iᵀ Λ_i μ_i
@@ -58,7 +58,7 @@ mutable parametric emitter types (which causes dynamic dispatch).
 Stores the observed position `pos` and combined `σ` for spatial distance
 checks and locmix-grid lookups.
 """
-struct LocPrecision{D,L}
+struct LocPrecision{D,L} <: AbstractLocPrecision
     Λ::SMatrix{D,D,Float64,L}     # precision Σ⁻¹ of this localization
     η::SVector{D,Float64}         # Λ μ
     quad::Float64                 # μᵀ Λ μ
