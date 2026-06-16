@@ -63,7 +63,7 @@ end
 Complete result from collapsed BaGoL analysis.
 """
 struct BaGoLResult
-    emitters::Vector{SMLMData.Emitter2DFit}  # Point estimates
+    emitters::Vector{<:SMLMData.Emitter2DFit}  # Point estimates
     diagnostics::BaGoLDiagnostics
     accumulators::Dict{Symbol, Any}           # Named accumulator results
     archive_path::Union{Nothing, String}

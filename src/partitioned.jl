@@ -33,7 +33,7 @@ are within `margin` distance of each other.
 Returns a new vector of Emitter2DFit with duplicates merged.
 """
 function deduplicate_boundary_emitters(
-    emitters::Vector{SMLMData.Emitter2DFit},
+    emitters::Vector{<:SMLMData.Emitter2DFit},
     partition_ids::Vector{Int},
     is_near_boundary::Vector{Bool},
     margin::Float64
