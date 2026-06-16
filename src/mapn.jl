@@ -235,7 +235,7 @@ function estimate_mapn_collapsed(
         map_n, _ = _smoothed_map_n(posterior_k)
     end
     if map_n == 0
-        return SMLMData.Emitter2DFit[], posterior_k
+        return SMLMData.Emitter2DFit{Float64}[], posterior_k
     end
 
     # Filter to samples with K = map_n
@@ -316,7 +316,7 @@ function estimate_mapn_collapsed(
     # sampler), so we use the analytic posterior covariance from ClusterStats instead.
     # Use the modal (most common) assignment to build the reference ClusterStats.
     ref_sample = samples[map_indices[1]]  # any MAP-N sample works
-    result_emitters = SMLMData.Emitter2DFit[]
+    result_emitters = SMLMData.Emitter2DFit{Float64}[]
     ref_labels = sort!(unique(ref_sample))
 
     for (id, positions) in enumerate(matched_positions)
@@ -415,7 +415,7 @@ function estimate_mapn_overlap(
     end
 
     if K_dahl == 0
-        return SMLMData.Emitter2DFit[], posterior_k
+        return SMLMData.Emitter2DFit{Float64}[], posterior_k
     end
 
     # Build Dahl ClusterStats and cluster sizes
@@ -489,7 +489,7 @@ function estimate_mapn_overlap(
     end
 
     # Build emitters: mean positions, total variance = analytic + allocation
-    result_emitters = SMLMData.Emitter2DFit[]
+    result_emitters = SMLMData.Emitter2DFit{Float64}[]
     for (ki, lab) in enumerate(dahl_labels)
         positions = matched_positions[ki]
         cs = dahl_cs[lab]
@@ -594,7 +594,7 @@ function estimate_mapn_psm(
     # K from PSM
     k_psm = _psm_cluster_count(psm; threshold=threshold)
     if k_psm == 0
-        return SMLMData.Emitter2DFit[], Int[]
+        return SMLMData.Emitter2DFit{Float64}[], Int[]
     end
 
     # Build K histogram (for diagnostics/return)
@@ -681,7 +681,7 @@ function estimate_mapn_psm(
 
     # Build emitters with median positions and ClusterStats posterior covariances
     ref_sample = samples[map_indices[1]]
-    result_emitters = SMLMData.Emitter2DFit[]
+    result_emitters = SMLMData.Emitter2DFit{Float64}[]
     ref_labels = sort!(unique(ref_sample))
 
     for (id, positions) in enumerate(matched_positions)
@@ -760,7 +760,7 @@ function _emitters_from_assignments(
     locs::Vector{<:SMLMData.AbstractEmitter}
 )
     unique_labels = sort!(unique(assignments))
-    emitters = SMLMData.Emitter2DFit[]
+    emitters = SMLMData.Emitter2DFit{Float64}[]
     for (id, lab) in enumerate(unique_labels)
         cs = ClusterStats()
         for i in eachindex(assignments)

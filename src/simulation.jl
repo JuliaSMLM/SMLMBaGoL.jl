@@ -231,7 +231,7 @@ function simulate_localizations(
     use_fixed_sigma = fixed_sigma !== nothing
     photon_dist = use_fixed_sigma ? nothing : Exponential(mean_photons)
 
-    locs = SMLMData.Emitter2DFit[]
+    locs = SMLMData.Emitter2DFit{Float64}[]
     true_counts = zeros(Int, n_emitters)
     loc_id = 1
 
