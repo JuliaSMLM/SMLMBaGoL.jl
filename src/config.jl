@@ -39,6 +39,11 @@ Configuration for BaGoL analysis. All fields correspond 1:1 to `run_bagol` kwarg
 - `bridge_ratio=0.0`: Optional bridge refinement strength for DBSCAN clusters
 - `min_split_size=3`: Minimum core component size for bridge refinement
 
+# Uncertainty Correction (standalone; 0 in the integrated pipeline)
+- `SE_Adjust=0.0`: Independent error τ (μm) added in quadrature to per-loc σ
+  (σ²+τ²). Scalar, `(τx,τy)` tuple, length-N vector, or `(τx_vec,τy_vec)`.
+- `force_se_adjust=false`: Apply even if the SMLD is already σ-corrected.
+
 # Output
 - `posterior_pixel_size=0.002`: Rao-Blackwellized posterior image pixel size (0.0=disable)
 - `archive_path=nothing`: Mmap chain archive path (nothing=disable)
@@ -72,6 +77,11 @@ Base.@kwdef struct BaGoLConfig <: SMLMData.AbstractSMLMConfig
     overlap::Union{Float64, Symbol} = :auto
     bridge_ratio::Float64 = 0.0
     min_split_size::Int = 3
+
+    # Uncertainty correction (standalone; leave 0 in the integrated pipeline,
+    # where σ is corrected upstream and stamped metadata["sigma_corrected"]=true)
+    SE_Adjust::Union{Float64, Tuple{Float64,Float64}, AbstractVector{Float64}} = 0.0
+    force_se_adjust::Bool = false
 
     # Output
     posterior_pixel_size::Float64 = 0.002

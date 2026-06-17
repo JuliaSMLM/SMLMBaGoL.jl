@@ -35,6 +35,59 @@ using Distributions
     end
 
     # ================================================================
+    # SE_Adjust — independent-error σ correction (quadrature, per-axis, guarded)
+    # ================================================================
+    @testset "SE_Adjust uncertainty correction" begin
+        cam = SMLMData.IdealCamera(1:64, 1:64, 0.1)
+        mk(x, y, sx, sy) = SMLMData.Emitter2DFit(x, y, 1000.0, 0.0, sx, sy, 0.0, 0.0, 0.0, 1, 1, 0, 1)
+
+        # _resolve_tau: scalar / per-axis tuple / per-loc vector / per-loc per-axis
+        τx, τy = SMLMBaGoL._resolve_tau(0.01, 3)
+        @test τx == fill(0.01, 3) && τy == fill(0.01, 3)
+        τx, τy = SMLMBaGoL._resolve_tau((0.0047, 0.0076), 4)
+        @test τx == fill(0.0047, 4) && τy == fill(0.0076, 4)
+        τx, τy = SMLMBaGoL._resolve_tau([0.001, 0.002], 2)
+        @test τx == [0.001, 0.002] && τy == [0.001, 0.002]
+        τx, τy = SMLMBaGoL._resolve_tau(([0.001, 0.002], [0.003, 0.004]), 2)
+        @test τx == [0.001, 0.002] && τy == [0.003, 0.004]
+        @test_throws ArgumentError SMLMBaGoL._resolve_tau([0.1, 0.2, 0.3], 2)  # wrong length
+        @test_throws ArgumentError SMLMBaGoL._resolve_tau(-0.01, 2)            # negative τ
+
+        # _inflate_sigma: exact quadrature, per-axis; σ_xy + position untouched
+        e = mk(1.0, 2.0, 0.003, 0.004)
+        e2 = SMLMBaGoL._inflate_sigma(e, 0.004, 0.003)
+        @test e2 isa SMLMData.Emitter2DFit{Float64}
+        @test e2.σ_x ≈ sqrt(0.003^2 + 0.004^2)
+        @test e2.σ_y ≈ sqrt(0.004^2 + 0.003^2)
+        @test e2.σ_xy == e.σ_xy
+        @test e2.x == e.x && e2.y == e.y
+
+        # apply-once guard via metadata stamp
+        locs = [mk(1.0, 1.0, 0.005, 0.005)]
+        stamped = Dict{String,Any}("sigma_corrected" => true, "tau_x_nm" => 3.0)
+        out, applied, _ = SMLMBaGoL._maybe_apply_se_adjust(locs, stamped, 0.004, false)
+        @test applied == false && out === locs                 # skipped (guard)
+        out, applied, _ = SMLMBaGoL._maybe_apply_se_adjust(locs, stamped, 0.004, true)
+        @test applied == true                                  # force override
+        @test out[1].σ_x ≈ sqrt(0.005^2 + 0.004^2)
+        out, applied, _ = SMLMBaGoL._maybe_apply_se_adjust(locs, Dict{String,Any}(), 0.004, false)
+        @test applied == true                                  # no stamp → applies
+        out, applied, _ = SMLMBaGoL._maybe_apply_se_adjust(locs, Dict{String,Any}(), 0.0, false)
+        @test applied == false && out === locs                 # zero τ → no-op
+
+        # end-to-end: run_bagol with SE_Adjust runs, returns concrete SMLD
+        elist = [SMLMData.Emitter2DFit(0.5 + 0.02i, 0.5, 1000.0, 0.0, 0.005, 0.005, 0.0, 0.0, 0.0, 1, 1, 0, i) for i in 1:6]
+        smld = SMLMData.BasicSMLD(elist, cam, 1, 1, Dict{String,Any}())
+        r, _ = run_bagol(smld; SE_Adjust=0.004, n_iterations=200, burn_in=40, verbose=false)
+        @test r isa SMLMData.BasicSMLD
+        @test isconcretetype(eltype(r.emitters))
+        # already-corrected SMLD: SE_Adjust skipped (warns), still runs cleanly
+        smld_c = SMLMData.BasicSMLD(elist, cam, 1, 1, Dict{String,Any}("sigma_corrected" => true))
+        r2, _ = run_bagol(smld_c; SE_Adjust=0.004, n_iterations=200, burn_in=40, verbose=false)
+        @test r2 isa SMLMData.BasicSMLD
+    end
+
+    # ================================================================
     # ClusterStats unit tests
     # ================================================================
     @testset "ClusterStats" begin
