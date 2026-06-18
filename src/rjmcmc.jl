@@ -1,16 +1,16 @@
 # Main BaGoL API
 
 # ============================================================================
-# SE_Adjust — independent (residual) localization-error correction
+# se_adjust — independent (residual) localization-error correction
 # σ²_eff = σ²_CRLB + τ²  (quadrature variance add, per axis; τ in μm). Standalone
 # path; in the integrated pipeline σ is corrected upstream (SMLMClustering) and
-# SE_Adjust stays 0, self-guarded against an already-σ-corrected SMLD.
+# se_adjust stays 0, self-guarded against an already-σ-corrected SMLD.
 # ============================================================================
 
 """
-    _resolve_tau(SE_Adjust, n) -> (τx, τy)
+    _resolve_tau(se_adjust, n) -> (τx, τy)
 
-Normalize an `SE_Adjust` spec into per-localization τ vectors (length `n`, μm):
+Normalize an `se_adjust` spec into per-localization τ vectors (length `n`, μm):
 `Real` → both axes/all locs; `(τx,τy)` tuple → per-axis; length-`n` vector →
 per-loc (both axes); `(τx_vec, τy_vec)` → per-loc per-axis. All τ must be ≥ 0.
 """
@@ -21,17 +21,17 @@ function _resolve_tau(se, n::Int)
         (fill(Float64(se[1]), n), fill(Float64(se[2]), n))
     elseif se isa Tuple{<:AbstractVector, <:AbstractVector}
         (length(se[1]) == n && length(se[2]) == n) ||
-            throw(ArgumentError("SE_Adjust per-axis vectors must each have length n_locs=$n"))
+            throw(ArgumentError("se_adjust per-axis vectors must each have length n_locs=$n"))
         (Float64.(se[1]), Float64.(se[2]))
     elseif se isa AbstractVector
         length(se) == n ||
-            throw(ArgumentError("SE_Adjust per-loc vector length $(length(se)) != n_locs $n"))
+            throw(ArgumentError("se_adjust per-loc vector length $(length(se)) != n_locs $n"))
         v = Float64.(se); (v, copy(v))
     else
-        throw(ArgumentError("SE_Adjust must be a scalar, (τx,τy) tuple, length-n vector, or (τx_vec,τy_vec); got $(typeof(se))"))
+        throw(ArgumentError("se_adjust must be a scalar, (τx,τy) tuple, length-n vector, or (τx_vec,τy_vec); got $(typeof(se))"))
     end
     (any(<(0.0), τx) || any(<(0.0), τy)) &&
-        throw(ArgumentError("SE_Adjust τ values must be ≥ 0 (μm)"))
+        throw(ArgumentError("se_adjust τ values must be ≥ 0 (μm)"))
     return τx, τy
 end
 
@@ -49,27 +49,45 @@ function _inflate_sigma(e::SMLMData.Emitter2DFit, τx::Real, τy::Real)
 end
 
 """
-    _maybe_apply_se_adjust(locs, metadata, SE_Adjust, force_se_adjust)
-        -> (locs, applied::Bool, msg::String)
+    _maybe_apply_se_adjust(locs, metadata, se_adjust, force_se_adjust)
+        -> (locs, tau_applied, msg::String)
 
-Apply SE_Adjust σ-inflation unless τ is all-zero, or the SMLD is already
+Apply se_adjust σ-inflation unless τ is all-zero, or the SMLD is already
 σ-corrected (`metadata["sigma_corrected"]==true`) and `force_se_adjust` is false
-(apply-once guard). Returns possibly-new locs, whether it applied, and a log line.
+(apply-once guard). `tau_applied` is `(τx, τy)` (μm; representative max for per-loc
+τ) when applied, else `nothing`. Returns possibly-new locs, `tau_applied`, log line.
 """
-function _maybe_apply_se_adjust(locs, metadata, SE_Adjust, force_se_adjust::Bool)
+function _maybe_apply_se_adjust(locs, metadata, se_adjust, force_se_adjust::Bool)
     n = length(locs)
-    n == 0 && return locs, false, ""
-    τx, τy = _resolve_tau(SE_Adjust, n)
-    (any(>(0.0), τx) || any(>(0.0), τy)) || return locs, false, ""   # all-zero → no-op
+    n == 0 && return locs, nothing, ""
+    τx, τy = _resolve_tau(se_adjust, n)
+    (any(>(0.0), τx) || any(>(0.0), τy)) || return locs, nothing, ""   # all-zero → no-op
     already = get(metadata, "sigma_corrected", false) === true
     if already && !force_se_adjust
-        @warn "run_bagol: input SMLD is already σ-corrected (metadata sigma_corrected=true); skipping SE_Adjust to avoid double-counting τ. Pass force_se_adjust=true to override."
-        return locs, false, ""
+        @warn "run_bagol: input SMLD is already σ-corrected (metadata sigma_corrected=true); skipping se_adjust to avoid double-counting τ. Pass force_se_adjust=true to override."
+        return locs, nothing, ""
     end
-    already && @warn "run_bagol: applying SE_Adjust on top of an already σ-corrected SMLD (force_se_adjust=true) — τ is intentionally double-counted."
+    already && @warn "run_bagol: applying se_adjust on top of an already σ-corrected SMLD (force_se_adjust=true) — τ is intentionally double-counted."
     inflated = [_inflate_sigma(locs[i], τx[i], τy[i]) for i in 1:n]
-    msg = "  SE_Adjust applied: σ inflated in quadrature (max τx=$(round(1000*maximum(τx), digits=1)) nm, max τy=$(round(1000*maximum(τy), digits=1)) nm)"
-    return inflated, true, msg
+    tau_applied = (maximum(τx), maximum(τy))
+    msg = "  se_adjust applied: σ inflated in quadrature (max τx=$(round(1000*tau_applied[1], digits=1)) nm, max τy=$(round(1000*tau_applied[2], digits=1)) nm)"
+    return inflated, tau_applied, msg
+end
+
+"""
+    apply_se_adjust(smld, se_adjust; force_se_adjust=false) -> BasicSMLD
+
+Return a copy of `smld` with per-localization σ inflated in quadrature by
+`se_adjust` (σ² → σ² + τ², per axis; see `run_bagol`'s `se_adjust`). No-op
+(returns `smld` unchanged) if `se_adjust` is 0 or the SMLD is already σ-corrected
+(unless `force_se_adjust`). Used by `run_bagol` and by renders to display the
+localization uncertainty BaGoL actually used.
+"""
+function apply_se_adjust(smld::SMLMData.SMLD, se_adjust; force_se_adjust::Bool=false)
+    md = hasproperty(smld, :metadata) ? smld.metadata : Dict{String,Any}()
+    locs, tau, _ = _maybe_apply_se_adjust(smld.emitters, md, se_adjust, force_se_adjust)
+    tau === nothing && return smld
+    return SMLMData.BasicSMLD(locs, smld.camera, smld.n_frames, smld.n_datasets, md)
 end
 
 # ============================================================================
@@ -96,11 +114,11 @@ n_j ~ Gamma(shape, μ/shape) where:
 - `skip_partition_size=typemax(Int)`: Skip partitions larger than this
 
 # Uncertainty Correction (standalone — leave 0 in the integrated pipeline)
-- `SE_Adjust=0.0`: Independent extra position error τ (μm) added in quadrature to
+- `se_adjust=0.0`: Independent extra position error τ (μm) added in quadrature to
   the per-loc CRLB σ (σ²_eff = σ² + τ²). Accepts a scalar (both axes), a `(τx, τy)`
   tuple (per-axis), a length-N vector (per-loc), or `(τx_vec, τy_vec)`. Corrects
   BaGoL under-grouping when CRLB underestimates the true localization error. If the
-  input SMLD is already σ-corrected (`metadata["sigma_corrected"]==true`), SE_Adjust
+  input SMLD is already σ-corrected (`metadata["sigma_corrected"]==true`), se_adjust
   is skipped with a warning unless `force_se_adjust=true`.
 - `force_se_adjust=false`: Override the already-corrected guard (intentional double-count).
 
@@ -156,7 +174,7 @@ function run_bagol(
     skip_partition_size::Int = typemax(Int),
     overlap::Union{Float64, Symbol} = :auto,
     # Uncertainty correction (standalone; leave 0 in the integrated pipeline)
-    SE_Adjust::Union{Real, Tuple, AbstractVector} = 0.0,
+    se_adjust::Union{Real, Tuple, AbstractVector} = 0.0,
     force_se_adjust::Bool = false,
     # Output
     posterior_pixel_size::Float64 = 0.002,
@@ -175,7 +193,7 @@ function run_bagol(
 )
     return _run_bagol_collapsed(smld;
         partition_sigma, min_partition_size, max_partition_size, skip_partition_size,
-        overlap, SE_Adjust, force_se_adjust, sync_interval, n_iterations, burn_in, shape, learn_distribution,
+        overlap, se_adjust, force_se_adjust, sync_interval, n_iterations, burn_in, shape, learn_distribution,
         posterior_pixel_size, posterior_xlim, posterior_ylim,
         archive_path, progress_file, verbose,
         μ=μ, gamma=gamma, allocation_model=allocation_model,
@@ -211,7 +229,7 @@ function run_bagol(
         max_partition_size=cfg.max_partition_size,
         skip_partition_size=cfg.skip_partition_size,
         overlap=cfg.overlap,
-        SE_Adjust=cfg.SE_Adjust, force_se_adjust=cfg.force_se_adjust,
+        se_adjust=cfg.se_adjust, force_se_adjust=cfg.force_se_adjust,
         posterior_pixel_size=cfg.posterior_pixel_size,
         posterior_xlim=posterior_xlim, posterior_ylim=posterior_ylim,
         archive_path=cfg.archive_path, progress_file=cfg.progress_file,
@@ -261,7 +279,7 @@ function _run_bagol_collapsed(
     max_partition_size::Int = 1000,
     skip_partition_size::Int = typemax(Int),
     overlap::Union{Float64, Symbol} = :auto,
-    SE_Adjust::Union{Real, Tuple, AbstractVector} = 0.0,
+    se_adjust::Union{Real, Tuple, AbstractVector} = 0.0,
     force_se_adjust::Bool = false,
     sync_interval::Int = 500,
     n_iterations::Int = 10000,
@@ -314,11 +332,11 @@ function _run_bagol_collapsed(
         verbose && println(msg)
     end
 
-    # Independent-error correction (standalone path). No-op when SE_Adjust=0 or
+    # Independent-error correction (standalone path). No-op when se_adjust=0 or
     # the SMLD is already σ-corrected upstream (apply-once guard).
     _se_md = hasproperty(smld, :metadata) ? smld.metadata : Dict{String,Any}()
-    locs, _se_applied, _se_msg = _maybe_apply_se_adjust(locs, _se_md, SE_Adjust, force_se_adjust)
-    _se_applied && _log_progress(_se_msg)
+    locs, _se_tau, _se_msg = _maybe_apply_se_adjust(locs, _se_md, se_adjust, force_se_adjust)
+    _se_tau !== nothing && _log_progress(_se_msg)
 
     _log_progress("Partitioning $(length(locs)) localizations (partition_sigma=$partition_sigma)...")
 
@@ -336,7 +354,7 @@ function _run_bagol_collapsed(
     if isempty(partitions)
         @warn "No valid partitions"
         empty_smld = SMLMData.BasicSMLD(SMLMData.Emitter2DFit{Float64}[], camera, 1, 1)
-        empty_diag = BaGoLDiagnostics(0, Int[], Dict{Symbol,Float64}(), 0.0, shape, 0.0, 0, Int[], Int[], Int[], nothing)
+        empty_diag = BaGoLDiagnostics(0, Int[], Dict{Symbol,Float64}(), 0.0, shape, 0.0, 0, Int[], Int[], Int[], nothing, _se_tau)
         return empty_smld, empty_diag
     end
 
@@ -745,7 +763,7 @@ function _run_bagol_collapsed(
     diagnostics = BaGoLDiagnostics(
         length(merged_emitters), posterior_k, acceptance_rates,
         μ, current_shape, ρ, n_partitions, cluster_sizes, partition_k,
-        loc_partition_ids, post_img
+        loc_partition_ids, post_img, _se_tau
     )
     result_smld = SMLMData.BasicSMLD(merged_emitters, camera, 1, 1)
 

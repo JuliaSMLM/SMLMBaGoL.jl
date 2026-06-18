@@ -19,6 +19,7 @@ struct BaGoLDiagnostics
     partition_k::Vector{Int}    # emitters found per partition (from MAP-N extraction)
     partition_ids::Vector{Int}  # partition ID per localization (0 = unassigned)
     posterior_image::Union{Nothing, NamedTuple{(:image, :edges_x, :edges_y, :pixel_size), Tuple{Matrix{Int}, Vector{Float64}, Vector{Float64}, Float64}}}
+    se_adjust::Union{Nothing, Tuple{Float64, Float64}}  # applied (τx, τy) in μm (quadrature σ-inflation), or nothing
 end
 
 # ============================================================================

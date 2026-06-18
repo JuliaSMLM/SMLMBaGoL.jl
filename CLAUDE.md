@@ -33,7 +33,7 @@ Use `julia --threads=auto` for any workload with multiple partitions.
 
 - **All `using`/`import` statements must be in `src/SMLMBaGoL.jl` only** - included files have no imports
 - Units: positions and uncertainties in micrometers (μm)
-- Uncertainty correction: in the integrated pipeline σ is corrected upstream (SMLMClustering, stamped `metadata["sigma_corrected"]=true`); for standalone runs use `run_bagol(...; SE_Adjust=τ)` — quadrature σ²+τ², per-axis, self-guards against double-applying to an already-corrected SMLD
+- Uncertainty correction: in the integrated pipeline σ is corrected upstream (SMLMClustering, stamped `metadata["sigma_corrected"]=true`); for standalone runs use `run_bagol(...; se_adjust=τ)` — quadrature σ²+τ², per-axis, self-guards against double-applying to an already-corrected SMLD
 
 ## Architecture
 

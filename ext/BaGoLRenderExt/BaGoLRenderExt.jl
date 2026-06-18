@@ -30,9 +30,16 @@ function SMLMBaGoL.render_report(
     partition_ids::Vector{Int} = Int[],
     pixel_size::Real = 1.0,
     prefix::String = "render",
-    fov::Union{Nothing, Tuple{Float64, Float64, Float64, Float64}} = nothing
+    fov::Union{Nothing, Tuple{Float64, Float64, Float64, Float64}} = nothing,
+    se_adjust = 0.0,
+    force_se_adjust::Bool = false
 )
     mkpath(output_dir)
+
+    # When se_adjust is in effect, draw the localization ellipses at the σ BaGoL
+    # actually used (σ² + τ²) so circle diameters reflect the correction. No-op
+    # (returns locs_smld) when se_adjust=0 or the SMLD is already σ-corrected.
+    locs_render = SMLMBaGoL.apply_se_adjust(locs_smld, se_adjust; force_se_adjust=force_se_adjust)
 
     # Calculate bounds
     if fov !== nothing
@@ -61,7 +68,7 @@ function SMLMBaGoL.render_report(
 
     # 3. Circles: white localizations + red MAP-N emitters
     circles_path = joinpath(output_dir, "$(prefix)_circles.png")
-    (bg_img, _) = render(locs_smld; strategy=EllipseRender(), color=:white,
+    (bg_img, _) = render(locs_render; strategy=EllipseRender(), color=:white,
                          target=target, clip_percentile=nothing)
     (fg_img, _) = render(bagol_smld; strategy=EllipseRender(), color=:red,
                          target=target, clip_percentile=nothing)
@@ -78,7 +85,7 @@ function SMLMBaGoL.render_report(
             Float64(e.σ_x), Float64(e.σ_y), Float64(e.σ_photons), Float64(e.σ_bg);
             σ_xy=Float64(e.σ_xy), frame=e.frame, dataset=partition_ids[i],
             track_id=e.track_id, id=e.id
-        ) for (i, e) in enumerate(locs_smld.emitters)]
+        ) for (i, e) in enumerate(locs_render.emitters)]
         part_smld = SMLMData.BasicSMLD(part_emitters, locs_smld.camera, 1, 1)
         render(part_smld; strategy=EllipseRender(), color_by=:dataset,
                categorical=true, target=target, filename=part_path)
@@ -89,7 +96,7 @@ function SMLMBaGoL.render_report(
     if !isempty(true_positions)
         gt_path = joinpath(output_dir, "$(prefix)_circles_groundtruth.png")
 
-        (base_img, _) = render(locs_smld; strategy=EllipseRender(), color=:white,
+        (base_img, _) = render(locs_render; strategy=EllipseRender(), color=:white,
                                target=target, clip_percentile=nothing)
 
         # GT (blue)
