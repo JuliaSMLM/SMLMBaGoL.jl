@@ -35,9 +35,9 @@ using Distributions
     end
 
     # ================================================================
-    # SE_Adjust — independent-error σ correction (quadrature, per-axis, guarded)
+    # se_adjust — independent-error σ correction (quadrature, per-axis, guarded)
     # ================================================================
-    @testset "SE_Adjust uncertainty correction" begin
+    @testset "se_adjust uncertainty correction" begin
         cam = SMLMData.IdealCamera(1:64, 1:64, 0.1)
         mk(x, y, sx, sy) = SMLMData.Emitter2DFit(x, y, 1000.0, 0.0, sx, sy, 0.0, 0.0, 0.0, 1, 1, 0, 1)
 
@@ -62,29 +62,43 @@ using Distributions
         @test e2.σ_xy == e.σ_xy
         @test e2.x == e.x && e2.y == e.y
 
-        # apply-once guard via metadata stamp
+        # apply-once guard via metadata stamp (2nd return = applied (τx,τy) or nothing)
         locs = [mk(1.0, 1.0, 0.005, 0.005)]
         stamped = Dict{String,Any}("sigma_corrected" => true, "tau_x_nm" => 3.0)
-        out, applied, _ = SMLMBaGoL._maybe_apply_se_adjust(locs, stamped, 0.004, false)
-        @test applied == false && out === locs                 # skipped (guard)
-        out, applied, _ = SMLMBaGoL._maybe_apply_se_adjust(locs, stamped, 0.004, true)
-        @test applied == true                                  # force override
+        out, tau, _ = SMLMBaGoL._maybe_apply_se_adjust(locs, stamped, 0.004, false)
+        @test tau === nothing && out === locs                  # skipped (guard)
+        out, tau, _ = SMLMBaGoL._maybe_apply_se_adjust(locs, stamped, 0.004, true)
+        @test tau == (0.004, 0.004)                            # force override
         @test out[1].σ_x ≈ sqrt(0.005^2 + 0.004^2)
-        out, applied, _ = SMLMBaGoL._maybe_apply_se_adjust(locs, Dict{String,Any}(), 0.004, false)
-        @test applied == true                                  # no stamp → applies
-        out, applied, _ = SMLMBaGoL._maybe_apply_se_adjust(locs, Dict{String,Any}(), 0.0, false)
-        @test applied == false && out === locs                 # zero τ → no-op
+        out, tau, _ = SMLMBaGoL._maybe_apply_se_adjust(locs, Dict{String,Any}(), 0.004, false)
+        @test tau == (0.004, 0.004)                            # no stamp → applies
+        out, tau, _ = SMLMBaGoL._maybe_apply_se_adjust(locs, Dict{String,Any}(), 0.0, false)
+        @test tau === nothing && out === locs                  # zero τ → no-op
 
-        # end-to-end: run_bagol with SE_Adjust runs, returns concrete SMLD
+        # apply_se_adjust (public SMLD->SMLD): inflates σ, preserves count; guard + no-op
+        smld_raw = SMLMData.BasicSMLD([mk(1.0,1.0,0.005,0.006), mk(1.1,1.0,0.005,0.006)], cam, 1, 1, Dict{String,Any}())
+        smld_inf = apply_se_adjust(smld_raw, (0.004, 0.003))
+        @test length(smld_inf.emitters) == 2
+        @test smld_inf.emitters[1].σ_x ≈ sqrt(0.005^2 + 0.004^2)
+        @test smld_inf.emitters[1].σ_y ≈ sqrt(0.006^2 + 0.003^2)
+        @test apply_se_adjust(smld_raw, 0.0) === smld_raw       # no-op returns same object
+        smld_stamp = SMLMData.BasicSMLD(smld_raw.emitters, cam, 1, 1, Dict{String,Any}("sigma_corrected"=>true))
+        @test apply_se_adjust(smld_stamp, 0.004) === smld_stamp # guard: no-op on corrected
+
+        # end-to-end: run_bagol with se_adjust runs, returns concrete SMLD + records τ in Info
         elist = [SMLMData.Emitter2DFit(0.5 + 0.02i, 0.5, 1000.0, 0.0, 0.005, 0.005, 0.0, 0.0, 0.0, 1, 1, 0, i) for i in 1:6]
         smld = SMLMData.BasicSMLD(elist, cam, 1, 1, Dict{String,Any}())
-        r, _ = run_bagol(smld; SE_Adjust=0.004, n_iterations=200, burn_in=40, verbose=false)
+        r, d = run_bagol(smld; se_adjust=(0.004, 0.005), n_iterations=200, burn_in=40, verbose=false)
         @test r isa SMLMData.BasicSMLD
         @test isconcretetype(eltype(r.emitters))
-        # already-corrected SMLD: SE_Adjust skipped (warns), still runs cleanly
+        @test d.se_adjust == (0.004, 0.005)                    # applied τ recorded in diagnostics (Info)
+        r0, d0 = run_bagol(smld; n_iterations=200, burn_in=40, verbose=false)
+        @test d0.se_adjust === nothing                         # default se_adjust=0 → not recorded
+        # already-corrected SMLD: se_adjust skipped (warns); τ not recorded
         smld_c = SMLMData.BasicSMLD(elist, cam, 1, 1, Dict{String,Any}("sigma_corrected" => true))
-        r2, _ = run_bagol(smld_c; SE_Adjust=0.004, n_iterations=200, burn_in=40, verbose=false)
-        @test r2 isa SMLMData.BasicSMLD
+        rc, dc = run_bagol(smld_c; se_adjust=0.004, n_iterations=200, burn_in=40, verbose=false)
+        @test rc isa SMLMData.BasicSMLD
+        @test dc.se_adjust === nothing
     end
 
     # ================================================================
