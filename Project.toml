@@ -1,6 +1,6 @@
 name = "SMLMBaGoL"
 uuid = "70c4bcd9-ed9a-43d6-baf8-7d0db1eb70ee"
-version = "0.3.0-DEV"
+version = "0.3.1-DEV"
 authors = ["klidke@unm.edu"]
 
 [deps]
