@@ -19,6 +19,7 @@ export BaGoLConfig
 # Export main API
 export run_bagol
 export apply_se_adjust
+export estimate_se_adjust
 export run_collapsed_chain, initialize_from_assignments
 export estimate_mapn_collapsed, estimate_mapn_overlap, estimate_mapn_psm, estimate_dahl, estimate_vi_greedy
 export save_posterior_png
@@ -93,6 +94,7 @@ include("multicue.jl")
 include("partition.jl")
 include("partitioned.jl")
 include("rjmcmc.jl")
+include("se_estimate.jl")
 include("posterior_image.jl")
 include("archive.jl")
 include("simulation.jl")
