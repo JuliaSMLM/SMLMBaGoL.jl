@@ -338,3 +338,110 @@ function estimate_se_adjust(smld::SMLMData.SMLD;
        path_um = [(gᵢ / 1000, mᵢ / 1000) for (gᵢ, mᵢ) in path],
        instr, grouping, diagnostics)
 end
+
+# ============================================================================
+# PER-AXIS finder — the anisotropy fix (estimate_se_adjust_peraxis)
+# ============================================================================
+# The isotropic descent collapses on anisotropic-residual data (a Y-excess + an
+# honest X cannot fit ONE Rayleigh → no fixed point → runaway). The per-axis
+# finder groups with an ANISOTROPIC se_adjust=(g_x,g_y) and scores EACH axis
+# against Half-Normal(1): |d_a|/√(σ_a²+2g_a²) ~ HalfNormal(1) at the true g_a;
+# it descends g_x,g_y separately. Validated in sim (smlmclustering per_axis_test.jl):
+# converges (g_x→0 honest X, g_y→Y-excess) where the isotropic finder collapsed.
+# CANDIDATE — the real-data per-axis run gates the ship (does over-split fake
+# Half-Normal PER-AXIS on real, or converge?). (Keith + smlmclustering, 2026-06-21.)
+
+# Half-Normal(1) CDF = P(|Z|≤z) for Z~N(0,1) = 2·Φ(z)−1 (exact, via Distributions
+# which the module already imports).
+_halfnormal_cdf(z) = 2 * cdf(Normal(), z) - 1
+
+# KS of the per-axis scaled |d| against Half-Normal(1), at assumed g (nm).
+function _ks_halfnormal(d, s2, g_nm, idxs)
+    isempty(idxs) && return NaN
+    g2 = g_nm^2
+    z = sort!([abs(d[k]) / sqrt(s2[k] + 2g2) for k in idxs])
+    n = length(z)
+    maximum(abs(i / n - _halfnormal_cdf(z[i])) for i in 1:n)
+end
+
+# Per-axis M-step: g minimizing the Half-Normal KS over the grid. `ks_noise>0`
+# applies the right-biased tie rule (largest g within ks_noise of the min) — the
+# per-axis analog of the isotropic `_mstep_rb`, to counter within-group truncation
+# under-bias (smlmclustering flagged g_y biased low). Default 0 ≈ argmin (faithful
+# to the validated sim).
+function _mstep_ax(d, s2, grid_nm, idxs; ks_noise = 0.0)
+    ks = [_ks_halfnormal(d, s2, g, idxs) for g in grid_nm]
+    kmin = minimum(ks)
+    maximum(grid_nm[i] for i in eachindex(grid_nm) if ks[i] ≤ kmin + ks_noise)
+end
+
+# Per-axis E-step: group with ANISOTROPIC se_adjust=(gx,gy); return signed per-axis
+# differences dx/dy (nm), pair variances s2x/s2y (nm²), and the MAP-N emitter count.
+function _group_peraxis(smld, gx_nm, gy_nm; n_iterations, burn_in, bagol_kwargs)
+    res, _ = run_bagol(smld; se_adjust = (gx_nm / 1000, gy_nm / 1000), force_se_adjust = true,
+                       n_iterations = n_iterations, burn_in = burn_in,
+                       posterior_pixel_size = 0.0, verbose = false, bagol_kwargs...)
+    EM = res.emitters
+    isempty(EM) && return (Float64[], Float64[], Float64[], Float64[], 0)
+    em = smld.emitters
+    etree = KDTree(_emitter_xy(EM))
+    idx, _ = nn(etree, _emitter_xy(em))
+    grp = Dict{Int, Vector{Int}}()
+    for (i, a) in enumerate(idx); push!(get!(grp, a, Int[]), i); end
+    dx = Float64[]; dy = Float64[]; s2x = Float64[]; s2y = Float64[]
+    for ks in values(grp)
+        length(ks) < 2 && continue
+        for a in 1:length(ks) - 1, b in a + 1:length(ks)
+            ea = em[ks[a]]; eb = em[ks[b]]
+            push!(dx, (ea.x - eb.x) * 1000); push!(dy, (ea.y - eb.y) * 1000)
+            push!(s2x, (ea.σ_x^2 + eb.σ_x^2) * 1e6); push!(s2y, (ea.σ_y^2 + eb.σ_y^2) * 1e6)
+        end
+    end
+    dx, dy, s2x, s2y, length(EM)
+end
+
+"""
+    estimate_se_adjust_peraxis(smld::SMLMData.SMLD; kwargs...) -> NamedTuple
+
+Per-axis `se_adjust` finder (the anisotropy fix). Groups with an anisotropic
+`se_adjust=(g_x,g_y)` and descends g_x,g_y separately, scoring each axis against
+Half-Normal(1). For anisotropic residual (e.g. a Y-axis excess over an honest X)
+where the isotropic [`estimate_se_adjust`](@ref) collapses. **Candidate** — gate
+the result on a real-data run + a magnitude-calibration sweep before shipping.
+
+Returns `(; se_x_um, se_y_um, path_um, n_bagol, instr)` (τ in μm). `instr` logs
+per step `(gx_nm, gy_nm, mx_nm, my_nm, n_pairs, n_emit, ks_x, ks_y)`.
+
+`ks_noise>0` enables the right-biased per-axis tie rule (de-bias). `bagol_kwargs`
+forwarded to `run_bagol`; reserved: `se_adjust`/`force_se_adjust`/`posterior_pixel_size`/`verbose`.
+"""
+function estimate_se_adjust_peraxis(smld::SMLMData.SMLD;
+        g_start_um = 0.012, stop_tol_um::Float64 = 5e-4, max_steps::Int = 8,
+        ks_noise::Float64 = 0.0, grid_um = 0.0:0.0001:0.014,
+        n_iterations::Int = 2000, burn_in::Int = 500, bagol_kwargs...)
+    md = hasproperty(smld, :metadata) ? smld.metadata : Dict{String, Any}()
+    if get(md, "sigma_corrected", false) == true
+        throw(ArgumentError("estimate_se_adjust_peraxis expects raw-σ localizations, but the input SMLD " *
+                            "is already σ-corrected (metadata sigma_corrected=true)."))
+    end
+    grid = 1000 .* collect(Float64, grid_um)
+    gx = 1000 * g_start_um; gy = 1000 * g_start_um
+    stop_tol = 1000 * stop_tol_um
+    n_bagol = 0; instr = NamedTuple[]
+    for _ in 1:max_steps
+        dx, dy, s2x, s2y, n_emit = _group_peraxis(smld, gx, gy; n_iterations, burn_in, bagol_kwargs)
+        n_bagol += 1
+        isempty(dx) && break
+        mx = _mstep_ax(dx, s2x, grid, eachindex(dx); ks_noise)
+        my = _mstep_ax(dy, s2y, grid, eachindex(dy); ks_noise)
+        push!(instr, (; gx_nm = gx, gy_nm = gy, mx_nm = mx, my_nm = my, n_pairs = length(dx), n_emit,
+                      ks_x = _ks_halfnormal(dx, s2x, gx, eachindex(dx)),
+                      ks_y = _ks_halfnormal(dy, s2y, gy, eachindex(dy))))
+        conv = abs(mx - gx) ≤ stop_tol && abs(my - gy) ≤ stop_tol
+        gx = mx; gy = my
+        conv && break
+    end
+    (; se_x_um = gx / 1000, se_y_um = gy / 1000,
+       path_um = [(s.gx_nm / 1000, s.gy_nm / 1000) for s in instr],
+       n_bagol, instr)
+end
