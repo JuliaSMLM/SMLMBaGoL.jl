@@ -88,7 +88,7 @@ function _group_distances(smld, tau_nm; n_iterations, burn_in, grouping, bagol_k
                        n_iterations = n_iterations, burn_in = burn_in,
                        posterior_pixel_size = 0.0, verbose = false, bagol_kwargs...)
     EM = res.emitters
-    isempty(EM) && return (Float64[], Float64[], NTuple{2, Float64}[])
+    isempty(EM) && return (Float64[], Float64[], NTuple{2, Float64}[], 0)
     em = smld.emitters
     groups = _assign_groups(em, EM, grouping)
     d = Float64[]; s2 = Float64[]; pos = NTuple{2, Float64}[]
@@ -101,7 +101,7 @@ function _group_distances(smld, tau_nm; n_iterations, burn_in, grouping, bagol_k
             push!(pos, ((ea.x + eb.x) / 2, (ea.y + eb.y) / 2))   # μm
         end
     end
-    d, s2, pos
+    d, s2, pos, length(EM)
 end
 
 # KS of the scaled-distance distribution against Rayleigh(1), at assumed τ (nm),
@@ -125,6 +125,37 @@ function _mstep_rb(d, s2, grid_nm, idxs; ks_noise = 0.01)
     ks = [_ks_rayleigh1(d, s2, τ, idxs) for τ in grid_nm]
     kmin = minimum(ks)
     maximum(grid_nm[i] for i in eachindex(grid_nm) if ks[i] ≤ kmin + ks_noise)
+end
+
+# UPPER-TAIL KS of z vs Rayleigh(1), over the [qlo,qhi] quantile band ONLY. The
+# FULL KS is faked low by tight over-split groups (they look ~Rayleigh at small τ —
+# that IS the collapse); the tail can't be faked: over-split TRUNCATES it (light),
+# over-merge CONTAMINATES it (heavy), truth matches. So band-tail KS is U-shaped
+# along the descent with its MIN at truth. (Keith + smlmclustering, 2026-06-20.)
+function _ks_rayleigh1_tail(d, s2, tau_nm, idxs; qlo = 0.85, qhi = 0.99)
+    isempty(idxs) && return NaN
+    t2 = tau_nm^2
+    z = sort!([d[k] / sqrt(s2[k] + 2t2) for k in idxs])
+    n = length(z)
+    lo = max(1, ceil(Int, qlo * n)); hi = min(n, floor(Int, qhi * n))
+    lo ≥ hi && return NaN
+    maximum(abs(i / n - (1 - exp(-z[i]^2 / 2))) for i in lo:hi)
+end
+
+# SIGNED upper-tail ratio: mean empirical z over [qlo,qhi] vs the Rayleigh(1)
+# quantile there. r_tail ≈ 1 at truth, < 1 OVER-SPLIT (tail truncated/light),
+# > 1 OVER-MERGE (tail heavy). Gives the crossing DIRECTION — stop at r_tail=1,
+# robust to the band-KS min's noise.
+function _r_tail(d, s2, tau_nm, idxs; qlo = 0.97, qhi = 0.99)
+    isempty(idxs) && return NaN
+    t2 = tau_nm^2
+    z = sort!([d[k] / sqrt(s2[k] + 2t2) for k in idxs])
+    n = length(z)
+    lo = max(1, ceil(Int, qlo * n)); hi = min(n, floor(Int, qhi * n))
+    lo > hi && return NaN
+    emp = sum(@view z[lo:hi]) / (hi - lo + 1)
+    p = (qlo + qhi) / 2
+    emp / sqrt(-2 * log(1 - p))
 end
 
 # Spatial-block bootstrap: resample `block_um` tiles of pair-midpoints (the
@@ -231,11 +262,21 @@ function estimate_se_adjust(smld::SMLMData.SMLD;
     n_bagol = 0; τ = g
     d = Float64[]; s2 = Float64[]; pos = NTuple{2, Float64}[]
     path = Tuple{Float64, Float64}[]
+    # Per-descent-g instrumentation. No sim reproduces the real-data collapse, so
+    # the REAL ruler is the only gate: log every candidate stop-signal at τ=g and
+    # pick the winner empirically — ks_full (faked low by over-split), ks_tail +
+    # r_tail (over-split-proof: tail truncates), n_emit (over-split count/elbow).
+    instr = NamedTuple[]
     for _ in 1:max_steps
-        d, s2, pos = _group_distances(smld, g; n_iterations, burn_in, grouping, bagol_kwargs)
+        d, s2, pos, n_emit = _group_distances(smld, g; n_iterations, burn_in, grouping, bagol_kwargs)
         n_bagol += 1
         isempty(d) && break
         m = _mstep_rb(d, s2, grid, eachindex(d); ks_noise)
+        ix = eachindex(d)
+        push!(instr, (; g_nm = g, m_nm = m, n_pairs = length(d), n_emit,
+                      ks_full = _ks_rayleigh1(d, s2, g, ix),
+                      ks_tail = _ks_rayleigh1_tail(d, s2, g, ix),
+                      r_tail  = _r_tail(d, s2, g, ix)))
         push!(path, (g, m)); τ = m
         abs(m - g) ≤ stop_tol && break           # grouping self-consistent
         g = m                                    # jump (descend from above)
@@ -262,5 +303,5 @@ function estimate_se_adjust(smld::SMLMData.SMLD;
     (; tau_hat_um = τ / 1000, ci_lo_um = lo / 1000, ci_hi_um = hi / 1000,
        ks_at_hat = ks_at, n_bagol,
        path_um = [(gᵢ / 1000, mᵢ / 1000) for (gᵢ, mᵢ) in path],
-       grouping, diagnostics)
+       instr, grouping, diagnostics)
 end

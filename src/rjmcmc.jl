@@ -305,6 +305,9 @@ function _run_bagol_collapsed(
     shape_prior_scale::Float64 = 1.0,
     ρ_prior_shape::Float64 = 2.0,
     ρ_prior_rate::Float64 = 1.0,
+    # Internal (τ-finder use): if a Ref is passed, the global per-loc Dahl-consensus
+    # assignment is written to it (0 = unassigned / overlap-dup / skipped). Not public API.
+    _dahl_out::Union{Nothing, Base.RefValue{Vector{Int}}} = nothing,
 )
     # Convert bounds to Float64 (GPU fitters produce Float32 coordinates)
     posterior_xlim = posterior_xlim === nothing ? nothing : (Float64(posterior_xlim[1]), Float64(posterior_xlim[2]))
@@ -573,6 +576,7 @@ function _run_bagol_collapsed(
     # Per-partition results (filled in parallel, largest-first for load balance)
     partition_emitters = Vector{Vector{SMLMData.Emitter2DFit{Float64}}}(undef, n_partitions)
     partition_boundary = Vector{Vector{Bool}}(undef, n_partitions)
+    partition_dahl = Vector{Vector{Int}}(undef, n_partitions)  # per-loc Dahl labels (τ-finder)
 
     # Sort by partition size descending so large (expensive) partitions start first.
     # Use @spawn (dynamic scheduling) for better load balance across heavy-tailed sizes.
@@ -596,6 +600,7 @@ function _run_bagol_collapsed(
             psm_result = accumulator_result(psm_acc)
             psm = psm_result.psm
             _, _, _, dahl_assignments = estimate_dahl(samples, partition.locs, psm)
+            partition_dahl[pid] = dahl_assignments    # capture before samples are cleared (τ-finder)
             emitters_i, _ = estimate_mapn_overlap(samples, partition.locs, dahl_assignments)
             if isempty(emitters_i)
                 k_dahl = length(unique(dahl_assignments))
@@ -617,6 +622,27 @@ function _run_bagol_collapsed(
                 _log_progress("  MAP-N: $n_done/$n_partitions ($(Int(pct))%) in $(dt)s [pid=$pid, N=$(length(partition.locs))]")
             end
         end
+    end
+
+    # Internal: expose the global per-loc Dahl-consensus assignment for the τ finder
+    # (estimate_se_adjust grouping=:dahl). Each loc is labeled once from its CORE
+    # partition (overlap-dup rows skipped); labels are offset per partition for global
+    # uniqueness. A molecule split across partitions becomes two sub-groups (loses
+    # cross-boundary pairs, never contaminates) — the accepted boundary nuance.
+    if _dahl_out !== nothing
+        global_labels = zeros(Int, length(locs))
+        offset = 0
+        for pid in 1:n_partitions
+            da = partition_dahl[pid]
+            oi = partitions[pid].original_indices
+            ov = partitions[pid].is_overlap
+            for j in eachindex(da)
+                ov[j] && continue
+                global_labels[oi[j]] = offset + da[j]
+            end
+            offset += isempty(da) ? 0 : maximum(da)
+        end
+        _dahl_out[] = global_labels
     end
 
     # Filter overlap emitters via Dahl membership: discard emitters whose
