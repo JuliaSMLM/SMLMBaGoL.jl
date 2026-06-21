@@ -77,6 +77,32 @@ function _assign_groups(em, EM, grouping::Symbol)
     end
 end
 
+# Total data log-likelihood at the grouping under the model at se_adjust=g
+# (σ' = √(σ²+g²), precision-weighted cluster mean). The distribution-shape signals
+# are faked because they IGNORE complexity; the Bayesian-Occam / BIC score
+# −2·loglik + n_emit·log(N) does NOT: over-split tightens the fit (loglik ↑) but
+# pays the n_emit penalty, so the score's MINIMUM is the Occam balance ≈ the true
+# count — where every shape signal collapsed. (Keith + smlmclustering, 2026-06-20.)
+function _data_loglik(em, groups, g_nm)
+    g2 = (g_nm / 1000)^2                          # μm²
+    ll = 0.0
+    for ks in groups
+        isempty(ks) && continue
+        wx = 0.0; wy = 0.0; mx = 0.0; my = 0.0
+        for i in ks
+            e = em[i]; px = 1 / (e.σ_x^2 + g2); py = 1 / (e.σ_y^2 + g2)
+            wx += px; wy += py; mx += px * e.x; my += py * e.y
+        end
+        mx /= wx; my /= wy
+        for i in ks
+            e = em[i]; s2x = e.σ_x^2 + g2; s2y = e.σ_y^2 + g2
+            ll += -0.5 * ((e.x - mx)^2 / s2x + log(2π * s2x)) -
+                   0.5 * ((e.y - my)^2 / s2y + log(2π * s2y))
+        end
+    end
+    ll
+end
+
 # E-step: group at τ (nm) with BaGoL, return within-group UNSCALED distances
 # d (nm), pair variance s2 = σ_a² + σ_b² (nm²), and pair-midpoint positions (μm)
 # for the spatial-block bootstrap. `se_adjust` is force-applied so a candidate τ
@@ -88,7 +114,7 @@ function _group_distances(smld, tau_nm; n_iterations, burn_in, grouping, bagol_k
                        n_iterations = n_iterations, burn_in = burn_in,
                        posterior_pixel_size = 0.0, verbose = false, bagol_kwargs...)
     EM = res.emitters
-    isempty(EM) && return (Float64[], Float64[], NTuple{2, Float64}[], 0)
+    isempty(EM) && return (Float64[], Float64[], NTuple{2, Float64}[], 0, NaN)
     em = smld.emitters
     groups = _assign_groups(em, EM, grouping)
     d = Float64[]; s2 = Float64[]; pos = NTuple{2, Float64}[]
@@ -101,7 +127,8 @@ function _group_distances(smld, tau_nm; n_iterations, burn_in, grouping, bagol_k
             push!(pos, ((ea.x + eb.x) / 2, (ea.y + eb.y) / 2))   # μm
         end
     end
-    d, s2, pos, length(EM)
+    ll = _data_loglik(em, groups, tau_nm)
+    d, s2, pos, length(EM), ll
 end
 
 # KS of the scaled-distance distribution against Rayleigh(1), at assumed τ (nm),
@@ -268,12 +295,18 @@ function estimate_se_adjust(smld::SMLMData.SMLD;
     # r_tail (over-split-proof: tail truncates), n_emit (over-split count/elbow).
     instr = NamedTuple[]
     for _ in 1:max_steps
-        d, s2, pos, n_emit = _group_distances(smld, g; n_iterations, burn_in, grouping, bagol_kwargs)
+        d, s2, pos, n_emit, loglik = _group_distances(smld, g; n_iterations, burn_in, grouping, bagol_kwargs)
         n_bagol += 1
         isempty(d) && break
         m = _mstep_rb(d, s2, grid, eachindex(d); ks_noise)
         ix = eachindex(d)
-        push!(instr, (; g_nm = g, m_nm = m, n_pairs = length(d), n_emit,
+        # BIC/Occam evidence score = −2·loglik + k·log(N), k = 2·n_emit (x,y per
+        # emitter): MIN ≈ true count — over-split-proof (it pays the complexity the
+        # shape signals ignore). loglik + n_emit are logged separately so any penalty
+        # is recomputable; the penalty constant shifts the peak, so confirm with the
+        # proper ClusterStats marginal. (smlmclustering 2026-06-20.)
+        bic = -2 * loglik + 2 * n_emit * log(length(smld.emitters))
+        push!(instr, (; g_nm = g, m_nm = m, n_pairs = length(d), n_emit, loglik, bic,
                       ks_full = _ks_rayleigh1(d, s2, g, ix),
                       ks_tail = _ks_rayleigh1_tail(d, s2, g, ix),
                       r_tail  = _r_tail(d, s2, g, ix)))
