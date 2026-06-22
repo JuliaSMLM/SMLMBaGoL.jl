@@ -55,6 +55,18 @@ Plot optimality sweep results. Requires `using CairoMakie`.
 function plot_sweep end
 
 """
+    plot_se_adjust(result; output_dir="output", n_boot=300)
+
+Plot the `estimate_se_adjust` τ-finder diagnostics (4 panels: frozen KS-vs-τ
+landscape + descent path + CI, empirical CDF − Rayleigh(1) at τ̂ with a
+spatial-block-bootstrap band, Q-Q vs Rayleigh(1) with an upper-tail inset, and
+σ-stratified ⟨z²⟩/2). Uses ONLY the finder's frozen-grouping output (no extra
+BaGoL). Requires `estimate_se_adjust(...; return_diagnostics=true)` and
+`using CairoMakie`. Ported from SMLMClustering `diagnose_tau.jl`.
+"""
+function plot_se_adjust end
+
+"""
     plot_speed(speed; output_dir="output")
 
 Plot speed test results. Requires `using CairoMakie`.

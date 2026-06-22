@@ -3,6 +3,7 @@ module BaGoLMakieExt
 using SMLMBaGoL
 using CairoMakie
 using Statistics
+using Random: MersenneTwister
 using SpecialFunctions: gamma, loggamma
 
 # ============================================================================
@@ -470,6 +471,111 @@ function SMLMBaGoL.plot_speed(speed; output_dir::String = "output")
 
     save(joinpath(output_dir, "speed_test.png"), fig, px_per_unit=2)
     println("Saved: $(joinpath(output_dir, "speed_test.png"))")
+end
+
+# ============================================================================
+# plot_se_adjust — τ-finder diagnostics (ported from SMLMClustering diagnose_tau.jl v2)
+# ============================================================================
+# STANDARD output: the FROZEN grouping (the finder's returned d_nm/s2_nm2) RE-SCORED
+# over the grid — zero extra BaGoL. The expensive re-group-per-τ circularity and the
+# sim-only ground-truth-label curve are intentionally dropped (opt-in deep diagnostics).
+# On REAL data these are FIT-QUALITY-per-cell panels, not a proof τ is "right".
+
+"""
+    plot_se_adjust(result; output_dir="output", n_boot=300, seed=1)
+
+τ-finder diagnostics from `estimate_se_adjust(...; return_diagnostics=true)`.
+"""
+function SMLMBaGoL.plot_se_adjust(result; output_dir::String = "output",
+                                  n_boot::Int = 300, seed::Int = 1)
+    dg = result.diagnostics
+    dg === nothing && error("plot_se_adjust requires estimate_se_adjust(...; return_diagnostics=true)")
+    mkpath(output_dir)
+    d = dg.d_nm; s2 = dg.s2_nm2; pos = dg.pos_um; grid = collect(dg.grid_nm)
+    τh = dg.tau_hat_nm; ks_path = dg.ks_path
+    ci_lo = 1000 * result.ci_lo_um; ci_hi = 1000 * result.ci_hi_um
+    ray1_cdf(z) = 1 - exp(-z^2 / 2); ray1_q(q) = sqrt(-2 * log(1 - q))
+    zτ(t) = [d[k] / sqrt(s2[k] + 2t^2) for k in eachindex(d)]
+
+    fig = Figure(size = (1250, 950))
+    Label(fig[0, 1:2],
+          "se_adjust τ-finder diagnostics — τ̂ = $(round(τh, digits=2)) nm  " *
+          "($(length(d)) pairs, $(result.n_bagol) BaGoL runs) [frozen grouping]",
+          fontsize = 18, font = :bold)
+
+    # Panel 1 — frozen KS(τ) landscape + descent path + bootstrap CI
+    ax1 = Axis(fig[1, 1], title = "1. KS(τ) to Rayleigh(1) — frozen grouping",
+               xlabel = "assumed τ (nm)", ylabel = "KS")
+    (isfinite(ci_lo) && isfinite(ci_hi)) &&
+        vspan!(ax1, ci_lo, ci_hi, color = (:seagreen, 0.15), label = "95% CI")
+    lines!(ax1, grid, ks_path, color = :seagreen, linewidth = 2.5, label = "frozen KS(τ)")
+    vlines!(ax1, [τh], color = :black, linestyle = :dash, linewidth = 2,
+            label = "τ̂ = $(round(τh, digits=2)) nm")
+    pg = [1000 * p[1] for p in result.path_um]
+    isempty(pg) || scatter!(ax1, pg, [ks_path[argmin(abs.(grid .- g))] for g in pg],
+                            color = :crimson, markersize = 9, label = "descent g→")
+    axislegend(ax1, position = :rt, framevisible = false, labelsize = 10)
+
+    # Panel 2 — empirical CDF − Rayleigh(1) at τ̂ + SPATIAL-BLOCK bootstrap band
+    # (block = independent unit, NOT raw pairs: a raw-pair band is spuriously tight)
+    ax2 = Axis(fig[1, 2], title = "2. empirical CDF − Rayleigh(1) at τ̂ (block-bootstrap 95%)",
+               xlabel = "z = d/√(σ²+2τ̂²)", ylabel = "CDF − Rayleigh(1)")
+    zgrid = collect(0.05:0.05:4.0)
+    ediff(z) = [count(<=(r), z) / length(z) - ray1_cdf(r) for r in zgrid]
+    rng = MersenneTwister(seed); boots = Vector{Vector{Float64}}()
+    for _ in 1:n_boot
+        bi = SMLMBaGoL._block_indices(pos, 1.0, rng)
+        isempty(bi) || push!(boots, ediff([d[i] / sqrt(s2[i] + 2τh^2) for i in bi]))
+    end
+    if !isempty(boots)
+        lo = [quantile([bt[j] for bt in boots], 0.025) for j in eachindex(zgrid)]
+        hi = [quantile([bt[j] for bt in boots], 0.975) for j in eachindex(zgrid)]
+        band!(ax2, zgrid, lo, hi, color = (:seagreen, 0.22), label = "block-bootstrap 95%")
+    end
+    hlines!(ax2, [0.0], color = :black, linestyle = :dash)
+    lines!(ax2, zgrid, ediff(zτ(τh)), color = :seagreen, linewidth = 2.5, label = "τ̂")
+    lines!(ax2, zgrid, ediff(zτ(max(0.5, τh / 2))), color = :dodgerblue, linestyle = :dash,
+           linewidth = 1.5, label = "τ̂/2 (under)")
+    lines!(ax2, zgrid, ediff(zτ(1.5τh)), color = :crimson, linestyle = :dot,
+           linewidth = 1.5, label = "1.5·τ̂ (over)")
+    axislegend(ax2, position = :rt, framevisible = false, labelsize = 10)
+
+    # Panel 3 — Q-Q vs Rayleigh(1) at τ̂ + upper-tail inset
+    ax3 = Axis(fig[2, 1], title = "3. Q-Q vs Rayleigh(1) at τ̂ (tails = non-Gaussian flag)",
+               xlabel = "Rayleigh(1) quantile", ylabel = "sample quantile")
+    qs = collect(0.02:0.02:0.98); theo = ray1_q.(qs); zh = zτ(τh)
+    lines!(ax3, theo, theo, color = :black, linestyle = :dash)
+    scatter!(ax3, theo, [quantile(zh, q) for q in qs], color = :seagreen, markersize = 5)
+    ax3i = Axis(fig[2, 1], width = Relative(0.34), height = Relative(0.34),
+                halign = 0.12, valign = 0.9, title = "upper tail", titlesize = 9,
+                xticklabelsize = 7, yticklabelsize = 7)
+    qt = collect(0.90:0.005:0.995); tt = ray1_q.(qt)
+    lines!(ax3i, tt, tt, color = :black, linestyle = :dash)
+    scatter!(ax3i, tt, [quantile(zh, q) for q in qt], color = :seagreen, markersize = 4)
+
+    # Panel 4 — σ-stratified ⟨z²⟩/2 (=1 at correct τ; high-σ dip flagged, not hidden)
+    ax4 = Axis(fig[2, 2], title = "4. σ-stratification: ⟨z²⟩/2 by σ-bin (=1 at correct τ)",
+               xlabel = "σ-pair bin (low → high)", ylabel = "⟨z²⟩/2")
+    hlines!(ax4, [1.0], color = :black, linestyle = :dash, label = "target = 1")
+    function strat(t)
+        q = quantile(s2, range(0, 1, length = 5))
+        [ (idx = [i for i in eachindex(s2) if q[k] <= s2[i] <= q[k + 1]];
+           isempty(idx) ? NaN :
+           sum(abs2, [d[i] / sqrt(s2[i] + 2t^2) for i in idx]) / (2 * length(idx)))
+          for k in 1:4 ]
+    end
+    v = strat(τh)
+    lines!(ax4, 1:4, v, color = :seagreen, linewidth = 2, label = "τ̂")
+    scatter!(ax4, 1:4, v, color = :seagreen)
+    fin = filter(isfinite, v)
+    isempty(fin) || text!(ax4, 4, v[end], text = "4-bin mean = $(round(mean(fin), digits=2))",
+                          align = (:right, :top), fontsize = 9, color = :gray30)
+    axislegend(ax4, position = :lb, framevisible = false, labelsize = 10)
+
+    out = joinpath(output_dir, "se_adjust_diagnostics.png")
+    save(out, fig, px_per_unit = 2)
+    println("Saved: $out")
+    out
 end
 
 end # module

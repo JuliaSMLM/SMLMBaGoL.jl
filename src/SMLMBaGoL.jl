@@ -57,6 +57,7 @@ export plot_report, render_report  # extension stubs
 export run_optimality_sweep, run_speed_test, count_model_map_k
 export write_sweep, write_speed
 export plot_sweep, plot_speed  # extension stubs
+export plot_se_adjust          # extension stub (BaGoLMakieExt)
 
 # Export diagnostics — target density
 export AbstractTargetDensity, DecoupledTarget, DecoupledLocmixTarget
