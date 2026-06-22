@@ -193,8 +193,9 @@ If `cluster_masks` is provided (Vector{BitVector}), only clusters where
 """
 function _update_mu_collapsed_global!(states::AbstractVector{<:CollapsedState},
                                       μ_current::Float64, shape::Float64,
-                                      config::NamedTuple;
-                                      cluster_masks::Union{Nothing, Vector{BitVector}}=nothing)
+                                      config::NamedTuple, scale::Float64;
+                                      cluster_masks::Union{Nothing, Vector{BitVector}}=nothing,
+                                      n_steps::Int=50, adapt::Bool=false)
     # Check any active (unmasked) clusters exist
     total_active = if cluster_masks === nothing
         sum(s.n_active for s in states)
@@ -202,34 +203,33 @@ function _update_mu_collapsed_global!(states::AbstractVector{<:CollapsedState},
         sum(count(j -> s.active[j] && cluster_masks[i][j], eachindex(s.active))
             for (i, s) in enumerate(states))
     end
-    total_active == 0 && return μ_current
+    total_active == 0 && return (μ_current, scale)
 
-    μ_proposed = μ_current * exp(randn() * 0.3)
-    (μ_proposed < 1.0 || μ_proposed > 500.0) && return μ_current
-
-    p_current = shape / (shape + μ_current)
-    p_proposed = shape / (shape + μ_proposed)
-    dist_current = NegativeBinomial(shape, p_current)
-    dist_proposed = NegativeBinomial(shape, p_proposed)
-
-    log_lik_current = sum(_collapsed_count_loglik(s, dist_current;
-                              cluster_mask=cluster_masks !== nothing ? cluster_masks[i] : nothing)
-                          for (i, s) in enumerate(states))
-    log_lik_proposed = sum(_collapsed_count_loglik(s, dist_proposed;
-                               cluster_mask=cluster_masks !== nothing ? cluster_masks[i] : nothing)
-                           for (i, s) in enumerate(states))
-
+    cm(i) = cluster_masks !== nothing ? cluster_masks[i] : nothing
+    count_loglik(m) = (p = shape / (shape + m);
+                       d = NegativeBinomial(shape, p);
+                       sum(_collapsed_count_loglik(s, d; cluster_mask=cm(i)) for (i, s) in enumerate(states)))
     prior_dist = Gamma(config.μ_prior_shape, config.μ_prior_scale)
-    log_prior_current = logpdf(prior_dist, μ_current)
-    log_prior_proposed = logpdf(prior_dist, μ_proposed)
 
-    log_proposal_ratio = log(μ_proposed) - log(μ_current)
-
-    log_accept = (log_lik_proposed - log_lik_current) +
-                 (log_prior_proposed - log_prior_current) +
-                 log_proposal_ratio
-
-    return log(rand()) < log_accept ? μ_proposed : μ_current
+    # N MH steps per sync with the current log-lik CACHED across steps (only the proposal
+    # is recomputed). The conditional posterior is tight when there are many clusters, so a
+    # large fixed scale rejects almost everything (the old stepwise/stuck behaviour) — hence
+    # the adaptive scale below.
+    μ = μ_current
+    ll_cur = count_loglik(μ); lp_cur = logpdf(prior_dist, μ)
+    n_acc = 0
+    for _ in 1:n_steps
+        μ_prop = μ * exp(randn() * scale)
+        (μ_prop < 1.0 || μ_prop > 500.0) && continue
+        ll_prop = count_loglik(μ_prop); lp_prop = logpdf(prior_dist, μ_prop)
+        if log(rand()) < (ll_prop - ll_cur) + (lp_prop - lp_cur) + (log(μ_prop) - log(μ))
+            μ = μ_prop; ll_cur = ll_prop; lp_cur = lp_prop; n_acc += 1
+        end
+    end
+    # Robbins-Monro-style scale adaptation toward ~30% acceptance, BURN-IN ONLY (finite
+    # adaptation → post-burn-in chain is fixed-scale MH, so ergodicity is preserved).
+    new_scale = adapt ? clamp(scale * exp(0.5 * (n_acc / n_steps - 0.3)), 0.002, 1.0) : scale
+    return (μ, new_scale)
 end
 
 """
@@ -241,40 +241,34 @@ If `cluster_masks` is provided (Vector{BitVector}), only clusters where
 """
 function _update_shape_collapsed_global!(states::AbstractVector{<:CollapsedState},
                                          μ::Float64, shape_current::Float64,
-                                         config::NamedTuple;
-                                         cluster_masks::Union{Nothing, Vector{BitVector}}=nothing)
+                                         config::NamedTuple, scale::Float64;
+                                         cluster_masks::Union{Nothing, Vector{BitVector}}=nothing,
+                                         n_steps::Int=50, adapt::Bool=false)
     total_active = if cluster_masks === nothing
         sum(s.n_active for s in states)
     else
         sum(count(j -> s.active[j] && cluster_masks[i][j], eachindex(s.active))
             for (i, s) in enumerate(states))
     end
-    total_active == 0 && return shape_current
+    total_active == 0 && return (shape_current, scale)
 
-    shape_proposed = shape_current * exp(randn() * 0.3)
-    (shape_proposed < 0.5 || shape_proposed > 50.0) && return shape_current
-
-    p_current = shape_current / (shape_current + μ)
-    p_proposed = shape_proposed / (shape_proposed + μ)
-    dist_current = NegativeBinomial(shape_current, p_current)
-    dist_proposed = NegativeBinomial(shape_proposed, p_proposed)
-
-    log_lik_current = sum(_collapsed_count_loglik(s, dist_current;
-                              cluster_mask=cluster_masks !== nothing ? cluster_masks[i] : nothing)
-                          for (i, s) in enumerate(states))
-    log_lik_proposed = sum(_collapsed_count_loglik(s, dist_proposed;
-                               cluster_mask=cluster_masks !== nothing ? cluster_masks[i] : nothing)
-                           for (i, s) in enumerate(states))
-
+    cm(i) = cluster_masks !== nothing ? cluster_masks[i] : nothing
+    count_loglik(sh) = (p = sh / (sh + μ);
+                        d = NegativeBinomial(sh, p);
+                        sum(_collapsed_count_loglik(s, d; cluster_mask=cm(i)) for (i, s) in enumerate(states)))
     prior_dist = Gamma(config.shape_prior_shape, config.shape_prior_scale)
-    log_prior_current = logpdf(prior_dist, shape_current)
-    log_prior_proposed = logpdf(prior_dist, shape_proposed)
 
-    log_proposal_ratio = log(shape_proposed) - log(shape_current)
-
-    log_accept = (log_lik_proposed - log_lik_current) +
-                 (log_prior_proposed - log_prior_current) +
-                 log_proposal_ratio
-
-    return log(rand()) < log_accept ? shape_proposed : shape_current
+    sh = shape_current
+    ll_cur = count_loglik(sh); lp_cur = logpdf(prior_dist, sh)
+    n_acc = 0
+    for _ in 1:n_steps
+        sh_prop = sh * exp(randn() * scale)
+        (sh_prop < 0.5 || sh_prop > 50.0) && continue
+        ll_prop = count_loglik(sh_prop); lp_prop = logpdf(prior_dist, sh_prop)
+        if log(rand()) < (ll_prop - ll_cur) + (lp_prop - lp_cur) + (log(sh_prop) - log(sh))
+            sh = sh_prop; ll_cur = ll_prop; lp_cur = lp_prop; n_acc += 1
+        end
+    end
+    new_scale = adapt ? clamp(scale * exp(0.5 * (n_acc / n_steps - 0.3)), 0.002, 1.0) : scale
+    return (sh, new_scale)
 end
