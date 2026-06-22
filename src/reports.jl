@@ -335,6 +335,7 @@ function compute_report(
         cluster_sizes = diagnostics.cluster_sizes,
         empirical_counts = empirical_counts,
         posterior_image = diagnostics.posterior_image,
+        convergence_trace = diagnostics.convergence_trace,
         nn_distances = nn_dists,
         true_count_params = count_params,
         emitters = emitters,

@@ -357,7 +357,8 @@ function _run_bagol_collapsed(
     if isempty(partitions)
         @warn "No valid partitions"
         empty_smld = SMLMData.BasicSMLD(SMLMData.Emitter2DFit{Float64}[], camera, 1, 1)
-        empty_diag = BaGoLDiagnostics(0, Int[], Dict{Symbol,Float64}(), 0.0, shape, 0.0, 0, Int[], Int[], Int[], nothing, _se_tau)
+        empty_diag = BaGoLDiagnostics(0, Int[], Dict{Symbol,Float64}(), 0.0, shape, 0.0, 0, Int[], Int[], Int[], nothing, _se_tau,
+            (; iters=Int[], K=Int[], mu=Float64[], shape=Float64[], rho=Float64[]))
         return empty_smld, empty_diag
     end
 
@@ -495,6 +496,9 @@ function _run_bagol_collapsed(
         :birth => _zero(), :death => _zero()
     ) for _ in 1:n_partitions]
 
+    # Convergence trace — global K + learned hyperparams recorded at each sync (resolution = sync_interval)
+    trace_iters = Int[]; trace_K = Int[]; trace_mu = Float64[]; trace_shape = Float64[]; trace_rho = Float64[]
+
     for outer in 1:n_outer
         @sync for i in 1:n_partitions
             Threads.@spawn begin
@@ -546,6 +550,8 @@ function _run_bagol_collapsed(
         shape_str = _learn_shape ? ", shape=$(round(current_shape, digits=2))" : ""
         iter_done = outer * sync_interval
         _log_progress("Sync $outer/$n_outer (iter $iter_done): K=$total_K, μ=$(round(μ, digits=2))$shape_str, ρ=$(round(ρ, digits=4))")
+        push!(trace_iters, iter_done); push!(trace_K, total_K); push!(trace_mu, μ)
+        push!(trace_shape, current_shape); push!(trace_rho, ρ)
     end
 
     # Run remaining iterations
@@ -563,6 +569,12 @@ function _run_bagol_collapsed(
                 )
             end
         end
+    end
+
+    # Final trace point at n_iterations (after the remaining partial-sync iterations)
+    if remaining > 0
+        push!(trace_iters, n_iterations); push!(trace_K, sum(s.n_active for s in states))
+        push!(trace_mu, μ); push!(trace_shape, current_shape); push!(trace_rho, ρ)
     end
 
     _log_progress("MCMC complete. Extracting MAP-N emitters ($n_partitions partitions, threaded)...")
@@ -789,7 +801,8 @@ function _run_bagol_collapsed(
     diagnostics = BaGoLDiagnostics(
         length(merged_emitters), posterior_k, acceptance_rates,
         μ, current_shape, ρ, n_partitions, cluster_sizes, partition_k,
-        loc_partition_ids, post_img, _se_tau
+        loc_partition_ids, post_img, _se_tau,
+        (; iters=trace_iters, K=trace_K, mu=trace_mu, shape=trace_shape, rho=trace_rho)
     )
     result_smld = SMLMData.BasicSMLD(merged_emitters, camera, 1, 1)
 
