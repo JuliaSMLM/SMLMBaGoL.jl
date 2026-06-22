@@ -28,12 +28,45 @@ function SMLMBaGoL.plot_report(report; output_dir::String = "output")
         _plot_nn_distances(report, output_dir)
     end
 
+    if hasproperty(report, :convergence_trace) && !isempty(report.convergence_trace.iters)
+        _plot_convergence(report, output_dir)
+    end
+
     if report.has_gt
         _plot_k_recovery(report, output_dir)
         if !isnan(report.calibration.scale_factor)
             _plot_calibration(report, output_dir)
         end
     end
+end
+
+function _plot_convergence(report, output_dir)
+    tr = report.convergence_trace
+    isempty(tr.iters) && return
+    its = Float64.(tr.iters)
+    fig = Figure(size = (950, 680))
+    Label(fig[0, 1:2],
+          "MCMC convergence trace (resolution = sync_interval) — a still-trending curve ⇒ still in burn-in",
+          fontsize = 13, font = :bold)
+    panels = [("emitter count K", Float64.(tr.K)), ("μ (mean locs/emitter)", tr.mu),
+              ("shape", tr.shape), ("ρ (emitters/μm²)", tr.rho)]
+    for (i, (lab, vals)) in enumerate(panels)
+        r = (i - 1) ÷ 2 + 1; c = (i - 1) % 2 + 1
+        ax = Axis(fig[r, c], xlabel = "iteration", ylabel = lab, title = lab)
+        scatterlines!(ax, its, vals; color = :steelblue, linewidth = 2, markersize = 7)
+        # flag a monotone trend over the last half (a crude "still climbing/falling" cue)
+        if length(vals) ≥ 4
+            h = length(vals) ÷ 2
+            d = vals[end] - vals[h]
+            rng = maximum(vals) - minimum(vals)
+            if rng > 0 && abs(d) > 0.05 * rng
+                text!(ax, its[end], vals[end]; text = d > 0 ? "still ↑" : "still ↓",
+                      align = (:right, d > 0 ? :bottom : :top), fontsize = 10, color = :crimson)
+            end
+        end
+    end
+    save(joinpath(output_dir, "convergence.png"), fig, px_per_unit = 2)
+    println("Saved: $(joinpath(output_dir, "convergence.png"))")
 end
 
 function _plot_partition_k(report, output_dir)

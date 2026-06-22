@@ -20,6 +20,10 @@ struct BaGoLDiagnostics
     partition_ids::Vector{Int}  # partition ID per localization (0 = unassigned)
     posterior_image::Union{Nothing, NamedTuple{(:image, :edges_x, :edges_y, :pixel_size), Tuple{Matrix{Int}, Vector{Float64}, Vector{Float64}, Float64}}}
     se_adjust::Union{Nothing, Tuple{Float64, Float64}}  # applied (τx, τy) in μm (quadrature σ-inflation), or nothing
+    # Per-sync MCMC convergence trace (global K + learned hyperparams vs iteration).
+    # Resolution = sync_interval; empty for the 0/1-2-loc fallback. For burn-in/mixing
+    # assessment plot it (BaGoLMakieExt convergence panel) — a still-trending K ⇒ still in burn-in.
+    convergence_trace::@NamedTuple{iters::Vector{Int}, K::Vector{Int}, mu::Vector{Float64}, shape::Vector{Float64}, rho::Vector{Float64}}
 end
 
 # ============================================================================
