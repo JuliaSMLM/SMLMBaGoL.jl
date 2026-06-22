@@ -358,7 +358,7 @@ function _run_bagol_collapsed(
         @warn "No valid partitions"
         empty_smld = SMLMData.BasicSMLD(SMLMData.Emitter2DFit{Float64}[], camera, 1, 1)
         empty_diag = BaGoLDiagnostics(0, Int[], Dict{Symbol,Float64}(), 0.0, shape, 0.0, 0, Int[], Int[], Int[], nothing, _se_tau,
-            (; iters=Int[], K=Int[], mu=Float64[], shape=Float64[], rho=Float64[]))
+            (; iters=Int[], K=Int[], mu=Float64[], shape=Float64[], rho=Float64[], burn_in=0))
         return empty_smld, empty_diag
     end
 
@@ -802,7 +802,7 @@ function _run_bagol_collapsed(
         length(merged_emitters), posterior_k, acceptance_rates,
         μ, current_shape, ρ, n_partitions, cluster_sizes, partition_k,
         loc_partition_ids, post_img, _se_tau,
-        (; iters=trace_iters, K=trace_K, mu=trace_mu, shape=trace_shape, rho=trace_rho)
+        (; iters=trace_iters, K=trace_K, mu=trace_mu, shape=trace_shape, rho=trace_rho, burn_in=burn_in)
     )
     result_smld = SMLMData.BasicSMLD(merged_emitters, camera, 1, 1)
 

@@ -54,6 +54,11 @@ function _plot_convergence(report, output_dir)
         r = (i - 1) ÷ 2 + 1; c = (i - 1) % 2 + 1
         ax = Axis(fig[r, c], xlabel = "iteration", ylabel = lab, title = lab)
         scatterlines!(ax, its, vals; color = :steelblue, linewidth = 2, markersize = 7)
+        if tr.burn_in > 0   # samples LEFT of this line are discarded as burn-in (transient)
+            vlines!(ax, [Float64(tr.burn_in)]; color = :gray40, linestyle = :dash, linewidth = 1.5,
+                    label = "burn-in = $(tr.burn_in)")
+            i == 1 && axislegend(ax; position = :rb, framevisible = false, labelsize = 9)
+        end
         # flag a monotone trend over the last half (a crude "still climbing/falling" cue)
         if length(vals) ≥ 4
             h = length(vals) ÷ 2
