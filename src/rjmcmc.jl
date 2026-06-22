@@ -498,6 +498,8 @@ function _run_bagol_collapsed(
 
     # Convergence trace — global K + learned hyperparams recorded at each sync (resolution = sync_interval)
     trace_iters = Int[]; trace_K = Int[]; trace_mu = Float64[]; trace_shape = Float64[]; trace_rho = Float64[]
+    # Adaptive MH proposal scales for the hyperparameters (tuned during burn-in, then frozen)
+    mu_scale = 0.3; shape_scale = 0.3
 
     for outer in 1:n_outer
         @sync for i in 1:n_partitions
@@ -527,13 +529,14 @@ function _run_bagol_collapsed(
 
         # Global hierarchical updates — exclude clusters containing overlap locs
         # to prevent overlap inflation from biasing learned μ/shape/ρ
+        _adapt_hyper = (outer * sync_interval) ≤ burn_in   # tune the MH proposal scale during burn-in only
         if _learn_mu
-            μ = _update_mu_collapsed_global!(states, μ, current_shape, config_nt;
-                                              cluster_masks=cluster_masks)
+            μ, mu_scale = _update_mu_collapsed_global!(states, μ, current_shape, config_nt, mu_scale;
+                                              cluster_masks=cluster_masks, adapt=_adapt_hyper)
         end
         if _learn_shape
-            current_shape = _update_shape_collapsed_global!(states, μ, current_shape, config_nt;
-                                                             cluster_masks=cluster_masks)
+            current_shape, shape_scale = _update_shape_collapsed_global!(states, μ, current_shape, config_nt,
+                                                             shape_scale; cluster_masks=cluster_masks, adapt=_adapt_hyper)
         end
         # Conjugate ρ update — gated on spatial model. Only the FlatSpatial
         # legacy path uses a Poisson(ρA) K prior; LocmixSpatial target has no
