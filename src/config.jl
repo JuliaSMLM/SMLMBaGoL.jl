@@ -17,9 +17,9 @@ Configuration for BaGoL analysis. All fields correspond 1:1 to `run_bagol` kwarg
 - `gamma=nothing`: DM concentration. `nothing`=use shape (default), `Float64`=fixed
 
 # MCMC
-- `n_iterations=10000`: Total MCMC iterations
+- `n_iterations=4000`: Total MCMC iterations
 - `burn_in=2000`: Burn-in before accumulating
-- `sync_interval=500`: Iterations between global hierarchical updates
+- `sync_interval=100`: Iterations between global hierarchical updates
 - `allocation_model=:dm`: `:dm` (Dirichlet-Multinomial), `:decoupled`
   (no partition prior), or `:categorical` (labeled K^(-N) — Fazel-equivalent
   when paired with `spatial_model=:flat` + `k_prior=:none`)
@@ -58,9 +58,9 @@ Base.@kwdef struct BaGoLConfig <: SMLMData.AbstractSMLMConfig
     gamma::Union{Nothing, Float64} = nothing
 
     # MCMC
-    n_iterations::Int = 10000
+    n_iterations::Int = 4000
     burn_in::Int = 2000
-    sync_interval::Int = 500
+    sync_interval::Int = 100
     allocation_model::Symbol = :dm
     spatial_model::Symbol = :locmix
     # K prior gating (:auto = use spatial-model default; :poisson = always include
