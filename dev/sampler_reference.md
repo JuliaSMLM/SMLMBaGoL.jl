@@ -338,11 +338,17 @@ Fixed μ breaks this cycle. The count-model ratio is stable regardless of the cu
 
 ## 6. Hierarchical Updates
 
-Updated every `hierarchical_interval` iterations (default 100) via MH with log-normal proposals.
+Updated every `sync_interval` iterations by an **N-step (default 50) multiplicative
+random-walk MH burst** pooled across all partition states (count log-likelihood cached
+across steps). The proposal scale `s` is **adapted (Robbins--Monro toward a ~30%
+acceptance target, burn-in only)**: `s ← clamp(s·exp(0.5(â − 0.3)), 0.002, 1)`, so the
+post-burn-in chain is fixed-scale MH (ergodic). A single fixed-scale step rejects almost
+everything when clusters are many (the old stepwise/stuck behaviour); the adaptive burst
+restores mixing.
 
 ### 6.1 μ Update
 
-**Proposal:** `μ' = μ × exp(ε)`, `ε ~ N(0, 0.3²)`
+**Proposal (per step):** `μ' = μ × exp(ε)`, `ε ~ N(0, s²)` (adaptive `s`, init 0.3)
 
 **Likelihood:** Product of individual NegBin counts per active cluster:
 ```
@@ -358,7 +364,8 @@ log α = [log L(μ') - log L(μ)]
 
 **Bounds:** μ ∈ [1, 500]. Proposals outside → reject.
 
-**Code:** `_update_mu_collapsed` in `hierarchical.jl`
+**Code:** `_update_mu_collapsed_global!` (the N-step adaptive burst the chain uses)
+/ `_update_mu_collapsed` (single-step per-state) in `hierarchical.jl`
 
 ### 6.2 α (shape) Update
 

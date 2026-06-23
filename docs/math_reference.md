@@ -297,9 +297,21 @@ birth/death follows the selected spatial target.
 
 ### 7.4 Hierarchical Updates ($\mu$, $\alpha$, and flat-only $\rho$)
 
-MH with log-normal proposals every `hierarchical_interval` (default 100) iterations.
+Every `sync_interval` iterations, $\mu$ and $\alpha$ are updated by a short
+**multiplicative random-walk MH burst** pooled across all partition states, and
+(flat target only) $\rho$ is conjugate-updated. Each burst runs $N$ steps
+(default 50), caching the count log-likelihood across steps so only the proposal
+is recomputed:
 
-$$\mu' = \mu \cdot e^{\varepsilon}, \quad \varepsilon \sim \mathcal{N}(0, 0.3^2)$$
+$$\theta' = \theta \cdot e^{\varepsilon}, \quad \varepsilon \sim \mathcal{N}(0, s^2)$$
+
+The conditional posterior is tight when there are many clusters, so a single
+fixed-scale step rejects almost everything (the old stepwise/stuck behaviour).
+The $N$-step burst plus **Robbins--Monro scale adaptation** —
+$s \leftarrow \mathrm{clamp}(s\,e^{0.5(\hat a - 0.3)},\, 0.002,\, 1)$ toward a
+~30% acceptance target $\hat a$ — restores mixing. **Adaptation runs during
+burn-in only**; the post-burn-in chain is fixed-scale MH, so ergodicity is
+preserved.
 
 **Hyperpriors:** $\mu \sim \text{Gamma}(2, 5)$, $\alpha \sim \text{Gamma}(2, 1)$.
 **Bounds:** $\mu \in [1, 500]$, $\alpha \in [0.5, 50]$.
@@ -309,8 +321,10 @@ because only that target contains $P_K(K\mid\rho,A)$. For `LocmixSpatial`,
 $\rho$ is not part of the target and remains at its initialized value in
 diagnostics.
 
-**Code:** `_update_mu_collapsed`, `_update_shape_collapsed`,
-`_update_rho_collapsed`, and their global variants in `src/hierarchical.jl`.
+**Code:** `_update_mu_collapsed_global!`, `_update_shape_collapsed_global!` (the
+$N$-step adaptive bursts the chain uses), `_update_rho_collapsed_global!`, and
+the single-step per-state `_update_mu_collapsed`/`_update_shape_collapsed` in
+`src/hierarchical.jl`.
 
 ---
 
