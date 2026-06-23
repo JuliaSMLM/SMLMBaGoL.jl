@@ -104,10 +104,10 @@ Plotting/rendering functions activate when the user loads these packages.
 
 ```julia
 # 1. Standard workflow
-result_smld, diagnostics = run_bagol(smld; n_iterations=10000, burn_in=2000)
+result_smld, diagnostics = run_bagol(smld; n_iterations=4000, burn_in=2000)
 
 # Also accepts Vector{Emitter2DFit} directly:
-result_smld, diagnostics = run_bagol(locs; camera=camera, n_iterations=10000)
+result_smld, diagnostics = run_bagol(locs; camera=camera, n_iterations=4000)
 
 # Key parameters:
 #   μ=10.0                        # Mean locs per emitter (via kwargs)
@@ -115,7 +115,7 @@ result_smld, diagnostics = run_bagol(locs; camera=camera, n_iterations=10000)
 #   learn_distribution=true       # true/false/:mu/:shape — control count distribution learning
 #   partition_sigma=3.0           # DBSCAN threshold (Inf = no partitioning)
 #   overlap=:auto                 # Overlap fraction for boundary dedup (:auto or Float64)
-#   sync_interval=500             # Iterations between global μ/shape updates
+#   sync_interval=100             # Iterations between global μ/shape updates
 #   posterior_pixel_size=0.002    # Rao-Blackwellized posterior image (0.0 to disable)
 #
 # Advanced kwargs (forwarded to chain):

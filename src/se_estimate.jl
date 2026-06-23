@@ -227,12 +227,12 @@ A `NamedTuple` with τ values in **μm**:
   `BaGoLMakieExt` plots consume, so the extension never re-runs BaGoL.
 
 # Keyword arguments
-- `g_start_um = 0.012` — over-merged starting τ for the descent (μm)
+- `g_start_um = 0.008` — over-merged starting τ for the descent (μm)
 - `stop_tol_um = 5e-4` — self-consistency tolerance `|m−g|` to stop (μm)
 - `max_steps = 6` — descent step cap
 - `ks_noise = 0.01` — KS tie band for the right-biased M-step
 - `grid_um = 0.0:0.0001:0.014` — fine M-step τ grid (μm)
-- `n_iterations = 2000`, `burn_in = 500` — per-E-step BaGoL chain length
+- `n_iterations = 4000`, `burn_in = 2000` — per-E-step BaGoL chain length
 - `n_boot = 200` — bootstrap resamples for the CI
 - `block_um = 1.0` — spatial-block tile size (μm)
 - `seed = 1` — bootstrap RNG seed (a local RNG; BaGoL's own E-step stochasticity
@@ -249,13 +249,13 @@ A `NamedTuple` with τ values in **μm**:
     2) uses BaGoL's actual assignment posterior.
 """
 function estimate_se_adjust(smld::SMLMData.SMLD;
-        g_start_um = 0.012,
+        g_start_um = 0.008,
         stop_tol_um::Float64 = 5e-4,
         max_steps::Int = 6,
         ks_noise::Float64 = 0.01,
         grid_um = 0.0:0.0001:0.014,
-        n_iterations::Int = 2000,
-        burn_in::Int = 500,
+        n_iterations::Int = 4000,
+        burn_in::Int = 2000,
         n_boot::Int = 200,
         block_um::Float64 = 1.0,
         seed::Int = 1,
@@ -416,9 +416,9 @@ per step `(gx_nm, gy_nm, mx_nm, my_nm, n_pairs, n_emit, ks_x, ks_y)`.
 forwarded to `run_bagol`; reserved: `se_adjust`/`force_se_adjust`/`posterior_pixel_size`/`verbose`.
 """
 function estimate_se_adjust_peraxis(smld::SMLMData.SMLD;
-        g_start_um = 0.012, stop_tol_um::Float64 = 5e-4, max_steps::Int = 8,
+        g_start_um = 0.008, stop_tol_um::Float64 = 5e-4, max_steps::Int = 8,
         ks_noise::Float64 = 0.0, grid_um = 0.0:0.0001:0.014,
-        n_iterations::Int = 2000, burn_in::Int = 500, bagol_kwargs...)
+        n_iterations::Int = 4000, burn_in::Int = 2000, bagol_kwargs...)
     md = hasproperty(smld, :metadata) ? smld.metadata : Dict{String, Any}()
     if get(md, "sigma_corrected", false) == true
         throw(ArgumentError("estimate_se_adjust_peraxis expects raw-σ localizations, but the input SMLD " *

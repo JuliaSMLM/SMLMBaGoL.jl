@@ -139,8 +139,8 @@ n_j ~ Gamma(shape, μ/shape) where:
 - `force_se_adjust=false`: Override the already-corrected guard (intentional double-count).
 
 # MCMC Arguments
-- `sync_interval=500`: Iterations between global μ/shape updates
-- `n_iterations=10000`: Total MCMC iterations
+- `sync_interval=100`: Iterations between global μ/shape updates
+- `n_iterations=4000`: Total MCMC iterations
 - `burn_in=2000`: Burn-in iterations before recording
 - `shape=2.0`: Initial Gamma shape (1=exponential, higher=more peaked)
 - `learn_distribution=true`: Control count distribution learning.
@@ -175,9 +175,9 @@ function run_bagol(
     learn_distribution::Union{Bool, Symbol} = true,
     gamma::Union{Nothing, Float64} = nothing,
     # MCMC
-    n_iterations::Int = 10000,
+    n_iterations::Int = 4000,
     burn_in::Int = 2000,
-    sync_interval::Int = 500,
+    sync_interval::Int = 100,
     allocation_model::Symbol = :dm,
     spatial_model::Symbol = :locmix,
     k_prior::Symbol = :auto,
@@ -297,8 +297,8 @@ function _run_bagol_collapsed(
     overlap::Union{Float64, Symbol} = :auto,
     se_adjust::Union{Real, Tuple, AbstractVector} = 0.0,
     force_se_adjust::Bool = false,
-    sync_interval::Int = 500,
-    n_iterations::Int = 10000,
+    sync_interval::Int = 100,
+    n_iterations::Int = 4000,
     burn_in::Int = 2000,
     shape::Float64 = 2.0,
     learn_distribution::Union{Bool, Symbol} = true,
