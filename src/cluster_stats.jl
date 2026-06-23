@@ -80,16 +80,18 @@ empties match the data's feature dimension.
 @inline empty_cluster(::AbstractVector{<:SMLMData.Emitter3DFit}) = ClusterStats{3,9}()
 
 """
-    _loc_precision(loc::Emitter2DFit) -> LocPrecision{2,4}
+    _loc_precision(loc::AbstractEmitter) -> LocPrecision{2,4}
 
-Extract the 2D precision contribution from a single localization.
-Builds the 2×2 precision matrix, natural parameter, quadratic form, and
-log-determinant of the localization's covariance. (3D and other features add
-their own `_loc_precision` methods.)
+Extract the 2D precision contribution from a single localization, via the
+`get_sigma`/`get_cov_xy` accessors so any 2D `AbstractEmitter` works (standard
+`Emitter2DFit`, GaussMLE `Emitter2DFitSigma`, …). Builds the 2×2 precision
+matrix, natural parameter, quadratic form, and log-determinant of the
+covariance. `Emitter3DFit` dispatches to its own (more specific) method below.
 """
-@inline function _loc_precision(loc::SMLMData.Emitter2DFit)
-    var_x = loc.σ_x^2
-    var_y = loc.σ_y^2
+@inline function _loc_precision(loc::SMLMData.AbstractEmitter)
+    s = get_sigma(loc)
+    var_x = s[1]^2
+    var_y = s[2]^2
     cov_xy = get_cov_xy(loc)
     det = var_x * var_y - cov_xy^2
 

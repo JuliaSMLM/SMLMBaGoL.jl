@@ -36,16 +36,32 @@ function _resolve_tau(se, n::Int)
 end
 
 """
-    _inflate_sigma(e, τx, τy) -> Emitter2DFit{Float64}
+    _inflate_sigma(e::AbstractEmitter, τx, τy) -> same concrete type as `e`
 
 Copy of `e` with σ inflated in quadrature per axis: σ_x'=√(σ_x²+τx²),
-σ_y'=√(σ_y²+τy²). σ_xy and all non-σ fields unchanged.
+σ_y'=√(σ_y²+τy²); σ_xy and all other fields unchanged. Generic over
+`SMLMData.AbstractEmitter`, so the standard `Emitter2DFit` and the GaussMLE
+`Emitter2DFitSigma` (with its fitted PSF-σ) both flow through with their
+concrete type and every field preserved — no conversion, no information loss.
+(2D se_adjust: only σ_x/σ_y are touched.)
 """
-function _inflate_sigma(e::SMLMData.Emitter2DFit, τx::Real, τy::Real)
-    return SMLMData.Emitter2DFit(
-        Float64(e.x), Float64(e.y), Float64(e.photons), Float64(e.bg),
-        sqrt(Float64(e.σ_x)^2 + τx^2), sqrt(Float64(e.σ_y)^2 + τy^2), Float64(e.σ_xy),
-        Float64(e.σ_photons), Float64(e.σ_bg), e.frame, e.dataset, e.track_id, e.id)
+function _inflate_sigma(e::SMLMData.AbstractEmitter, τx::Real, τy::Real)
+    return _with_sigma_xy(e, sqrt(Float64(e.σ_x)^2 + τx^2), sqrt(Float64(e.σ_y)^2 + τy^2))
+end
+
+# Copy `e` with the σ_x, σ_y fields replaced, preserving its concrete type and
+# every other field. Field-reflection reconstruction (reviewed contract: assumes
+# a positional constructor matching `fieldnames` — holds for SMLMData's emitter
+# structs). `fieldcount(T)` keeps the `ntuple` length compile-time-stable; the
+# new σ are `convert`-ed to the source field eltype so a Float32 emitter stays
+# Float32. Runs once per localization at se_adjust application, not in the MCMC
+# hot loop.
+@inline function _with_sigma_xy(e, sx::Real, sy::Real)
+    T = typeof(e)
+    SX = convert(typeof(e.σ_x), sx)
+    SY = convert(typeof(e.σ_y), sy)
+    return T(ntuple(i -> (f = fieldname(T, i); f === :σ_x ? SX : f === :σ_y ? SY : getfield(e, i)),
+                    fieldcount(T))...)
 end
 
 """
