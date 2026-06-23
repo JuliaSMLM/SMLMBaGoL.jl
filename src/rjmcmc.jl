@@ -190,7 +190,7 @@ function run_bagol(
     skip_partition_size::Int = typemax(Int),
     overlap::Union{Float64, Symbol} = :auto,
     # Uncertainty correction (standalone; leave 0 in the integrated pipeline)
-    se_adjust::Union{Real, Tuple, AbstractVector} = 0.0,
+    se_adjust::Union{Real, Tuple, AbstractVector, Symbol} = 0.0,
     force_se_adjust::Bool = false,
     # Output
     posterior_pixel_size::Float64 = 0.002,
@@ -295,7 +295,7 @@ function _run_bagol_collapsed(
     max_partition_size::Int = 1000,
     skip_partition_size::Int = typemax(Int),
     overlap::Union{Float64, Symbol} = :auto,
-    se_adjust::Union{Real, Tuple, AbstractVector} = 0.0,
+    se_adjust::Union{Real, Tuple, AbstractVector, Symbol} = 0.0,
     force_se_adjust::Bool = false,
     sync_interval::Int = 100,
     n_iterations::Int = 4000,
@@ -354,6 +354,17 @@ function _run_bagol_collapsed(
     # Independent-error correction (standalone path). No-op when se_adjust=0 or
     # the SMLD is already σ-corrected upstream (apply-once guard).
     _se_md = hasproperty(smld, :metadata) ? smld.metadata : Dict{String,Any}()
+    # se_adjust=:auto → run the finder (estimate_se_adjust) and use τ̂. Skipped when
+    # the SMLD is already σ-corrected upstream (the finder requires raw σ), leaving τ=0.
+    if se_adjust === :auto
+        if get(_se_md, "sigma_corrected", false) === true
+            se_adjust = 0.0
+        else
+            _log_progress("se_adjust=:auto — running estimate_se_adjust finder...")
+            se_adjust = estimate_se_adjust(smld).tau_hat_um
+            _log_progress("  finder τ̂ = $(round(1000 * se_adjust, digits=2)) nm; applying")
+        end
+    end
     locs, _se_tau, _se_msg = _maybe_apply_se_adjust(locs, _se_md, se_adjust, force_se_adjust)
     _se_tau !== nothing && _log_progress(_se_msg)
 

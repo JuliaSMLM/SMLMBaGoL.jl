@@ -40,8 +40,10 @@ Configuration for BaGoL analysis. All fields correspond 1:1 to `run_bagol` kwarg
 - `min_split_size=3`: Minimum core component size for bridge refinement
 
 # Uncertainty Correction (standalone; 0 in the integrated pipeline)
-- `se_adjust=0.0`: Independent error τ (μm) added in quadrature to per-loc σ
-  (σ²+τ²). Scalar, `(τx,τy)` tuple, length-N vector, or `(τx_vec,τy_vec)`.
+- `se_adjust=:auto`: `:auto` runs the finder (`estimate_se_adjust`) and uses τ̂
+  (skipped if the SMLD is already σ-corrected); `0.0` = no correction; a numeric
+  value = manual τ (μm) added in quadrature to per-loc σ (σ²+τ²) — scalar,
+  `(τx,τy)` tuple, length-N vector, or `(τx_vec,τy_vec)`.
 - `force_se_adjust=false`: Apply even if the SMLD is already σ-corrected.
 
 # Output
@@ -80,7 +82,7 @@ Base.@kwdef struct BaGoLConfig <: SMLMData.AbstractSMLMConfig
 
     # Uncertainty correction (standalone; leave 0 in the integrated pipeline,
     # where σ is corrected upstream and stamped metadata["sigma_corrected"]=true)
-    se_adjust::Union{Float64, Tuple{Float64,Float64}, AbstractVector{Float64}} = 0.0
+    se_adjust::Union{Float64, Tuple{Float64,Float64}, AbstractVector{Float64}, Symbol} = :auto
     force_se_adjust::Bool = false
 
     # Output
