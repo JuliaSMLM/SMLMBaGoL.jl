@@ -20,6 +20,7 @@ examples/output/
 .claude/local_memory/
 .slackclaw_state.json
 tmp/
+.codex
 
 # Reference materials — track only our own .md files
 references/*.pdf
