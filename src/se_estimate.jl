@@ -69,12 +69,22 @@ function _assign_groups(em, EM, grouping::Symbol)
             push!(get!(grp, a, Int[]), i)
         end
         return collect(values(grp))
-    elseif grouping === :dahl
-        throw(ArgumentError("grouping=:dahl (BaGoL Dahl-consensus assignment) is stage 2 — " *
-                            "the per-loc assignment plumbing in run_bagol is not yet wired. Use :mapn_proxy."))
     else
-        throw(ArgumentError("grouping must be :mapn_proxy or :dahl (got :$grouping)"))
+        # :dahl does not use _assign_groups — it groups via _dahl_label_groups on the
+        # _dahl_out labels (see _group_distances). Any other value is invalid.
+        throw(ArgumentError("_assign_groups supports :mapn_proxy only (got :$grouping)"))
     end
+end
+
+# Group ORIGINAL loc indices by their global Dahl-consensus label (from _dahl_out).
+# Label 0 = overlap-dup loc (skipped by the plumbing); excluded from grouping.
+function _dahl_label_groups(labels)
+    grp = Dict{Int, Vector{Int}}()
+    for (i, l) in enumerate(labels)
+        l == 0 && continue
+        push!(get!(grp, l, Int[]), i)
+    end
+    collect(values(grp))
 end
 
 # Total data log-likelihood at the grouping under the model at se_adjust=g
@@ -110,13 +120,26 @@ end
 # (these runs are throwaway).
 function _group_distances(smld, tau_nm; n_iterations, burn_in, grouping, bagol_kwargs)
     t = tau_nm / 1000                            # nm → μm
-    res, _ = run_bagol(smld; se_adjust = (t, t), force_se_adjust = true,
-                       n_iterations = n_iterations, burn_in = burn_in,
-                       posterior_pixel_size = 0.0, verbose = false, bagol_kwargs...)
-    EM = res.emitters
-    isempty(EM) && return (Float64[], Float64[], NTuple{2, Float64}[], 0, NaN)
     em = smld.emitters
-    groups = _assign_groups(em, EM, grouping)
+    if grouping === :dahl
+        # Use BaGoL's OWN per-loc Dahl-consensus assignment (faithful), captured via
+        # the _dahl_out plumbing in _run_bagol_collapsed — NOT the nearest-emitter proxy.
+        dref = Base.RefValue(Int[])
+        res, _ = _run_bagol_collapsed(smld; se_adjust = (t, t), force_se_adjust = true,
+                           n_iterations = n_iterations, burn_in = burn_in,
+                           posterior_pixel_size = 0.0, verbose = false,
+                           _dahl_out = dref, bagol_kwargs...)
+        n_emit = length(res.emitters)
+        n_emit == 0 && return (Float64[], Float64[], NTuple{2, Float64}[], 0, NaN)
+        groups = _dahl_label_groups(dref[])
+    else
+        res, _ = run_bagol(smld; se_adjust = (t, t), force_se_adjust = true,
+                           n_iterations = n_iterations, burn_in = burn_in,
+                           posterior_pixel_size = 0.0, verbose = false, bagol_kwargs...)
+        n_emit = length(res.emitters)
+        n_emit == 0 && return (Float64[], Float64[], NTuple{2, Float64}[], 0, NaN)
+        groups = _assign_groups(em, res.emitters, grouping)
+    end
     d = Float64[]; s2 = Float64[]; pos = NTuple{2, Float64}[]
     for ks in groups
         length(ks) < 2 && continue
@@ -128,7 +151,7 @@ function _group_distances(smld, tau_nm; n_iterations, burn_in, grouping, bagol_k
         end
     end
     ll = _data_loglik(em, groups, tau_nm)
-    d, s2, pos, length(EM), ll
+    d, s2, pos, n_emit, ll
 end
 
 # KS of the scaled-distance distribution against Rayleigh(1), at assumed τ (nm),
@@ -228,8 +251,10 @@ A `NamedTuple` with τ values in **μm**:
 
 # Keyword arguments
 - `g_start_um = 0.008` — over-merged starting τ for the descent (μm)
-- `stop_tol_um = 5e-4` — self-consistency tolerance `|m−g|` to stop (μm)
-- `max_steps = 6` — descent step cap
+- `stop_tol_um = 2e-4` — self-consistency tolerance `|m−g|` to stop (μm). Tight
+  enough to avoid a premature stop when `g_start` sits just above the fixed point.
+- `max_steps = 12` — descent step cap (`:dahl` descends slower than the old proxy,
+  so it needs more steps to reach the fixed point from an over-merged start)
 - `ks_noise = 0.01` — KS tie band for the right-biased M-step
 - `grid_um = 0.0:0.0001:0.014` — fine M-step τ grid (μm)
 - `n_iterations = 4000`, `burn_in = 2000` — per-E-step BaGoL chain length
@@ -237,21 +262,21 @@ A `NamedTuple` with τ values in **μm**:
 - `block_um = 1.0` — spatial-block tile size (μm)
 - `seed = 1` — bootstrap RNG seed (a local RNG; BaGoL's own E-step stochasticity
   is only controlled as far as the sampler permits)
-- `grouping = :mapn_proxy` — `:mapn_proxy` (stage 1) or `:dahl` (stage 2)
+- `grouping = :dahl` — `:dahl` (BaGoL consensus assignment, default) or `:mapn_proxy` (legacy nearest-emitter proxy)
 - `return_diagnostics = false` — attach the diagnostic arrays
 - `bagol_kwargs...` — forwarded to `run_bagol` (e.g. `partition_sigma`, `shape`,
   `allocation_model`). **Reserved** (managed by the finder, do not pass):
   `se_adjust`, `force_se_adjust`, `posterior_pixel_size`, `verbose`.
 
-!!! warning "Experimental grouping"
-    The default `:mapn_proxy` backend is an external nearest-emitter proxy that
-    can bias τ̂ downward in crowded regions. The faithful `:dahl` backend (stage
-    2) uses BaGoL's actual assignment posterior.
+!!! note "Grouping backend"
+    The default `:dahl` backend groups by BaGoL's own per-loc consensus assignment
+    (faithful). The legacy `:mapn_proxy` (external nearest-emitter) biases τ̂
+    downward and collapses in crowded regions — kept only for comparison.
 """
 function estimate_se_adjust(smld::SMLMData.SMLD;
         g_start_um = 0.008,
-        stop_tol_um::Float64 = 5e-4,
-        max_steps::Int = 6,
+        stop_tol_um::Float64 = 2e-4,
+        max_steps::Int = 12,
         ks_noise::Float64 = 0.01,
         grid_um = 0.0:0.0001:0.014,
         n_iterations::Int = 4000,
@@ -259,7 +284,7 @@ function estimate_se_adjust(smld::SMLMData.SMLD;
         n_boot::Int = 200,
         block_um::Float64 = 1.0,
         seed::Int = 1,
-        grouping::Symbol = :mapn_proxy,
+        grouping::Symbol = :dahl,
         return_diagnostics::Bool = false,
         bagol_kwargs...)
 
@@ -271,11 +296,8 @@ function estimate_se_adjust(smld::SMLMData.SMLD;
                             "to find; estimating it on corrected σ is ill-posed."))
     end
 
-    # Fail fast on grouping (before any BaGoL run); :dahl is stage 2 (see _assign_groups).
-    if grouping === :dahl
-        throw(ArgumentError("grouping=:dahl (BaGoL Dahl-consensus assignment) is stage 2 — " *
-                            "the per-loc assignment plumbing in run_bagol is not yet wired. Use :mapn_proxy."))
-    elseif grouping !== :mapn_proxy
+    # Fail fast on an invalid grouping (before any BaGoL run).
+    if grouping !== :mapn_proxy && grouping !== :dahl
         throw(ArgumentError("grouping must be :mapn_proxy or :dahl (got :$grouping)"))
     end
 
