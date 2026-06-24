@@ -137,8 +137,12 @@ using Distributions
         smld_corr = SMLMData.BasicSMLD(elist, cam, 1, 1, Dict{String,Any}("sigma_corrected" => true))
         @test_throws ArgumentError estimate_se_adjust(smld_corr)                  # already σ-corrected
         smld_raw = SMLMData.BasicSMLD(elist, cam, 1, 1, Dict{String,Any}())
-        @test_throws ArgumentError estimate_se_adjust(smld_raw; grouping=:dahl)   # stage 2, not wired
         @test_throws ArgumentError estimate_se_adjust(smld_raw; grouping=:nope)   # unknown grouping
+
+        # :dahl grouping (now the default; wired via _dahl_out): group original loc
+        # indices by global Dahl label, skipping overlap-dup label 0.
+        dgroups = SMLMBaGoL._dahl_label_groups([1, 1, 2, 0, 2])
+        @test Set(Set.(dgroups)) == Set([Set([1, 2]), Set([3, 5])])
 
         # Spatial-block bootstrap resampler returns valid in-range indices.
         pos = [(0.1i, 0.1j) for i in 1:5 for j in 1:5]
