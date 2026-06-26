@@ -84,6 +84,8 @@ function render_report end
 # Position matching (Hungarian algorithm)
 # ============================================================================
 
+const _HUNGARIAN_MAX = 5000  # max(n_est, n_true) above which we fall back to greedy
+
 """
     match_positions(estimated, true_positions; threshold=0.020) -> NamedTuple
 
@@ -93,8 +95,6 @@ Threshold in μm (default 20 nm).
 Returns `(assignments, matched_distances, cost_matrix)` where
 `assignments[i]` = matched true index for estimated emitter i (0 if unmatched).
 """
-const _HUNGARIAN_MAX = 5000  # max(n_est, n_true) above which we fall back to greedy
-
 function match_positions(
     estimated::Vector{<:SMLMData.AbstractEmitter},
     true_positions::Vector{Tuple{Float64, Float64}};
