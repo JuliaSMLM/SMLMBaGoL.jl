@@ -65,8 +65,10 @@ Two regimes exist:
 
 ![K, μ, shape, ρ convergence traces](../assets/hier_convergence.png)
 
-*The ``K`` / ``\mu`` / shape / ``\rho`` traces over the chain with the burn-in line. ``\rho``
-stays flat — it is dormant under the default locmix model. The standard burn-in diagnostic.*
+*The ``K`` / ``\mu`` / shape / ``\rho`` traces over the chain with the burn-in line, for a
+field of ~2400 emitters (``K`` is the total emitter count). ``\mu`` and shape settle as the
+chain learns the count distribution; ``\rho`` stays flat — it is dormant under the default
+locmix model.*
 
 ## ``\rho`` — conjugate Gibbs (flat model only)
 
@@ -89,8 +91,9 @@ vice versa. The convergence trace above is the direct readout of this feedback.
 
 ![Learned vs true count distribution](../assets/priors_negbin.png)
 
-*The count distribution the sampler learns (red) against the true generating one (blue),
-with their means — the hyperparameter MH recovering an approximate NegBin.*
+*The count distribution the sampler learns (red) against the true generating one (blue), with
+their means (dashed), over a field of ~2400 emitters. With realistic statistics the learned
+distribution tracks the true one closely.*
 
 Once the chain has run, we still need a single point estimate from the posterior — that is
 [MAP-N Estimation](mapn.md).
