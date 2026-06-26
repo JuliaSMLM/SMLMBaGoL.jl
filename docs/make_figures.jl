@@ -92,13 +92,15 @@ function run_single()
 end
 
 function run_grid()
-    sim = simulate_nmer_grid(; n_per_cluster = 6, cluster_diameter = 0.025,
+    # A grid of resolvable hexamers — many emitters so the hierarchical learner has the
+    # statistics to recover the count distribution; also feeds the partition figure.
+    sim = simulate_nmer_grid(; n_per_cluster = 6, cluster_diameter = 0.060,
                                grid_nx = 4, grid_ny = 4, grid_spacing = 0.5,
-                               mean_count = 12.0, psf_sigma = 0.130,
+                               mean_count = 18.0, psf_sigma = 0.130,
                                mean_photons = 500.0, min_photons = 100.0,
                                pixel_size = 0.100, field_size = 3.0)
     fov = compute_fov(sim.smld)
-    result, diag = run_bagol(sim.smld; n_iterations = 8000, burn_in = 2000,
+    result, diag = run_bagol(sim.smld; n_iterations = 14000, burn_in = 4000,
                              partition_sigma = 3.0)
     return (; sim, result, diag, fov)
 end
@@ -690,14 +692,18 @@ function main()
     if @isdefined(S)
         figure("hero",            () -> fig_hero(S))
         figure("mapn_ellipses",   () -> fig_mapn_ellipses(S))
-        figure("convergence",     () -> fig_convergence(S))
-        figure("count",           () -> fig_count(S))
         figure("acceptance",      () -> fig_acceptance(S))
         figure("posterior",       () -> fig_posterior(S))
-        figure("posterior_k",      () -> fig_posterior_k(S))
+        figure("posterior_k",     () -> fig_posterior_k(S))
         figure("metrics",         () -> print_metrics(S))
     end
-    @isdefined(G) && figure("partition", () -> fig_partition(G))
+    if @isdefined(G)
+        figure("partition",    () -> fig_partition(G))
+        # hierarchical-learning figures need many emitters → use the grid run
+        figure("convergence",  () -> fig_convergence(G))
+        figure("count",        () -> fig_count(G))
+        figure("metrics_grid", () -> print_metrics(G))
+    end
     figure("collapsed_cluster", fig_collapsed_cluster)
     figure("psm",               fig_psm)
     figure("marginal",          fig_marginal)
