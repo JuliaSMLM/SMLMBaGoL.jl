@@ -92,16 +92,29 @@ function run_single()
 end
 
 function run_grid()
-    # A grid of resolvable hexamers — many emitters so the hierarchical learner has the
-    # statistics to recover the count distribution; also feeds the partition figure.
+    # A small grid of resolvable hexamers — feeds the partition-coloring figure (kept small
+    # so the per-partition colors are distinguishable).
     sim = simulate_nmer_grid(; n_per_cluster = 6, cluster_diameter = 0.060,
                                grid_nx = 4, grid_ny = 4, grid_spacing = 0.5,
                                mean_count = 18.0, psf_sigma = 0.130,
                                mean_photons = 500.0, min_photons = 100.0,
                                pixel_size = 0.100, field_size = 3.0)
     fov = compute_fov(sim.smld)
-    result, diag = run_bagol(sim.smld; n_iterations = 14000, burn_in = 4000,
-                             partition_sigma = 3.0)
+    result, diag = run_bagol(sim.smld; n_iterations = 8000, burn_in = 2000, partition_sigma = 3.0)
+    return (; sim, result, diag, fov)
+end
+
+function run_bigcount()
+    # Realistic-scale field (20×20 hexamers ≈ 2400 emitters) so the hierarchical learner has
+    # the statistics to recover the count distribution closely. Drives the convergence and
+    # learned-vs-true count figures. Tiny partitions run fast in parallel (~30 s on 32 threads).
+    sim = simulate_nmer_grid(; n_per_cluster = 6, cluster_diameter = 0.060,
+                               grid_nx = 20, grid_ny = 20, grid_spacing = 0.5,
+                               mean_count = 18.0, psf_sigma = 0.130,
+                               mean_photons = 500.0, min_photons = 100.0,
+                               pixel_size = 0.100, field_size = 11.0)
+    fov = compute_fov(sim.smld)
+    result, diag = run_bagol(sim.smld; n_iterations = 12000, burn_in = 3000, partition_sigma = 3.0)
     return (; sim, result, diag, fov)
 end
 
@@ -244,7 +257,7 @@ function fig_count(S)
     ks = 0:kmax
     fig = Figure(size = (760, 480))
     ax = Axis(fig[1, 1], xlabel = "localizations per emitter", ylabel = "probability",
-              title = "Count distribution: true vs. learned")
+              title = "Count distribution: true vs. learned  ($(S.sim.n_emitters) emitters)")
     lines!(ax, collect(ks), negbin_pmf(kmax, μt, αt); color = :dodgerblue, linewidth = 3,
            label = "true  (μ=$(round(μt, digits=1)), α=$(round(αt, digits=1)))")
     lines!(ax, collect(ks), negbin_pmf(kmax, μl, αl); color = :crimson, linewidth = 3,
@@ -685,9 +698,10 @@ end
 # Driver
 # =============================================================================
 function main()
-    local S, G
-    figure("run_single", () -> (S = run_single()))
-    figure("run_grid",   () -> (G = run_grid()))
+    local S, G, BC
+    figure("run_single",   () -> (S = run_single()))
+    figure("run_grid",     () -> (G = run_grid()))
+    figure("run_bigcount", () -> (BC = run_bigcount()))
 
     if @isdefined(S)
         figure("hero",            () -> fig_hero(S))
@@ -697,12 +711,12 @@ function main()
         figure("posterior_k",     () -> fig_posterior_k(S))
         figure("metrics",         () -> print_metrics(S))
     end
-    if @isdefined(G)
-        figure("partition",    () -> fig_partition(G))
-        # hierarchical-learning figures need many emitters → use the grid run
-        figure("convergence",  () -> fig_convergence(G))
-        figure("count",        () -> fig_count(G))
-        figure("metrics_grid", () -> print_metrics(G))
+    @isdefined(G) && figure("partition", () -> fig_partition(G))
+    if @isdefined(BC)
+        # hierarchical-learning figures need realistic-scale statistics → use the 2400-emitter run
+        figure("convergence",  () -> fig_convergence(BC))
+        figure("count",        () -> fig_count(BC))
+        figure("metrics_grid", () -> print_metrics(BC))
     end
     figure("collapsed_cluster", fig_collapsed_cluster)
     figure("psm",               fig_psm)
