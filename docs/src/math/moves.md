@@ -49,10 +49,10 @@ allocates the rest by **Jain–Neal restricted Gibbs scans** (`n_restricted_scan
 a launch, ``n-1`` intermediate sweeps, and one final density-tracked sweep). A merge is the
 deterministic reverse, with the split allocation density evaluated for the ratio.
 
-!!! info "Figure · schematic · `assets/moves_splitmerge.png`"
-    A split move: one cluster of localizations (left) becomes two (right), seeded at two
-    members and filled by restricted Gibbs. The reverse arrow is the merge. Annotate with
-    the ``\Delta`` terms that change.
+![Split / merge move](../assets/moves_splitmerge.png)
+
+*A split turns one cluster of localizations (left) into two (right), seeded at two members
+and filled by restricted Gibbs; the reverse direction is the merge.*
 
 ## Birth / death
 
@@ -62,10 +62,10 @@ move-type selection probabilities are folded directly into the proposal densitie
 birth/death carries **no separate move-type term** and (unlike split/merge) its reverse
 densities are deterministic.
 
-!!! info "Figure · schematic · `assets/moves_birthdeath.png`"
-    A birth: a localization splits off a cluster to form a new singleton emitter (``K \to
-    K+1``); death is the reverse absorb. Show the predictive weights that pick the
-    death destination.
+![Birth / death move](../assets/moves_birthdeath.png)
+
+*A birth detaches one localization from a cluster into its own singleton emitter
+(``K \to K+1``); death is the reverse absorb (``K \to K-1``).*
 
 ## Acceptance ratios
 
@@ -89,6 +89,8 @@ exact additive order (`collapsed_moves.jl`):
 Acceptance is uniformly ``\log\alpha \ge 0`` or ``\log u < \log\alpha`` with ``u \sim U(0,1)``;
 a rejected move is rolled back exactly.
 
-!!! info "Figure · pipeline · `assets/moves_acceptance.png`"
-    Per-move acceptance rates from a real run ([`plot_report`](@ref)'s `acceptance_rates`):
-    a quick read on whether the chain is mixing across ``K`` or stuck.
+![Per-move acceptance rates](../assets/moves_acceptance.png)
+
+*Per-move acceptance rates from a real run — the ``K``-changing moves (split, merge, birth,
+death). The Gibbs allocation sweep is always applied and not shown. A quick read on whether
+the chain is mixing across ``K``.*

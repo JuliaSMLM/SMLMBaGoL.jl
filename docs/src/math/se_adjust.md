@@ -27,7 +27,7 @@ empirical CDF of the ``z`` and this reference:
 \hat{\tau} = \arg\min_{\tau}\ \max_i \left| \frac{i}{n} - \big(1 - e^{-z_{(i)}^2/2}\big) \right|.
 ```
 
-!!! info "Figure · pipeline · `assets/se_cdf.png`"
+!!! info "Figure (pending) · `assets/se_cdf.png`"
     The empirical scaled-distance CDF against Rayleigh(1) at ``\tau = 0`` (a visible KS gap)
     and at ``\hat\tau`` (curves coincide), from [`plot_se_adjust`](@ref). The shrinking gap
     *is* the estimator.
@@ -59,7 +59,7 @@ its result, or pass a known number directly. The correction self-guards against
 double-applying: data already corrected upstream (metadata `sigma_corrected = true`) is
 skipped, and the finder refuses to run on already-corrected data.
 
-!!! info "Figure · pipeline · `assets/se_prepost.png`"
+!!! info "Figure (pending) · `assets/se_prepost.png`"
     The same N-mer grouped with `se_adjust=0.0` (over-split into spurious emitters) and with
     `se_adjust=:auto` (correct count), rendered side by side via [`render_report`](@ref).
     The visible failure mode the correction removes.

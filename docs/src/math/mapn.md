@@ -26,10 +26,11 @@ over the ``T`` post-burn-in samples. This minimizes the posterior expected Binde
 restricted to the visited partitions, and fixes ``K`` as the cluster count of the winning
 sample.
 
-!!! info "Figure · data-plot · `assets/mapn_psm.png`"
-    The posterior similarity matrix as a heatmap (localizations ordered by Dahl cluster).
-    Sharp blocks = a confident grouping; smeared off-diagonal mass = label ambiguity that
-    the reported uncertainty must capture.
+![Posterior similarity matrix heatmap](../assets/mapn_psm.png)
+
+*The posterior similarity matrix, localizations ordered by Dahl cluster. Bright diagonal
+blocks are confident groupings; smeared off-diagonal mass is label ambiguity the reported
+uncertainty must capture.*
 
 ## Overlap-Hungarian pooling
 
@@ -48,10 +49,11 @@ The first term is the within-cluster analytic [posterior covariance](collapsed.m
 the second adds the between-sample spread of the matched means, so allocation ambiguity
 inflates the reported uncertainty rather than being hidden.
 
-!!! info "Figure · pipeline · `assets/mapn_ellipses.png`"
-    MAP-N posterior ellipses (red) over the localizations (white) and ground truth (blue),
-    from [`render_report`](@ref)'s `circles_groundtruth`. The ellipses sit on the true
-    positions and are far tighter than the localization cloud.
+![MAP-N posterior ellipses over ground truth](../assets/mapn_ellipses.png)
+
+*MAP-N posterior ellipses (red, 2σ) over the localizations (faint gray, 1σ) and ground
+truth (cyan). The ellipses sit on the true emitters and are far tighter than the
+localization cloud.*
 
 ## Alternative estimators
 

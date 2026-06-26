@@ -36,10 +36,11 @@ Because the statistics are sums, adding and removing a localization are exact ``
 inverses (`add_loc` / `remove_loc`) — the operations the Gibbs sweep performs millions of
 times.
 
-!!! info "Figure · schematic · `assets/collapsed_precision.png`"
-    Precision weighting. Two localizations with small uncertainty discs and one with a
-    large disc; the precision-weighted mean ``\hat{\boldsymbol\theta}`` sits near the
-    confident pair, not at the geometric centroid. Larger ``\Sigma_i`` ⇒ smaller pull.
+![Precision weighting pulls the mean toward low-σ localizations](../assets/collapsed_precision.png)
+
+*Two low-σ localizations (small blue discs) and one high-σ localization (large gray disc).
+The precision-weighted mean ``\hat{\boldsymbol\theta}`` (red star) sits near the confident
+pair, not at the naive centroid (gray cross). Larger ``\Sigma_i`` ⇒ smaller pull.*
 
 ## Posterior position of a cluster
 
@@ -60,10 +61,11 @@ comparable quality shrinks the position uncertainty by roughly ``\sqrt{n}`` — 
 super-resolution gain made precise. These two quantities are exactly what the MAP-N output
 emitters carry as their position and reported uncertainty.
 
-!!! info "Figure · pipeline · `assets/collapsed_cluster.png`"
-    One emitter's localizations (white) with the posterior mean and ``1\sigma`` covariance
-    ellipse (red) from [`render_report`](@ref)'s `EllipseRender`. The ellipse is far tighter
-    than any single localization's uncertainty.
+![A collapsed cluster: loose localizations, tight posterior](../assets/collapsed_cluster.png)
+
+*One emitter's localizations (faint gray 1σ discs) collapse to a tight posterior (red 2σ
+ellipse) sitting on the true position (cyan) — far tighter than any single localization's
+uncertainty.*
 
 ## Why collapse?
 

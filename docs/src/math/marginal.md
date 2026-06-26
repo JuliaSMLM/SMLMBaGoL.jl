@@ -57,10 +57,11 @@ The marginal then adds ``\log P_{\text{locmix}}`` in place of ``-\log A``:
 \qquad \hat{\boldsymbol{\theta}} = \Lambda^{-1}\boldsymbol{\eta}.
 ```
 
-!!! info "Figure · data-plot · `assets/marginal_locmix_grid.png`"
-    The locmix prior density ``P_{\text{locmix}}(\boldsymbol\theta)`` as a heatmap over a
-    localization field (built from `build_locmix_grid`), with the localizations overlaid.
-    Mass pools on the data; the flat prior would be a constant sheet by comparison.
+![Localization-mixture prior density over a field](../assets/marginal_locmix_grid.png)
+
+*The localization-mixture prior density ``P_{\text{locmix}}(\boldsymbol\theta)`` over a
+localization field — prior mass pools on the data. The flat prior would be a constant sheet
+by comparison.*
 
 !!! note "Implementation detail: the locmix marginal is a plug-in approximation"
     The live sampler evaluates ``\log P_{\text{locmix}}`` **at the posterior mean**
@@ -87,7 +88,8 @@ Under the flat model the ``-\log A`` terms cancel for ``n_c > 0``, so the predic
 area-independent except when seeding an empty cluster; under locmix the prior terms do not
 cancel (they are evaluated at the shifted posterior mean).
 
-!!! info "Figure · data-plot · `assets/marginal_flat_vs_locmix.png`"
-    Side-by-side: the per-cluster marginal-likelihood landscape under the flat prior vs.
-    the locmix prior for the same localizations, showing how locmix rewards groupings that
-    sit on dense data.
+![Flat vs localization-mixture spatial prior](../assets/marginal_flat_vs_locmix.png)
+
+*The flat prior (left, uniform) versus the localization-mixture prior (right, concentrated
+on the localizations), with the same candidate emitter position (red star) marked in both —
+locmix rewards groupings that sit on dense data.*

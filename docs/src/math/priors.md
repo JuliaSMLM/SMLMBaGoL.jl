@@ -29,10 +29,10 @@ concentration to the count model; passing `gamma` fixes it independently. The al
 `:decoupled` drops this term entirely (spatial likelihood alone drives ``\mathbf{z}``), and
 `:categorical` uses ``P(\mathbf{z}\mid K) = K^{-N}``.
 
-!!! info "Figure · schematic · `assets/priors_allocation.png`"
-    The same localizations under three allocations (``K=1, 2, 3``). The DM prior assigns
-    each a probability; larger ``\gamma`` favors more, smaller clusters. Annotate each
-    panel with its ``\log P(\mathbf z \mid K)``.
+![The same localizations under K=1, 2, 3 allocations](../assets/priors_allocation.png)
+
+*The same six localizations under three allocations (``K = 1, 2, 3``). The DM partition
+prior assigns each a probability; larger ``\gamma`` favors more, smaller clusters.*
 
 ## Count: the negative-binomial blink model
 
@@ -50,11 +50,12 @@ active**; it enters every ``K``-changing move as
 ``\Delta_{\text{count}} = \log P(N \mid K') - \log P(N \mid K)`` and is the main regularizer
 of ``K`` under the default `:locmix` model.
 
-!!! info "Figure · data-plot · `assets/priors_negbin.png`"
-    The per-emitter count distribution ``\mathrm{NegBin}(\alpha, \alpha/(\alpha+\mu))`` for
-    a few ``(\mu, \alpha)``: ``\alpha = 1`` gives the dSTORM exponential, ``\alpha > 1`` a
-    peaked DNA-PAINT-like shape. Same panel produced by [`plot_report`](@ref) as
-    `count_distribution`.
+![True vs learned per-emitter count distribution](../assets/priors_negbin.png)
+
+*The per-emitter count distribution ``\mathrm{NegBin}(\alpha, \alpha/(\alpha+\mu))``: the
+true generating distribution (blue) and the one learned by the sampler (red), with their
+means (dashed). ``\alpha = 1`` gives the dSTORM exponential; ``\alpha > 1`` a peaked,
+DNA-PAINT-like shape.*
 
 !!! note "Negative-binomial, not Gamma"
     The shorthand ``P(N\mid K) = \mathrm{Gamma}(N; K\alpha, \mu/\alpha)`` describes the

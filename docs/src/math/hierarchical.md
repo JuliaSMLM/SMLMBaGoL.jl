@@ -33,10 +33,10 @@ Two regimes exist:
 - **Standalone [`run_collapsed_chain`](@ref)** — a single-step, fixed-scale (``s = 0.3``)
   version.
 
-!!! info "Figure · pipeline · `assets/hier_convergence.png`"
-    The ``K`` / ``\mu`` / shape traces over iterations with the burn-in line, from
-    [`plot_report`](@ref)'s `convergence` panel. The hyperparameters settle as the chain
-    learns the count distribution — the standard burn-in diagnostic.
+![K, μ, shape, ρ convergence traces](../assets/hier_convergence.png)
+
+*The ``K`` / ``\mu`` / shape / ``\rho`` traces over the chain with the burn-in line. ``\rho``
+stays flat — it is dormant under the default locmix model. The standard burn-in diagnostic.*
 
 ## ``\rho`` — conjugate Gibbs (flat model only)
 
@@ -57,7 +57,7 @@ that scores every ``K``-changing [move](moves.md): a larger learned ``\mu`` (mor
 localizations per emitter) lowers the count-model penalty for *fewer*, larger clusters, and
 vice versa. The convergence trace above is the direct readout of this feedback.
 
-!!! info "Figure · pipeline · `assets/hier_countdist.png`"
-    The learned count distribution overlaid on the true one (and the empirical histogram),
-    from [`plot_report`](@ref)'s `count_distribution`. Confirms the hyperparameter MH is
-    recovering the right NegBin.
+![Learned vs true count distribution](../assets/priors_negbin.png)
+
+*The count distribution the sampler learns (red) against the true generating one (blue),
+with their means — the hyperparameter MH recovering an approximate NegBin.*

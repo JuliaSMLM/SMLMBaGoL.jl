@@ -35,10 +35,11 @@ Both ``K`` and the allocation ``\mathbf{z}`` are unknown, and so are the pooled 
 ``\boldsymbol{\theta}_k``. BaGoL infers the joint posterior
 ``p(K, \mathbf{z}, \boldsymbol{\theta} \mid \mathbf{x})`` by MCMC, then summarizes it.
 
-!!! info "Figure · schematic · `assets/intro_generative.png`"
-    The generative model in one picture: a single emitter (star) blinks repeatedly,
-    scattering a cloud of localizations (points), each with its own uncertainty disc
-    ``\Sigma_i``. BaGoL inverts this — cloud back to emitter.
+![Generative model: one emitter, many localizations](../assets/intro_generative.png)
+
+*A single emitter (orange star) blinks repeatedly, scattering localizations (blue points),
+each with its own uncertainty disc ``\Sigma_i``. BaGoL inverts this — the cloud back to the
+emitter.*
 
 Rather than committing to one grouping, BaGoL builds a full posterior over **both** the
 number of emitters and their positions, and summarizes it with the **MAP-N** estimate (the
@@ -46,10 +47,12 @@ most probable count plus a representative grouping). Pooling the localizations o
 emitter yields a position more precise than any single localization — the super-resolution
 gain.
 
-!!! info "Figure · pipeline · `assets/intro_prepost.png`"
-    The payoff. Left: Gaussian render of the raw localizations (a blur). Right: the
-    BaGoL MAP-N result rendered at the same scale (resolved emitters). Generated from a
-    simulated N-mer via `simulate_nmer` → [`run_bagol`](@ref) → [`render_report`](@ref).
+![Raw localizations of a simulated hexamer — a blur](../assets/intro_pre.png)
+![BaGoL MAP-N result — six resolved emitters](../assets/intro_post.png)
+
+*Top: Gaussian render of the raw localizations of a simulated hexamer (a blur). Bottom: the
+BaGoL MAP-N result at the same scale — six resolved emitters. Pipeline: `simulate_nmer` →
+[`run_bagol`](@ref) → [`render_report`](@ref).*
 
 ## Notation
 

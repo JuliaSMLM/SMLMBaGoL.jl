@@ -28,10 +28,10 @@ clustering at the σ-normalized threshold.
     precision) makes two localizations *more* likely to share a partition. It is a
     σ-normalized distance, chosen so that uncertain localizations are grouped conservatively.
 
-!!! info "Figure · pipeline · `assets/partition_field.png`"
-    A field of localizations colored by partition assignment ([`render_report`](@ref)'s
-    `partitions`). Each color is an independent BaGoL run; the partitioning follows the
-    data's natural gaps.
+![Localizations colored by partition](../assets/partition_field.png)
+
+*A field of localizations colored by partition assignment. Each color is an independent
+BaGoL run; the partitioning follows the data's natural gaps.*
 
 ## METIS splitting of oversized partitions
 
@@ -52,10 +52,10 @@ merged only when it passes a ``2\sigma`` gate
 
 Merged positions use determinant-precision weights and the photons are summed.
 
-!!! info "Figure · schematic · `assets/partition_dedup.png`"
-    Two adjacent partitions sharing an overlap band; a true emitter detected in both is
-    matched by Hungarian assignment and merged into one. Show the ``2\sigma`` gate that
-    rejects spurious matches.
+![Boundary deduplication across partitions](../assets/partition_dedup.png)
+
+*Two adjacent partitions sharing an overlap band; a true emitter detected in both is matched
+by Hungarian assignment within a ``2\sigma`` gate and merged into one.*
 
 ## Synchronization
 
