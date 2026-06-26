@@ -100,17 +100,24 @@ with the data:
 \underbrace{p(K, \mathbf{z})}_{\text{prior}} .
 ```
 
-This posterior cannot be written down or maximized directly — there are astronomically many
-ways to group localizations into emitters. So BaGoL **samples** it: the MCMC sampler visits
-groupings in proportion to their posterior probability. The result is therefore not a single
-answer but a **distribution** — for instance a full posterior over the number of emitters
-``K``, from which we read both the most probable count and how much to trust it.
+In the schematic above the per-emitter positions ``\boldsymbol{\theta}`` are integrated out of
+the likelihood (the *collapsing* trick described below) and recovered analytically for
+reporting, while the blink parameters ``\mu, \alpha`` are learned as shared hyperparameters —
+so the sampler explores only ``(K, \mathbf{z})``.
+
+This posterior cannot be *normalized* or exhaustively maximized directly — there are
+astronomically many ways to group localizations into emitters. So BaGoL **samples** it: the
+MCMC sampler visits groupings in proportion to their posterior probability. The result is
+therefore not a single answer but a **distribution** — for instance a full posterior over the
+number of emitters ``K``, from which we read both the most probable count and how much to
+trust it.
 
 ![The posterior is a distribution over K](../assets/overview_posterior_k.png)
 
 *The sampler returns a posterior ``P(K)`` over the emitter count, not just one number. The
-MAP-N estimate (dashed) is its peak; a broad distribution means the data leave ``K``
-genuinely uncertain — something a single point estimate would hide.*
+most probable count (dashed, here ``K = 6``) is its peak — the count MAP-N reports; a broad
+distribution means the data leave ``K`` genuinely uncertain, something a single point estimate
+would hide.*
 
 ## How BaGoL samples it: collapsed RJMCMC
 
@@ -122,7 +129,7 @@ cannot move between models with different numbers of parameters; **reversible-ju
 (RJMCMC)** is the extension that can. Its dimension-changing moves — split one
 cluster into two, merge two into one, give birth to a new emitter, remove an empty one —
 propose a jump ``K \to K \pm 1`` and accept it with a Metropolis–Hastings ratio constructed
-so the chain's stationary distribution is exactly the posterior. (The moves are detailed on
+so the chain's stationary distribution is the target posterior. (The moves are detailed on
 [The Sampler: Moves](moves.md).)
 
 BaGoL adds one decisive simplification: it **never samples the continuous positions**
@@ -141,9 +148,11 @@ p\big(\boldsymbol{\theta}_k \mid \{\mathbf{x}_i : z_i = k\}\big) =
 
 Because that posterior is analytic, the position can be **integrated out in closed form**,
 leaving the cluster's *marginal likelihood* — the probability of that collection of
-localizations with the emitter position already accounted for. The sampler therefore carries
-a **collapsed** state: only the discrete allocation ``(K, \mathbf{z})``, scored by a product
-of analytic cluster marginals. This is the **collapsed Gibbs** sampler, and it buys two
+localizations with the emitter position already accounted for. (The Gaussian core is exact;
+the default `:locmix` spatial-prior term is a fast plug-in approximation — see
+[Spatial Models & Marginal Likelihood](marginal.md).) The sampler therefore carries a
+**collapsed** state: only the discrete allocation ``(K, \mathbf{z})``, scored by a product of
+analytic cluster marginals. This is the **collapsed Gibbs** sampler, and it buys two
 things:
 
 - **Better mixing, lower variance** — the high-variance continuous positions are handled

@@ -23,8 +23,10 @@ count and a reference grouping, then overlap-Hungarian pooling for positions and
 
 ![Dahl consensus: sampled partitions to PSM to closest sample](../assets/mapn_dahl.png)
 
-*Many sampled partitions are reduced to their pairwise co-assignment matrix (the PSM); Dahl
-returns the sampled partition closest to it — the consensus grouping.*
+*Many sampled partitions are reduced to their pairwise co-assignment matrix (the PSM) — note
+the first and last samples are the **same** grouping with swapped colors (label switching),
+which the label-free PSM ignores. Dahl returns the sampled partition closest to the PSM: the
+consensus grouping.*
 
 ## Dahl consensus
 

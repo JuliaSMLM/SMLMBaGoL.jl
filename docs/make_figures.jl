@@ -480,7 +480,7 @@ function fig_posterior_k(S)
               title = "The posterior is a distribution over K", xticks = lo:hi)
     barplot!(ax, collect(lo:hi), pkn[(lo+1):(hi+1)]; color = :steelblue)
     kmap = argmax(pkn) - 1
-    vlines!(ax, [kmap]; color = :crimson, linestyle = :dash, linewidth = 2, label = "MAP-N = $kmap")
+    vlines!(ax, [kmap]; color = :crimson, linestyle = :dash, linewidth = 2, label = "most probable K = $kmap")
     axislegend(ax; position = :rt, framevisible = false)
     save(asset("overview_posterior_k.png"), fig)
 end
@@ -514,7 +514,8 @@ end
 # =============================================================================
 function fig_dahl_schematic()
     pts = [(-0.045, 0.0), (-0.02, 0.022), (0.0, -0.012), (0.03, 0.016), (0.046, -0.02)]
-    samples = [[1, 1, 1, 2, 2], [1, 1, 2, 2, 2], [1, 1, 1, 2, 2]]
+    # sample 3 is the SAME grouping as sample 1 with swapped labels (label switching)
+    samples = [[1, 1, 1, 2, 2], [1, 1, 2, 2, 2], [2, 2, 2, 1, 1]]
     n = length(pts)
     C = zeros(n, n)
     for s in samples, i in 1:n, j in 1:n
@@ -524,18 +525,21 @@ function fig_dahl_schematic()
     dist(z) = sum((( (z[i] == z[j]) ? 1.0 : 0.0) - C[i, j])^2 for i in 1:n for j in (i+1):n)
     best = argmin([dist(s) for s in samples])
     cols = [:dodgerblue, :crimson, :seagreen]
-    fig = Figure(size = (1040, 420))
-    Label(fig[0, 1:5], "Dahl consensus: summarizing a distribution over partitions", fontsize = 16, font = :bold)
+    fig = Figure(size = (1180, 430))
+    Label(fig[0, 1:6], "Dahl consensus: summarizing a distribution over partitions", fontsize = 16, font = :bold)
     for (r, s) in enumerate(samples)
-        ax = Axis(fig[r, 1], aspect = DataAspect(), title = r == 1 ? "sampled partitions" : "")
+        note = r == 3 ? "  (same as #1, colors swapped)" : ""
+        ax = Axis(fig[r, 1], aspect = DataAspect(), title = r == 1 ? "sampled partitions" : note,
+                  titlesize = 11, titlecolor = :gray40)
         scatter!(ax, first.(pts), last.(pts); color = cols[s], markersize = 13)
         limits!(ax, -0.07, 0.07, -0.05, 0.05); hidedecorations!(ax)
     end
     Label(fig[1:3, 2], "count\nco-assignment\n→", fontsize = 13, tellwidth = false)
     ax2 = Axis(fig[1:3, 3], title = "PSM (co-assignment)", aspect = 1, yreversed = true)
-    heatmap!(ax2, C; colormap = :viridis, colorrange = (0, 1)); hidedecorations!(ax2)
-    Label(fig[1:3, 4], "pick sample\nclosest to PSM\n→", fontsize = 13, tellwidth = false)
-    ax3 = Axis(fig[1:3, 5], aspect = DataAspect(), title = "consensus")
+    hm = heatmap!(ax2, C; colormap = :viridis, colorrange = (0, 1)); hidedecorations!(ax2)
+    Colorbar(fig[1:3, 4], hm; label = "co-assignment freq.", height = Relative(0.7))
+    Label(fig[1:3, 5], "pick sample\nclosest to PSM\n→", fontsize = 13, tellwidth = false)
+    ax3 = Axis(fig[1:3, 6], aspect = DataAspect(), title = "consensus")
     scatter!(ax3, first.(pts), last.(pts); color = cols[samples[best]], markersize = 15, strokecolor = :black, strokewidth = 1)
     limits!(ax3, -0.07, 0.07, -0.05, 0.05); hidedecorations!(ax3)
     save(asset("mapn_dahl.png"), fig)
