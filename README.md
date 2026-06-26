@@ -37,14 +37,13 @@ with the **MAP-N** estimate — the most probable number of emitters, together w
 representative grouping of localizations at that count — which pools the localizations
 assigned to each emitter to reach a position more precise than any single localization.
 
-BaGoL rests on two assumptions about the localizations you give it. First, that they have
-been cleaned in **preprocessing**: spurious detections, and multi-emitter fits where a single
-localization actually represents two or more emitters, have been removed — so each
-localization is a genuine observation of one emitter. Second, that the **localization
-precision is correct** — the reported uncertainty `σ` is the true error of each fit. Where
-`σ` carries a uniform excess error, `estimate_se_adjust` can recover it from the data:
-`se_adjust=:auto` finds the excess `τ` and folds it into each localization in quadrature
-(`σ² + τ²`) before grouping.
+BaGoL makes two assumptions about the localizations. First, that each localization is a real
+observation of a single emitter; it follows that any spurious or multi-emitter fits from the
+upstream analysis pipeline — where one localization stands for two or more emitters — must be
+removed by preprocessing before BaGoL. Second, that the reported localization precision `σ` is
+correct. This second assumption can be relaxed: where `σ` carries a uniform excess error,
+`estimate_se_adjust` recovers it from the data, and `se_adjust=:auto` folds the excess `τ`
+into each localization in quadrature (`σ² + τ²`) before grouping.
 
 ## Installation
 

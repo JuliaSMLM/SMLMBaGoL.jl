@@ -132,8 +132,7 @@ propose a jump ``K \to K \pm 1`` and accept it with a Metropolis–Hastings rati
 so the chain's stationary distribution is the target posterior. (The moves are detailed on
 [The Sampler: Moves](moves.md).)
 
-BaGoL adds one decisive simplification: it **never samples the continuous positions**
-``\boldsymbol{\theta}_k`` at all. A collection of localizations assigned to one emitter has a
+BaGoL also does not sample the continuous positions ``\boldsymbol{\theta}_k`` at all. A collection of localizations assigned to one emitter has a
 **closed-form Gaussian posterior** for that emitter's position — the conjugate product of the
 localizations' own Gaussians:
 
