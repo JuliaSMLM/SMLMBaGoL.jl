@@ -9,6 +9,23 @@ The chain yields a full posterior over ``(K, \mathbf{z})``. For a point summary,
 count and a reference grouping, then overlap-Hungarian pooling for positions and uncertainty
 (`mapn.jl`).
 
+!!! note "General method: consensus clustering"
+    The chain does not return one grouping — it returns a *distribution* over groupings, and we
+    need a single representative one. You cannot simply average partitions: cluster **labels
+    are arbitrary**, so "cluster 1" in one sample need not be "cluster 1" in another (label
+    switching), and the average of two partitions is not even a partition. The fix is a
+    label-free summary — the **posterior similarity matrix (PSM)**, the fraction of samples in
+    which each *pair* of localizations lands in the same emitter; pairwise co-assignment does
+    not care what the clusters are called. Dahl's method then returns the single *sampled*
+    partition that best matches this average co-assignment, so the answer is always a real,
+    achievable grouping rather than an artificial average. This consensus-from-co-assignment
+    idea is general to clustering, not specific to BaGoL.
+
+![Dahl consensus: sampled partitions to PSM to closest sample](../assets/mapn_dahl.png)
+
+*Many sampled partitions are reduced to their pairwise co-assignment matrix (the PSM); Dahl
+returns the sampled partition closest to it — the consensus grouping.*
+
 ## Dahl consensus
 
 [`estimate_dahl`](@ref) chooses the visited sample whose pairwise co-assignment matrix is

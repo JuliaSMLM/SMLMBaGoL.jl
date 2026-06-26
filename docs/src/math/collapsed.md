@@ -80,3 +80,14 @@ quantity every move scores against. Because the state is purely discrete, every 
 is a re-partitioning of localizations, and the acceptance ratio is a ratio of marginal
 likelihoods and prior factors — no continuous-parameter proposal, no Jacobian. The next
 page derives that marginal likelihood for both spatial models.
+
+!!! note "General method: collapsing (Rao–Blackwellization)"
+    Whenever some parameters can be integrated out *exactly*, it is usually worth doing:
+    sampling fewer, lower-variance quantities makes MCMC both faster and less noisy — a
+    standard trick called **Rao–Blackwellization**. Here the emitter positions
+    ``\boldsymbol{\theta}_k`` are nuisance parameters; Gaussian conjugacy lets us replace
+    "sample each position, then score" with a single closed-form marginal likelihood per
+    cluster. The chain then explores only the discrete groupings, and the positions are
+    recovered analytically at the end. The same idea underlies the Rao-Blackwellized posterior
+    image, which blurs each cluster by its *posterior* covariance instead of plotting point
+    estimates.
