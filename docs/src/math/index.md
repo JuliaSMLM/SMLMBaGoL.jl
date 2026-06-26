@@ -86,12 +86,40 @@ gain.
 BaGoL MAP-N result at the same scale — six resolved emitters. Pipeline: `simulate_nmer` →
 [`run_bagol`](@ref) → [`render_report`](@ref).*
 
+## Bayesian inference in brief
+
+If you are new to Bayesian methods, this is the gist. A **prior** encodes what is plausible
+before seeing the data — how many emitters, how they blink. The **likelihood** says how
+probable the observed localizations are for a given arrangement of emitters. Bayes' rule
+multiplies them into the **posterior** — what remains plausible *after* combining the model
+with the data:
+
+```math
+\underbrace{p(K, \mathbf{z} \mid \mathbf{x})}_{\text{posterior}} \;\propto\;
+\underbrace{p(\mathbf{x} \mid K, \mathbf{z})}_{\text{likelihood}} \;\times\;
+\underbrace{p(K, \mathbf{z})}_{\text{prior}} .
+```
+
+This posterior cannot be written down or maximized directly — there are astronomically many
+ways to group localizations into emitters. So BaGoL **samples** it: the MCMC sampler visits
+groupings in proportion to their posterior probability. The result is therefore not a single
+answer but a **distribution** — for instance a full posterior over the number of emitters
+``K``, from which we read both the most probable count and how much to trust it.
+
+![The posterior is a distribution over K](../assets/overview_posterior_k.png)
+
+*The sampler returns a posterior ``P(K)`` over the emitter count, not just one number. The
+MAP-N estimate (dashed) is its peak; a broad distribution means the data leave ``K``
+genuinely uncertain — something a single point estimate would hide.*
+
 ## How BaGoL samples it: collapsed RJMCMC
 
-The target posterior ``p(K, \mathbf{z}, \boldsymbol{\theta} \mid \mathbf{x})`` lives in a
-space whose **dimension changes with ``K``** — every emitter adds a position
-``\boldsymbol{\theta}_k``. Ordinary MCMC cannot move between models with different numbers of
-parameters; **reversible-jump MCMC (RJMCMC)** can. Its dimension-changing moves — split one
+Standard MCMC walks around a *fixed* set of parameters — it has no move that adds or deletes
+one. But counting emitters needs exactly that. The target posterior
+``p(K, \mathbf{z}, \boldsymbol{\theta} \mid \mathbf{x})`` lives in a space whose **dimension
+changes with ``K``** — every emitter adds a position ``\boldsymbol{\theta}_k``. Ordinary MCMC
+cannot move between models with different numbers of parameters; **reversible-jump MCMC
+(RJMCMC)** is the extension that can. Its dimension-changing moves — split one
 cluster into two, merge two into one, give birth to a new emitter, remove an empty one —
 propose a jump ``K \to K \pm 1`` and accept it with a Metropolis–Hastings ratio constructed
 so the chain's stationary distribution is exactly the posterior. (The moves are detailed on

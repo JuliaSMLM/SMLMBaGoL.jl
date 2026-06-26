@@ -466,6 +466,81 @@ function fig_gibbs()
     save(asset("moves_gibbs.png"), fig)
 end
 
+# =============================================================================
+# 15. Posterior over K — Bayesian output is a distribution   [data-plot]
+# =============================================================================
+function fig_posterior_k(S)
+    pk = S.diag.posterior_k
+    pkn = pk ./ max(1, sum(pk))
+    nz = findall(>(0.002), pkn)
+    lo = isempty(nz) ? 0 : max(0, first(nz) - 1)
+    hi = isempty(nz) ? length(pk) - 1 : min(length(pk) - 1, last(nz))
+    fig = Figure(size = (640, 430))
+    ax = Axis(fig[1, 1], xlabel = "number of emitters K", ylabel = "posterior P(K)",
+              title = "The posterior is a distribution over K", xticks = lo:hi)
+    barplot!(ax, collect(lo:hi), pkn[(lo+1):(hi+1)]; color = :steelblue)
+    kmap = argmax(pkn) - 1
+    vlines!(ax, [kmap]; color = :crimson, linestyle = :dash, linewidth = 2, label = "MAP-N = $kmap")
+    axislegend(ax; position = :rt, framevisible = false)
+    save(asset("overview_posterior_k.png"), fig)
+end
+
+# =============================================================================
+# 16. Hierarchical learning flow   [schematic]
+# =============================================================================
+function fig_hier_flow()
+    fig = Figure(size = (900, 340))
+    ax = Axis(fig[1, 1]); hidedecorations!(ax); hidespines!(ax)
+    limits!(ax, 0, 10, 0, 4)
+    boxes = [(1.6, "every emitter's\nblink counts  nₖ", :steelblue),
+             (5.0, "learned\nμ,  shape", :seagreen),
+             (8.4, "NegBin model\nregularizes K", :crimson)]
+    for (x, txt, col) in boxes
+        poly!(ax, Point2f[(x - 1.2, 1.6), (x + 1.2, 1.6), (x + 1.2, 2.7), (x - 1.2, 2.7)];
+              color = (col, 0.12), strokecolor = col, strokewidth = 2)
+        text!(ax, x, 2.15; text = txt, align = (:center, :center), fontsize = 15)
+    end
+    arrows!(ax, [2.9, 6.3], [2.15, 2.15], [1.0, 1.0], [0.0, 0.0]; color = :gray30, linewidth = 2, arrowsize = 14)
+    text!(ax, 3.95, 2.45; text = "pool + learn (MH)", align = (:center, :bottom), fontsize = 11, color = :gray40)
+    text!(ax, 7.0, 2.45; text = "defines", align = (:center, :bottom), fontsize = 11, color = :gray40)
+    lines!(ax, [8.4, 8.4, 1.6, 1.6], [1.6, 0.7, 0.7, 1.45]; color = :gray55, linewidth = 1.5, linestyle = :dash)
+    arrows!(ax, [1.6], [1.0], [0.0], [0.45]; color = :gray55, linewidth = 1.5, arrowsize = 12)
+    text!(ax, 5.0, 0.55; text = "counts re-pooled every sync_interval", align = (:center, :center), fontsize = 11, color = :gray45)
+    save(asset("hier_flow.png"), fig)
+end
+
+# =============================================================================
+# 17. Dahl consensus flow — sampled partitions → PSM → closest   [schematic]
+# =============================================================================
+function fig_dahl_schematic()
+    pts = [(-0.045, 0.0), (-0.02, 0.022), (0.0, -0.012), (0.03, 0.016), (0.046, -0.02)]
+    samples = [[1, 1, 1, 2, 2], [1, 1, 2, 2, 2], [1, 1, 1, 2, 2]]
+    n = length(pts)
+    C = zeros(n, n)
+    for s in samples, i in 1:n, j in 1:n
+        s[i] == s[j] && (C[i, j] += 1)
+    end
+    C ./= length(samples)
+    dist(z) = sum((( (z[i] == z[j]) ? 1.0 : 0.0) - C[i, j])^2 for i in 1:n for j in (i+1):n)
+    best = argmin([dist(s) for s in samples])
+    cols = [:dodgerblue, :crimson, :seagreen]
+    fig = Figure(size = (1040, 420))
+    Label(fig[0, 1:5], "Dahl consensus: summarizing a distribution over partitions", fontsize = 16, font = :bold)
+    for (r, s) in enumerate(samples)
+        ax = Axis(fig[r, 1], aspect = DataAspect(), title = r == 1 ? "sampled partitions" : "")
+        scatter!(ax, first.(pts), last.(pts); color = cols[s], markersize = 13)
+        limits!(ax, -0.07, 0.07, -0.05, 0.05); hidedecorations!(ax)
+    end
+    Label(fig[1:3, 2], "count\nco-assignment\n→", fontsize = 13, tellwidth = false)
+    ax2 = Axis(fig[1:3, 3], title = "PSM (co-assignment)", aspect = 1, yreversed = true)
+    heatmap!(ax2, C; colormap = :viridis, colorrange = (0, 1)); hidedecorations!(ax2)
+    Label(fig[1:3, 4], "pick sample\nclosest to PSM\n→", fontsize = 13, tellwidth = false)
+    ax3 = Axis(fig[1:3, 5], aspect = DataAspect(), title = "consensus")
+    scatter!(ax3, first.(pts), last.(pts); color = cols[samples[best]], markersize = 15, strokecolor = :black, strokewidth = 1)
+    limits!(ax3, -0.07, 0.07, -0.05, 0.05); hidedecorations!(ax3)
+    save(asset("mapn_dahl.png"), fig)
+end
+
 # Print summary metrics for the results gallery table (hand-copied into results.md).
 function print_metrics(S)
     pk = S.diag.posterior_k; pkn = pk ./ max(1, sum(pk))
@@ -615,6 +690,7 @@ function main()
         figure("count",           () -> fig_count(S))
         figure("acceptance",      () -> fig_acceptance(S))
         figure("posterior",       () -> fig_posterior(S))
+        figure("posterior_k",      () -> fig_posterior_k(S))
         figure("metrics",         () -> print_metrics(S))
     end
     @isdefined(G) && figure("partition", () -> fig_partition(G))
@@ -625,6 +701,8 @@ function main()
     figure("se_prepost",        fig_se_prepost)
     figure("negbin_family",     fig_negbin_family)
     figure("gibbs",             fig_gibbs)
+    figure("hier_flow",         fig_hier_flow)
+    figure("dahl_schematic",    fig_dahl_schematic)
 
     for (nm, f) in (("generative", fig_generative), ("precision", fig_precision),
                     ("allocation", fig_allocation), ("splitmerge", fig_splitmerge),
