@@ -28,6 +28,11 @@ The quadratic ``\mathrm{quad} - \boldsymbol{\eta}^\top\Lambda^{-1}\boldsymbol{\e
 how tightly the cluster's localizations agree once their common position is fitted out: a
 spatially compact cluster scores high, a diffuse one low.
 
+This "Gaussian core" uses an **improper, infinitely-flat** prior on ``\boldsymbol{\theta}``
+— it is not yet a normalized model. The two spatial models below make it proper, each by
+adding one position-prior term; do not confuse this improper core with the `:flat`
+**spatial model**, which is the *uniform-over-area* prior of the next section.
+
 ## Flat (uniform) spatial prior
 
 The flat model places emitters uniformly over the region of area ``A``, adding a single
@@ -49,7 +54,11 @@ concentrates emitter-position mass where localizations are dense:
 P(\boldsymbol{\theta}) = \frac{1}{N}\sum_{j=1}^{N} \mathcal{N}(\boldsymbol{\theta};\ \mathbf{x}_j,\ \Sigma_j).
 ```
 
-The marginal then adds ``\log P_{\text{locmix}}`` in place of ``-\log A``:
+The marginal then adds ``\log P_{\text{locmix}}`` in place of ``-\log A``. **Importantly, the
+live sampler evaluates this term as a plug-in: it takes ``\log P_{\text{locmix}}`` at the
+single point ``\hat{\boldsymbol{\theta}} = \Lambda^{-1}\boldsymbol{\eta}`` (the cluster
+posterior mean), not as the full integral over ``\boldsymbol{\theta}``** — a saddle-point
+approximation chosen for speed:
 
 ```math
 \log p_{\text{locmix}}(\mathbf{x}_{1:n} \mid c)
@@ -63,13 +72,11 @@ The marginal then adds ``\log P_{\text{locmix}}`` in place of ``-\log A``:
 localization field — prior mass pools on the data. The flat prior would be a constant sheet
 by comparison.*
 
-!!! note "Implementation detail: the locmix marginal is a plug-in approximation"
-    The live sampler evaluates ``\log P_{\text{locmix}}`` **at the posterior mean**
-    ``\hat{\boldsymbol\theta}`` on a precomputed grid (`log_marginal_likelihood_locmix`) — a
-    saddle-point / plug-in approximation, exact only in the limit where the prior is flat
-    over the posterior width of ``\boldsymbol\theta``. The exact mixture integral
-    (`log_ml_locmix`) is implemented and used by the diagnostics, but the grid plug-in is
-    the production path (chosen for speed).
+!!! note "Exact integral vs. the production path"
+    ``\log P_{\text{locmix}}`` is precomputed on a grid (`log_marginal_likelihood_locmix`).
+    The plug-in is exact only in the limit where the prior is flat over the posterior width of
+    ``\boldsymbol\theta``. The exact mixture integral (`log_ml_locmix`) is implemented and used
+    by the diagnostics, but the grid plug-in is the production path.
 
 ## Predictive probability
 
@@ -93,3 +100,6 @@ cancel (they are evaluated at the shifted posterior mean).
 *The flat prior (left, uniform) versus the localization-mixture prior (right, concentrated
 on the localizations), with the same candidate emitter position (red star) marked in both —
 locmix rewards groupings that sit on dense data.*
+
+Next: the [priors](priors.md) that weigh these likelihood scores — on the allocation, the
+blink counts, and the emitter number ``K``.

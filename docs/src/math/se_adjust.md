@@ -62,7 +62,8 @@ its result, or pass a known number directly. The correction self-guards against
 double-applying: data already corrected upstream (metadata `sigma_corrected = true`) is
 skipped, and the finder refuses to run on already-corrected data.
 
-!!! info "Figure (pending) · `assets/se_prepost.png`"
-    The same N-mer grouped with `se_adjust=0.0` (over-split into spurious emitters) and with
-    `se_adjust=:auto` (correct count), rendered side by side via [`render_report`](@ref).
-    The visible failure mode the correction removes.
+![se_adjust=0 over-splits one emitter; the correction recovers it](../assets/se_prepost.png)
+
+*A single emitter whose reported σ is underestimated. With `se_adjust=0` BaGoL over-splits it
+into three spurious emitters (left); with the estimated ``\hat\tau`` folded in it recovers the
+one true emitter (right) — the visible failure mode the correction removes.*

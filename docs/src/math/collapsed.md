@@ -61,6 +61,12 @@ comparable quality shrinks the position uncertainty by roughly ``\sqrt{n}`` — 
 super-resolution gain made precise. These two quantities are exactly what the MAP-N output
 emitters carry as their position and reported uncertainty.
 
+!!! note "Spatial model vs. reported uncertainty"
+    This posterior mean and covariance — the reported emitter position and its uncertainty —
+    come from the flat-prior Gaussian combination and are the **same for both spatial
+    models**. Choosing `:locmix` vs `:flat` changes only the *marginal-likelihood score* that
+    compares groupings ([next page](marginal.md)), not the reported emitter uncertainty.
+
 ![A collapsed cluster: loose localizations, tight posterior](../assets/collapsed_cluster.png)
 
 *One emitter's localizations (faint gray 1σ discs) collapse to a tight posterior (red 2σ

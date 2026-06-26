@@ -42,6 +42,11 @@ directly from the data; enable it with `se_adjust=:auto` and BaGoL folds `τ` in
 localization in quadrature (`σ² + τ²`) before grouping. The [Mathematics](math/index.md)
 section describes the statistics in full.
 
+![Raw localizations → BaGoL MAP-N](assets/intro_prepost.png)
+
+*A simulated hexamer: the raw localizations (left) are an unresolved blur; the BaGoL MAP-N
+result (right) recovers the six individual emitters at the same scale.*
+
 ## Installation
 
 ```julia
@@ -74,13 +79,15 @@ result_smld, diagnostics = run_bagol(locs; camera=camera)
 
 ## Where to go next
 
-- **[User Guide](guide.md)** — the model and sampler controls, what `run_bagol` returns,
-  standard reports, large-dataset partitioning, and direct chain access.
-- **[Mathematics](math/index.md)** — a detailed, code-grounded breakdown of the generative
-  model, the collapsed Gibbs / RJMCMC sampler, MAP-N estimation, and uncertainty correction,
-  split across pages by concept.
-- **[Results Gallery](results.md)** — end-to-end results on simulated data.
-- **[API Reference](api.md)** — every exported type and function.
+- **Run it now** → the [User Guide](guide.md): inputs and units, the `run_bagol` options,
+  what comes back and how to tell a run is sane, standard reports, and large-dataset
+  partitioning.
+- **Understand the model** → the [Mathematics](math/index.md) section: a code-grounded
+  breakdown of the collapsed RJMCMC sampler, the priors, MAP-N estimation, and uncertainty
+  correction — split across pages by concept, with figures.
+- **See results** → the [Results Gallery](results.md): end-to-end runs on simulated data.
+- **Go low-level** → the [API Reference](api.md): every exported type and function, with the
+  diagnostics and validation tools grouped separately.
 
 ## Citation
 
