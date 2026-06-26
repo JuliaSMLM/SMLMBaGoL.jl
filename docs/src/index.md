@@ -34,13 +34,17 @@ with the **MAP-N** estimate — the most probable number of emitters, together w
 representative grouping of localizations at that count — which pools the localizations
 assigned to each emitter to reach a position more precise than any single localization.
 
-BaGoL's accuracy rests on one assumption: that the reported localization uncertainties
-are correct. In practice they are often underestimated, which can lead BaGoL to treat
-noise as signal and split one true emitter into several. To guard against this, the
-package provides [`estimate_se_adjust`](@ref), which infers the missing uncertainty `τ`
-directly from the data; enable it with `se_adjust=:auto` and BaGoL folds `τ` into each
-localization in quadrature (`σ² + τ²`) before grouping. The [Mathematics](math/index.md)
-section describes the statistics in full.
+BaGoL rests on two assumptions about your data. First, that the localizations are repeated
+blinking observations from a finite set of real, discrete point emitters — if the data
+instead contain many spurious detections, genuinely diffuse signal, or drift-smeared
+structure, grouping localizations back into emitters is no longer the right model. Second,
+that the localizations are calibrated: their fitted positions are unbiased and the reported
+uncertainty `σ` reflects the actual localization error. In practice `σ` is often
+underestimated, especially by fast/GPU fitters, which can make BaGoL split one true emitter
+into several; to guard against this the package provides [`estimate_se_adjust`](@ref), which
+infers an added uncertainty `τ` from the data. Enable it with `se_adjust=:auto` and BaGoL
+folds `τ` into each localization in quadrature (`σ² + τ²`) before grouping. The
+[Mathematics](math/index.md) section describes the statistics in full.
 
 ![Raw localizations → BaGoL MAP-N](assets/intro_prepost.png)
 
