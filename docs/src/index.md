@@ -39,8 +39,8 @@ are correct. In practice they are often underestimated, which can lead BaGoL to 
 noise as signal and split one true emitter into several. To guard against this, the
 package provides [`estimate_se_adjust`](@ref), which infers the missing uncertainty `τ`
 directly from the data; enable it with `se_adjust=:auto` and BaGoL folds `τ` into each
-localization in quadrature (`σ² + τ²`) before grouping. The [Model & Sampler](model.md)
-page describes the statistics in full.
+localization in quadrature (`σ² + τ²`) before grouping. The [Mathematics](math/index.md)
+section describes the statistics in full.
 
 ## Installation
 
@@ -76,8 +76,10 @@ result_smld, diagnostics = run_bagol(locs; camera=camera)
 
 - **[User Guide](guide.md)** — the model and sampler controls, what `run_bagol` returns,
   standard reports, large-dataset partitioning, and direct chain access.
-- **[Model & Sampler](model.md)** — the generative model, the collapsed Gibbs / RJMCMC
-  sampler, MAP-N estimation, and the uncertainty-correction procedure.
+- **[Mathematics](math/index.md)** — a detailed, code-grounded breakdown of the generative
+  model, the collapsed Gibbs / RJMCMC sampler, MAP-N estimation, and uncertainty correction,
+  split across pages by concept.
+- **[Results Gallery](results.md)** — end-to-end results on simulated data.
 - **[API Reference](api.md)** — every exported type and function.
 
 ## Citation

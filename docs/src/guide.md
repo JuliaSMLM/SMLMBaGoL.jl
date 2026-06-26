@@ -6,8 +6,8 @@ CurrentModule = SMLMBaGoL
 
 This guide covers the everyday workflow: running [`run_bagol`](@ref), choosing model and
 sampler options, reading what comes back, producing standard reports, scaling to large
-datasets, and dropping down to the chain directly. For the underlying statistics see
-[Model & Sampler](model.md).
+datasets, and dropping down to the chain directly. For the underlying statistics see the
+[Mathematics](math/index.md) section.
 
 ## Running BaGoL
 
@@ -69,7 +69,7 @@ value throws an `ArgumentError`.
 | `k_prior` | `:auto`, `:poisson`, `:none` | Gating of the emitter-count (`K`) prior. `:auto` uses the spatial model's default policy; `:poisson` is only valid with `spatial_model=:flat` and throws otherwise. |
 
 The defaults (`:locmix` + `:dm` + `:auto`) are the recommended configuration. See
-[Model & Sampler](model.md) for what each prior is.
+[Priors](math/priors.md) for what each prior is.
 
 ### Split/merge and birth/death tuning
 
@@ -109,7 +109,7 @@ diagnostics.se_adjust                                         # the (τx, τy) t
 
 You can also pass a known `τ` directly (`se_adjust=0.012`). The correction self-guards
 against double-applying to a localization set that was already corrected upstream. See
-[Model & Sampler](model.md#Uncertainty-correction) for the estimator.
+[Uncertainty Correction](math/se_adjust.md) for the estimator.
 
 ## Standard reports
 
