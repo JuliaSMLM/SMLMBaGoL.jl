@@ -17,7 +17,7 @@ dSTORM dataset and a densely-blinking DNA-PAINT dataset are fit with different l
 Concretely, the hyperparameters are not fixed — they are updated from the data every
 `sync_interval` iterations (default 100), gated by `learn_distribution` (`hierarchical.jl`).
 
-!!! note "General method: hierarchical (empirical) Bayes"
+!!! note "General method: hierarchical Bayes"
     Fixing ``\mu`` and ``\alpha`` to guessed values would bake an assumption about your
     sample's blinking into the result. Instead BaGoL treats them as **shared parameters** of a
     *hierarchical* model: every emitter's blink count is drawn from one common count
@@ -25,10 +25,11 @@ Concretely, the hyperparameters are not fixed — they are updated from the data
     inferred from the data. Because all emitters inform the same ``(\mu, \alpha)``, the
     estimate **pools information across the whole field** — many emitters with only a few
     blinks each still pin the distribution down ("borrowing strength"). Learning shared
-    hyperparameters this way is a standard hierarchical-Bayes / empirical-Bayes technique used
-    far beyond SMLM; here it just means you need not know the blinking kinetics in advance.
-    **In your output:** `final_μ` / `final_shape` are the learned values, and the
-    `convergence_trace` shows them settling.
+    hyperparameters this way is a standard hierarchical-Bayes technique used far beyond SMLM
+    (in full-Bayes form here — the hyperparameters are *sampled*, not fixed to a point estimate
+    as in empirical Bayes); it just means you need not know the blinking kinetics in advance.
+    **In your output:** `final_μ` / `final_shape` are the final learned (last-sampled) values,
+    and the `convergence_trace` shows them settling.
 
 ![How the count distribution is learned and fed back](../assets/hier_flow.png)
 

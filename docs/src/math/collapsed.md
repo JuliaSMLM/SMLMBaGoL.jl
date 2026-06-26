@@ -85,9 +85,9 @@ page derives that marginal likelihood for both spatial models.
     Whenever some parameters can be integrated out *exactly*, it is usually worth doing:
     sampling fewer, lower-variance quantities makes MCMC both faster and less noisy — a
     standard trick called **Rao–Blackwellization**. Here the emitter positions
-    ``\boldsymbol{\theta}_k`` are nuisance parameters; Gaussian conjugacy lets us replace
-    "sample each position, then score" with a single closed-form marginal likelihood per
-    cluster. The chain then explores only the discrete groupings, and the positions are
-    recovered analytically at the end. The same idea underlies the Rao-Blackwellized posterior
+    ``\boldsymbol{\theta}_k`` are nuisance parameters *for the grouping search* — recovered
+    analytically as the reported positions once the grouping is fixed. Gaussian conjugacy lets
+    us replace "sample each position, then score" with a closed-form Gaussian marginal per
+    cluster, so the chain explores only the discrete groupings. The same idea underlies the Rao-Blackwellized posterior
     image, which blurs each cluster by its *posterior* covariance instead of plotting point
     estimates.
