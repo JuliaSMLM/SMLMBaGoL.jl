@@ -46,7 +46,9 @@ an EM-style loop:
    preserve same-emitter spread),
 
 descending from above until ``\tau`` is self-consistent. A spatial-block bootstrap provides a
-95% confidence interval. The estimator is **isotropic** (a single scalar ``\tau``).
+95% confidence interval. The estimator is **isotropic**: it uses one per-localization
+uncertainty (the reported ``\sigma_x``) and a single scalar ``\tau``, so it is intended for
+data with roughly isotropic localization precision.
 
 ## Applying the correction
 

@@ -56,16 +56,19 @@ uncertainty must capture.*
 [`estimate_mapn_overlap`](@ref) restricts to samples with exactly ``K`` clusters, matches
 each to the Dahl reference by **maximum localization overlap** (Hungarian on the
 overlap-count cost), and pools. The emitter position is the **mean** of the matched posterior
-means, and the reported covariance follows the **law of total variance**:
+means, and the reported covariance is a practical approximation to the **law of total
+variance**:
 
 ```math
 \Sigma_{\text{emitter}}
-= \underbrace{\Sigma^{\text{post}}_{\text{Dahl}}}_{\mathbb{E}[\mathrm{Var}(\theta\mid Z)]}
-+ \underbrace{\mathrm{Cov}\big[\overline{\theta}^{(t)}\big]}_{\mathrm{Var}[\mathbb{E}(\theta\mid Z)]} .
+\;\approx\; \underbrace{\Sigma^{\text{post}}_{\text{Dahl}}}_{\text{within-cluster (Dahl)}}
+\;+\; \underbrace{\mathrm{Cov}\big[\overline{\theta}^{(t)}\big]}_{\text{between-sample spread}} .
 ```
 
-The first term is the within-cluster analytic [posterior covariance](collapsed.md#Posterior-position-of-a-cluster);
-the second adds the between-sample spread of the matched means, so allocation ambiguity
+The first term is the Dahl cluster's analytic [posterior covariance](collapsed.md#Posterior-position-of-a-cluster)
+(used in place of the sample-averaged within-cluster variance); the second adds the
+between-sample spread of the matched means (when at least three samples match), so allocation
+ambiguity
 inflates the reported uncertainty rather than being hidden.
 
 ![MAP-N posterior ellipses over ground truth](../assets/mapn_ellipses.png)

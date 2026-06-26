@@ -62,11 +62,12 @@ and filled by restricted Gibbs; the reverse direction is the merge.*
 
 ## Birth / death
 
-A birth detaches one localization from a multi-member cluster into a brand-new singleton; a
-death reabsorbs a singleton into an existing cluster chosen by predictive weight. The
-move-type selection probabilities are folded directly into the proposal densities, so
-birth/death carries **no separate move-type term** and (unlike split/merge) its reverse
-densities are deterministic.
+A birth detaches one localization from a multi-member cluster into a new singleton; a death
+reabsorbs a singleton into an existing cluster chosen by predictive weight. The move-type
+selection probabilities are folded directly into the proposal densities, so birth/death
+carries **no separate move-type term**. Its forward and reverse proposal densities — the
+singleton/eligible-loc selection and the predictive destination weights — are computed in
+closed form, rather than estimated from a resampled launch as in split/merge.
 
 ![Birth / death move](../assets/moves_birthdeath.png)
 
@@ -98,8 +99,8 @@ a rejected move is rolled back exactly.
 ![Per-move acceptance rates](../assets/moves_acceptance.png)
 
 *Per-move acceptance rates from a real run — the ``K``-changing moves (split, merge, birth,
-death). The Gibbs allocation sweep is always applied and not shown. A quick read on whether
-the chain is mixing across ``K``.*
+death). The Gibbs allocation sweep, when selected, is recorded as always accepted, so it is
+not shown. These rates indicate whether the chain is mixing across ``K``.*
 
 The acceptance ratios above treat ``\mu`` and shape as fixed inputs; [Hierarchical
 Learning](hierarchical.md) shows how the sampler learns them while it runs.
