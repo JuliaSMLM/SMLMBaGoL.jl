@@ -14,16 +14,19 @@ End-to-end results on simulated data, produced by the standard pipeline:
 A single N-mer of emitters, each blinking many times. The raw localizations are a blur; BaGoL
 groups them back into the individual emitters.
 
-!!! info "Figure · pipeline · `assets/results_prepost.png`"
-    Gaussian render of the raw localizations (left) beside the BaGoL MAP-N result (right),
-    same scale and field of view. `simulate_nmer` ground truth: a known N-mer geometry.
+![Raw localizations of a simulated hexamer](assets/results_prepost_a.png)
+![BaGoL MAP-N result — resolved emitters](assets/results_prepost_b.png)
+
+*Gaussian render of the raw localizations (top) beside the BaGoL MAP-N result (bottom), same
+scale and field of view, for a simulated hexamer of known geometry.*
 
 ## MAP-N against ground truth
 
-!!! info "Figure · pipeline · `assets/results_groundtruth.png`"
-    Localizations (white), simulated ground-truth positions (blue), and BaGoL MAP-N emitters
-    with posterior ellipses (red). The ellipses sit on the true emitters at a precision the
-    raw data cannot reach.
+![MAP-N posterior ellipses over ground truth](assets/results_groundtruth.png)
+
+*Localizations (faint gray), simulated ground-truth positions (cyan), and BaGoL MAP-N
+emitters with posterior ellipses (red). The ellipses sit on the true emitters at a precision
+the raw data cannot reach.*
 
 ## Posterior image
 
@@ -31,21 +34,25 @@ Beyond a point estimate, BaGoL produces a Rao-Blackwellized posterior image — 
 super-resolution reconstruction that integrates over the whole chain rather than a single
 grouping.
 
-!!! info "Figure · pipeline · `assets/results_posterior.png`"
-    The posterior image (`posterior_pixel_size` render) for the same N-mer: emitter density
-    with uncertainty baked in, no thresholding.
+![Rao-Blackwellized posterior image](assets/results_posterior.png)
+
+*The Rao-Blackwellized posterior image for the same hexamer: emitter density with
+uncertainty baked in, no thresholding.*
 
 ## Diagnostics at a glance
 
-!!! info "Figure · pipeline · `assets/results_diagnostics.png`"
-    A panel of [`plot_report`](@ref) outputs — `convergence`, `count_distribution`,
-    `nn_distances`, `partition_k` — the standard report for assessing a run.
+![Convergence traces](assets/hier_convergence.png)
+![Learned count distribution](assets/priors_negbin.png)
+
+*Two of the [`plot_report`](@ref) diagnostics — the convergence traces and the learned vs.
+true count distribution — the standard read for assessing a run.*
 
 ## Large field: partitioning
 
-!!! info "Figure · pipeline · `assets/results_partitions.png`"
-    A grid of N-mers across a wide field, colored by [partition](math/partitioning.md). BaGoL
-    runs each partition in parallel and deduplicates the boundaries.
+![A grid of clusters colored by partition](assets/results_partitions.png)
+
+*A grid of N-mers across a wide field, colored by [partition](math/partitioning.md). BaGoL
+runs each partition in parallel and deduplicates the boundaries.*
 
 ## Reproducing these figures
 
