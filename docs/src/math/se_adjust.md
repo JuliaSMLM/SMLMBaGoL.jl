@@ -27,10 +27,13 @@ empirical CDF of the ``z`` and this reference:
 \hat{\tau} = \arg\min_{\tau}\ \max_i \left| \frac{i}{n} - \big(1 - e^{-z_{(i)}^2/2}\big) \right|.
 ```
 
-!!! info "Figure (pending) · `assets/se_cdf.png`"
-    The empirical scaled-distance CDF against Rayleigh(1) at ``\tau = 0`` (a visible KS gap)
-    and at ``\hat\tau`` (curves coincide), from [`plot_se_adjust`](@ref). The shrinking gap
-    *is* the estimator.
+![Scaled-distance distribution at under, correct, and over τ](../assets/se_dist.png)
+
+*The distribution of scaled within-emitter pair distances ``z`` at three values of ``\tau``:
+too small (``\tau = 0``, shifted right — localizations look over-spread), correct
+(``\hat\tau``, matching the Rayleigh(1) target), and too large (shifted left — over-merged).
+The estimator picks the ``\tau`` whose empirical distribution best matches Rayleigh(1), via
+the Kolmogorov–Smirnov criterion above.*
 
 ## Over-merge descent
 

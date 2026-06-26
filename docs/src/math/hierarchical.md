@@ -4,7 +4,17 @@ CurrentModule = SMLMBaGoL
 
 # Hierarchical Learning
 
-The count-distribution hyperparameters are not fixed — they are learned from the data every
+BaGoL does not ask you to know your sample's blinking statistics in advance. The number of
+localizations a single emitter produces is modelled as a [negative
+binomial](priors.md#Count:-the-negative-binomial-blink-model) whose mean ``\mu`` and shape
+``\alpha`` are *themselves* unknown — a **hierarchical** prior. Rather than fix these
+hyperparameters, the sampler puts Gamma hyperpriors on them and learns them jointly with the
+grouping, pooling information across every emitter in the field. The count model that
+regularizes the emitter number ``K`` therefore adapts to the data: a sparsely-blinking
+dSTORM dataset and a densely-blinking DNA-PAINT dataset are fit with different learned
+``(\mu, \alpha)`` from the same code, with no manual tuning.
+
+Concretely, the hyperparameters are not fixed — they are updated from the data every
 `sync_interval` iterations (default 100), gated by `learn_distribution` (`hierarchical.jl`).
 
 ## ``\mu`` and shape ``\alpha`` — Metropolis–Hastings
