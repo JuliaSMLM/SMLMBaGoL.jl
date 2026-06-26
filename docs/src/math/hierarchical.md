@@ -25,9 +25,9 @@ Concretely, the hyperparameters are not fixed — they are updated from the data
     inferred from the data. Because all emitters inform the same ``(\mu, \alpha)``, the
     estimate **pools information across the whole field** — many emitters with only a few
     blinks each still pin the distribution down ("borrowing strength"). Learning shared
-    hyperparameters this way is a standard hierarchical-Bayes technique used far beyond SMLM
+    hyperparameters this way is a standard hierarchical-Bayes technique used beyond SMLM
     (in full-Bayes form here — the hyperparameters are *sampled*, not fixed to a point estimate
-    as in empirical Bayes); it just means you need not know the blinking kinetics in advance.
+    as in empirical Bayes); it means you need not know the blinking kinetics in advance.
     **In your output:** `final_μ` / `final_shape` are the final learned (last-sampled) values,
     and the `convergence_trace` shows them settling.
 

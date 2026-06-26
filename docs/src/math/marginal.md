@@ -28,7 +28,7 @@ The quadratic ``\mathrm{quad} - \boldsymbol{\eta}^\top\Lambda^{-1}\boldsymbol{\e
 how tightly the cluster's localizations agree once their common position is fitted out: a
 spatially compact cluster scores high, a diffuse one low.
 
-This "Gaussian core" uses an **improper, infinitely-flat** prior on ``\boldsymbol{\theta}``
+This "Gaussian core" uses an **improper, flat** prior on ``\boldsymbol{\theta}``
 — it is not yet a normalized model. The two spatial models below make it proper, each by
 adding one position-prior term; do not confuse this improper core with the `:flat`
 **spatial model**, which is the *uniform-over-area* prior of the next section.
@@ -54,11 +54,10 @@ concentrates emitter-position mass where localizations are dense:
 P(\boldsymbol{\theta}) = \frac{1}{N}\sum_{j=1}^{N} \mathcal{N}(\boldsymbol{\theta};\ \mathbf{x}_j,\ \Sigma_j).
 ```
 
-The marginal then adds ``\log P_{\text{locmix}}`` in place of ``-\log A``. **Importantly, the
-live sampler evaluates this term as a plug-in: it takes ``\log P_{\text{locmix}}`` at the
-single point ``\hat{\boldsymbol{\theta}} = \Lambda^{-1}\boldsymbol{\eta}`` (the cluster
-posterior mean), not as the full integral over ``\boldsymbol{\theta}``** — a saddle-point
-approximation chosen for speed:
+The marginal then adds ``\log P_{\text{locmix}}`` in place of ``-\log A``. The sampler
+evaluates this term as a plug-in: it takes ``\log P_{\text{locmix}}`` at the single point
+``\hat{\boldsymbol{\theta}} = \Lambda^{-1}\boldsymbol{\eta}`` (the cluster posterior mean),
+not as the full integral over ``\boldsymbol{\theta}`` — a saddle-point approximation:
 
 ```math
 \log p_{\text{locmix}}(\mathbf{x}_{1:n} \mid c)

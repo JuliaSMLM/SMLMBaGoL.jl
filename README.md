@@ -11,7 +11,7 @@ SMLMBaGoL performs **Bayesian Grouping of Localizations (BaGoL)** on single-mole
 localization microscopy (SMLM) data. A single fluorophore blinks many times during an
 acquisition, scattering its signal across many localizations; BaGoL groups those
 localizations back into the individual emitters that produced them, yielding emitter
-positions at precision well beyond that of the raw localizations. It operates on the
+positions at precision beyond that of the raw localizations. It operates on the
 `SMLMData.SMLD` structures used across the [JuliaSMLM](https://github.com/JuliaSMLM)
 ecosystem.
 
@@ -42,7 +42,7 @@ observation of a single emitter; it follows that any spurious or multi-emitter f
 upstream analysis pipeline — where one localization stands for two or more emitters — must be
 removed by preprocessing before BaGoL. Second, that the reported localization precision `σ` is
 correct. This second assumption can be relaxed: where `σ` carries a uniform excess error,
-`estimate_se_adjust` recovers it from the data, and `se_adjust=:auto` folds the excess `τ`
+`estimate_se_adjust` estimates it from the data, and `se_adjust=:auto` folds the excess `τ`
 into each localization in quadrature (`σ² + τ²`) before grouping.
 
 ## Installation

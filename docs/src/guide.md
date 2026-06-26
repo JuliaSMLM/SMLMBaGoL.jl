@@ -11,17 +11,19 @@ datasets, and dropping down to the chain directly. For the underlying statistics
 
 ## Before you run
 
-BaGoL groups localizations that already carry a per-localization position uncertainty, so a
-little setup pays off:
+BaGoL groups localizations that already carry a per-localization position uncertainty. Check
+the following before running:
 
 - **Input** — a `SMLMData.SMLD` (e.g. a `BasicSMLD`) of 2D fitted localizations
   (`Emitter2DFit`), or a `Vector{Emitter2DFit}` together with a `camera`. Each localization
   must carry its fitted uncertainty `σ_x`, `σ_y` — that precision is what BaGoL groups by.
+- **Cleaned input** — spurious detections and multi-emitter fits (one localization standing
+  for two or more emitters) should be removed in preprocessing first; BaGoL assumes each
+  localization is a real observation of a single emitter.
 - **Units** — positions and uncertainties are in **micrometers (μm)** throughout.
-- **Uncertainties** — BaGoL trusts your reported `σ`. When they are underestimated (common
-  for GPU fitters), BaGoL over-splits one emitter into several. If that is a risk, add
-  `se_adjust=:auto` so it estimates and folds in the missing error first (see
-  [Uncertainty correction](#Uncertainty-correction)).
+- **Uncertainties** — BaGoL assumes the reported `σ` is correct. When `σ` is underestimated,
+  BaGoL over-splits one emitter into several; if that is a risk, add `se_adjust=:auto` so it
+  estimates and folds in the excess error first (see [Uncertainty correction](#Uncertainty-correction)).
 
 A good first call is just
 
@@ -188,8 +190,8 @@ result_smld, diagnostics = run_bagol(smld;
 
 ## Advanced: direct chain access
 
-Most users can stop at the sections above — run, choose options, check the diagnostics, make
-reports, scale up. The rest of this page is for custom statistics and low-level control.
+The sections above cover the standard workflow — run, choose options, check the diagnostics,
+make reports, scale up. The rest of this page is for custom statistics and low-level control.
 
 For full control of the sampler, [`run_collapsed_chain`](@ref) runs the collapsed Gibbs chain
 directly with a configurable set of accumulators:

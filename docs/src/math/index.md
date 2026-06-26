@@ -88,7 +88,7 @@ BaGoL MAP-N result at the same scale — six resolved emitters. Pipeline: `simul
 
 ## Bayesian inference in brief
 
-If you are new to Bayesian methods, this is the gist. A **prior** encodes what is plausible
+If you are new to Bayesian methods, here is the main idea. A **prior** encodes what is plausible
 before seeing the data — how many emitters, how they blink. The **likelihood** says how
 probable the observed localizations are for a given arrangement of emitters. Bayes' rule
 multiplies them into the **posterior** — what remains plausible *after* combining the model
@@ -105,8 +105,8 @@ the likelihood (the *collapsing* trick described below) and recovered analytical
 reporting, while the blink parameters ``\mu, \alpha`` are learned as shared hyperparameters —
 so the sampler explores only ``(K, \mathbf{z})``.
 
-This posterior cannot be *normalized* or exhaustively maximized directly — there are
-astronomically many ways to group localizations into emitters. So BaGoL **samples** it: the
+This posterior cannot be *normalized* or exhaustively maximized directly — the number of ways
+to group localizations into emitters is enormous. So BaGoL **samples** it: the
 MCMC sampler visits groupings in proportion to their posterior probability. The result is
 therefore not a single answer but a **distribution** — for instance a full posterior over the
 number of emitters ``K``, from which we read both the most probable count and how much to
@@ -151,14 +151,13 @@ localizations with the emitter position already accounted for. (The Gaussian cor
 the default `:locmix` spatial-prior term is a fast plug-in approximation — see
 [Spatial Models & Marginal Likelihood](marginal.md).) The sampler therefore carries a
 **collapsed** state: only the discrete allocation ``(K, \mathbf{z})``, scored by a product of
-analytic cluster marginals. This is the **collapsed Gibbs** sampler, and it buys two
-things:
+analytic cluster marginals. This is the **collapsed Gibbs** sampler, with two benefits:
 
-- **Better mixing, lower variance** — the high-variance continuous positions are handled
-  *exactly* instead of being sampled (a Rao-Blackwellization).
-- **Clean dimension changes** — with a purely discrete state, every RJMCMC move is just a
-  re-partitioning of localizations, and the acceptance ratio is a ratio of marginal
-  likelihoods and prior factors with **no Jacobian term**.
+- **Lower variance** — the high-variance continuous positions are handled exactly instead of
+  being sampled (a Rao-Blackwellization).
+- **Dimension-changing moves are simpler** — with a purely discrete state, every RJMCMC move
+  is a re-partitioning of localizations, and the acceptance ratio is a ratio of marginal
+  likelihoods and prior factors with no Jacobian term.
 
 The closed-form cluster posterior and its marginal likelihood are derived on
 [Collapsed Representation](collapsed.md) and
