@@ -6,15 +6,16 @@ CurrentModule = SMLMBaGoL
 
 A BaGoL **grouping** is an *allocation*: an assignment of every localization to an emitter,
 written as the vector ``\mathbf{z}`` (where ``z_i = k`` means localization ``i`` came from
-emitter ``k``). That allocation is what BaGoL infers and reports — the grouping *is* the
-allocation.
+emitter ``k``). That allocation is what BaGoL infers; it then summarizes the result as the
+MAP-N emitters, with their positions and uncertainties. The grouping *is* the allocation.
 
 "**Collapsed**" describes how the sampler represents that grouping. Each emitter's position
-``\boldsymbol{\theta}_k`` is integrated out analytically — never sampled — so the chain's
-entire state is the allocation ``\mathbf{z}`` and nothing else; the model has been *collapsed*
-down to the grouping by removing the positions. This keeps the moves cheap and the acceptance
-ratios free of Jacobian terms. (The positions are recovered analytically at the end, for
-reporting — see [Posterior position of a cluster](#Posterior-position-of-a-cluster) below.)
+``\boldsymbol{\theta}_k`` is integrated out analytically — never sampled — so the sampler's
+grouping state is the discrete allocation ``(K, \mathbf{z})`` rather than any continuous
+positions; the model has been *collapsed* to a discrete grouping by integrating out the
+positions. This keeps the moves cheap and the acceptance ratios free of Jacobian terms. (The
+positions are recovered analytically at the end, for reporting — see [Posterior position of a
+cluster](#Posterior-position-of-a-cluster) below.)
 
 ## Sufficient statistics
 
