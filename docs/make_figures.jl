@@ -114,8 +114,21 @@ function fig_hero(S)
                   pixel_size = px_nm, prefix = "h")
     cp(joinpath(out, "h_sr_gaussian.png"),   asset("intro_pre.png");        force = true)
     cp(joinpath(out, "h_mapn_gaussian.png"), asset("intro_post.png");       force = true)
-    cp(joinpath(out, "h_sr_gaussian.png"),   asset("results_prepost_a.png"); force = true)
-    cp(joinpath(out, "h_mapn_gaussian.png"), asset("results_prepost_b.png"); force = true)
+
+    # labeled two-panel composite (raw | MAP-N) from render arrays
+    x0, x1, y0, y1 = S.fov
+    w = max(10, ceil(Int, (x1 - x0) * 1000 / px_nm))
+    h = max(10, ceil(Int, (y1 - y0) * 1000 / px_nm))
+    tgt = SMLMRender.Image2DTarget(w, h, px_nm, (x0, x1), (y0, y1))
+    (raw, _)  = SMLMRender.render(S.sim.smld; strategy = GaussianRender(), target = tgt, colormap = :inferno)
+    (mapn, _) = SMLMRender.render(S.result;   strategy = GaussianRender(), target = tgt, colormap = :inferno)
+    fig = Figure(size = (940, 500))
+    Label(fig[0, 1:2], "Raw localizations → BaGoL MAP-N (same scale)", fontsize = 17, font = :bold)
+    ax1 = Axis(fig[1, 1], title = "raw localizations", aspect = DataAspect())
+    ax2 = Axis(fig[1, 2], title = "BaGoL MAP-N", aspect = DataAspect())
+    image!(ax1, rotr90(raw)); image!(ax2, rotr90(mapn))
+    for ax in (ax1, ax2); hidedecorations!(ax); end
+    save(asset("intro_prepost.png"), fig)
 end
 
 # =============================================================================
@@ -153,7 +166,6 @@ function fig_mapn_ellipses(S)
     hidedecorations!(ax)
     axislegend(ax; position = :rt, framevisible = false, labelcolor = :white, labelsize = 12)
     save(asset("mapn_ellipses.png"), fig)
-    cp(asset("mapn_ellipses.png"), asset("results_groundtruth.png"); force = true)
 end
 
 # =============================================================================
@@ -299,7 +311,6 @@ function fig_partition(G)
     scalebar!(ax, xlo, xhi, ylo, yhi, 0.2; label = "200 nm")
     hidedecorations!(ax)
     save(asset("partition_field.png"), fig)
-    cp(asset("partition_field.png"), asset("results_partitions.png"); force = true)
 end
 
 # =============================================================================
@@ -386,6 +397,83 @@ function fig_se_distribution()
     lines!(ax, grid, kde(zvals(2τtrue));   color = :dodgerblue, linewidth = 2.5, label = "τ too large (over)")
     axislegend(ax; position = :rt, framevisible = false, labelsize = 12)
     save(asset("se_dist.png"), fig)
+end
+
+# =============================================================================
+# 12. se_adjust over-split vs corrected — Gaussian renders   [pipeline]
+# =============================================================================
+function fig_se_prepost()
+    sim = simulate_nmer(; n = 1, diameter = 0.001, mean_count = 22.0, psf_sigma = 0.130,
+                          mean_photons = 500.0, min_photons = 100.0, pixel_size = 0.100, field_size = 3.0)
+    s = 0.5                                            # shrink reported σ ⇒ data looks over-precise
+    σmed = median(e.σ_x for e in sim.smld.emitters)
+    under = deepcopy(sim.smld)
+    for e in under.emitters
+        e.σ_x *= s; e.σ_y *= s; e.σ_xy *= s^2          # Emitter2DFit is mutable
+    end
+    τ = σmed * sqrt(1 - s^2)                           # per-axis error the shrunk σ now misses
+    r0, _ = run_bagol(under; n_iterations = 14000, burn_in = 4000, partition_sigma = Inf, se_adjust = 0.0)
+    r1, _ = run_bagol(under; n_iterations = 14000, burn_in = 4000, partition_sigma = Inf, se_adjust = τ)
+    fov = compute_fov(under)
+    span = max(fov[2] - fov[1], fov[4] - fov[3]); px_nm = span * 1000 / 500
+    w = max(10, ceil(Int, (fov[2] - fov[1]) * 1000 / px_nm)); h = max(10, ceil(Int, (fov[4] - fov[3]) * 1000 / px_nm))
+    tgt = SMLMRender.Image2DTarget(w, h, px_nm, (fov[1], fov[2]), (fov[3], fov[4]))
+    (i0, _) = SMLMRender.render(r0; strategy = GaussianRender(), target = tgt, colormap = :inferno)
+    (i1, _) = SMLMRender.render(r1; strategy = GaussianRender(), target = tgt, colormap = :inferno)
+    fig = Figure(size = (900, 500))
+    Label(fig[0, 1:2], "Under-reported σ: one emitter, over-split unless corrected", fontsize = 16, font = :bold)
+    ax1 = Axis(fig[1, 1], title = "se_adjust = 0  ($(length(r0.emitters)) emitters)", aspect = DataAspect())
+    ax2 = Axis(fig[1, 2], title = "se_adjust = τ̂  ($(length(r1.emitters)) emitter)", aspect = DataAspect())
+    image!(ax1, rotr90(i0)); image!(ax2, rotr90(i1))
+    for ax in (ax1, ax2); hidedecorations!(ax); end
+    save(asset("se_prepost.png"), fig)
+end
+
+# =============================================================================
+# 13. Count-distribution family — how shape α reshapes blinking   [data-plot]
+# =============================================================================
+function fig_negbin_family()
+    μ = 10.0; kmax = 35; ks = 0:kmax
+    fig = Figure(size = (760, 460))
+    ax = Axis(fig[1, 1], xlabel = "localizations per emitter", ylabel = "probability",
+              title = "Count distribution: shape α at fixed μ = 10")
+    for (α, lab, col) in [(1.0, "α = 1  (dSTORM, exponential)", :crimson),
+                          (2.0, "α = 2", :seagreen),
+                          (8.0, "α = 8  (peaked, DNA-PAINT-like)", :dodgerblue)]
+        lines!(ax, collect(ks), negbin_pmf(kmax, μ, α); color = col, linewidth = 2.5, label = lab)
+    end
+    axislegend(ax; position = :rt, framevisible = false, labelsize = 12)
+    save(asset("priors_negbin_family.png"), fig)
+end
+
+# =============================================================================
+# 14. Gibbs allocation sweep — reassign one localization   [schematic]
+# =============================================================================
+function fig_gibbs()
+    a = [(-0.032, 0.012), (-0.026, -0.012), (-0.036, 0.0)]
+    b = [(0.030, 0.006), (0.036, -0.014), (0.027, 0.016)]
+    amb = (-0.003, 0.0)
+    fig = Figure(size = (820, 360))
+    for (col, (title, ambcol)) in zip((1, 3), [("before: xᵢ in cluster A", :dodgerblue),
+                                               ("after: reassigned to B", :crimson)])
+        ax = Axis(fig[1, col], title = title, aspect = DataAspect())
+        scatter!(ax, first.(a), last.(a); color = :dodgerblue, markersize = 13)
+        scatter!(ax, first.(b), last.(b); color = :crimson, markersize = 13)
+        scatter!(ax, [amb[1]], [amb[2]]; color = ambcol, markersize = 16, strokecolor = :black, strokewidth = 1.5)
+        limits!(ax, -0.06, 0.06, -0.04, 0.04); hidedecorations!(ax)
+    end
+    Label(fig[1, 2], "P(zᵢ = k) ∝\n(n₋ᵢ,ₖ + γ) · pred", fontsize = 14, tellheight = false)
+    save(asset("moves_gibbs.png"), fig)
+end
+
+# Print summary metrics for the results gallery table (hand-copied into results.md).
+function print_metrics(S)
+    pk = S.diag.posterior_k; pkn = pk ./ max(1, sum(pk))
+    kbest = argmax(pkn) - 1
+    rawσ  = median(e.σ_x for e in S.sim.smld.emitters) * 1000
+    postσ = median(e.σ_x for e in S.result.emitters) * 1000
+    @info "RESULTS METRICS" trueK = S.sim.n_emitters mapnK = S.diag.n_emitters
+    @info "RESULTS METRICS cont" Pkbest = (kbest, round(maximum(pkn), digits = 2)) rawσ_nm = round(rawσ, digits = 1) postσ_nm = round(postσ, digits = 1)
 end
 
 # =============================================================================
@@ -527,12 +615,16 @@ function main()
         figure("count",           () -> fig_count(S))
         figure("acceptance",      () -> fig_acceptance(S))
         figure("posterior",       () -> fig_posterior(S))
+        figure("metrics",         () -> print_metrics(S))
     end
     @isdefined(G) && figure("partition", () -> fig_partition(G))
     figure("collapsed_cluster", fig_collapsed_cluster)
     figure("psm",               fig_psm)
     figure("marginal",          fig_marginal)
     figure("se_distribution",   fig_se_distribution)
+    figure("se_prepost",        fig_se_prepost)
+    figure("negbin_family",     fig_negbin_family)
+    figure("gibbs",             fig_gibbs)
 
     for (nm, f) in (("generative", fig_generative), ("precision", fig_precision),
                     ("allocation", fig_allocation), ("splitmerge", fig_splitmerge),

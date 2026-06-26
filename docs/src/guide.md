@@ -9,6 +9,26 @@ sampler options, reading what comes back, producing standard reports, scaling to
 datasets, and dropping down to the chain directly. For the underlying statistics see the
 [Mathematics](math/index.md) section.
 
+## Before you run
+
+BaGoL groups localizations that already carry a per-localization position uncertainty, so a
+little setup pays off:
+
+- **Input** — a `SMLMData.SMLD` (e.g. a `BasicSMLD`) of 2D fitted localizations
+  (`Emitter2DFit`), or a `Vector{Emitter2DFit}` together with a `camera`. Each localization
+  must carry its fitted uncertainty `σ_x`, `σ_y` — that precision is what BaGoL groups by.
+- **Units** — positions and uncertainties are in **micrometers (μm)** throughout.
+- **Uncertainties** — BaGoL trusts your reported `σ`. When they are underestimated (common
+  for GPU fitters), BaGoL over-splits one emitter into several. If that is a risk, add
+  `se_adjust=:auto` so it estimates and folds in the missing error first (see
+  [Uncertainty correction](#Uncertainty-correction)).
+
+A good first call is just
+
+```julia
+result_smld, diagnostics = run_bagol(smld)              # or: run_bagol(smld; se_adjust=:auto)
+```
+
 ## Running BaGoL
 
 The single entry point is [`run_bagol`](@ref). It accepts an `SMLMData.SMLD`:
@@ -57,6 +77,10 @@ result_smld, diagnostics = run_bagol(smld;
 `false` fixes both, and `:mu` / `:shape` learn only one. Passing anything else throws an
 `ArgumentError`.
 
+!!! tip "Unicode keyword"
+    `μ` is typed in the Julia REPL as `\mu` followed by `Tab`. The count-distribution shape
+    ``\alpha`` is passed as the `shape` keyword — there is no separate `α` keyword.
+
 ### Advanced: model choices
 
 Three options select the statistical model itself. All are validated — an unrecognized
@@ -94,6 +118,23 @@ Alongside the grouped `BasicSMLD`, `run_bagol` returns a [`BaGoLDiagnostics`](@r
 - `se_adjust` — the applied uncertainty correction `(τx, τy)` in μm, or `nothing`
 - `convergence_trace` — per-sync `K`/μ/shape trace for burn-in assessment
 
+### Is the run sane?
+
+A quick checklist on the returned `diagnostics`:
+
+- **`posterior_k`** — is the emitter count concentrated or smeared across many `K`? Normalize
+  it for `P(K)` with `posterior_k ./ sum(posterior_k)`; a broad histogram means the data does
+  not pin down `K`. (The [convergence trace](math/hierarchical.md) shows the same thing over
+  iterations.)
+- **`acceptance_rates`** — the split / merge / birth / death rates should be nonzero, i.e. the
+  chain is actually exploring `K`. All-zero `K`-move acceptance means it is stuck at one `K`.
+- **`convergence_trace`** — the `K` / μ / shape traces should settle before `burn_in`; if they
+  are still trending at the end, raise `n_iterations` and `burn_in`.
+- **`final_μ`, `final_shape`** — the learned blink statistics. A surprisingly large `final_μ`
+  usually signals under-splitting (too few emitters, each absorbing too many localizations).
+- **`se_adjust`** — when you used `:auto`, this is the `τ` that was applied; a large value
+  means the reported `σ` was badly underestimated (see [Uncertainty correction](#Uncertainty-correction)).
+
 ## Uncertainty correction
 
 BaGoL assumes the reported localization uncertainties are correct. When they are
@@ -107,8 +148,10 @@ result_smld, diagnostics = run_bagol(smld; se_adjust=:auto)  # estimate τ, then
 diagnostics.se_adjust                                         # the (τx, τy) that was applied
 ```
 
-You can also pass a known `τ` directly (`se_adjust=0.012`). The correction self-guards
-against double-applying to a localization set that was already corrected upstream. See
+The automatic estimator is **isotropic** — it finds a single scalar `τ`, then reports and
+applies it as `(τx, τy)` with `τx = τy`. You can also pass a known `τ` directly
+(`se_adjust=0.012`), or a per-axis tuple. The correction self-guards against double-applying
+to a localization set that was already corrected upstream. See
 [Uncertainty Correction](math/se_adjust.md) for the estimator.
 
 ## Standard reports
@@ -143,10 +186,13 @@ result_smld, diagnostics = run_bagol(smld;
     sync_interval      = 100)    # iterations between global μ/shape updates
 ```
 
-## Direct chain access
+## Advanced: direct chain access
 
-For custom statistics or full control of the sampler, [`run_collapsed_chain`](@ref) runs
-the collapsed Gibbs chain directly with a configurable set of accumulators:
+Most users can stop at the sections above — run, choose options, check the diagnostics, make
+reports, scale up. The rest of this page is for custom statistics and low-level control.
+
+For full control of the sampler, [`run_collapsed_chain`](@ref) runs the collapsed Gibbs chain
+directly with a configurable set of accumulators:
 
 ```julia
 result = run_collapsed_chain(locs;

@@ -31,8 +31,8 @@ concentration to the count model; passing `gamma` fixes it independently. The al
 
 ![The same localizations under K=1, 2, 3 allocations](../assets/priors_allocation.png)
 
-*The same six localizations under three allocations (``K = 1, 2, 3``). The DM partition
-prior assigns each a probability; larger ``\gamma`` favors more, smaller clusters.*
+*The same six localizations under three candidate allocations (``K = 1, 2, 3``) — the discrete
+choices the DM partition prior scores. Larger ``\gamma`` favors more, smaller clusters.*
 
 ## Count: the negative-binomial blink model
 
@@ -50,12 +50,12 @@ active**; it enters every ``K``-changing move as
 ``\Delta_{\text{count}} = \log P(N \mid K') - \log P(N \mid K)`` and is the main regularizer
 of ``K`` under the default `:locmix` model.
 
-![True vs learned per-emitter count distribution](../assets/priors_negbin.png)
+![Count distribution for several shape values](../assets/priors_negbin_family.png)
 
-*The per-emitter count distribution ``\mathrm{NegBin}(\alpha, \alpha/(\alpha+\mu))``: the
-true generating distribution (blue) and the one learned by the sampler (red), with their
-means (dashed). ``\alpha = 1`` gives the dSTORM exponential; ``\alpha > 1`` a peaked,
-DNA-PAINT-like shape.*
+*The per-emitter count distribution ``\mathrm{NegBin}(\alpha, \alpha/(\alpha+\mu))`` at fixed
+mean ``\mu = 10`` for several shapes: ``\alpha = 1`` is the dSTORM exponential (monotone
+decreasing), while larger ``\alpha`` gives a peaked, DNA-PAINT-like shape. The shape is itself
+learned — see [Hierarchical Learning](hierarchical.md).*
 
 !!! note "Negative-binomial, not Gamma"
     The shorthand ``P(N\mid K) = \mathrm{Gamma}(N; K\alpha, \mu/\alpha)`` describes the
@@ -79,3 +79,6 @@ Poisson rate, leaving an area-independent factor; the per-cluster ``-\log A`` is
 separately by the [flat marginal likelihood](marginal.md#Flat-(uniform)-spatial-prior). The
 density ``\rho`` is itself learned (see [Hierarchical Learning](hierarchical.md)).
 `k_prior = :poisson` is valid **only** with `spatial_model = :flat`.
+
+These three priors are exactly the prior terms that appear in the move acceptance ratio
+assembled on [The Sampler: Moves](moves.md).

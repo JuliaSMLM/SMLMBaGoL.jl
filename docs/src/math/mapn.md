@@ -65,3 +65,6 @@ Exported for direct use on stored samples (not on the default pipeline path):
 
 All require a [`PSMAccumulator`](@ref) (and [`PartitionSamples`](@ref)) in the chain's
 accumulator list.
+
+Everything so far runs on one cluster of localizations; [Large-Dataset
+Partitioning](partitioning.md) scales it to a full field of view.

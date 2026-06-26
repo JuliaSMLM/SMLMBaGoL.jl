@@ -79,17 +79,6 @@ UniformSpatialPrior
 count_model_map_k
 ```
 
-## Multi-cue grouping
-
-```@docs
-MultiClusterStats
-FeatureSet
-run_multicue_chain
-build_multicue_precisions
-extract_multicue
-gaussian_contribution
-```
-
 ## Posterior image & chain archive
 
 ```@docs
@@ -132,6 +121,27 @@ write_speed
 plot_sweep
 plot_speed
 plot_se_adjust
+```
+
+---
+
+# Advanced & diagnostics
+
+The rest of this page covers experimental features and the sampler-validation toolkit —
+useful for development and correctness checking, not needed for everyday grouping.
+
+## Multi-cue grouping (experimental)
+
+Group on additional conjugate features (spectral, lifetime, …) alongside position. The API
+is in place but there is no end-user workflow page yet.
+
+```@docs
+MultiClusterStats
+FeatureSet
+run_multicue_chain
+build_multicue_precisions
+extract_multicue
+gaussian_contribution
 ```
 
 ## Diagnostics: target densities

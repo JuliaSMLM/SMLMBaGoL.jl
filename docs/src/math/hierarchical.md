@@ -71,3 +71,6 @@ vice versa. The convergence trace above is the direct readout of this feedback.
 
 *The count distribution the sampler learns (red) against the true generating one (blue),
 with their means — the hyperparameter MH recovering an approximate NegBin.*
+
+Once the chain has run, we still need a single point estimate from the posterior — that is
+[MAP-N Estimation](mapn.md).

@@ -41,6 +41,12 @@ P(z_i = k \mid \text{rest}) \;\propto\; (n_{-i,k} + \gamma)\ \cdot\ \mathrm{pred
 For `:decoupled` / `:categorical` the correction is ``1``, reducing the sweep to exact
 predictive-only Gibbs.
 
+![Gibbs sweep reassigns one localization](../assets/moves_gibbs.png)
+
+*The sweep visits each localization and reassigns it with probability proportional to
+``(n_{-i,k}+\gamma)`` times the predictive — here an ambiguous localization moves from cluster
+A to cluster B. ``K`` does not change.*
+
 ## Split / merge (RJMCMC, ``|\Delta K| = 1``)
 
 A boundary-aware coin flip proposes a split (``K \to K+1``) or merge (``K \to K-1``). A
@@ -94,3 +100,6 @@ a rejected move is rolled back exactly.
 *Per-move acceptance rates from a real run — the ``K``-changing moves (split, merge, birth,
 death). The Gibbs allocation sweep is always applied and not shown. A quick read on whether
 the chain is mixing across ``K``.*
+
+The acceptance ratios above treat ``\mu`` and shape as fixed inputs; [Hierarchical
+Learning](hierarchical.md) shows how the sampler learns them while it runs.
