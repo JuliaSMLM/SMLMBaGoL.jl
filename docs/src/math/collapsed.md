@@ -5,9 +5,9 @@ CurrentModule = SMLMBaGoL
 # Collapsed Representation
 
 The sampler's **state is the allocation vector ``\mathbf{z}`` alone**. Each emitter position
-``\boldsymbol{\theta}_k`` is integrated out analytically, so the chain never moves in
-continuous position space — only in the discrete space of partitions. This is what makes
-the moves cheap and the acceptance ratios free of Jacobian terms.
+``\boldsymbol{\theta}_k`` is integrated out analytically, so the chain explores only the
+discrete space of partitions. This keeps the moves cheap and the acceptance ratios free of
+Jacobian terms.
 
 ## Sufficient statistics
 

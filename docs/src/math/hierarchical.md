@@ -78,7 +78,7 @@ conjugate Gamma posterior and is drawn exactly — no accept/reject — from
 ```
 
 with ``\rho \sim \mathrm{Gamma}(2, 1)`` as prior. Under the default `:locmix` model there is
-no Poisson ``K`` prior, so this step **never fires** — ``\rho`` stays at its prior mean.
+no Poisson ``K`` prior, so this step does not run; ``\rho`` stays at its prior mean.
 
 ## How learning closes the loop
 
