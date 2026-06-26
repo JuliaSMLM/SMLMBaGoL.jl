@@ -14,8 +14,10 @@ regularizes the emitter number ``K`` therefore adapts to the data: a sparsely-bl
 dSTORM dataset and a densely-blinking DNA-PAINT dataset are fit with different learned
 ``(\mu, \alpha)`` from the same code, with no manual tuning.
 
-Concretely, the hyperparameters are not fixed — they are updated from the data every
-`sync_interval` iterations (default 100), gated by `learn_distribution` (`hierarchical.jl`).
+Concretely, the hyperparameters are not fixed — they are updated from the data on a fixed
+cadence (default every 100 iterations: `sync_interval` in [`run_bagol`](@ref),
+`hierarchical_interval` in [`run_collapsed_chain`](@ref)), gated by `learn_distribution`
+(`hierarchical.jl`).
 
 !!! note "General method: hierarchical Bayes"
     Fixing ``\mu`` and ``\alpha`` to guessed values would bake an assumption about your
@@ -58,8 +60,9 @@ active clusters, and the multiplicative walk contributes the log-Jacobian
 Two regimes exist:
 
 - **Partitioned [`run_bagol`](@ref) path** — an **``N``-step (50) adaptive** kernel that pools
-  counts across all partitions and tunes the step size ``s`` by a Robbins–Monro rule toward
-  ≈ 0.30 acceptance **during burn-in**; the step size is then frozen, preserving ergodicity.
+  counts across all partitions (excluding clusters that contain overlap localizations) and
+  tunes the step size ``s`` by a Robbins–Monro rule toward ≈ 0.30 acceptance **during
+  burn-in**; the step size is then frozen, preserving ergodicity.
 - **Standalone [`run_collapsed_chain`](@ref)** — a single-step, fixed-scale (``s = 0.3``)
   version.
 

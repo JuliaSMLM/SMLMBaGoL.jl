@@ -15,14 +15,17 @@ A cluster is summarized by additive sufficient statistics (the [`ClusterStats`](
 `cluster_stats.jl`). With ``\Lambda_i = \Sigma_i^{-1}`` the precision of localization ``i``:
 
 ```math
-\Lambda = \sum_{i \in c} \Lambda_i, \qquad
-\boldsymbol{\eta} = \sum_{i \in c} \Lambda_i \mathbf{x}_i, \qquad
-\mathrm{quad} = \sum_{i \in c} \mathbf{x}_i^\top \Lambda_i \mathbf{x}_i, \qquad
+\Lambda = \sum_{i \in c} \Lambda_i, \quad
+\boldsymbol{\eta} = \sum_{i \in c} \Lambda_i \mathbf{x}_i, \quad
+\mathrm{quad} = \sum_{i \in c} \mathbf{x}_i^\top \Lambda_i \mathbf{x}_i, \quad
+\sum_{i \in c} \log\det\Sigma_i, \quad
 n = |c|.
 ```
 
-The localization uncertainty ``\sigma`` enters the model **only here**, as precision. For a
-2D localization with reported ``\sigma_x, \sigma_y`` and covariance ``\sigma_{xy}``,
+The localization uncertainty ``\sigma`` enters the model **only through these statistics** —
+as precision ``\Lambda_i`` and through the per-localization log-determinant
+``\log\det\Sigma_i`` (the Gaussian normalization). For a 2D localization with reported
+``\sigma_x, \sigma_y`` and covariance ``\sigma_{xy}``,
 
 ```math
 \Sigma_i = \begin{pmatrix} \sigma_x^2 & \sigma_{xy} \\ \sigma_{xy} & \sigma_y^2 \end{pmatrix},

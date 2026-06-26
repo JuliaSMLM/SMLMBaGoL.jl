@@ -102,8 +102,9 @@ with the data:
 
 In the schematic above the per-emitter positions ``\boldsymbol{\theta}`` are integrated out of
 the likelihood (the *collapsing* trick described below) and recovered analytically for
-reporting, while the blink parameters ``\mu, \alpha`` are learned as shared hyperparameters —
-so the sampler explores only ``(K, \mathbf{z})``.
+reporting — so the **grouping** moves explore only the discrete ``(K, \mathbf{z})``. The blink
+parameters ``\mu, \alpha`` are not integrated out; they are learned as shared hyperparameters,
+updated alongside the grouping (see [Hierarchical Learning](hierarchical.md)).
 
 This posterior cannot be *normalized* or exhaustively maximized directly — the number of ways
 to group localizations into emitters is enormous. So BaGoL **samples** it: the
