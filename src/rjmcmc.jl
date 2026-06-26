@@ -192,6 +192,10 @@ function run_bagol(
     # Uncertainty correction (standalone; leave 0 in the integrated pipeline)
     se_adjust::Union{Real, Tuple, AbstractVector, Symbol} = 0.0,
     force_se_adjust::Bool = false,
+    # When se_adjust=:auto, retain the finder's full diagnostics on
+    # diagnostics.se_finder so plot_se_adjust can render them (off by default — avoids
+    # holding the per-pair arrays when nothing will plot them).
+    keep_se_finder::Bool = false,
     # Output
     posterior_pixel_size::Float64 = 0.002,
     posterior_xlim::Union{Nothing, Tuple{<:Real, <:Real}} = nothing,
@@ -209,7 +213,7 @@ function run_bagol(
 )
     return _run_bagol_collapsed(smld;
         partition_sigma, min_partition_size, max_partition_size, skip_partition_size,
-        overlap, se_adjust, force_se_adjust, sync_interval, n_iterations, burn_in, shape, learn_distribution,
+        overlap, se_adjust, force_se_adjust, keep_se_finder, sync_interval, n_iterations, burn_in, shape, learn_distribution,
         posterior_pixel_size, posterior_xlim, posterior_ylim,
         archive_path, progress_file, verbose,
         μ=μ, gamma=gamma, allocation_model=allocation_model,
@@ -231,6 +235,7 @@ function run_bagol(
     cfg::BaGoLConfig;
     posterior_xlim::Union{Nothing, Tuple{<:Real, <:Real}} = nothing,
     posterior_ylim::Union{Nothing, Tuple{<:Real, <:Real}} = nothing,
+    keep_se_finder::Bool = false,
 )
     return run_bagol(smld;
         μ=cfg.μ, shape=cfg.shape, learn_distribution=cfg.learn_distribution,
@@ -246,6 +251,7 @@ function run_bagol(
         skip_partition_size=cfg.skip_partition_size,
         overlap=cfg.overlap,
         se_adjust=cfg.se_adjust, force_se_adjust=cfg.force_se_adjust,
+        keep_se_finder=keep_se_finder,
         posterior_pixel_size=cfg.posterior_pixel_size,
         posterior_xlim=posterior_xlim, posterior_ylim=posterior_ylim,
         archive_path=cfg.archive_path, progress_file=cfg.progress_file,
@@ -297,6 +303,7 @@ function _run_bagol_collapsed(
     overlap::Union{Float64, Symbol} = :auto,
     se_adjust::Union{Real, Tuple, AbstractVector, Symbol} = 0.0,
     force_se_adjust::Bool = false,
+    keep_se_finder::Bool = false,
     sync_interval::Int = 100,
     n_iterations::Int = 4000,
     burn_in::Int = 2000,
@@ -356,12 +363,17 @@ function _run_bagol_collapsed(
     _se_md = hasproperty(smld, :metadata) ? smld.metadata : Dict{String,Any}()
     # se_adjust=:auto → run the finder (estimate_se_adjust) and use τ̂. Skipped when
     # the SMLD is already σ-corrected upstream (the finder requires raw σ), leaving τ=0.
+    # se_finder: the full finder NamedTuple, retained only under :auto + keep_se_finder
+    # (so plot_se_adjust can render it). nothing for explicit/zero τ or a σ-corrected SMLD.
+    _se_finder = nothing
     if se_adjust === :auto
         if get(_se_md, "sigma_corrected", false) === true
             se_adjust = 0.0
         else
             _log_progress("se_adjust=:auto — running estimate_se_adjust finder...")
-            se_adjust = estimate_se_adjust(smld).tau_hat_um
+            _fres = estimate_se_adjust(smld; return_diagnostics = keep_se_finder)
+            se_adjust = _fres.tau_hat_um
+            keep_se_finder && (_se_finder = _fres)
             _log_progress("  finder τ̂ = $(round(1000 * se_adjust, digits=2)) nm; applying")
         end
     end
@@ -385,7 +397,7 @@ function _run_bagol_collapsed(
         @warn "No valid partitions"
         empty_smld = SMLMData.BasicSMLD(SMLMData.Emitter2DFit{Float64}[], camera, 1, 1)
         empty_diag = BaGoLDiagnostics(0, Int[], Dict{Symbol,Float64}(), 0.0, shape, 0.0, 0, Int[], Int[], Int[], nothing, _se_tau,
-            (; iters=Int[], K=Int[], mu=Float64[], shape=Float64[], rho=Float64[], burn_in=0))
+            (; iters=Int[], K=Int[], mu=Float64[], shape=Float64[], rho=Float64[], burn_in=0), _se_finder)
         return empty_smld, empty_diag
     end
 
@@ -832,7 +844,8 @@ function _run_bagol_collapsed(
         length(merged_emitters), posterior_k, acceptance_rates,
         μ, current_shape, ρ, n_partitions, cluster_sizes, partition_k,
         loc_partition_ids, post_img, _se_tau,
-        (; iters=trace_iters, K=trace_K, mu=trace_mu, shape=trace_shape, rho=trace_rho, burn_in=burn_in)
+        (; iters=trace_iters, K=trace_K, mu=trace_mu, shape=trace_shape, rho=trace_rho, burn_in=burn_in),
+        _se_finder
     )
     result_smld = SMLMData.BasicSMLD(merged_emitters, camera, 1, 1)
 
