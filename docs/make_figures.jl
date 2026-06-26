@@ -392,21 +392,28 @@ end
 # Schematics — drawn conceptual diagrams   [schematic]
 # =============================================================================
 function fig_generative()
-    Random.seed!(1)
-    fig = Figure(size = (560, 460))
-    ax = Axis(fig[1, 1], title = "One emitter → many localizations", aspect = DataAspect())
+    Random.seed!(4)
+    psf = 0.130                                          # PSF sigma (μm)
+    n = 18
+    photons = [max(25.0, -300.0 * log(rand())) for _ in 1:n]   # ~exponential photon counts
+    σ = psf ./ sqrt.(photons)                            # precision: bright ⇒ tight, dim ⇒ loose
     θ = (0.0, 0.0)
-    pts = [θ .+ 0.03 .* randn(2) for _ in 1:14]
-    for p in pts
-        poly!(ax, Point2f.(cov_circle(p, 0.02)...); color = (:steelblue, 0.10),
+    pts = [(θ[1] + σ[i] * randn(), θ[2] + σ[i] * randn()) for i in 1:n]   # scatter ∝ σᵢ
+    fig = Figure(size = (560, 500))
+    ax = Axis(fig[1, 1], title = "One emitter → many localizations", aspect = DataAspect())
+    for i in 1:n                                         # 1σ uncertainty disc, sized per localization
+        poly!(ax, Point2f.(cov_circle(pts[i], σ[i])...); color = (:steelblue, 0.10),
               strokecolor = (:steelblue, 0.5), strokewidth = 1)
     end
-    scatter!(ax, [p[1] for p in pts], [p[2] for p in pts]; color = :steelblue, markersize = 7,
-             label = "localizations xᵢ ~ N(θ, Σᵢ)")
+    scatter!(ax, first.(pts), last.(pts); color = :steelblue, markersize = 6,
+             label = "localizations  xᵢ ~ N(θ, Σᵢ)")
     scatter!(ax, [θ[1]], [θ[2]]; marker = :star5, markersize = 26, color = :orange,
              strokecolor = :black, strokewidth = 1, label = "emitter θ")
     axislegend(ax; position = :lt, framevisible = false, labelsize = 12)
-    limits!(ax, -0.12, 0.12, -0.12, 0.12); hidedecorations!(ax)
+    lim = 0.065
+    limits!(ax, -lim, lim, -lim, lim)
+    scalebar!(ax, -lim, lim, -lim, lim, 0.02; color = :gray25, label = "20 nm")
+    hidedecorations!(ax)
     save(asset("intro_generative.png"), fig)
 end
 
