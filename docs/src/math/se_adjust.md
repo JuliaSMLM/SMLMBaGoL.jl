@@ -40,7 +40,7 @@ the Kolmogorov–Smirnov criterion above.*
 Grouping depends on ``\tau`` and ``\tau`` depends on the grouping, so the finder alternates
 an EM-style loop:
 
-1. **E-step** — regroup the data with a throwaway BaGoL run at the current ``\tau`` (using
+1. **E-step** — regroup the data with a temporary BaGoL run at the current ``\tau`` (using
    BaGoL's own Dahl-consensus labels);
 2. **M-step** — find the KS-minimizing ``\tau`` on that frozen grouping (right-biased, to
    preserve same-emitter spread),

@@ -48,7 +48,7 @@ grouping.
 
 ![Rao-Blackwellized posterior image](assets/results_posterior.png)
 
-*The posterior image for the same hexamer: emitter density with uncertainty baked in, no
+*The posterior image for the same hexamer: emitter density with uncertainty included, no
 thresholding.*
 
 ## Diagnostics at a glance

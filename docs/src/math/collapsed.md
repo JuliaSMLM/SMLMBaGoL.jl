@@ -84,7 +84,7 @@ page derives that marginal likelihood for both spatial models.
 !!! note "General method: collapsing (Rao–Blackwellization)"
     Whenever some parameters can be integrated out *exactly*, it is usually worth doing:
     sampling fewer, lower-variance quantities makes MCMC both faster and less noisy — a
-    standard trick called **Rao–Blackwellization**. Here the emitter positions
+    standard method called **Rao–Blackwellization**. Here the emitter positions
     ``\boldsymbol{\theta}_k`` are nuisance parameters *for the grouping search* — recovered
     analytically as the reported positions once the grouping is fixed. Gaussian conjugacy lets
     us replace "sample each position, then score" with a closed-form Gaussian marginal per
