@@ -810,13 +810,14 @@ function _cluster_stability(assignments::Vector{Int16}, psm::Matrix{Float64})
 end
 
 """
-    estimate_dahl(samples, locs, psm) -> (emitters, posterior_k, stability)
+    estimate_dahl(samples, locs, psm) -> (emitters, posterior_k, stability, assignments)
 
 Dahl's method: select the MCMC sample whose association matrix is closest
 (squared Frobenius) to the PSM. Equivalent to minimizing posterior expected
 Binder loss restricted to visited partitions.
 
-Returns emitters with ClusterStats posteriors plus per-cluster stability scores.
+Returns emitters with ClusterStats posteriors, the K histogram, per-cluster
+stability scores, and the chosen sample's assignment vector.
 """
 function estimate_dahl(
     samples::Vector{Vector{Int16}},

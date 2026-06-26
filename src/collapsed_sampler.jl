@@ -129,7 +129,7 @@ Run the collapsed Gibbs sampler on a set of localizations.
 - `n_restricted_scans=5`: Jain-Neal restricted Gibbs scans per split/merge.
   0 = sequential allocation only (Round 3 behavior).
   >0 = launch + (n-1) intermediate sweeps + 1 final sweep with density.
-- `n_bd_substeps=3`: Number of birth/death attempts per BD selection.
+- `n_bd_substeps=5`: Number of birth/death attempts per BD selection.
   Multiple substeps increase K-transition throughput without changing the
   target distribution. Each substep is independent MH with proper acceptance.
 """
