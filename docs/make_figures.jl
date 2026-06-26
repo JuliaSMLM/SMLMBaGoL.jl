@@ -358,6 +358,37 @@ function fig_marginal()
 end
 
 # =============================================================================
+# 11. τ learning — scaled-distance distribution at under/correct/over τ   [data-plot]
+# =============================================================================
+function fig_se_distribution()
+    Random.seed!(11)
+    σrep = 0.006                       # reported per-axis σ (μm) ≈ 6 nm
+    τtrue = 0.006                      # extra error the reported σ misses
+    σact = sqrt(σrep^2 + τtrue^2)      # the true localization scatter
+    n = 350
+    x = σact .* randn(n); y = σact .* randn(n)      # one emitter's localizations
+    ds = Float64[]
+    for i in 1:n-1, j in i+1:n
+        push!(ds, hypot(x[i] - x[j], y[i] - y[j]))
+    end
+    s2 = 2σrep^2
+    zvals(τ) = ds ./ sqrt(s2 + 2τ^2)                # scaled pair distances at candidate τ
+    grid = range(0, 4; length = 240)
+    kde(s; bw = 0.16) = [sum(exp.(-((g .- s) ./ bw).^2 ./ 2)) / (length(s) * bw * sqrt(2π)) for g in grid]
+
+    fig = Figure(size = (780, 480))
+    ax = Axis(fig[1, 1], xlabel = "scaled pair distance  z = d / √(σ²ₐ + σ²_b + 2τ²)",
+              ylabel = "density", title = "τ learning: only the correct τ matches Rayleigh(1)")
+    lines!(ax, grid, grid .* exp.(-grid .^ 2 ./ 2); color = :black, linewidth = 3.5,
+           linestyle = :dash, label = "Rayleigh(1) target")
+    lines!(ax, grid, kde(zvals(0.0));      color = :crimson,    linewidth = 2.5, label = "τ too small (under)")
+    lines!(ax, grid, kde(zvals(τtrue));    color = :seagreen,   linewidth = 2.5, label = "τ̂ (correct)")
+    lines!(ax, grid, kde(zvals(2τtrue));   color = :dodgerblue, linewidth = 2.5, label = "τ too large (over)")
+    axislegend(ax; position = :rt, framevisible = false, labelsize = 12)
+    save(asset("se_dist.png"), fig)
+end
+
+# =============================================================================
 # Schematics — drawn conceptual diagrams   [schematic]
 # =============================================================================
 function fig_generative()
@@ -494,6 +525,7 @@ function main()
     figure("collapsed_cluster", fig_collapsed_cluster)
     figure("psm",               fig_psm)
     figure("marginal",          fig_marginal)
+    figure("se_distribution",   fig_se_distribution)
 
     for (nm, f) in (("generative", fig_generative), ("precision", fig_precision),
                     ("allocation", fig_allocation), ("splitmerge", fig_splitmerge),
