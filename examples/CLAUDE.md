@@ -61,11 +61,11 @@ Without these kwargs SMLMSim uses defaults that produce very few localizations.
 **Category 1 (always):**
 - `summary.txt`, `emitters.csv`, `posterior_image.png`
 - `partition_k.png`, `count_distribution.png`, `acceptance_rates.png`, `nn_distances.png`
-- `render_mapn_gaussian.png`, `render_sr_gaussian.png`, `render_circles.png`
+- `render_mapn.png`, `render_sr.png`, `render_circles.png`, `render_partitions.png`
 
 **Category 2 (with GT, adds):**
 - `metrics.json`, `k_recovery.png`, `calibration.png`
-- `render_circles_groundtruth.png`
+- `render_groundtruth.png`
 
 **Category 3 (optimality sweep):**
 - `sweep_data.csv`, `scorecard.txt`, `speed_data.csv`

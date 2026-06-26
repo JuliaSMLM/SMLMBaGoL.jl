@@ -9,18 +9,28 @@ using SMLMRender
 # ============================================================================
 
 """
-    render_report(locs_smld, bagol_smld; output_dir, true_positions, partition_ids, ...)
+    render_report(locs_smld, bagol_smld; output_dir, true_positions, partition_ids,
+                  pixel_size=1.0, zoom=nothing, prefix="render", ...)
 
-Render standard visualization suite using SMLMRender.
+Render the standard visualization suite using SMLMRender.
+
+**Every panel is rendered into one shared target** — identical physical bounds and identical
+`width × height` in pixels — so the outputs overlay exactly and pan/zoom in lockstep in the
+viewer (e.g. an FE pin comparing two of them).
 
 Always creates:
-- `{prefix}_sr_gaussian.png` — Gaussian SR render of input localizations
-- `{prefix}_mapn_gaussian.png` — Gaussian render of BaGoL MAP-N result
-- `{prefix}_circles.png` — White locs + red MAP-N emitters
-- `{prefix}_partitions.png` — Partition-colored localizations
+- `{prefix}_mapn.png`       — Gaussian SR render of the BaGoL MAP-N result
+- `{prefix}_sr.png`         — Gaussian SR render of the input localizations
+- `{prefix}_circles.png`    — white localizations + red MAP-N emitters (uncertainty ellipses)
+- `{prefix}_partitions.png` — partition-colored localizations (with `partition_ids`)
 
 With ground truth:
-- `{prefix}_circles_groundtruth.png` — White locs + blue GT + green oracle + red found
+- `{prefix}_groundtruth.png` — white locs + blue GT + green oracle + red found
+
+Resolution is `pixel_size` nm per output pixel (default `1.0`). Alternatively pass `zoom`
+(camera-pixel relative, like SMLMRender's `zoom`): output pixels are
+`camera_pixel_size / zoom` nm, so e.g. `zoom=50` renders at 50× the camera sampling. When
+`zoom` is given it overrides `pixel_size`.
 """
 function SMLMBaGoL.render_report(
     locs_smld::SMLMData.SMLD,
@@ -29,6 +39,7 @@ function SMLMBaGoL.render_report(
     true_positions::Vector{Tuple{Float64, Float64}} = Tuple{Float64, Float64}[],
     partition_ids::Vector{Int} = Int[],
     pixel_size::Real = 1.0,
+    zoom::Union{Nothing, Real} = nothing,
     prefix::String = "render",
     fov::Union{Nothing, Tuple{Float64, Float64, Float64, Float64}} = nothing,
     se_adjust = 0.0,
@@ -48,20 +59,30 @@ function SMLMBaGoL.render_report(
         x_min, x_max, y_min, y_max = SMLMBaGoL.compute_fov(locs_smld)
     end
 
-    target = _create_target(x_min, x_max, y_min, y_max; pixel_size)
+    # Resolution: `zoom` (camera-pixel relative) overrides `pixel_size` (nm/pixel) when set,
+    # mirroring SMLMRender's `zoom` — output pixels are camera_pixel_size/zoom nm.
+    px_nm = Float64(pixel_size)
+    if zoom !== nothing
+        px_nm = SMLMRender.get_camera_pixel_size(locs_smld.camera) / zoom
+    end
+
+    # One shared target for every panel ⇒ identical bounds and identical pixel dimensions,
+    # so the outputs overlay and pan/zoom in lockstep (FE pin compatibility).
+    target = _create_target(x_min, x_max, y_min, y_max; pixel_size = px_nm)
 
     println("  Render bounds: x=[$(round(x_min*1000, digits=1)), $(round(x_max*1000, digits=1))] nm, " *
             "y=[$(round(y_min*1000, digits=1)), $(round(y_max*1000, digits=1))] nm")
-    println("  Image size: $(target.width) x $(target.height) pixels at $(pixel_size) nm/pixel")
+    println("  Image size: $(target.width) x $(target.height) pixels at $(round(px_nm, digits=3)) nm/pixel" *
+            (zoom === nothing ? "" : " (zoom=$(zoom)×)"))
 
     # 1. Gaussian render of BaGoL MAP-N result
-    mapn_path = joinpath(output_dir, "$(prefix)_mapn_gaussian.png")
+    mapn_path = joinpath(output_dir, "$(prefix)_mapn.png")
     render(bagol_smld; strategy=GaussianRender(), target=target,
            colormap=:inferno, filename=mapn_path)
     println("Saved: $mapn_path")
 
     # 2. Gaussian SR render of input localizations
-    sr_path = joinpath(output_dir, "$(prefix)_sr_gaussian.png")
+    sr_path = joinpath(output_dir, "$(prefix)_sr.png")
     render(locs_smld; strategy=GaussianRender(), target=target,
            colormap=:inferno, filename=sr_path)
     println("Saved: $sr_path")
@@ -94,7 +115,7 @@ function SMLMBaGoL.render_report(
 
     # 5. Ground truth overlay: white locs + blue GT + green oracle + red found
     if !isempty(true_positions)
-        gt_path = joinpath(output_dir, "$(prefix)_circles_groundtruth.png")
+        gt_path = joinpath(output_dir, "$(prefix)_groundtruth.png")
 
         (base_img, _) = render(locs_render; strategy=EllipseRender(), color=:white,
                                target=target, clip_percentile=nothing)

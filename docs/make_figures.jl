@@ -127,8 +127,8 @@ function fig_hero(S)
     out = mktempdir()
     render_report(S.sim.smld, S.result; output_dir = out, fov = S.fov,
                   pixel_size = px_nm, prefix = "h")
-    cp(joinpath(out, "h_sr_gaussian.png"),   asset("intro_pre.png");        force = true)
-    cp(joinpath(out, "h_mapn_gaussian.png"), asset("intro_post.png");       force = true)
+    cp(joinpath(out, "h_sr.png"),   asset("intro_pre.png");        force = true)
+    cp(joinpath(out, "h_mapn.png"), asset("intro_post.png");       force = true)
 
     # labeled two-panel composite (raw | MAP-N) from render arrays
     x0, x1, y0, y1 = S.fov
