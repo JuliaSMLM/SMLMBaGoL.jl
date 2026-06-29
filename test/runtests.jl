@@ -321,6 +321,10 @@ using Distributions
         @test size(dm.motion.velocities, 1) == dm.n_emitters
         @test length(dm.motion.axis_mean) == 2 && length(dm.motion.axis_std) == 2
         @test maximum(abs.(dm.motion.velocities[:, 2])) > 0.010   # the drifting mark's y-velocity recovered
+        # v0.3.9: per-emitter n + velocity variance + precision-weighted aggregate
+        @test size(dm.motion.velocity_var) == size(dm.motion.velocities) && all(dm.motion.velocity_var .>= 0)
+        @test length(dm.motion.n) == dm.n_emitters
+        @test length(dm.motion.axis_mean_weighted) == 2 && length(dm.motion.axis_std_weighted) == 2
         # static run: motion field is nothing (no regression)
         _, ds = run_bagol(smld; n_iterations=2500, burn_in=1200, verbose=false)
         @test ds.motion === nothing

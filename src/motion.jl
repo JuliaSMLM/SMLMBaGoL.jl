@@ -220,27 +220,28 @@ end
 # Per-emitter velocity recovery (for the diagnostics velocity output)
 # ----------------------------------------------------------------------------
 """
-    motion_emitter_params(precs, Λv, dahl_labels) -> Vector{(μ̂, v̂, Σμ)}
+    motion_emitter_params(precs, Λv, dahl_labels) -> Vector{(μ̂, v̂, Σμ, Σv, n)}
 
-Per-emitter motion posterior — position `μ̂` at the reference time, velocity `v̂`, and
-position covariance `Σμ` (all μm) — one entry per **sorted unique Dahl label**, in the
-same order `estimate_mapn_overlap` / `_emitters_from_assignments` emit their emitters. Each
-group's `MotionClusterStats` is rebuilt from the precomputed motion precisions, then
-`motion_posterior`. Lets the run_bagol MAP-N path report the model position and carry `v̂`
-per final emitter (through the same overlap-filter + boundary-dedup).
+Per-emitter motion posterior — position `μ̂` at the reference time, velocity `v̂`, position
+covariance `Σμ`, velocity covariance `Σv` (all μm), and member count `n` — one entry per
+**sorted unique Dahl label**, in the same order `estimate_mapn_overlap` /
+`_emitters_from_assignments` emit their emitters. Each group's `MotionClusterStats` is
+rebuilt from the precomputed motion precisions, then `motion_posterior`. `Σv` and `n` let
+the velocity output flag weakly-determined (prior-shrunk, low-`n`) velocities so the QC
+histogram can precision-weight or gate them.
 """
 function motion_emitter_params(precs::Vector{MotionLocPrecision{D,L}},
                                Λv::SMatrix{D,D,Float64,L},
                                dahl_labels::AbstractVector{<:Integer}) where {D,L}
     labs = sort!(unique(dahl_labels))
-    out = Vector{Tuple{SVector{D,Float64}, SVector{D,Float64}, SMatrix{D,D,Float64,L}}}()
+    out = Vector{Tuple{SVector{D,Float64}, SVector{D,Float64}, SMatrix{D,D,Float64,L}, SMatrix{D,D,Float64,L}, Int}}()
     for lab in labs
         cs = MotionClusterStats{D,L}()
         @inbounds for j in eachindex(dahl_labels)
             dahl_labels[j] == lab && (cs = add_loc(cs, precs[j]))
         end
-        μ̂, v̂, Σμ, _ = motion_posterior(cs, Λv)
-        push!(out, (μ̂, v̂, Σμ))
+        μ̂, v̂, Σμ, Σv = motion_posterior(cs, Λv)
+        push!(out, (μ̂, v̂, Σμ, Σv, Int(cs.base.n)))
     end
     return out
 end

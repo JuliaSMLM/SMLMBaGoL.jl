@@ -97,15 +97,21 @@ When `motion=:linear`, each recovered emitter carries a posterior velocity
 
 ```julia
 result, diag = run_bagol(smld; motion=:linear, motion_sigma=0.002)
-diag.motion.velocities   # N×D matrix of recovered v̂ per emitter (μm)
-diag.motion.axis_mean    # per-axis mean drift (μm)
-diag.motion.axis_std     # per-axis std (μm)
+diag.motion.velocities          # N×D matrix of recovered v̂ per emitter (μm)
+diag.motion.velocity_var        # N×D per-axis velocity posterior variance Σv (μm²)
+diag.motion.n                   # per-emitter member count
+diag.motion.axis_mean           # per-axis mean drift, raw (μm)
+diag.motion.axis_mean_weighted  # per-axis mean, precision-weighted by 1/Σv (μm)
 ```
 
-`write_report` prints the per-axis **mean ± std** of the recovered drift in the summary,
-and `plot_report` writes a **`motion_velocities.png`** histogram of ``v_x`` / ``v_y``
-(``/ v_z`` in 3D) — the QC view of how much, and along which axis, the recovered emitters
-drifted.
+**Precision-weighting matters at scale.** A few-localization emitter has weak time leverage,
+so its velocity posterior *shrinks toward the zero-mean prior* (large `Σv`). On crowded data
+the many low-`n` emitters then dominate a raw histogram and wash it out toward the
+isotropic prior. So `write_report` reports both the raw and the **precision-weighted**
+(``1/\Sigma_v``) drift mean ± std, and `plot_report` writes a **precision-weighted**
+``v_x`` / ``v_y`` (``/v_z``) histogram (**`motion_velocities.png`**) — down-weighting
+prior-shrunk velocities so the QC view reflects the well-determined emitters. `velocity_var`
+and `n` are exposed so downstream code can gate (`n ≥ N`) or weight however it likes.
 
 ![Histogram of recovered per-emitter drift](../assets/motion_velocities.png)
 

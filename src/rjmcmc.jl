@@ -653,8 +653,10 @@ function _run_bagol_collapsed(
     partition_emitters = Vector{Vector{SMLMData.Emitter2DFit{Float64}}}(undef, n_partitions)
     partition_boundary = Vector{Vector{Bool}}(undef, n_partitions)
     partition_dahl = Vector{Vector{Int}}(undef, n_partitions)  # per-loc Dahl labels (τ-finder)
-    # Per-emitter recovered velocities (μm; one length-D vector per Dahl group) — motion only.
-    partition_velocities = [Vector{Float64}[] for _ in 1:n_partitions]
+    # Per-emitter motion records (v̂ μm, per-axis velocity variance μm², member count n),
+    # aligned with partition_emitters — motion only.
+    _MotionRec = Tuple{Vector{Float64}, Vector{Float64}, Int}
+    partition_velocities = [_MotionRec[] for _ in 1:n_partitions]
 
     # Sort by partition size descending so large (expensive) partitions start first.
     # Use @spawn (dynamic scheduling) for better load balance across heavy-tailed sizes.
@@ -685,18 +687,18 @@ function _run_bagol_collapsed(
                 # sorted unique Dahl label). Report μ̂(t0) as the emitter position and carry
                 # v̂ alongside so it flows through the same overlap-filter + boundary-dedup.
                 mep = motion_emitter_params(states[pid]._loc_precs, states[pid].spatial.Λv, dahl_assignments)
-                vel_i = Vector{Vector{Float64}}(undef, length(emitters_i))
+                vel_i = Vector{_MotionRec}(undef, length(emitters_i))
                 if length(mep) == length(emitters_i)
-                    for (ki, (μ̂, v̂, Σμ)) in enumerate(mep)
+                    for (ki, (μ̂, v̂, Σμ, Σv, n)) in enumerate(mep)
                         e = emitters_i[ki]
                         e.x = μ̂[1]; e.y = μ̂[2]
                         e.σ_x = sqrt(max(Σμ[1,1], 0.0)); e.σ_y = sqrt(max(Σμ[2,2], 0.0)); e.σ_xy = Σμ[1,2]
-                        vel_i[ki] = collect(Float64, v̂)
+                        vel_i[ki] = (collect(Float64, v̂), [Float64(Σv[d,d]) for d in 1:length(v̂)], n)
                     end
                 else
                     # rare estimate_mapn_overlap fallback (count mismatch): keep static
                     # positions, mark velocities missing — kept aligned, filtered in aggregation.
-                    for ki in eachindex(emitters_i); vel_i[ki] = [NaN, NaN]; end
+                    for ki in eachindex(emitters_i); vel_i[ki] = ([NaN, NaN], [NaN, NaN], 0); end
                 end
                 partition_velocities[pid] = vel_i
             end
@@ -792,7 +794,7 @@ function _run_bagol_collapsed(
     all_emitters = SMLMData.Emitter2DFit{Float64}[]
     partition_ids = Int[]
     is_near_boundary = Bool[]
-    all_velocities = Vector{Float64}[]   # aligned with all_emitters (motion only)
+    all_velocities = _MotionRec[]        # aligned with all_emitters (motion only)
     for pid in 1:n_partitions
         for (j, emitter) in enumerate(partition_emitters[pid])
             push!(all_emitters, emitter)
@@ -804,7 +806,7 @@ function _run_bagol_collapsed(
     # Deduplicate boundary emitters (thread velocities through the same keep mask under motion)
     n_pre_dedup = length(all_emitters)
     n_boundary = count(is_near_boundary)
-    final_velocities = Vector{Float64}[]
+    final_velocities = _MotionRec[]
     if !isempty(all_emitters)
         if motion === :linear
             merged_emitters, _dedup_keep = deduplicate_boundary_emitters(
@@ -897,16 +899,31 @@ function _run_bagol_collapsed(
     # drop the rare NaN-placeholder rows from the estimate_mapn_overlap fallback.
     _motion_diag = nothing
     if motion === :linear
-        allv = [v for v in final_velocities if all(isfinite, v)]
+        Dm = feature_dim(eltype(locs))
+        allv = [t for t in final_velocities if all(isfinite, t[1])]
         if isempty(allv)
-            _motion_diag = (; velocities = zeros(0, feature_dim(eltype(locs))), axis_mean = Float64[], axis_std = Float64[])
+            _motion_diag = (; velocities = zeros(0, Dm), velocity_var = zeros(0, Dm), n = Int[],
+                            axis_mean = Float64[], axis_std = Float64[],
+                            axis_mean_weighted = Float64[], axis_std_weighted = Float64[])
         else
-            V = permutedims(reduce(hcat, allv))                 # N×D velocities (μm)
-            am = vec(Statistics.mean(V, dims = 1))
-            asd = size(V, 1) >= 2 ? vec(Statistics.std(V, dims = 1)) : zeros(length(am))
-            _motion_diag = (; velocities = V, axis_mean = am, axis_std = asd)
-            _log_progress("  Motion: |v̂| mean±std per axis (nm) = " *
-                          join(["$(round(1000*am[d],digits=2))±$(round(1000*asd[d],digits=2))" for d in eachindex(am)], ", "))
+            V  = permutedims(reduce(hcat, [t[1] for t in allv]))     # N×D velocities (μm)
+            VV = permutedims(reduce(hcat, [t[2] for t in allv]))     # N×D velocity variances (μm²)
+            ns = Int[t[3] for t in allv]
+            am  = vec(Statistics.mean(V, dims = 1))
+            asd = size(V, 1) >= 2 ? vec(Statistics.std(V, dims = 1)) : zeros(Dm)
+            # Precision-weighted (weight each v̂ by 1/Σv) — down-weights prior-shrunk, low-n
+            # velocities so the aggregate reflects the well-determined emitters.
+            W = 1.0 ./ max.(VV, 1e-12)
+            sw = vec(sum(W, dims = 1))
+            amw = vec(sum(V .* W, dims = 1)) ./ sw
+            asdw = vec(sqrt.(max.(vec(sum(W .* (V .- amw').^2, dims = 1)) ./ sw, 0.0)))
+            _motion_diag = (; velocities = V, velocity_var = VV, n = ns,
+                            axis_mean = am, axis_std = asd,
+                            axis_mean_weighted = amw, axis_std_weighted = asdw)
+            _log_progress("  Motion: |v̂| mean±std per axis (nm): raw = " *
+                          join(["$(round(1000*am[d],digits=2))±$(round(1000*asd[d],digits=2))" for d in eachindex(am)], ", ") *
+                          " | precision-weighted = " *
+                          join(["$(round(1000*amw[d],digits=2))±$(round(1000*asdw[d],digits=2))" for d in eachindex(amw)], ", "))
         end
     end
 
