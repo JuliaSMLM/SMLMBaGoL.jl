@@ -44,25 +44,29 @@ function SMLMBaGoL.plot_report(report; output_dir::String = "output")
     end
 end
 
-# Precision-weighted histogram of the recovered per-emitter velocities (motion=:linear).
-# Each v̂ is weighted by 1/Σv (the velocity posterior precision), so low-n / prior-shrunk
-# emitters don't swamp the well-determined ones — the honest QC view at scale. One panel/axis.
+# Histogram of the recovered per-emitter velocities (motion=:linear), one panel per axis.
+# Restricted to emitters with velocity leverage (n ≥ 2) — n=1 emitters have v̂≡0 (no time
+# information) and would just pile a spike at 0. Per-emitter `velocity_var`/`n` are in
+# diag.motion for any downstream gating/weighting.
 function _plot_motion_velocities(report, output_dir)
     m = report.motion
     V = m.velocities                       # N×D (μm)
     isempty(V) && return
+    keep = m.n .>= 2
+    any(keep) || return
+    V = V[keep, :]
     D = size(V, 2)
     axn = ("x", "y", "z")
     fig = Figure(size = (430 * D, 430))
-    Label(fig[0, 1:D], "Recovered per-emitter drift (motion=:linear) — $(size(V, 1)) emitters, precision-weighted",
+    Label(fig[0, 1:D], "Recovered per-emitter drift (motion=:linear) — $(size(V, 1)) emitters (n ≥ 2), end-to-end",
           fontsize = 14, font = :bold)
     for d in 1:D
-        vd = 1000 .* V[:, d]                                   # nm
-        w  = 1.0 ./ max.(m.velocity_var[:, d], 1e-12)          # velocity precision (μm⁻²)
-        ax = Axis(fig[1, d], xlabel = "v_$(axn[d]) (nm)", ylabel = "weighted emitters",
-                  title = "v_$(axn[d]): weighted $(round(1000 * m.axis_mean_weighted[d], digits = 1)) ± $(round(1000 * m.axis_std_weighted[d], digits = 1)) nm")
-        hist!(ax, vd; weights = w, bins = max(8, round(Int, sqrt(length(vd)))), color = (:steelblue, 0.7))
-        vlines!(ax, [1000 * m.axis_mean_weighted[d]]; color = :red, linewidth = 2, label = "weighted mean")
+        vd = 1000 .* V[:, d]               # nm
+        mn = length(vd) >= 1 ? sum(vd) / length(vd) : 0.0
+        ax = Axis(fig[1, d], xlabel = "v_$(axn[d]) (nm)", ylabel = "emitters",
+                  title = "v_$(axn[d]) (mean $(round(mn, digits = 1)) nm)")
+        hist!(ax, vd; bins = max(8, round(Int, sqrt(length(vd)))), color = (:steelblue, 0.7))
+        vlines!(ax, [mn]; color = :red, linewidth = 2, label = "mean")
         vlines!(ax, [0.0]; color = :gray50, linestyle = :dash, label = "0")
     end
     save(joinpath(output_dir, "motion_velocities.png"), fig)

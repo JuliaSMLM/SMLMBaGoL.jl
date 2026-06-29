@@ -435,10 +435,8 @@ function _write_summary(report, path)
             println(io, "Motion (linear) — recovered per-emitter drift ($(size(report.motion.velocities,1)) emitters, nm):")
             _axn = ("x", "y", "z")
             for d in eachindex(report.motion.axis_mean)
-                println(io, "  v_$(_axn[d]):  raw $(round(1000*report.motion.axis_mean[d],digits=2)) ± $(round(1000*report.motion.axis_std[d],digits=2))" *
-                            "   precision-weighted $(round(1000*report.motion.axis_mean_weighted[d],digits=2)) ± $(round(1000*report.motion.axis_std_weighted[d],digits=2))")
+                println(io, "  v_$(_axn[d]):  mean $(round(1000*report.motion.axis_mean[d],digits=2)) ± $(round(1000*report.motion.axis_std[d],digits=2))")
             end
-            println(io, "  (precision-weighted down-weights low-n, prior-shrunk velocities — the honest aggregate at scale)")
         end
         println(io)
         println(io, "Acceptance rates:")
