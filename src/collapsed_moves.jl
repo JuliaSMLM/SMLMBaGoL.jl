@@ -359,6 +359,8 @@ k_prior=:none or :poisson on `run_collapsed_chain` / `run_bagol`.
 """
 _uses_poisson_k_prior(::FlatSpatial) = true
 _uses_poisson_k_prior(::LocmixSpatial) = false
+# Motion pairs with the DM/count prior for now (no Poisson-K); revisit later.
+_uses_poisson_k_prior(::MotionSpatial) = false
 _uses_poisson_k_prior(state::CollapsedState) = state.use_poisson_k_prior
 
 """

@@ -36,7 +36,8 @@ function deduplicate_boundary_emitters(
     emitters::Vector{<:SMLMData.Emitter2DFit},
     partition_ids::Vector{Int},
     is_near_boundary::Vector{Bool},
-    margin::Float64
+    margin::Float64;
+    return_keep::Bool = false
 )
     n = length(emitters)
     keep = trues(n)
@@ -44,7 +45,7 @@ function deduplicate_boundary_emitters(
 
     # Collect boundary emitter indices
     boundary_idx = findall(is_near_boundary)
-    isempty(boundary_idx) && return result
+    isempty(boundary_idx) && return return_keep ? (result, keep) : result
 
     # Build KDTree on boundary emitter positions
     coords = hcat([[emitters[i].x, emitters[i].y] for i in boundary_idx]...)
@@ -144,5 +145,5 @@ function deduplicate_boundary_emitters(
         end
     end
 
-    return result[keep]
+    return return_keep ? (result[keep], keep) : result[keep]
 end

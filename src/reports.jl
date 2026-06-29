@@ -336,6 +336,7 @@ function compute_report(
         empirical_counts = empirical_counts,
         posterior_image = diagnostics.posterior_image,
         convergence_trace = diagnostics.convergence_trace,
+        motion = diagnostics.motion,
         nn_distances = nn_dists,
         true_count_params = count_params,
         emitters = emitters,
@@ -429,6 +430,14 @@ function _write_summary(report, path)
         println(io, "Learned parameters:")
         println(io, "  μ (mean count):  $(round(report.final_mu, digits=2))")
         println(io, "  shape:           $(round(report.final_shape, digits=2))")
+        if report.motion !== nothing && !isempty(report.motion.axis_mean)
+            println(io)
+            println(io, "Motion (linear) — recovered per-emitter velocity ($(size(report.motion.velocities,1)) emitters):")
+            _axn = ("x", "y", "z")
+            for d in eachindex(report.motion.axis_mean)
+                println(io, "  v_$(_axn[d]) (nm):       mean=$(round(1000*report.motion.axis_mean[d], digits=2)) ± $(round(1000*report.motion.axis_std[d], digits=2)) (std)")
+            end
+        end
         println(io)
         println(io, "Acceptance rates:")
         for (move, rate) in sort(collect(report.acceptance_rates))

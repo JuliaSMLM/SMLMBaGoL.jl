@@ -32,12 +32,37 @@ function SMLMBaGoL.plot_report(report; output_dir::String = "output")
         _plot_convergence(report, output_dir)
     end
 
+    if hasproperty(report, :motion) && report.motion !== nothing && !isempty(report.motion.axis_mean)
+        _plot_motion_velocities(report, output_dir)
+    end
+
     if report.has_gt
         _plot_k_recovery(report, output_dir)
         if !isnan(report.calibration.scale_factor)
             _plot_calibration(report, output_dir)
         end
     end
+end
+
+# Histogram of the recovered per-emitter velocities (motion=:linear). One panel per axis.
+function _plot_motion_velocities(report, output_dir)
+    m = report.motion
+    V = m.velocities                       # N×D (μm)
+    isempty(V) && return
+    D = size(V, 2)
+    axn = ("x", "y", "z")
+    fig = Figure(size = (430 * D, 430))
+    Label(fig[0, 1:D], "Recovered per-emitter linear drift (motion=:linear) — $(size(V, 1)) emitters, end-to-end",
+          fontsize = 14, font = :bold)
+    for d in 1:D
+        vd = 1000 .* V[:, d]               # nm
+        ax = Axis(fig[1, d], xlabel = "v_$(axn[d]) (nm)", ylabel = "emitters",
+                  title = "v_$(axn[d]): mean = $(round(1000 * m.axis_mean[d], digits = 1)) ± $(round(1000 * m.axis_std[d], digits = 1)) nm")
+        hist!(ax, vd; bins = max(8, round(Int, sqrt(length(vd)))), color = (:steelblue, 0.7))
+        vlines!(ax, [1000 * m.axis_mean[d]]; color = :red, linewidth = 2, label = "mean")
+        vlines!(ax, [0.0]; color = :gray50, linestyle = :dash, label = "0")
+    end
+    save(joinpath(output_dir, "motion_velocities.png"), fig)
 end
 
 function _plot_convergence(report, output_dir)

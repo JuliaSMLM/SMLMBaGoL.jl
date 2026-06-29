@@ -89,6 +89,8 @@ result_smld, diagnostics = run_bagol(smld;
     se_adjust          = 0.0,     # extra localization uncertainty τ (μm), added in quadrature;
                                   #   use :auto to estimate τ from the data (see "How it works")
     partition_sigma    = 3.0,     # precision-weighted DBSCAN threshold in σ units (Inf = no partitioning)
+    motion             = :none,   # :linear lets each emitter drift in time (recovers moving emitters
+                                  #   instead of over-splitting them); motion_sigma = drift prior SD (μm)
     sync_interval      = 100,     # iterations between global μ/shape updates
     posterior_pixel_size = 0.002, # Rao-Blackwellized posterior image pixel size in μm (0.0 to disable)
 )

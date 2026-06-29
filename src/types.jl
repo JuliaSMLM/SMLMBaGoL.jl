@@ -28,6 +28,10 @@ struct BaGoLDiagnostics
     # keep_se_finder=true: the full estimate_se_adjust(...; return_diagnostics=true)
     # NamedTuple. `nothing` otherwise. Render with plot_se_adjust(diagnostics.se_finder).
     se_finder::Union{Nothing, NamedTuple}
+    # Linear-motion output (motion=:linear), else nothing. NamedTuple with `velocities`
+    # (N×D μm, recovered per-emitter v̂), `axis_mean`, `axis_std` (length-D μm). The
+    # plot_report velocity histogram and the summary mean±std read this.
+    motion::Union{Nothing, NamedTuple}
 end
 
 # ============================================================================
