@@ -183,6 +183,10 @@ function run_bagol(
     k_prior::Symbol = :auto,
     n_restricted_scans::Int = 5,
     n_bd_substeps::Int = 5,
+    # Per-emitter linear motion (opt-in; :none | :linear). motion_sigma = per-axis
+    # end-to-end drift prior SD (μm). Needs per-loc frame spanning the acquisition.
+    motion::Symbol = :none,
+    motion_sigma::Float64 = 0.002,
     # Partitioning
     partition_sigma::Float64 = 3.0,
     min_partition_size::Int = 0,
@@ -213,7 +217,7 @@ function run_bagol(
 )
     return _run_bagol_collapsed(smld;
         partition_sigma, min_partition_size, max_partition_size, skip_partition_size,
-        overlap, se_adjust, force_se_adjust, keep_se_finder, sync_interval, n_iterations, burn_in, shape, learn_distribution,
+        overlap, se_adjust, force_se_adjust, keep_se_finder, motion, motion_sigma, sync_interval, n_iterations, burn_in, shape, learn_distribution,
         posterior_pixel_size, posterior_xlim, posterior_ylim,
         archive_path, progress_file, verbose,
         μ=μ, gamma=gamma, allocation_model=allocation_model,
@@ -252,6 +256,7 @@ function run_bagol(
         overlap=cfg.overlap,
         se_adjust=cfg.se_adjust, force_se_adjust=cfg.force_se_adjust,
         keep_se_finder=keep_se_finder,
+        motion=cfg.motion, motion_sigma=cfg.motion_sigma,
         posterior_pixel_size=cfg.posterior_pixel_size,
         posterior_xlim=posterior_xlim, posterior_ylim=posterior_ylim,
         archive_path=cfg.archive_path, progress_file=cfg.progress_file,
@@ -304,6 +309,8 @@ function _run_bagol_collapsed(
     se_adjust::Union{Real, Tuple, AbstractVector, Symbol} = 0.0,
     force_se_adjust::Bool = false,
     keep_se_finder::Bool = false,
+    motion::Symbol = :none,
+    motion_sigma::Float64 = 0.002,
     sync_interval::Int = 100,
     n_iterations::Int = 4000,
     burn_in::Int = 2000,
@@ -397,7 +404,7 @@ function _run_bagol_collapsed(
         @warn "No valid partitions"
         empty_smld = SMLMData.BasicSMLD(SMLMData.Emitter2DFit{Float64}[], camera, 1, 1)
         empty_diag = BaGoLDiagnostics(0, Int[], Dict{Symbol,Float64}(), 0.0, shape, 0.0, 0, Int[], Int[], Int[], nothing, _se_tau,
-            (; iters=Int[], K=Int[], mu=Float64[], shape=Float64[], rho=Float64[], burn_in=0), _se_finder)
+            (; iters=Int[], K=Int[], mu=Float64[], shape=Float64[], rho=Float64[], burn_in=0), _se_finder, nothing)
         return empty_smld, empty_diag
     end
 
@@ -419,6 +426,17 @@ function _run_bagol_collapsed(
     spatial_model_sym = spatial_model
     spatial_model_sym in (:locmix, :flat) ||
         throw(ArgumentError("spatial_model must be :locmix or :flat"))
+    motion in (:none, :linear) ||
+        throw(ArgumentError("motion must be :none or :linear (got :$motion)"))
+    # Global time reference for the linear-motion model — shared across partitions so μ
+    # means "position at a common reference time" and v is end-to-end drift over the run.
+    _motion_t0 = 0.0; _motion_span = 1.0
+    if motion === :linear
+        _mf = Float64[Float64(l.frame) for l in locs]
+        _mfmin, _mfmax = extrema(_mf)
+        _motion_t0 = (_mfmin + _mfmax) / 2
+        _motion_span = max(_mfmax - _mfmin, 1.0)
+    end
 
     k_prior in (:auto, :poisson, :none) ||
         throw(ArgumentError("k_prior must be :auto, :poisson, or :none (got :$k_prior)"))
@@ -430,7 +448,8 @@ function _run_bagol_collapsed(
 
     # Initialize collapsed states and accumulators per partition
     # Use concrete parametric type for the state vector
-    _sp_type = spatial_model_sym === :locmix ? LocmixSpatial : FlatSpatial
+    _sp_type = motion === :linear ? _motion_sp_type(eltype(locs)) :
+               (spatial_model_sym === :locmix ? LocmixSpatial : FlatSpatial)
     _am_type = if allocation_model === :dm
         DMAllocation
     elseif allocation_model === :decoupled
@@ -454,7 +473,10 @@ function _run_bagol_collapsed(
     @sync for i in 1:n_partitions
         Threads.@spawn begin
             p_locs = partitions[i].locs
-            sp = if spatial_model_sym === :locmix
+            sp = if motion === :linear
+                motion_spatial(p_locs, motion_sigma,
+                               log(area(UniformSpatialPrior(p_locs))), _motion_t0, _motion_span)
+            elseif spatial_model_sym === :locmix
                 LocmixSpatial(p_locs)
             else
                 FlatSpatial(log(area(UniformSpatialPrior(p_locs))))
@@ -631,6 +653,8 @@ function _run_bagol_collapsed(
     partition_emitters = Vector{Vector{SMLMData.Emitter2DFit{Float64}}}(undef, n_partitions)
     partition_boundary = Vector{Vector{Bool}}(undef, n_partitions)
     partition_dahl = Vector{Vector{Int}}(undef, n_partitions)  # per-loc Dahl labels (τ-finder)
+    # Per-emitter recovered velocities (μm; one length-D vector per Dahl group) — motion only.
+    partition_velocities = [Vector{Float64}[] for _ in 1:n_partitions]
 
     # Sort by partition size descending so large (expensive) partitions start first.
     # Use @spawn (dynamic scheduling) for better load balance across heavy-tailed sizes.
@@ -656,6 +680,26 @@ function _run_bagol_collapsed(
             _, _, _, dahl_assignments = estimate_dahl(samples, partition.locs, psm)
             partition_dahl[pid] = dahl_assignments    # capture before samples are cleared (τ-finder)
             emitters_i, _ = estimate_mapn_overlap(samples, partition.locs, dahl_assignments)
+            if motion === :linear
+                # Per-emitter motion posterior, aligned with emitters_i (both ordered by
+                # sorted unique Dahl label). Report μ̂(t0) as the emitter position and carry
+                # v̂ alongside so it flows through the same overlap-filter + boundary-dedup.
+                mep = motion_emitter_params(states[pid]._loc_precs, states[pid].spatial.Λv, dahl_assignments)
+                vel_i = Vector{Vector{Float64}}(undef, length(emitters_i))
+                if length(mep) == length(emitters_i)
+                    for (ki, (μ̂, v̂, Σμ)) in enumerate(mep)
+                        e = emitters_i[ki]
+                        e.x = μ̂[1]; e.y = μ̂[2]
+                        e.σ_x = sqrt(max(Σμ[1,1], 0.0)); e.σ_y = sqrt(max(Σμ[2,2], 0.0)); e.σ_xy = Σμ[1,2]
+                        vel_i[ki] = collect(Float64, v̂)
+                    end
+                else
+                    # rare estimate_mapn_overlap fallback (count mismatch): keep static
+                    # positions, mark velocities missing — kept aligned, filtered in aggregation.
+                    for ki in eachindex(emitters_i); vel_i[ki] = [NaN, NaN]; end
+                end
+                partition_velocities[pid] = vel_i
+            end
             if isempty(emitters_i)
                 k_dahl = length(unique(dahl_assignments))
                 error("Partition $pid ($(length(partition.locs)) locs): estimate_mapn_overlap returned " *
@@ -736,6 +780,7 @@ function _run_bagol_collapsed(
         if n_discard > 0
             partition_emitters[pid] = partition_emitters[pid][keep]
             partition_boundary[pid] = partition_boundary[pid][keep]
+            motion === :linear && (partition_velocities[pid] = partition_velocities[pid][keep])
             n_overlap_discarded += n_discard
         end
     end
@@ -747,20 +792,28 @@ function _run_bagol_collapsed(
     all_emitters = SMLMData.Emitter2DFit{Float64}[]
     partition_ids = Int[]
     is_near_boundary = Bool[]
+    all_velocities = Vector{Float64}[]   # aligned with all_emitters (motion only)
     for pid in 1:n_partitions
         for (j, emitter) in enumerate(partition_emitters[pid])
             push!(all_emitters, emitter)
             push!(partition_ids, pid)
             push!(is_near_boundary, partition_boundary[pid][j])
+            motion === :linear && push!(all_velocities, partition_velocities[pid][j])
         end
     end
-    # Deduplicate boundary emitters
+    # Deduplicate boundary emitters (thread velocities through the same keep mask under motion)
     n_pre_dedup = length(all_emitters)
     n_boundary = count(is_near_boundary)
+    final_velocities = Vector{Float64}[]
     if !isempty(all_emitters)
-        merged_emitters = deduplicate_boundary_emitters(
-            all_emitters, partition_ids, is_near_boundary, boundary_margin
-        )
+        if motion === :linear
+            merged_emitters, _dedup_keep = deduplicate_boundary_emitters(
+                all_emitters, partition_ids, is_near_boundary, boundary_margin; return_keep = true)
+            final_velocities = all_velocities[_dedup_keep]
+        else
+            merged_emitters = deduplicate_boundary_emitters(
+                all_emitters, partition_ids, is_near_boundary, boundary_margin)
+        end
     else
         merged_emitters = SMLMData.Emitter2DFit{Float64}[]
     end
@@ -839,13 +892,31 @@ function _run_bagol_collapsed(
         end
     end
 
+    # Aggregate recovered per-emitter velocities for the motion diagnostics output.
+    # final_velocities is aligned with merged_emitters (through overlap-filter + dedup);
+    # drop the rare NaN-placeholder rows from the estimate_mapn_overlap fallback.
+    _motion_diag = nothing
+    if motion === :linear
+        allv = [v for v in final_velocities if all(isfinite, v)]
+        if isempty(allv)
+            _motion_diag = (; velocities = zeros(0, feature_dim(eltype(locs))), axis_mean = Float64[], axis_std = Float64[])
+        else
+            V = permutedims(reduce(hcat, allv))                 # N×D velocities (μm)
+            am = vec(Statistics.mean(V, dims = 1))
+            asd = size(V, 1) >= 2 ? vec(Statistics.std(V, dims = 1)) : zeros(length(am))
+            _motion_diag = (; velocities = V, axis_mean = am, axis_std = asd)
+            _log_progress("  Motion: |v̂| mean±std per axis (nm) = " *
+                          join(["$(round(1000*am[d],digits=2))±$(round(1000*asd[d],digits=2))" for d in eachindex(am)], ", "))
+        end
+    end
+
     # Build diagnostics
     diagnostics = BaGoLDiagnostics(
         length(merged_emitters), posterior_k, acceptance_rates,
         μ, current_shape, ρ, n_partitions, cluster_sizes, partition_k,
         loc_partition_ids, post_img, _se_tau,
         (; iters=trace_iters, K=trace_K, mu=trace_mu, shape=trace_shape, rho=trace_rho, burn_in=burn_in),
-        _se_finder
+        _se_finder, _motion_diag
     )
     result_smld = SMLMData.BasicSMLD(merged_emitters, camera, 1, 1)
 

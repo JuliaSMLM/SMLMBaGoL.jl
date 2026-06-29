@@ -43,6 +43,7 @@ src/
 ├── SMLMBaGoL.jl          # Module entry: all imports + exports
 ├── spatial.jl             # Coordinate utilities (get_cov_xy, mean_sigma)
 ├── cluster_stats.jl       # ClusterStats: sufficient statistics for collapsed sampler
+├── motion.jl              # Per-emitter linear-motion model (opt-in motion=:linear): MotionClusterStats{D,L}/MotionSpatial
 ├── types.jl               # Types: BaGoLDiagnostics, CollapsedState, BaGoLResult, CollapsedChainResult
 ├── priors.jl              # UniformSpatialPrior, log_prior_k, log_prior_total_count
 ├── hierarchical.jl        # Hierarchical Bayes MH updates for μ and shape
@@ -115,6 +116,8 @@ result_smld, diagnostics = run_bagol(locs; camera=camera, n_iterations=4000)
 #   learn_distribution=true       # true/false/:mu/:shape — control count distribution learning
 #   partition_sigma=3.0           # DBSCAN threshold (Inf = no partitioning)
 #   overlap=:auto                 # Overlap fraction for boundary dedup (:auto or Float64)
+#   motion=:none                  # :linear = per-emitter linear drift (θ(t)=μ+v·δ, v integrated out);
+#                                 #   motion_sigma=0.002 drift prior SD (μm); needs per-loc frame; v̂ + mean/std in diag.motion
 #   sync_interval=100             # Iterations between global μ/shape updates
 #   posterior_pixel_size=0.002    # Rao-Blackwellized posterior image (0.0 to disable)
 #

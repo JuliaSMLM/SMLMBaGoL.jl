@@ -697,6 +697,76 @@ end
 # =============================================================================
 # Driver
 # =============================================================================
+# Per-emitter linear motion: static over-split vs motion recovery (motion_demo.png) +
+# the recovered-velocity histogram from a field of rulers (motion_velocities.png).
+function fig_motion()
+    rng = MersenneTwister(7)
+    nf = 200; t0 = (1 + nf) / 2; span = nf - 1; σ = 0.004
+    relabel(state) = begin
+        asg = Int.(state.assignments); lab = Dict{Int,Int}(); nx = 1; out = similar(asg)
+        for i in eachindex(asg); a = asg[i]; haskey(lab, a) || (lab[a] = nx; nx += 1); out[i] = lab[a]; end
+        out
+    end
+    modeK(r) = argmax(r.accumulators[1]) - 1
+    accs() = SMLMBaGoL.AbstractAccumulator[EmitterCountHist()]
+
+    # (a) single 20 nm ruler, right mark drifts 30 nm in y
+    ls = SMLMData.Emitter2DFit{Float64}[]; id = 1
+    for (k, (mx, my, vv)) in enumerate([(0.30, 0.30, (0.0, 0.0)), (0.32, 0.30, (0.0, 0.030))]), _ in 1:30
+        f = rand(rng, 1:nf); δ = (f - t0) / span
+        push!(ls, SMLMData.Emitter2DFit{Float64}(mx + vv[1]*δ + randn(rng)*σ, my + vv[2]*δ + randn(rng)*σ,
+              1e3, 0.0, σ, σ, 0.0, 0.0, 0.0, f, 1, k, id)); id += 1
+    end
+    xs = [1000*l.x for l in ls]; ys = [1000*l.y for l in ls]
+    rs = run_collapsed_chain(ls; motion=:none, spatial_model=:flat, n_iterations=6000, burn_in=3000, accumulators=accs())
+    rm = run_collapsed_chain(ls; motion=:linear, motion_sigma=0.015, n_iterations=6000, burn_in=3000, accumulators=accs())
+    labs = relabel(rs.state); labm = relabel(rm.state); sp = rm.state.spatial
+    cmap = Makie.wong_colors()
+    fig = Figure(size = (1050, 520))
+    Label(fig[0, 1:2], "Per-emitter linear motion — a 20 nm ruler whose right mark drifts 30 nm in y", fontsize=16, font=:bold)
+    ax1 = Axis(fig[1, 1], title="STATIC — K = $(modeK(rs)) (over-splits)", xlabel="x (nm)", ylabel="y (nm)", aspect=DataAspect())
+    scatter!(ax1, xs, ys, color=[cmap[mod1(l,7)] for l in labs], markersize=7)
+    ax2 = Axis(fig[1, 2], title="MOTION :linear — K = $(modeK(rm)) (recovers 2 + drift)", xlabel="x (nm)", ylabel="y (nm)", aspect=DataAspect())
+    scatter!(ax2, xs, ys, color=[cmap[mod1(l,7)] for l in labm], markersize=7)
+    for k in eachindex(rm.state.active)
+        (rm.state.active[k] && Int(rm.state.clusters[k].n) > 0) || continue
+        μ̂, v̂, _, _ = SMLMBaGoL.motion_posterior(rm.state.clusters[k], sp.Λv)
+        scatter!(ax2, [1000μ̂[1]], [1000μ̂[2]], color=:black, marker=:star5, markersize=15)
+        arrows!(ax2, [1000μ̂[1] - 500v̂[1]], [1000μ̂[2] - 500v̂[2]], [1000v̂[1]], [1000v̂[2]], color=:black, linewidth=2, arrowsize=11)
+    end
+    linkaxes!(ax1, ax2)
+    save(asset("motion_demo.png"), fig)
+
+    # (b) field of rulers with random per-mark drift → recovered-velocity histogram
+    lf = SMLMData.Emitter2DFit{Float64}[]; id = 1; k = 1
+    for ix in 1:4, iy in 1:3
+        cx = 0.35*ix; cy = 0.35*iy
+        for (mx, my) in [(cx, cy), (cx + 0.020, cy)]
+            vx = 0.018*randn(rng); vy = 0.018*randn(rng)
+            for _ in 1:25
+                f = rand(rng, 1:nf); δ = (f - t0) / span
+                push!(lf, SMLMData.Emitter2DFit{Float64}(mx + vx*δ + randn(rng)*σ, my + vy*δ + randn(rng)*σ,
+                      1e3, 0.0, σ, σ, 0.0, 0.0, 0.0, f, 1, k, id)); id += 1
+            end
+            k += 1
+        end
+    end
+    smld_f = SMLMData.BasicSMLD(lf, SMLMData.IdealCamera(1:200, 1:200, 0.1), nf, 1)
+    _, dg = run_bagol(smld_f; motion=:linear, motion_sigma=0.02, n_iterations=2500, burn_in=1200, verbose=false)
+    V = dg.motion.velocities
+    fig2 = Figure(size = (860, 420))
+    Label(fig2[0, 1:2], "Recovered per-emitter drift (motion=:linear) — $(size(V,1)) emitters", fontsize=15, font=:bold)
+    for (d, nm) in enumerate(("x", "y"))
+        vd = 1000 .* V[:, d]
+        ax = Axis(fig2[1, d], xlabel="v_$nm (nm)", ylabel="emitters",
+                  title="v_$nm: mean = $(round(1000*dg.motion.axis_mean[d], digits=1)) ± $(round(1000*dg.motion.axis_std[d], digits=1)) nm")
+        hist!(ax, vd; bins=max(8, round(Int, sqrt(length(vd)))), color=(:steelblue, 0.7))
+        vlines!(ax, [1000*dg.motion.axis_mean[d]]; color=:red, linewidth=2)
+        vlines!(ax, [0.0]; color=:gray50, linestyle=:dash)
+    end
+    save(asset("motion_velocities.png"), fig2)
+end
+
 function main()
     local S, G, BC
     figure("run_single",   () -> (S = run_single()))
@@ -723,6 +793,7 @@ function main()
     figure("marginal",          fig_marginal)
     figure("se_distribution",   fig_se_distribution)
     figure("se_prepost",        fig_se_prepost)
+    figure("motion",            fig_motion)
     figure("negbin_family",     fig_negbin_family)
     figure("gibbs",             fig_gibbs)
     figure("hier_flow",         fig_hier_flow)

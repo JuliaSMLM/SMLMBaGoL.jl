@@ -18,17 +18,20 @@ function initialize_collapsed_state(locs::Vector{<:SMLMData.AbstractEmitter},
                                      use_poisson_k_prior::Bool=_uses_poisson_k_prior(sp))
     N = length(locs)
 
-    cs = empty_cluster(locs)
-    for loc in locs
-        cs = add_loc(cs, loc)
+    # Build precisions first (spatial-model-aware: MotionSpatial → MotionLocPrecision
+    # carrying time), then the initial cluster from them so the cluster-stats type
+    # matches the model (static → ClusterStats, motion → MotionClusterStats).
+    _loc_precs = precompute_loc_precisions(locs, sp)
+
+    cs = empty_cluster(_loc_precs)
+    for lp in _loc_precs
+        cs = add_loc(cs, lp)
     end
 
     assignments = fill(Int16(1), N)
     clusters = [cs]
     active = BitVector([true])
     n_active = 1
-
-    _loc_precs = precompute_loc_precisions(locs)
 
     max_K = max(N, 16)
     _perm = collect(1:N)
@@ -73,18 +76,17 @@ function initialize_from_assignments(assignments::AbstractVector{<:Integer},
 
     assign16 = Vector{Int16}(assignments)
     max_cluster = maximum(assign16)
-    clusters = [empty_cluster(locs) for _ in 1:max_cluster]
+    _loc_precs = precompute_loc_precisions(locs, sp)
+    clusters = [empty_cluster(_loc_precs) for _ in 1:max_cluster]
     active = falses(max_cluster)
 
     for (i, a) in enumerate(assign16)
         if a > 0
-            clusters[a] = add_loc(clusters[a], locs[i])
+            clusters[a] = add_loc(clusters[a], _loc_precs[i])
             active[a] = true
         end
     end
     n_active = count(active)
-
-    _loc_precs = precompute_loc_precisions(locs)
 
     max_K = max(N, 16)
     _perm = collect(1:N)
@@ -157,6 +159,8 @@ function run_collapsed_chain(
     allocation_model::Symbol = :dm,
     spatial_model::Symbol = :locmix,
     k_prior::Symbol = :auto,
+    motion::Symbol = :none,
+    motion_sigma::Float64 = 0.002,
 )
     N = length(locs)
     if N == 0
@@ -186,7 +190,17 @@ function run_collapsed_chain(
     # Construct spatial model
     spatial_model in (:locmix, :flat) ||
         throw(ArgumentError("spatial_model must be :locmix or :flat (got :$spatial_model)"))
-    sp = if spatial_model === :locmix
+    motion in (:none, :linear) ||
+        throw(ArgumentError("motion must be :none or :linear (got :$motion)"))
+    sp = if motion === :linear
+        # Linear per-emitter motion: flat μ + Gaussian velocity prior (σ = motion_sigma μm
+        # per-axis end-to-end drift). Global time reference from the loc frame range.
+        _frames = Float64[Float64(l.frame) for l in locs]
+        _fmin, _fmax = extrema(_frames)
+        _t0 = (_fmin + _fmax) / 2
+        _span = max(_fmax - _fmin, 1.0)
+        motion_spatial(locs, motion_sigma, log(area(UniformSpatialPrior(locs))), _t0, _span)
+    elseif spatial_model === :locmix
         LocmixSpatial(locs)
     else
         FlatSpatial(log(area(UniformSpatialPrior(locs))))

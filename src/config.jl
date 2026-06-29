@@ -71,6 +71,14 @@ Base.@kwdef struct BaGoLConfig <: SMLMData.AbstractSMLMConfig
     n_restricted_scans::Int = 5
     n_bd_substeps::Int = 5
 
+    # Per-emitter linear motion (opt-in; default off). `:linear` lets each emitter
+    # drift linearly in time (θ(t)=μ+v·δ, v integrated out), recovering emitters whose
+    # blinks span a moving track instead of over-splitting them; `motion_sigma` is the
+    # per-axis end-to-end drift prior SD in μm. Needs per-loc `frame` spanning the
+    # acquisition. Reported velocities + mean±std land in the diagnostics Info.
+    motion::Symbol = :none
+    motion_sigma::Float64 = 0.002
+
     # Partitioning
     partition_sigma::Float64 = 3.0
     min_partition_size::Int = 0

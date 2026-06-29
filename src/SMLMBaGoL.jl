@@ -83,6 +83,7 @@ export indicator_ess, run_mixing_test
 # Include source files
 include("spatial.jl")
 include("cluster_stats.jl")
+include("motion.jl")
 include("types.jl")
 include("config.jl")
 include("priors.jl")

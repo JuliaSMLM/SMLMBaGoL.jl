@@ -25,6 +25,7 @@ makedocs(;
             "MAP-N Estimation" => "math/mapn.md",
             "Large-Dataset Partitioning" => "math/partitioning.md",
             "Uncertainty Correction" => "math/se_adjust.md",
+            "Per-Emitter Linear Motion" => "math/motion.md",
         ],
         "Results Gallery" => "results.md",
         "API Reference" => "api.md",
