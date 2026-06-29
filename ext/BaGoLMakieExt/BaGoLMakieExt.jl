@@ -44,7 +44,9 @@ function SMLMBaGoL.plot_report(report; output_dir::String = "output")
     end
 end
 
-# Histogram of the recovered per-emitter velocities (motion=:linear). One panel per axis.
+# Precision-weighted histogram of the recovered per-emitter velocities (motion=:linear).
+# Each v̂ is weighted by 1/Σv (the velocity posterior precision), so low-n / prior-shrunk
+# emitters don't swamp the well-determined ones — the honest QC view at scale. One panel/axis.
 function _plot_motion_velocities(report, output_dir)
     m = report.motion
     V = m.velocities                       # N×D (μm)
@@ -52,14 +54,15 @@ function _plot_motion_velocities(report, output_dir)
     D = size(V, 2)
     axn = ("x", "y", "z")
     fig = Figure(size = (430 * D, 430))
-    Label(fig[0, 1:D], "Recovered per-emitter linear drift (motion=:linear) — $(size(V, 1)) emitters, end-to-end",
+    Label(fig[0, 1:D], "Recovered per-emitter drift (motion=:linear) — $(size(V, 1)) emitters, precision-weighted",
           fontsize = 14, font = :bold)
     for d in 1:D
-        vd = 1000 .* V[:, d]               # nm
-        ax = Axis(fig[1, d], xlabel = "v_$(axn[d]) (nm)", ylabel = "emitters",
-                  title = "v_$(axn[d]): mean = $(round(1000 * m.axis_mean[d], digits = 1)) ± $(round(1000 * m.axis_std[d], digits = 1)) nm")
-        hist!(ax, vd; bins = max(8, round(Int, sqrt(length(vd)))), color = (:steelblue, 0.7))
-        vlines!(ax, [1000 * m.axis_mean[d]]; color = :red, linewidth = 2, label = "mean")
+        vd = 1000 .* V[:, d]                                   # nm
+        w  = 1.0 ./ max.(m.velocity_var[:, d], 1e-12)          # velocity precision (μm⁻²)
+        ax = Axis(fig[1, d], xlabel = "v_$(axn[d]) (nm)", ylabel = "weighted emitters",
+                  title = "v_$(axn[d]): weighted $(round(1000 * m.axis_mean_weighted[d], digits = 1)) ± $(round(1000 * m.axis_std_weighted[d], digits = 1)) nm")
+        hist!(ax, vd; weights = w, bins = max(8, round(Int, sqrt(length(vd)))), color = (:steelblue, 0.7))
+        vlines!(ax, [1000 * m.axis_mean_weighted[d]]; color = :red, linewidth = 2, label = "weighted mean")
         vlines!(ax, [0.0]; color = :gray50, linestyle = :dash, label = "0")
     end
     save(joinpath(output_dir, "motion_velocities.png"), fig)
