@@ -903,27 +903,16 @@ function _run_bagol_collapsed(
         allv = [t for t in final_velocities if all(isfinite, t[1])]
         if isempty(allv)
             _motion_diag = (; velocities = zeros(0, Dm), velocity_var = zeros(0, Dm), n = Int[],
-                            axis_mean = Float64[], axis_std = Float64[],
-                            axis_mean_weighted = Float64[], axis_std_weighted = Float64[])
+                            axis_mean = Float64[], axis_std = Float64[])
         else
             V  = permutedims(reduce(hcat, [t[1] for t in allv]))     # N×D velocities (μm)
             VV = permutedims(reduce(hcat, [t[2] for t in allv]))     # N×D velocity variances (μm²)
             ns = Int[t[3] for t in allv]
             am  = vec(Statistics.mean(V, dims = 1))
             asd = size(V, 1) >= 2 ? vec(Statistics.std(V, dims = 1)) : zeros(Dm)
-            # Precision-weighted (weight each v̂ by 1/Σv) — down-weights prior-shrunk, low-n
-            # velocities so the aggregate reflects the well-determined emitters.
-            W = 1.0 ./ max.(VV, 1e-12)
-            sw = vec(sum(W, dims = 1))
-            amw = vec(sum(V .* W, dims = 1)) ./ sw
-            asdw = vec(sqrt.(max.(vec(sum(W .* (V .- amw').^2, dims = 1)) ./ sw, 0.0)))
-            _motion_diag = (; velocities = V, velocity_var = VV, n = ns,
-                            axis_mean = am, axis_std = asd,
-                            axis_mean_weighted = amw, axis_std_weighted = asdw)
-            _log_progress("  Motion: |v̂| mean±std per axis (nm): raw = " *
-                          join(["$(round(1000*am[d],digits=2))±$(round(1000*asd[d],digits=2))" for d in eachindex(am)], ", ") *
-                          " | precision-weighted = " *
-                          join(["$(round(1000*amw[d],digits=2))±$(round(1000*asdw[d],digits=2))" for d in eachindex(amw)], ", "))
+            _motion_diag = (; velocities = V, velocity_var = VV, n = ns, axis_mean = am, axis_std = asd)
+            _log_progress("  Motion: recovered drift mean±std per axis (nm) = " *
+                          join(["$(round(1000*am[d],digits=2))±$(round(1000*asd[d],digits=2))" for d in eachindex(am)], ", "))
         end
     end
 
