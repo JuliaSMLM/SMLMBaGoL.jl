@@ -19,8 +19,9 @@ examples/output/
 .nfs*
 **/.nfs*
 **/.claude/settings.local.json
-.claude/code_review/
-.claude/local_memory/
+.claude/
+CLAUDE.md
+**/CLAUDE.md
 .slackclaw_state.json
 tmp/
 .codex
