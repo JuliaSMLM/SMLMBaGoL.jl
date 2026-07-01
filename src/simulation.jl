@@ -11,7 +11,7 @@ Result of SMLM simulation containing localizations, SMLD, and ground truth.
 Fields:
 - `smld`: Ready-to-use BasicSMLD with auto-sized camera
 - `true_positions`: Ground truth emitter positions (μm)
-- `true_counts`: Localizations generated per emitter (after min_photons filter)
+- `true_counts`: Localizations generated per emitter (all pass min_photons when photon sampling is used)
 - `n_emitters`: Number of true emitters
 """
 struct SimulationResult
@@ -165,7 +165,7 @@ Generate synthetic SMLM localizations from known emitter positions.
 - `:fixed` — exactly `round(Int, mean_count)` per emitter
 
 # Photophysics modes
-- Default: photons from `Exponential(mean_photons)`, filtered by `min_photons`,
+- Default: photons from `Exponential(mean_photons)`, redrawn until `min_photons` passes,
   precision `σ = psf_sigma / √photons`
 - `fixed_sigma` mode: constant σ and photons, no photon sampling
 
@@ -178,7 +178,7 @@ Use these directly in `run_bagol(; μ=sim.count_params.μ, shape=sim.count_param
 - `count_model=:poisson`: `:poisson`, `:exp`, `:fixed`, or numeric NegBin shape
 - `psf_sigma=0.130`: PSF standard deviation (μm)
 - `mean_photons=500.0`: mean photons per localization
-- `min_photons=100.0`: discard localizations below this
+- `min_photons=100.0`: redraw photon samples below this threshold
 - `fixed_sigma=nothing`: if set, use this constant σ (skips photophysics)
 - `fixed_photons=1000.0`: photon count used with `fixed_sigma`
 - `background=10.0`: background photons per pixel
@@ -242,14 +242,24 @@ function simulate_localizations(
             max(1, rand(count_dist))
         end
 
+        # Draw exactly n_j localizations that PASS the min_photons filter. A dim draw
+        # (photons < min_photons) is REDRAWN, not discarded — otherwise filtering would
+        # bias the per-emitter count below the Poisson(mean_count) target and make the
+        # observed count model inconsistent with mean_count.
         actual_count = 0
-        for _ in 1:n_j
+        attempts = 0
+        max_attempts = 1000 * max(n_j, 1)
+        while actual_count < n_j
+            attempts += 1
+            attempts > max_attempts && error(
+                "simulate: min_photons=$min_photons rejects nearly all photon draws " *
+                "(mean_photons=$mean_photons); cannot fill $n_j localizations")
             if use_fixed_sigma
                 σ = fixed_sigma
                 photons = fixed_photons
             else
                 photons = rand(photon_dist)
-                photons < min_photons && continue
+                photons < min_photons && continue   # rejected: redraw, do not count
                 σ = psf_sigma / sqrt(photons)
             end
 
@@ -283,7 +293,8 @@ function simulate_localizations(
 
     smld = SMLMData.BasicSMLD(locs, camera, length(locs), 1)
 
-    # Empirical μ (actual locs per emitter after filtering)
+    # Empirical μ (actual locs per emitter). With the redraw-until-n_j loop above,
+    # min_photons no longer biases this below the Poisson(mean_count) target.
     empirical_μ = n_emitters > 0 ? length(locs) / n_emitters : 0.0
     cp = (μ=empirical_μ, shape=is_fixed ? 1000.0 : effective_shape)
 
