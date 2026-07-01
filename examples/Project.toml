@@ -7,7 +7,7 @@ SMLMSim = "5a0a87e4-02d4-41f5-bf26-b8c94c784a04"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 
 [sources]
-SMLMBaGoL = {path = "/home/kalidke/julia_shared_dev/SMLMBaGoL"}
+SMLMBaGoL = {path = ".."}
 SMLMData = {path = "../../SMLMData"}
 SMLMRender = {path = "../../SMLMRender"}
 SMLMSim = {path = "../../SMLMSim"}
