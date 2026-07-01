@@ -119,6 +119,12 @@ Run the collapsed Gibbs sampler on a set of localizations.
 - `learn_distribution=true`: Control count distribution learning.
   `true`=learn both μ and shape, `false`=fix both,
   `:mu`=learn μ only (fix shape), `:shape`=learn shape only (fix μ)
+- `learn_rho=true`: Learn Poisson-K emitter density ρ independently of μ/shape.
+  For fully fixed hyperparameters, set both `learn_distribution=false` and
+  `learn_rho=false`.
+- `rho=nothing`: Initial ρ in emitters per unit area. If provided with
+  `learn_rho=false`, hold this fixed for Fazel-style fixed-ρ-over-bounding-box
+  flat Poisson-K runs.
 - `hierarchical_interval=100`: Iterations between μ/shape MH updates
 - `accumulators=AbstractAccumulator[]`: List of accumulators to update after burn-in
 - `verbose=false`: Print progress
@@ -142,6 +148,8 @@ function run_collapsed_chain(
     initial_assignments::Union{Nothing, AbstractVector{<:Integer}} = nothing,
     shape::Float64 = 2.0,
     learn_distribution::Union{Bool, Symbol} = true,
+    learn_rho::Bool = true,
+    rho::Union{Nothing, Float64} = nothing,
     μ_prior_shape::Float64 = 2.0,
     μ_prior_scale::Float64 = 5.0,
     shape_prior_shape::Float64 = 2.0,
@@ -186,6 +194,9 @@ function run_collapsed_chain(
     end
     _learn_mu = learn_distribution === true || learn_distribution === :mu
     _learn_shape = learn_distribution === true || learn_distribution === :shape
+    if rho !== nothing && rho <= 0.0
+        throw(ArgumentError("rho must be positive when provided (got $rho)"))
+    end
 
     # Construct spatial model
     spatial_model in (:locmix, :flat) ||
@@ -233,7 +244,7 @@ function run_collapsed_chain(
     μ = μ_prior_shape * μ_prior_scale  # Initial μ from prior mean
     current_shape = shape
     A = spatial_area(state.spatial)
-    ρ = ρ_prior_shape / ρ_prior_rate  # Initial ρ from prior mean
+    ρ = rho === nothing ? ρ_prior_shape / ρ_prior_rate : Float64(rho)
 
     acceptance = Dict{Symbol, Tuple{Int, Int}}(
         :gibbs_sweep => (0, 0),
@@ -283,10 +294,9 @@ function run_collapsed_chain(
             if _learn_shape
                 current_shape = _update_shape_collapsed(state, μ, current_shape, config_nt)
             end
-            # Conjugate ρ update only under the FlatSpatial legacy path that
-            # actually uses the Poisson(ρA) K prior. Under LocmixSpatial the
-            # target has no ρ (K prior is absent per docs/math_reference.md).
-            if _uses_poisson_k_prior(state)
+            # Conjugate ρ update only when rho learning is enabled and the
+            # target actually uses the Poisson(ρA) K prior.
+            if learn_rho && _uses_poisson_k_prior(state)
                 ρ = _update_rho_collapsed(state, A, config_nt)
             end
         end

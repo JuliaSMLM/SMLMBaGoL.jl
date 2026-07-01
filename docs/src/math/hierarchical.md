@@ -14,10 +14,12 @@ regularizes the emitter number ``K`` therefore adapts to the data: a sparsely-bl
 dSTORM dataset and a densely-blinking DNA-PAINT dataset are fit with different learned
 ``(\mu, \alpha)`` from the same code, with no manual tuning.
 
-Concretely, the hyperparameters are not fixed — they are updated from the data on a fixed
-cadence (default every 100 iterations: `sync_interval` in [`run_bagol`](@ref),
-`hierarchical_interval` in [`run_collapsed_chain`](@ref)), gated by `learn_distribution`
-(`hierarchical.jl`).
+Concretely, the count hyperparameters ``\mu`` and ``\alpha`` are not fixed by default — they
+are updated from the data on a fixed cadence (default every 100 iterations: `sync_interval`
+in [`run_bagol`](@ref), `hierarchical_interval` in [`run_collapsed_chain`](@ref)), gated by
+`learn_distribution` (`hierarchical.jl`). The Poisson-K emitter density ``\rho``, when that
+prior is active, is controlled independently by `learn_rho`; a fully fixed hyperparameter run
+sets both `learn_distribution=false` and `learn_rho=false`.
 
 !!! note "General method: hierarchical Bayes"
     Fixing ``\mu`` and ``\alpha`` to guessed values would bake an assumption about your
