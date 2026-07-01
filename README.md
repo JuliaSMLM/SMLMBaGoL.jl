@@ -18,6 +18,15 @@ ecosystem.
 This package is a Julia reimplementation of the BaGoL algorithm of Fazel *et al.*
 (*Nature Communications* **13**, 7152, 2022).
 
+![Super-resolution vs BaGoL on a DNA-PAINT nanoruler](docs/src/assets/ruler_sr_vs_bagol.png)
+
+*BaGoL on experimental DNA-PAINT data — GATTAquant GATTA-PAINT HiRes 20R nanorulers
+(three marks at 20 nm mark-to-mark spacing, ATTO 655; 1 µm field of view). **Left:** a standard super-resolution render of the
+raw localizations, where each docking site is a diffuse cloud of repeated blinks.
+**Right:** BaGoL groups those localizations back into individual emitters, resolving each
+ruler into its three sites at the 20 nm pitch — the emitter positions (dots) are far more
+precise than any single localization. Scale bar, 40 nm (one ruler's end-to-end span).*
+
 ## How it works
 
 In an SMLM experiment a single fluorescent emitter blinks repeatedly, so it appears not
