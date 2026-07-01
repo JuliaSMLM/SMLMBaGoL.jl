@@ -67,16 +67,18 @@ learned — see [Hierarchical Learning](hierarchical.md).*
 
 `k_prior = :auto` (default), `:poisson`, or `:none`. Under the default `:locmix` spatial
 model there is **no separate ``K`` prior** — the count model plus the DM prior already
-regularize ``K``. Under `spatial_model = :flat`, an area-cancelled Poisson prior
+regularize ``K``. Under `spatial_model = :flat`, the genuine Poisson prior
 ``K \sim \mathrm{Poisson}(\rho A)`` is added (`priors.jl`, `log_prior_k_poisson`):
 
 ```math
-\log P(K) = -\rho A + K\log\rho - \log K! \quad (K \ge 1).
+\log P(K) = -\rho A + K\log(\rho A) - \log K! \quad (K \ge 1).
 ```
 
-The ``A^{-K}`` from the uniform per-emitter location priors cancels the ``A^K`` from the
-Poisson rate, leaving an area-independent factor; the per-cluster ``-\log A`` is supplied
-separately by the [flat marginal likelihood](marginal.md#Flat-(uniform)-spatial-prior). The
+The ``A^K`` factor here cancels the per-cluster ``-\log A`` (the uniform position prior
+``A^{-K}``) supplied by the [flat marginal likelihood](marginal.md#Flat-(uniform)-spatial-prior),
+so a ``K``-changing move's net area contribution is zero — the flat + Poisson-``K`` target
+is area-invariant. (Before v0.4 the ``K\log A`` term was missing, double-subtracting
+``\log A`` once the flat ML was applied and biasing ``K`` with the area unit.) The
 density ``\rho`` is itself learned (see [Hierarchical Learning](hierarchical.md)).
 `k_prior = :poisson` is valid **only** with `spatial_model = :flat`.
 
