@@ -346,8 +346,8 @@ end
 """
     _uses_poisson_k_prior(sp) -> Bool
 
-True iff the target includes an explicit Poisson(ρA) K prior and requires
-ρ hierarchical updates.
+True iff the target includes an explicit Poisson(ρA) K prior. If `learn_rho`
+is enabled, these are also the states eligible for ρ hierarchical updates.
 
 Default policy by spatial model (used when the user passes k_prior=:auto):
 - FlatSpatial: true (legacy Fazel-with-Poisson-K behavior)

@@ -146,6 +146,12 @@ n_j ~ Gamma(shape, μ/shape) where:
 - `learn_distribution=true`: Control count distribution learning.
   `true`=learn both μ and shape, `false`=fix both,
   `:mu`=learn μ only (fix shape), `:shape`=learn shape only (fix μ)
+- `learn_rho=true`: Learn Poisson-K emitter density ρ independently of μ/shape.
+  For fully fixed hyperparameters, set both `learn_distribution=false` and
+  `learn_rho=false`.
+- `rho=nothing`: Initial ρ in emitters per unit area. If provided with
+  `learn_rho=false`, hold this fixed for Fazel-style fixed-ρ-over-bounding-box
+  flat Poisson-K runs.
 - `allocation_model=:dm`: `:dm` (Dirichlet-Multinomial), `:decoupled`
   (no partition prior), or `:categorical` (labeled K^(-N) — Fazel-equivalent
   when paired with `spatial_model=:flat` + `k_prior=:none`)
@@ -174,6 +180,8 @@ function run_bagol(
     shape::Float64 = 2.0,
     learn_distribution::Union{Bool, Symbol} = true,
     gamma::Union{Nothing, Float64} = nothing,
+    learn_rho::Bool = true,
+    rho::Union{Nothing, Float64} = nothing,
     # MCMC
     n_iterations::Int = 4000,
     burn_in::Int = 2000,
@@ -218,6 +226,7 @@ function run_bagol(
     return _run_bagol_collapsed(smld;
         partition_sigma, min_partition_size, max_partition_size, skip_partition_size,
         overlap, se_adjust, force_se_adjust, keep_se_finder, motion, motion_sigma, sync_interval, n_iterations, burn_in, shape, learn_distribution,
+        learn_rho, rho,
         posterior_pixel_size, posterior_xlim, posterior_ylim,
         archive_path, progress_file, verbose,
         μ=μ, gamma=gamma, allocation_model=allocation_model,
@@ -243,7 +252,7 @@ function run_bagol(
 )
     return run_bagol(smld;
         μ=cfg.μ, shape=cfg.shape, learn_distribution=cfg.learn_distribution,
-        gamma=cfg.gamma,
+        gamma=cfg.gamma, learn_rho=cfg.learn_rho, rho=cfg.rho,
         n_iterations=cfg.n_iterations, burn_in=cfg.burn_in,
         sync_interval=cfg.sync_interval,
         allocation_model=cfg.allocation_model, spatial_model=cfg.spatial_model,
@@ -316,6 +325,8 @@ function _run_bagol_collapsed(
     burn_in::Int = 2000,
     shape::Float64 = 2.0,
     learn_distribution::Union{Bool, Symbol} = true,
+    learn_rho::Bool = true,
+    rho::Union{Nothing, Float64} = nothing,
     posterior_pixel_size::Float64 = 0.002,
     posterior_xlim::Union{Nothing, Tuple{<:Real, <:Real}} = nothing,
     posterior_ylim::Union{Nothing, Tuple{<:Real, <:Real}} = nothing,
@@ -349,6 +360,10 @@ function _run_bagol_collapsed(
     end
     _learn_mu = learn_distribution === true || learn_distribution === :mu
     _learn_shape = learn_distribution === true || learn_distribution === :shape
+    if rho !== nothing && rho <= 0.0
+        throw(ArgumentError("rho must be positive when provided (got $rho)"))
+    end
+    _initial_ρ = rho === nothing ? ρ_prior_shape / ρ_prior_rate : Float64(rho)
 
     locs = smld.emitters
     camera = smld.camera
@@ -403,7 +418,7 @@ function _run_bagol_collapsed(
     if isempty(partitions)
         @warn "No valid partitions"
         empty_smld = SMLMData.BasicSMLD(SMLMData.Emitter2DFit{Float64}[], camera, 1, 1)
-        empty_diag = BaGoLDiagnostics(0, Int[], Dict{Symbol,Float64}(), 0.0, shape, 0.0, 0, Int[], Int[], Int[], nothing, _se_tau,
+        empty_diag = BaGoLDiagnostics(0, Int[], Dict{Symbol,Float64}(), 0.0, shape, _initial_ρ, 0, Int[], Int[], Int[], nothing, _se_tau,
             (; iters=Int[], K=Int[], mu=Float64[], shape=Float64[], rho=Float64[], burn_in=0), _se_finder, nothing)
         return empty_smld, empty_diag
     end
@@ -521,7 +536,7 @@ function _run_bagol_collapsed(
     # Direct μ kwarg takes precedence over hyperprior product
     μ = μ !== nothing ? Float64(μ) : μ_prior_shape * μ_prior_scale
     current_shape = shape
-    ρ = ρ_prior_shape / ρ_prior_rate  # Initial ρ from prior mean
+    ρ = _initial_ρ  # Initial ρ from explicit rho or prior mean
 
     # Per-partition areas (for conjugate ρ update)
     partition_areas = [spatial_area(states[i].spatial) for i in 1:n_partitions]
@@ -599,11 +614,10 @@ function _run_bagol_collapsed(
             current_shape, shape_scale = _update_shape_collapsed_global!(states, μ, current_shape, config_nt,
                                                              shape_scale; cluster_masks=cluster_masks, adapt=_adapt_hyper)
         end
-        # Conjugate ρ update — gated on spatial model. Only the FlatSpatial
-        # legacy path uses a Poisson(ρA) K prior; LocmixSpatial target has no
-        # ρ per docs/math_reference.md. Partitions share spatial-model type
-        # within a run, so it's enough to check the first state.
-        ρ = if !isempty(states) && _uses_poisson_k_prior(states[1])
+        # Conjugate ρ update — gated independently by learn_rho and by whether
+        # the target actually uses a Poisson(ρA) K prior. Partitions share
+        # spatial-model type within a run, so it's enough to check the first state.
+        ρ = if learn_rho && !isempty(states) && _uses_poisson_k_prior(states[1])
             _update_rho_collapsed_global!(states, partition_areas, config_nt;
                                           cluster_masks=cluster_masks)
         else

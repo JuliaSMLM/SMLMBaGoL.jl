@@ -15,6 +15,12 @@ Configuration for BaGoL analysis. All fields correspond 1:1 to `run_bagol` kwarg
 - `learn_distribution=true`: Learn count params. `true`=both, `false`=fix both,
   `:mu`=learn μ only, `:shape`=learn shape only
 - `gamma=nothing`: DM concentration. `nothing`=use shape (default), `Float64`=fixed
+- `learn_rho=true`: Learn Poisson-K emitter density ρ independently of μ/shape.
+  For fully fixed hyperparameters, set both `learn_distribution=false` and
+  `learn_rho=false`.
+- `rho=nothing`: Initial ρ in emitters per unit area. If provided with
+  `learn_rho=false`, hold this fixed for Fazel-style fixed-ρ-over-bounding-box
+  flat Poisson-K runs.
 
 # MCMC
 - `n_iterations=4000`: Total MCMC iterations
@@ -58,6 +64,8 @@ Base.@kwdef struct BaGoLConfig <: SMLMData.AbstractSMLMConfig
     shape::Float64 = 2.0
     learn_distribution::Union{Bool, Symbol} = true
     gamma::Union{Nothing, Float64} = nothing
+    learn_rho::Bool = true
+    rho::Union{Nothing, Float64} = nothing
 
     # MCMC
     n_iterations::Int = 4000
@@ -66,7 +74,8 @@ Base.@kwdef struct BaGoLConfig <: SMLMData.AbstractSMLMConfig
     allocation_model::Symbol = :dm
     spatial_model::Symbol = :locmix
     # K prior gating (:auto = use spatial-model default; :poisson = always include
-    # Poisson(ρA) + ρ updates; :none = never). :auto preserves existing behavior.
+    # Poisson(ρA); :none = never). ρ updates are controlled by learn_rho.
+    # :auto preserves existing behavior.
     k_prior::Symbol = :auto
     n_restricted_scans::Int = 5
     n_bd_substeps::Int = 5
