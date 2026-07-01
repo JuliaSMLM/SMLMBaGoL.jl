@@ -976,6 +976,23 @@ using Distributions
             probs_direct, _ = exact_posterior(parts, locs, td_direct; μ=10.0, shape=2.0, ρ=2.0)
             @test all(isapprox.(probs_dm, probs_direct; atol=1e-12))
 
+            # Regression: the flat + Poisson(ρA) K target must be AREA-INVARIANT.
+            # log_prior_k_poisson's A^K cancels the flat ML's per-cluster A^{-K}, so the
+            # normalized P(K) is independent of region area A (ρ held fixed). Before the
+            # v0.4 fix the K prior lacked the +K·logA term and P(K) drifted with A.
+            let lps_area = [SMLMBaGoL._loc_precision(l) for l in locs]
+                pk_at = A -> begin
+                    sp = SMLMBaGoL.FlatSpatial(log(A))
+                    lts = [SMLMBaGoL.log_target(td_dm, z, lps_area, sp, 10.0, 2.0, 2.0) for z in parts]
+                    m = maximum(lts); w = exp.(lts .- m); w ./= sum(w)
+                    p = zeros(length(locs))
+                    for (z, wi) in zip(parts, w); p[length(unique(z))] += wi; end
+                    p
+                end
+                @test maximum(abs.(pk_at(1.0) .- pk_at(10.0))) < 1e-10
+                @test maximum(abs.(pk_at(1.0) .- pk_at(0.05))) < 1e-10
+            end
+
             # Locmix targets should also normalize and the DM decomposition should
             # match the direct NegBin assignment form, without a Poisson K prior.
             td_locmix = DMLocmixTarget()

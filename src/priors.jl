@@ -83,24 +83,32 @@ end
 """
     log_prior_k_poisson(K, ρ, A) -> Float64
 
-Log Poisson(ρA) prior on K emitters, with the flat-prior area factor cancelled.
+Log of the genuine Poisson(ρA) prior on the number of emitters K:
+`-ρA + K·log(ρA) - log K!`.
 
-The joint spatial model is:
-  K ~ Poisson(ρA),  θ_k | K ~ iid Uniform(region of area A)
+Spatial model: `K ~ Poisson(ρA)`, `θ_k | K ~ iid Uniform(region of area A)`.
 
-The joint prior is p(K, θ_{1:K}) = e^{-ρA} (ρA)^K / K! × A^{-K} = e^{-ρA} ρ^K / K!.
+The `A^K` factor here is precisely what cancels the `A^{-K}` carried by the **flat**
+marginal likelihood: `spatial_ml(cs, ::FlatSpatial) = log_marginal_likelihood(cs, log_area)`
+supplies `-log A` per cluster (that `-log A` *is* the uniform position prior). K-prior
+`+K·log A` and marginal-likelihood `-K·log A` cancel, so a K→K+1 move's net area
+contribution is 0 — the target is **area-invariant**.
 
-The A^{-K} from the flat location prior cancels against A^K from the Poisson,
-so a K→K+1 move contributes ρ/(K+1) — area-independent.
+MUST be paired with the flat marginal likelihood (which carries the compensating
+`-log A`). Pairing it with a locmix ML — which has *no* `-log A` — would leave `+K·log A`
+uncompensated and re-introduce area dependence; the `FlatSpatial`-only `log_target`
+methods in `diagnostics/target.jl` enforce this.
 
-This function returns the log of e^{-ρA} ρ^K / K! (the area-cancelled form).
-The collapsed marginal likelihood should use log_marginal_likelihood(cs, log_area)
-which contributes the remaining -log(A) per cluster.
+(Prior to v0.4.x this returned the area-cancelled `e^{-ρA} ρ^K / K!` form, which
+double-subtracted `-log A` once the flat ML was also applied — see
+`docs/math_reference.md §4.2`.)
 """
 function log_prior_k_poisson(K::Int, ρ::Float64, A::Float64)
     K < 0 && return -Inf
     K == 0 && return -ρ * A
-    return -ρ * A + K * log(ρ) - logfactorial(K)
+    # Genuine Poisson(ρA). The A^K cancels the flat ML's per-cluster A^{-K} (-log A).
+    # Use log(ρ)+log(A), not log(ρ*A), to avoid under/overflow in the product.
+    return -ρ * A + K * (log(ρ) + log(A)) - logfactorial(K)
 end
 
 """

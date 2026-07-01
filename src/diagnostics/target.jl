@@ -126,7 +126,7 @@ function log_target(td::AbstractTargetDensity, z::AbstractVector{<:Integer},
 end
 
 function log_target(::DecoupledTarget, z::AbstractVector{<:Integer},
-                    loc_precs::Vector{<:LocPrecision}, sp::AbstractSpatialModel,
+                    loc_precs::Vector{<:LocPrecision}, sp::FlatSpatial,
                     μ::Float64, shape::Float64, ρ::Float64)
     N = length(z)
     K = _count_clusters(z)
@@ -148,7 +148,7 @@ function log_target(::DecoupledLocmixTarget, z::AbstractVector{<:Integer},
 end
 
 function log_target(::DMFlatTarget, z::AbstractVector{<:Integer},
-                    loc_precs::Vector{<:LocPrecision}, sp::AbstractSpatialModel,
+                    loc_precs::Vector{<:LocPrecision}, sp::FlatSpatial,
                     μ::Float64, shape::Float64, ρ::Float64)
     N = length(z)
     K = _count_clusters(z)
@@ -174,7 +174,7 @@ function log_target(::DMLocmixTarget, z::AbstractVector{<:Integer},
 end
 
 function log_target(::DirectNegBinFlatTarget, z::AbstractVector{<:Integer},
-                    loc_precs::Vector{<:LocPrecision}, sp::AbstractSpatialModel,
+                    loc_precs::Vector{<:LocPrecision}, sp::FlatSpatial,
                     μ::Float64, shape::Float64, ρ::Float64)
     N = length(z)
     K = _count_clusters(z)
