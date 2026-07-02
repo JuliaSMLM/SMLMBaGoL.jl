@@ -48,7 +48,7 @@ function deduplicate_boundary_emitters(
     isempty(boundary_idx) && return return_keep ? (result, keep) : result
 
     # Build KDTree on boundary emitter positions
-    coords = hcat([[emitters[i].x, emitters[i].y] for i in boundary_idx]...)
+    coords = stack([emitters[i].x, emitters[i].y] for i in boundary_idx)
     tree = NearestNeighbors.KDTree(coords)
 
     # Find all pairs within margin distance

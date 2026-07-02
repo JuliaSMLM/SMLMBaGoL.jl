@@ -154,11 +154,11 @@ function _match_greedy(
     n_true = length(true_positions)
 
     # Build KDTree on true positions
-    true_coords = hcat([[p[1], p[2]] for p in true_positions]...)
+    true_coords = stack([p[1], p[2]] for p in true_positions)
     tree = KDTree(true_coords)
 
     # For each estimated emitter, find nearest true within threshold
-    est_coords = hcat([[e.x, e.y] for e in estimated]...)
+    est_coords = stack([e.x, e.y] for e in estimated)
     nn_idxs, nn_dists = knn(tree, est_coords, 1)
 
     # Sort by distance (closest first → best matches assigned first)
