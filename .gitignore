@@ -17,6 +17,8 @@ dev/*
 !dev/exact_coloc_marginal.jl
 !dev/noinfo_limit_sweep.jl
 !dev/coloc_disentangle_2x2.jl
+!dev/detailed_balance_check.jl
+!dev/birth_death_db_check.jl
 examples/output/
 
 *.swp

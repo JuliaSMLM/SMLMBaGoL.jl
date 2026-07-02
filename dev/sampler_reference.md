@@ -2,7 +2,7 @@
 
 **Authoritative reference for the collapsed Gibbs sampler. Read before modifying. Update after modifying.**
 
-*Matches implementation on `poisson-k-prior` branch (Round 12, 2026-03-31). Round 12: predictive-only proposals everywhere (DM removed from all proposal kernels, MH-corrected). Flat spatial + Poisson(ρA) K prior. 4/4 brute-force PASS.*
+*Matches implementation on `poisson-k-prior` branch (Round 12, 2026-03-31). Round 12: predictive-only proposals everywhere (DM removed from all proposal kernels, MH-corrected). Flat spatial + Poisson(ρA) K prior. 4/4 brute-force PASS. 2026-07-02: + Fix A merge-DB seed guard and the K! multiplicity term Δ_K! (Poisson-K only, no-op for locmix); DB-exact (6e-16). Recovery gates use Dahl, not peak-K (see math_reference §9.4).*
 
 ---
 
@@ -204,6 +204,7 @@ Previous rounds (1-6) used a count-model independence sampler: sample K_new from
 
 1. Select pair uniformly at random: probability 1/C(K, 2)
 2. **Random seed selection for reverse density:** pick two members randomly from the merged set (matching the split's bijection). Seed density cancels.
+   - **Fix A (seed-compatibility guard):** if both drawn seeds fall in the same pre-merge cluster (`is_in_b[1]`), no reverse split can recreate the pair → `log q_alloc_rev = -Inf` (auto-reject). Prevents a fabricated positive reverse density → DB-exact merge (math_reference §9.4).
 3. Sort remaining members by loc index. Compute `is_in_b` relative to sub-cluster labels (member[i] is in same original cluster as seed_2).
 4. **Compute reverse allocation density:**
    - If `n_restricted_scans > 0` (Jain-Neal):
@@ -223,7 +224,7 @@ Previous rounds (1-6) used a count-model independence sampler: sample K_new from
 #### Stage 3: MH acceptance
 
 ```
-log α = Δ_spatial + Δ_partition + Δ_proposal + Δ_count + Δ_move_type
+log α = Δ_spatial + Δ_partition + Δ_proposal + Δ_count + Δ_move_type + Δ_K!
 ```
 
 where:
@@ -232,6 +233,7 @@ where:
 - `Δ_proposal = log q_rev - log q_fwd` (structural proposal densities)
 - `Δ_count = log P(N|K') - log P(N|K)` (count-model ratio — no longer cancels)
 - `Δ_move_type = log(d_{K'}/b_K)` for splits, `log(b_{K'}/d_K)` for merges (birth/death rate correction)
+- `Δ_K! = log(K_new!) - log(K!)` (= +log(K+1) split, -log(K) merge) — occupied-label multiplicity; **Poisson-K prior only** (`_uses_poisson_k_prior`), no-op for locmix. Cancels the prior's -log K! → targets the coherent `T_fac = K!·T1`. Same term added to birth/death. See math_reference §4.2/§9.4.
 
 **Why Δ_count no longer cancels:** In rounds 1-6, K was proposed from π_count(K) ∝ P(N|K), so P(N|K')/P(N|K) appeared in both the target ratio and the proposal ratio, canceling. With |ΔK|=1 random proposals, the count model is only in the target, not the proposal.
 

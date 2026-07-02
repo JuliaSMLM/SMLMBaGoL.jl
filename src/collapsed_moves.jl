@@ -891,8 +891,21 @@ function propose_split_merge!(state::CollapsedState,
 
         sp = state.spatial
 
+        # ---- Fix A: merge detailed-balance seed-compatibility guard ----
+        # The reverse split pins seed1→A, seed2→B, so every reachable reverse-split
+        # allocation has seed1 in A (is_in_b[1] == false). The merge draws its two seeds
+        # uniformly with NO one-per-cluster constraint, so both can land in the SAME
+        # pre-merge cluster; then is_in_b[1] == true and the true reverse-split density is
+        # ZERO. _restricted_gibbs_transition_density / _log_sequential_allocation only scan
+        # members 3:m (never the seeds) and would fabricate a POSITIVE reverse density —
+        # a DB violation that lets un-splittable merges accept (over-merge → K biased down).
+        # Guard here so incompatible seeds auto-reject (log_q_rev = -Inf → log_α = -Inf).
+        # Do NOT "optimize" this into resample-seeds-until-compatible: that changes the
+        # seed law 1/(m(m-1)) → 1/(2 n_A n_B) and silently re-breaks DB.
         # Compute reverse (split) allocation density
-        if n_restricted_scans > 0
+        if is_in_b[1]
+            log_q_alloc_rev = -Inf
+        elseif n_restricted_scans > 0
             # Jain-Neal: launch → intermediate scans → transition density to current
             # 1. Sample a launch state via sequential allocation from merged cluster
             launch_is_in_b, launch_cs_a, launch_cs_b = _sample_sequential_launch(
@@ -954,7 +967,15 @@ function propose_split_merge!(state::CollapsedState,
     else
         0.0
     end
-    log_α = Δ_spatial + Δ_partition + Δ_proposal + Δ_count + Δ_K_prior + Δ_move_type
+    # ---- K! occupied-label multiplicity correction (K-changing move) ----
+    # The coherent Poisson-emitter posterior over K carries the K! labeling factor that
+    # the canonical (T1) kernel drops; equivalently, this cancels the Poisson K prior's
+    # −log K!. Add +[log K_new! − log K!]  (= +log(K+1) for split, −log(K) for merge).
+    # Coherent ONLY under a proper Poisson K prior, so gate on it (locmix's improper
+    # pK≡1 is not coherent under this term). EXACT at fixed hyperparameters (no e^{λm}
+    # carry-through, which only matters when learning μ/shape/ρ).
+    Δ_Kfac = _uses_poisson_k_prior(state) ? (logfactorial(K_new) - logfactorial(K)) : 0.0
+    log_α = Δ_spatial + Δ_partition + Δ_proposal + Δ_count + Δ_K_prior + Δ_move_type + Δ_Kfac
 
     if log_α >= 0 || rand() < exp(log_α)
         return true, move_type
@@ -1210,7 +1231,11 @@ function propose_birth_death!(state::CollapsedState,
         0.0
     end
 
-    log_α = Δ_spatial + Δ_partition + Δ_proposal + Δ_count + Δ_K_prior
+    # ---- K! occupied-label multiplicity correction (K-changing move) ----
+    # Same term as split/merge: +[log K_new! − log K!] = +log(K+1) for birth, −log(K)
+    # for death. Gated on the Poisson K prior; exact at fixed hyperparameters.
+    Δ_Kfac = _uses_poisson_k_prior(state) ? (logfactorial(K_new) - logfactorial(K)) : 0.0
+    log_α = Δ_spatial + Δ_partition + Δ_proposal + Δ_count + Δ_K_prior + Δ_Kfac
 
     if log_α >= 0 || rand() < exp(log_α)
         return true, move_type

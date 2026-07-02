@@ -818,7 +818,9 @@ using Distributions
     # Spatially separated emitters with hierarchical μ/shape learning.
     # Hier must learn (μ, α) from cluster counts during the chain.
     # Spatial separation resolves K; hier calibrates the count model.
-    # Pass: observed MAP-K accuracy ≥ 80% of oracle (known μ, α).
+    # Pass: observed MAP-K accuracy ≥ 80% of oracle (known μ, α), scored on the Dahl
+    # consensus MAP-N (production estimator), which is robust to the locmix K-marginal's
+    # diffuse upward bias that the peak-K estimator conflates with recovery error.
     @testset "Count-Model Optimality (Hierarchical)" begin
         Random.seed!(2024)
 
@@ -879,14 +881,22 @@ using Distributions
                     end
 
                     ps_acc = PartitionSamples(thin=5)
+                    psm_acc = PSMAccumulator()
                     result = run_collapsed_chain(locs;
                         n_iterations=4000, burn_in=800,
                         shape=2.0, learn_distribution=true,
-                        accumulators=AbstractAccumulator[ps_acc],
+                        accumulators=AbstractAccumulator[ps_acc, psm_acc],
                         verbose=false)
 
+                    # Score the PRODUCTION estimator (Dahl consensus), NOT peak-K.
+                    # peak-K (estimate_mapn_collapsed = histogram-mode of per-iteration K) reads
+                    # the locmix marginal's diffuse upward K-bias directly and regresses ~15-20pt
+                    # once Fix A removes the compensating over-merge; Dahl reads a PSM consensus,
+                    # is robust (mean-K stays at truth), and is what production/render ship.
+                    # See dev/KNOWLEDGE_BASE.md (peak-K vs Dahl under Fix A).
                     samples = SMLMBaGoL.accumulator_result(ps_acc)
-                    emitters, _ = estimate_mapn_collapsed(samples, locs)
+                    psm = SMLMBaGoL.accumulator_result(psm_acc).psm
+                    emitters, _, _, _ = estimate_dahl(samples, locs, psm)
                     n_correct += (length(emitters) == K_true)
                 end
 

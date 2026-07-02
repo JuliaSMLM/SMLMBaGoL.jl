@@ -135,6 +135,17 @@ The $A^K$ factor in the Poisson K prior cancels the $A^{-K}$ factor from
 $K$ flat spatial priors, leaving a target that is area-independent up to
 constants when $K$ changes.
 
+**K! occupied-label multiplicity.** The Poisson prior carries a $-\log K!$ (from
+$\text{Poisson}(K;\rho A)=e^{-\rho A}(\rho A)^K/K!$). The sampler state is a *labeled* allocation,
+so a canonical partition with $K$ occupied clusters has $K!$ equivalent labelings; the coherent
+posterior over unlabeled partitions is $T_{\text{fac}} = K!\,T_1$ (one representative $T_1$ times
+the multiplicity). To target $T_{\text{fac}}$, the K-changing moves add
+$\Delta_{K!} = \log K'! - \log K!$ ($=+\log(K{+}1)$ for split/birth, $-\log K$ for merge/death),
+which exactly cancels the prior's $-\log K!$. This term is **gated on the Poisson-K prior**
+(`_uses_poisson_k_prior`) and is a **no-op for `:locmix`**. Exact at fixed hyperparameters; the
+$e^{\lambda m}$ empty-emitter thinning carry-through only matters when learning
+$\mu/\text{shape}/\rho$. See `docs/split-merge.md` / `docs/birth-death.md` (§9.4).
+
 ### 4.3 Decoupled allocation variant
 
 With `allocation_model=:decoupled`, the same spatial and count model are used
@@ -372,6 +383,31 @@ Error $<0.02$ per cluster (Round 11). Not significant.
 ### 9.3 Hierarchical learner feedback
 
 Under-splitting $\to$ higher $\mu/\alpha$ $\to$ count model shifts toward lower $K$ $\to$ reinforcing. Secondary effect of K-mixing failure.
+
+### 9.4 Merge DB guard (Fix A) and the peak-K vs Dahl distinction (2026-07-02)
+
+**Fix A --- merge detailed-balance seed-compatibility guard.** A merge draws two reverse-split
+seeds with no one-per-cluster constraint; when both land in the same pre-merge cluster
+(`is_in_b[1]`), no reverse split can recreate that seed pair, so the true reverse density is $0$.
+The Jain-Neal reverse scan never re-scans the seeds and previously fabricated a positive reverse
+density $\to$ DB violation $\to$ over-merge $\to$ $K$ biased **down** (grows with cluster size;
+invisible at the $N=6$ brute-force). The guard sets $\log q_{\text{alloc,rev}} = -\infty$,
+restoring EXACT DB (gate-checkers `dev/detailed_balance_check.jl` + `dev/birth_death_db_check.jl`
+report max relative residual $6\times10^{-16}$).
+
+**peak-K vs Dahl.** With Fix A + the $\Delta_{K!}$ term (§4.2), the co-located case is corrected
+upward (25 nm hexamer: $K$-mode $5\to6$). On the default `:locmix` config with well-separated
+emitters, the **peak-K** estimator (`estimate_mapn_collapsed`, histogram-mode of per-iteration
+$K$) shows a 15--20 pt recovery drop --- but this is an **estimator artifact**: the **Dahl**
+consensus estimator (`estimate_dahl`, the production MAP-N) is robust, its mean-K staying at
+truth (paired $M=300$: Dahl $0.985/0.975/0.965 \to 0.93/0.955/0.955$; mean-K $1.07/2.04/4.05$).
+Fix A removed an over-merge that had masked a *diffuse, wandering* upward bias in the locmix
+$K$-marginal; peak-K reads the inflated mode, while Dahl's PSM consensus averages the wandering
+over-split cut back out (well-separated cuts have no stable fault line; a persistent split at
+$d/\sigma\approx0$ would move the PSM and Dahl would follow). The residual locmix upward
+$K$-marginal bias (the collapsed co-location Occam defect, §9.1) is an **open target-refinement
+thread** --- fix at the target level, not by restoring the DB-violating over-merge. **Recovery
+gates use Dahl, not peak-K.**
 
 ---
 
