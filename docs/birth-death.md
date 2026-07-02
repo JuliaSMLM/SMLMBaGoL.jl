@@ -1,6 +1,7 @@
 # Birth/Death Move Reference
 
-*Updated: Round 11 (2026-03-30). No code changes in Round 11.
+*Updated: K!-correction round (2026-07-02). Added the K! occupied-label multiplicity
+term ($\Delta_{K!}$) to the birth/death acceptance ratio.
 Update this file at end of each sampler research round.*
 
 **Code:** `propose_birth_death!` in `src/collapsed_moves.jl`.
@@ -58,7 +59,7 @@ Death forward and birth reverse are analogous with roles swapped.
 
 ## MH Acceptance
 
-$$\log \alpha = \Delta_{\text{spatial}} + \Delta_{\text{partition}} + \Delta_{\text{proposal}} + \Delta_{\text{count}}$$
+$$\log \alpha = \Delta_{\text{spatial}} + \Delta_{\text{partition}} + \Delta_{\text{proposal}} + \Delta_{\text{count}} + \Delta_{K!}$$
 
 No $\Delta_{\text{move\_type}}$ --- the $p_{\text{birth}}/p_{\text{death}}$ boundary handling is already in $q_{\text{fwd}}/q_{\text{rev}}$.
 
@@ -68,6 +69,7 @@ No $\Delta_{\text{move\_type}}$ --- the $p_{\text{birth}}/p_{\text{death}}$ boun
 | $\Delta_{\text{partition}}$ | $\log P_{\text{DM}}(z' \mid K') - \log P_{\text{DM}}(z \mid K)$ |
 | $\Delta_{\text{proposal}}$ | $\log q_{\text{rev}} - \log q_{\text{fwd}}$ |
 | $\Delta_{\text{count}}$ | $\log P(N \mid K') - \log P(N \mid K)$ (uses **fixed** $\mu_0$) |
+| $\Delta_{K!}$ | $\log K'! - \log K!$ ($=+\log(K{+}1)$ birth, $-\log K$ death). Same term as split/merge; **only under a Poisson $K$ prior** (`_uses_poisson_k_prior`), no-op for `:locmix`. Cancels the prior's $-\log K!$ → targets the coherent $T_{\text{fac}} = K!\,T_1$. |
 
 ---
 

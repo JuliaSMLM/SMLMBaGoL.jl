@@ -1,6 +1,7 @@
 # Split/Merge Move Reference
 
-*Updated: Round 11 (2026-03-30). No code changes in Round 11.
+*Updated: K!-correction round (2026-07-02). Added the K! occupied-label multiplicity
+term ($\Delta_{K!}$) and the Fix A merge seed-compatibility guard.
 Update this file at end of each sampler research round.*
 
 **Code:** `propose_split_merge!` in `src/collapsed_moves.jl`.
@@ -52,6 +53,13 @@ Sample: $j \to B$ with probability $p_B = w_B / (w_A + w_B)$.
    a. Sample launch via sequential allocation from merged members
    b. Run `n_restricted_scans - 1` intermediate sweeps on launch
    c. Compute transition density: intermediate $\to$ current allocation using hybrid state
+   d. **Fix A (seed-compatibility guard):** if `is_in_b[1]` — both drawn seeds fell in the
+      SAME pre-merge cluster — the reverse split cannot recreate this seed pair (a split
+      pins seed1$\to$A, seed2$\to$B), so $q_{\text{rev}} = 0$ ($\log q_{\text{alloc\_rev}} = -\infty$).
+      Without the guard the Jain-Neal scan (which never re-scans the seeds) fabricates a
+      *positive* reverse density → DB violation → over-merge → $K$ biased **down**. Do NOT
+      "fix" this by resampling seeds until compatible: that changes the seed law
+      $1/(m(m-1)) \to 1/(2 n_A n_B)$ and silently re-breaks DB.
 5. Forward: $q_{\text{fwd}} = 1/\binom{K}{2}$
 6. Reverse: $q_{\text{rev}} = (1/(K-1)) \times q_{\text{alloc\_rev}}$
 7. Execute merge: move all locs from slot B into slot A, deactivate B.
@@ -60,7 +68,7 @@ Sample: $j \to B$ with probability $p_B = w_B / (w_A + w_B)$.
 
 ## Phase 3: MH Acceptance
 
-$$\log \alpha = \Delta_{\text{spatial}} + \Delta_{\text{partition}} + \Delta_{\text{proposal}} + \Delta_{\text{count}} + \Delta_{\text{move\_type}}$$
+$$\log \alpha = \Delta_{\text{spatial}} + \Delta_{\text{partition}} + \Delta_{\text{proposal}} + \Delta_{\text{count}} + \Delta_{\text{move\_type}} + \Delta_{K!}$$
 
 | Term | Definition |
 |------|-----------|
@@ -69,6 +77,7 @@ $$\log \alpha = \Delta_{\text{spatial}} + \Delta_{\text{partition}} + \Delta_{\t
 | $\Delta_{\text{proposal}}$ | $\log q_{\text{rev}} - \log q_{\text{fwd}}$ |
 | $\Delta_{\text{count}}$ | $\log P(N \mid K') - \log P(N \mid K)$ (uses **fixed** $\mu_0$) |
 | $\Delta_{\text{move\_type}}$ | $\log(d_{K'}/b_K)$ for splits, $\log(b_{K'}/d_K)$ for merges |
+| $\Delta_{K!}$ | $\log K'! - \log K!$ ($=+\log(K{+}1)$ split, $-\log K$ merge). **Only under a Poisson $K$ prior** (`_uses_poisson_k_prior`); cancels the prior's $-\log K!$ so the kernel targets the coherent $K$-posterior $T_{\text{fac}} = K!\,T_1$ instead of the canonical $T_1$. Exact at fixed hyperparameters ($e^{\lambda m}$ carry-through only matters when learning $\mu/\text{shape}/\rho$). No-op for `:locmix`. |
 
 On rejection: full rollback from saved state.
 
