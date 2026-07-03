@@ -12,6 +12,7 @@ using SparseArrays
 using SpecialFunctions: logfactorial, logabsbinomial, loggamma
 using StaticArrays
 using Statistics
+using SMLMClustering: build_precision_neighbor_graph, precision_dbscan_labels, PrecisionNeighborGraph
 
 # Export config
 export BaGoLConfig

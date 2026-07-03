@@ -66,6 +66,7 @@ function partition_locs(
     overlap::Union{Float64, Symbol}=:auto,
     bridge_ratio::Float64=0.0,
     min_split_size::Int=3,
+    neighbor_graph::Union{Nothing, PrecisionNeighborGraph}=nothing,
 ) where E<:SMLMData.AbstractEmitter
     bridge_ratio >= 0.0 ||
         throw(ArgumentError("bridge_ratio must be non-negative (got $bridge_ratio)"))
@@ -93,7 +94,8 @@ function partition_locs(
 
     # Run precision-weighted DBSCAN. `precision_neighbors` excludes the query
     # point, while public `min_size` is the total DBSCAN min-points convention.
-    labels = precision_dbscan(locs, partition_sigma, max(min_size - 1, 0))
+    labels = precision_dbscan(locs, partition_sigma, max(min_size - 1, 0);
+                              neighbor_graph=neighbor_graph)
     if bridge_ratio > 0.0
         labels = refine_bridge_clusters(locs, labels, partition_sigma;
                                         bridge_ratio=bridge_ratio,
@@ -288,11 +290,28 @@ Vector of cluster labels (0 = noise, 1..n = cluster IDs)
 function precision_dbscan(
     locs::Vector{<:SMLMData.AbstractEmitter},
     nsigma::Float64,
-    min_pts::Int
+    min_pts::Int;
+    neighbor_graph::Union{Nothing, PrecisionNeighborGraph} = nothing,
 )
     n = length(locs)
     if n == 0
         return Int[]
+    end
+
+    # Reuse path: a prebuilt precision neighbor graph (the τ-finder shares ONE graph
+    # across all E-steps — positions are fixed, only σ_eff changes per step). Re-threshold
+    # the cached candidate pairs at this step's σ_eff = mean_sigma(loc) and re-label.
+    # Restricted to min_pts==0 (connected components) — that case is order-free union-find,
+    # proven bit-identical to the fresh KDTree path. For min_pts≥1 the primitive's
+    # core-point border rule may differ from the legacy seed-set, so fall through to the
+    # KDTree path (unchanged behavior; the default finder path is min_pts==0 anyway).
+    # check_superset guards against a too-tight cached radius.
+    if neighbor_graph !== nothing && min_pts == 0
+        neighbor_graph.n == n || throw(DimensionMismatch(
+            "neighbor_graph has $(neighbor_graph.n) nodes but received $n locs"))
+        σ_eff = [mean_sigma(loc) for loc in locs]
+        return precision_dbscan_labels(neighbor_graph, σ_eff, nsigma;
+                                       min_pts=min_pts, check_superset=true)
     end
 
     # Build KDTree for fast neighbor queries

@@ -226,6 +226,24 @@ function _block_indices(pos, block_um, rng)
     out
 end
 
+# Build the precision-DBSCAN neighbor graph ONCE for the τ-finder to reuse across
+# every E-step (build-once / threshold-many). Positions are fixed across the descent
+# — τ only changes the σ_eff neighbor threshold — so cache the candidate-pair geometry
+# at the COARSEST σ_eff (τ = descent ceiling), a provable superset for every reachable
+# τ. precision_dbscan re-thresholds the cache per step (exact, no KDTree rebuild).
+# Returns nothing (→ per-call KDTree build, unchanged) for an empty SMLD or partition_sigma=Inf.
+function _build_finder_neighbor_graph(smld, tau_ceiling_um::Float64, partition_sigma::Float64)
+    ems = smld.emitters
+    (isempty(ems) || !isfinite(partition_sigma)) && return nothing
+    md = hasproperty(smld, :metadata) ? smld.metadata : Dict{String, Any}()
+    # σ_eff at the ceiling τ, via the SAME per-axis inflation the E-steps apply.
+    infl, _, _ = _maybe_apply_se_adjust(ems, md, (tau_ceiling_um, tau_ceiling_um), true)
+    σ_eff_ceiling = maximum(mean_sigma(e) for e in infl)
+    max_radius = partition_sigma * 2 * σ_eff_ceiling
+    coords = Float64.(coords_matrix(ems))
+    return build_precision_neighbor_graph(coords, max_radius)
+end
+
 """
     estimate_se_adjust(smld::SMLMData.SMLD; kwargs...) -> NamedTuple
 
@@ -316,6 +334,15 @@ function estimate_se_adjust(smld::SMLMData.SMLD;
     # pick the winner empirically — ks_full (faked low by over-split), ks_tail +
     # r_tail (over-split-proof: tail truncates), n_emit (over-split count/elbow).
     instr = NamedTuple[]
+    # Reuse ONE precision-DBSCAN neighbor graph across every E-step (build-once /
+    # threshold-many). Anchor the cached radius at the coarsest τ the descent can use
+    # (max of grid ceiling and g_start) → a superset for every reachable τ;
+    # precision_dbscan re-thresholds it per step (exact, no KDTree rebuild).
+    _ng = _build_finder_neighbor_graph(smld, max(maximum(grid_um), g_start_um),
+                                       Float64(get(bagol_kwargs, :partition_sigma, 3.0)))
+    if _ng !== nothing
+        bagol_kwargs = (; bagol_kwargs..., neighbor_graph = _ng)
+    end
     for _ in 1:max_steps
         d, s2, pos, n_emit, loglik = _group_distances(smld, g; n_iterations, burn_in, grouping, bagol_kwargs)
         n_bagol += 1
