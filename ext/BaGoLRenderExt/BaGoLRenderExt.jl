@@ -24,6 +24,10 @@ Always creates:
 - `{prefix}_circles.png`    — white localizations + red MAP-N emitters (uncertainty ellipses)
 - `{prefix}_partitions.png` — partition-colored localizations (with `partition_ids`)
 
+With `posterior_image` (the `diagnostics.posterior_image` NamedTuple):
+- `{prefix}_posterior.png`  — Rao-Blackwellized posterior image, resampled onto the shared
+  target so it has identical pixel dimensions to every other panel (pans/zooms in lockstep).
+
 With ground truth:
 - `{prefix}_groundtruth.png` — white locs + blue GT + green oracle + red found
 
@@ -41,6 +45,7 @@ function SMLMBaGoL.render_report(
     pixel_size::Real = 1.0,
     zoom::Union{Nothing, Real} = nothing,
     prefix::String = "render",
+    posterior_image::Union{Nothing, NamedTuple} = nothing,
     fov::Union{Nothing, Tuple{Float64, Float64, Float64, Float64}} = nothing,
     se_adjust = 0.0,
     force_se_adjust::Bool = false
@@ -74,6 +79,18 @@ function SMLMBaGoL.render_report(
             "y=[$(round(y_min*1000, digits=1)), $(round(y_max*1000, digits=1))] nm")
     println("  Image size: $(target.width) x $(target.height) pixels at $(round(px_nm, digits=3)) nm/pixel" *
             (zoom === nothing ? "" : " (zoom=$(zoom)×)"))
+
+    # 0. Rao-Blackwellized posterior image — resampled onto the shared target (identical pixel
+    #    dims to every other panel ⇒ pans/zooms in lockstep) and colorized + saved through
+    #    SMLMRender's libpng-backed save_image. (The core pure-Julia save_posterior_png writer is
+    #    UNCOMPRESSED — ~1 GB at 1 nm full-field — so it is deliberately not used here.)
+    if posterior_image !== nothing
+        post_path = joinpath(output_dir, "$(prefix)_posterior.png")
+        resampled = _resample_posterior(posterior_image, x_min, x_max, y_min, y_max,
+                                        target.width, target.height)
+        save_image(post_path, _posterior_rgb(resampled))
+        println("Saved: $post_path")
+    end
 
     # 1. Gaussian render of BaGoL MAP-N result
     mapn_path = joinpath(output_dir, "$(prefix)_mapn.png")
@@ -153,6 +170,54 @@ end
 # ============================================================================
 # Helpers
 # ============================================================================
+
+# Resample a posterior-image NamedTuple (image[nx,ny] + edges_x/edges_y/pixel_size in μm) onto a
+# W×H grid spanning [x_min,x_max]×[y_min,y_max] μm (nearest-neighbour, mapped by physical
+# coordinate so it is robust to a bounds/pixel-size mismatch between the posterior grid and the
+# render target). Returns Int[W,H] in the [ix,iy] layout save_posterior_png expects, so the
+# posterior PNG lands at EXACTLY the render target's pixel dimensions and overlays every panel.
+function _resample_posterior(post::NamedTuple, x_min, x_max, y_min, y_max, W::Int, H::Int)
+    src = post.image
+    nx, ny = size(src)
+    sx0 = post.edges_x[1]
+    sy0 = post.edges_y[1]
+    spx = post.pixel_size
+    px = (x_max - x_min) / W
+    py = (y_max - y_min) / H
+    out = zeros(Int, W, H)
+    @inbounds for iy in 1:H
+        yc = y_min + (iy - 0.5) * py
+        siy = floor(Int, (yc - sy0) / spx) + 1
+        (1 <= siy <= ny) || continue
+        for ix in 1:W
+            xc = x_min + (ix - 0.5) * px
+            six = floor(Int, (xc - sx0) / spx) + 1
+            (1 <= six <= nx) || continue
+            out[ix, iy] = src[six, siy]
+        end
+    end
+    return out
+end
+
+# Colorize a resampled posterior count image (Int[nx,ny] = [ix,iy]) into a Matrix{RGB}[ny,nx]
+# (row=y from top, col=x — matching the other panels' orientation) with percentile-scaled
+# `:inferno`, using SMLMRender's colormap. Returned to save_image ⇒ libpng-compressed PNG.
+function _posterior_rgb(img::Matrix{Int}; percentile::Float64 = 0.99, colormap::Symbol = :inferno)
+    nx, ny = size(img)
+    lut = SMLMRender.get_colormap_lut(colormap)
+    zero_color = SMLMRender.colormap_lookup(lut, 0.0)   # empty pixels → colormap floor (as in save_posterior_png)
+    out = fill(zero_color, ny, nx)
+    nz = filter(>(0), vec(img))
+    isempty(nz) && return out
+    s = sort(nz)
+    vmax = Float64(s[clamp(round(Int, percentile * length(s)), 1, length(s))])
+    vmax <= 0 && return out
+    @inbounds for iy in 1:ny, ix in 1:nx
+        v = img[ix, iy]
+        v > 0 && (out[iy, ix] = SMLMRender.colormap_lookup(lut, min(Float64(v) / vmax, 1.0)))
+    end
+    return out
+end
 
 function _create_target(x_min, x_max, y_min, y_max; pixel_size::Real=1.0)
     width = max(10, ceil(Int, (x_max - x_min) * 1000 / pixel_size))

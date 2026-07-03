@@ -162,7 +162,7 @@ n_j ~ Gamma(shape, μ/shape) where:
 - `verbose=true`: Print progress
 
 # Posterior Image
-- `posterior_pixel_size=0.002`: Rao-Blackwellized posterior image pixel size in μm (0.0 to disable)
+- `posterior_pixel_size=0.001`: Rao-Blackwellized posterior image pixel size in μm (0.0 to disable)
 - `posterior_xlim=nothing`: Override x bounds for posterior image
 - `posterior_ylim=nothing`: Override y bounds for posterior image
 
@@ -212,7 +212,7 @@ function run_bagol(
     # holding the per-pair arrays when nothing will plot them).
     keep_se_finder::Bool = false,
     # Output
-    posterior_pixel_size::Float64 = 0.002,
+    posterior_pixel_size::Float64 = 0.001,
     posterior_xlim::Union{Nothing, Tuple{<:Real, <:Real}} = nothing,
     posterior_ylim::Union{Nothing, Tuple{<:Real, <:Real}} = nothing,
     archive_path::Union{Nothing, String} = nothing,
@@ -331,7 +331,7 @@ function _run_bagol_collapsed(
     learn_distribution::Union{Bool, Symbol} = true,
     learn_rho::Bool = true,
     rho::Union{Nothing, Float64} = nothing,
-    posterior_pixel_size::Float64 = 0.002,
+    posterior_pixel_size::Float64 = 0.001,
     posterior_xlim::Union{Nothing, Tuple{<:Real, <:Real}} = nothing,
     posterior_ylim::Union{Nothing, Tuple{<:Real, <:Real}} = nothing,
     archive_path::Union{Nothing, String} = nothing,
