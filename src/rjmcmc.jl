@@ -201,6 +201,9 @@ function run_bagol(
     max_partition_size::Int = 1000,
     skip_partition_size::Int = typemax(Int),
     overlap::Union{Float64, Symbol} = :auto,
+    # Reuse: prebuilt precision neighbor graph shared across the τ-finder's E-steps
+    # (nothing = build internally per call, unchanged behavior).
+    neighbor_graph::Union{Nothing, PrecisionNeighborGraph} = nothing,
     # Uncertainty correction (standalone; leave 0 in the integrated pipeline)
     se_adjust::Union{Real, Tuple, AbstractVector, Symbol} = 0.0,
     force_se_adjust::Bool = false,
@@ -225,7 +228,7 @@ function run_bagol(
 )
     return _run_bagol_collapsed(smld;
         partition_sigma, min_partition_size, max_partition_size, skip_partition_size,
-        overlap, se_adjust, force_se_adjust, keep_se_finder, motion, motion_sigma, sync_interval, n_iterations, burn_in, shape, learn_distribution,
+        overlap, neighbor_graph, se_adjust, force_se_adjust, keep_se_finder, motion, motion_sigma, sync_interval, n_iterations, burn_in, shape, learn_distribution,
         learn_rho, rho,
         posterior_pixel_size, posterior_xlim, posterior_ylim,
         archive_path, progress_file, verbose,
@@ -315,6 +318,7 @@ function _run_bagol_collapsed(
     max_partition_size::Int = 1000,
     skip_partition_size::Int = typemax(Int),
     overlap::Union{Float64, Symbol} = :auto,
+    neighbor_graph::Union{Nothing, PrecisionNeighborGraph} = nothing,
     se_adjust::Union{Real, Tuple, AbstractVector, Symbol} = 0.0,
     force_se_adjust::Bool = false,
     keep_se_finder::Bool = false,
@@ -407,7 +411,7 @@ function _run_bagol_collapsed(
     partitions, skipped = partition_locs(locs; partition_sigma, min_size=min_partition_size,
                                           max_size=max_partition_size,
                                           skip_size=skip_partition_size,
-                                          overlap=overlap)
+                                          overlap=overlap, neighbor_graph=neighbor_graph)
 
     _log_progress("  Created $(length(partitions)) partitions")
     if !isempty(skipped)

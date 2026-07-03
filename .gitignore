@@ -19,6 +19,7 @@ dev/*
 !dev/coloc_disentangle_2x2.jl
 !dev/detailed_balance_check.jl
 !dev/birth_death_db_check.jl
+!dev/dbscan_reuse_validation.jl
 examples/output/
 
 *.swp
