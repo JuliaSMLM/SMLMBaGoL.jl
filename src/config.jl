@@ -53,7 +53,7 @@ Configuration for BaGoL analysis. All fields correspond 1:1 to `run_bagol` kwarg
 - `force_se_adjust=false`: Apply even if the SMLD is already σ-corrected.
 
 # Output
-- `posterior_pixel_size=0.002`: Rao-Blackwellized posterior image pixel size (0.0=disable)
+- `posterior_pixel_size=0.001`: Rao-Blackwellized posterior image pixel size in μm (1 nm; 0.0=disable)
 - `archive_path=nothing`: Mmap chain archive path (nothing=disable)
 - `progress_file=nothing`: Write progress to file (nothing=disable)
 - `verbose=true`: Print progress to stdout
@@ -103,7 +103,7 @@ Base.@kwdef struct BaGoLConfig <: SMLMData.AbstractSMLMConfig
     force_se_adjust::Bool = false
 
     # Output
-    posterior_pixel_size::Float64 = 0.002
+    posterior_pixel_size::Float64 = 0.001
     archive_path::Union{Nothing, String} = nothing
     progress_file::Union{Nothing, String} = nothing
     verbose::Bool = true

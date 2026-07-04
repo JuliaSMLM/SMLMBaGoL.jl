@@ -103,7 +103,7 @@ result_smld, diagnostics = run_bagol(smld;
     motion             = :none,   # :linear lets each emitter drift in time (recovers moving emitters
                                   #   instead of over-splitting them); motion_sigma = drift prior SD (μm)
     sync_interval      = 100,     # iterations between global μ/shape updates
-    posterior_pixel_size = 0.002, # Rao-Blackwellized posterior image pixel size in μm (0.0 to disable)
+    posterior_pixel_size = 0.001, # Rao-Blackwellized posterior image pixel size in μm (1 nm; 0.0 to disable)
 )
 ```
 

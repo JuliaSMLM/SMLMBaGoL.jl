@@ -58,7 +58,7 @@ force_se_adjust = false     # apply even if SMLD already σ-corrected
 keep_se_finder = false      # retain finder diagnostics for plot_se_adjust
 
 # Output
-posterior_pixel_size = 0.002  # Rao-Blackwellized posterior image (0.0 = disable)
+posterior_pixel_size = 0.001  # Rao-Blackwellized posterior image in μm (1 nm; 0.0 = disable)
 posterior_xlim = nothing; posterior_ylim = nothing
 archive_path = nothing        # mmap chain archive
 progress_file = nothing
