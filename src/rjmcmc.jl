@@ -463,7 +463,8 @@ function _run_bagol_collapsed(
     # Hyperprior config
     config_nt = (μ_prior_shape=μ_prior_shape, μ_prior_scale=μ_prior_scale,
                  shape_prior_shape=shape_prior_shape, shape_prior_scale=shape_prior_scale,
-                 ρ_prior_shape=ρ_prior_shape, ρ_prior_rate=ρ_prior_rate)
+                 ρ_prior_shape=ρ_prior_shape, ρ_prior_rate=ρ_prior_rate,
+                 allocation_model=allocation_model, gamma=gamma)
 
     # Initialize collapsed states and accumulators per partition
     # Use concrete parametric type for the state vector

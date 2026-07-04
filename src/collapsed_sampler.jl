@@ -261,6 +261,8 @@ function run_collapsed_chain(
         shape_prior_scale = shape_prior_scale,
         ρ_prior_shape = ρ_prior_shape,
         ρ_prior_rate = ρ_prior_rate,
+        allocation_model = allocation_model,
+        gamma = gamma,
     )
 
     for iter in 1:n_iterations
