@@ -324,6 +324,21 @@ $s \leftarrow \mathrm{clamp}(s\,e^{0.5(\hat a - 0.3)},\, 0.002,\, 1)$ toward a
 burn-in only**; the post-burn-in chain is fixed-scale MH, so ergodicity is
 preserved.
 
+**The $\alpha$ (shape) likelihood depends on the allocation model.** The per-cluster
+count product $\prod_k \text{NB}(n_k;\alpha,p)$ equals
+$P(N\mid K)\,P_{\text{DM}}(z\mid\gamma{=}\alpha)$ up to an $\alpha$-constant factor
+($N!/\prod_k n_k!$), so it is the correct $\alpha$-likelihood **only when $\gamma$ is
+tied to $\alpha$** — the default `allocation_model=:dm` with `gamma=nothing`. When
+$\gamma$ is fixed, or under `:decoupled`/`:categorical`, the DM term does not depend on
+$\alpha$; then $\alpha$ enters the target **only** through the total-count model, and the
+update uses $\log\text{NB}(N; K\alpha, p)$ (= `_log_count_posterior`, identical to the
+$\Delta_{\text{count}}$ term of the K-moves). Using the per-cluster product there would
+inject a spurious $P_{\text{DM}}(\gamma{=}\alpha)$ factor (a shape-dependent bias,
+$\sim1.4$ nats measured). $\mu$ needs no such branch: it enters only the count model
+(the DM factor is $\mu$-independent). **Code:** the
+`allocation_model===:dm && gamma===nothing` branch in
+`_update_shape_collapsed`/`_update_shape_collapsed_global!`.
+
 **Hyperpriors:** $\mu \sim \text{Gamma}(2, 5)$, $\alpha \sim \text{Gamma}(2, 1)$.
 **Bounds:** $\mu \in [1, 500]$, $\alpha \in [0.5, 50]$.
 

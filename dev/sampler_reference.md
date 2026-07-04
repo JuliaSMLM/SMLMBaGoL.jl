@@ -2,7 +2,7 @@
 
 **Authoritative reference for the collapsed Gibbs sampler. Read before modifying. Update after modifying.**
 
-*Matches implementation on `poisson-k-prior` branch (Round 12, 2026-03-31). Round 12: predictive-only proposals everywhere (DM removed from all proposal kernels, MH-corrected). Flat spatial + Poisson(ρA) K prior. 4/4 brute-force PASS. 2026-07-02: + Fix A merge-DB seed guard and the K! multiplicity term Δ_K! (Poisson-K only, no-op for locmix); DB-exact (6e-16). Recovery gates use Dahl, not peak-K (see math_reference §9.4).*
+*Matches the implementation on `main`. Predictive-only proposals everywhere (DM removed from all proposal kernels, MH-corrected); flat spatial + Poisson(ρA) K prior; Fix A merge-DB seed guard and the K! multiplicity term Δ_K! (Poisson-K only, no-op for locmix), DB-exact (6e-16). 2026-07-04: the α (shape) update uses the count-only likelihood on non-coupled allocation paths (§6.2). Recovery gates use Dahl, not peak-K (see math_reference §9.4).*
 
 ---
 
@@ -371,11 +371,18 @@ log α = [log L(μ') - log L(μ)]
 
 ### 6.2 α (shape) Update
 
-Same structure as μ. Likelihood evaluated under `NegBin(n_j; α', α'/(α'+μ))`.
+Same structure as μ, but the **α likelihood depends on the allocation model**. Under the
+default `:dm` with `gamma=nothing` (γ tied to α), the per-cluster product
+`Σ_j log NegBin(n_j; α, α/(α+μ))` equals `P(N|K)·P_DM(γ=α)` up to an α-constant, so it is
+the correct α-likelihood. Under fixed `gamma`, `:decoupled`, or `:categorical` the DM term
+is α-independent, so α enters only through the total count — use
+`log NegBin(N; K·α, α/(α+μ))` (= `_log_count_posterior`). μ needs no such branch (μ enters
+only the count model). See `docs/math_reference.md §7.4`.
 
 **Bounds:** α ∈ [0.5, 50].
 
-**Code:** `_update_shape_collapsed` in `hierarchical.jl`
+**Code:** `_update_shape_collapsed` / `_update_shape_collapsed_global!` in `hierarchical.jl`
+(branch on `allocation_model===:dm && gamma===nothing`).
 
 ### 6.3 Global Updates (Partitioned BaGoL)
 

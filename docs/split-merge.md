@@ -1,8 +1,11 @@
 # Split/Merge Move Reference
 
-*Updated: K!-correction round (2026-07-02). Added the K! occupied-label multiplicity
-term ($\Delta_{K!}$) and the Fix A merge seed-compatibility guard.
-Update this file at end of each sampler research round.*
+*Updated: proposal-kernel + $\Delta_{K\text{-prior}}$ correction round (2026-07-04).
+Corrected the restricted-scan description to the actual predictive-only proposal +
+Metropolized DM accept/reject (the code never forms $(n_k+\gamma)\,p_{\text{pred}}$
+weights), and added the missing $\Delta_{K\text{-prior}}$ (Poisson-$K$) acceptance term.
+Prior round added the K! occupied-label multiplicity term ($\Delta_{K!}$) and the
+Fix A merge seed-compatibility guard. Update this file at end of each sampler research round.*
 
 **Code:** `propose_split_merge!` in `src/collapsed_moves.jl`.
 
@@ -32,12 +35,18 @@ $$b_K = P(\text{split at } K), \quad d_K = 1 - b_K$$
 2. **Random seed selection:** pick two members (ordered pair, probability $1/(m(m-1))$).
    Seed 1 $\to$ sub-A, Seed 2 $\to$ sub-B.
 3. **Canonical ordering** of remaining members (sorted by loc index)
-4. **Sequential predictive allocation (launch):** for each remaining member $j$:
+4. **Sequential allocation (launch) — predictive-only proposal + Metropolized DM factor:**
+   for each remaining member $j$, propose from the **spatial predictive alone** (no DM weight):
 
-$$\log w_A = \log(n_A + \gamma) + \log p_{\text{pred}}(d_j \mid \text{sub-A})$$
-$$\log w_B = \log(n_B + \gamma) + \log p_{\text{pred}}(d_j \mid \text{sub-B})$$
+$$q_B = \frac{p_{\text{pred}}(d_j \mid \text{sub-B})}{p_{\text{pred}}(d_j \mid \text{sub-A}) + p_{\text{pred}}(d_j \mid \text{sub-B})}$$
 
-Sample: $j \to B$ with probability $p_B = w_B / (w_A + w_B)$.
+   then Metropolize the DM concentration factor — accept the proposed sub-cluster with
+   $\alpha = \min\!\big(1,\, (n_{\text{new}}+\gamma)/(n_{\text{old}}+\gamma)\big)$. This
+   spatial-proposal + DM-accept/reject targets the $(n_k+\gamma)\,p_{\text{pred}}$ conditional
+   **without ever forming those weights explicitly**; the tracked *transition* density of the
+   Metropolized step (not the raw predictive) is what enters $q_{\text{alloc}}$. Code:
+   `_restricted_step(::DMAllocation, …)`. (`DecoupledAllocation`: pure predictive, no
+   accept/reject; `CategoricalAllocation`: same.)
 
 5. **Restricted Gibbs scans (Jain-Neal):** `n_restricted_scans - 1` intermediate sweeps (no density tracking) + 1 final sweep (density tracked $\to q_{\text{alloc}}$). Only the final sweep enters the MH ratio. Default `n_restricted_scans = 5`.
 
@@ -68,7 +77,9 @@ Sample: $j \to B$ with probability $p_B = w_B / (w_A + w_B)$.
 
 ## Phase 3: MH Acceptance
 
-$$\log \alpha = \Delta_{\text{spatial}} + \Delta_{\text{partition}} + \Delta_{\text{proposal}} + \Delta_{\text{count}} + \Delta_{\text{move\_type}} + \Delta_{K!}$$
+$$\log \alpha = \Delta_{\text{spatial}} + \Delta_{\text{partition}} + \Delta_{\text{proposal}} + \Delta_{\text{count}} + \Delta_{K\text{-prior}} + \Delta_{\text{move\_type}} + \Delta_{K!}$$
+
+(matches `collapsed_moves.jl`: `log_α = Δ_spatial + Δ_partition + Δ_proposal + Δ_count + Δ_K_prior + Δ_move_type + Δ_Kfac`.)
 
 | Term | Definition |
 |------|-----------|
@@ -76,6 +87,7 @@ $$\log \alpha = \Delta_{\text{spatial}} + \Delta_{\text{partition}} + \Delta_{\t
 | $\Delta_{\text{partition}}$ | $\log P_{\text{DM}}(z' \mid K') - \log P_{\text{DM}}(z \mid K)$ |
 | $\Delta_{\text{proposal}}$ | $\log q_{\text{rev}} - \log q_{\text{fwd}}$ |
 | $\Delta_{\text{count}}$ | $\log P(N \mid K') - \log P(N \mid K)$ (uses **fixed** $\mu_0$) |
+| $\Delta_{K\text{-prior}}$ | $\log P_{\text{Pois}}(K' \mid \rho A) - \log P_{\text{Pois}}(K \mid \rho A)$. **Only under a Poisson $K$ prior** (`:flat`, `_uses_poisson_k_prior`); $0$ for `:locmix`. |
 | $\Delta_{\text{move\_type}}$ | $\log(d_{K'}/b_K)$ for splits, $\log(b_{K'}/d_K)$ for merges |
 | $\Delta_{K!}$ | $\log K'! - \log K!$ ($=+\log(K{+}1)$ split, $-\log K$ merge). **Only under a Poisson $K$ prior** (`_uses_poisson_k_prior`); cancels the prior's $-\log K!$ so the kernel targets the coherent $K$-posterior $T_{\text{fac}} = K!\,T_1$ instead of the canonical $T_1$. Exact at fixed hyperparameters ($e^{\lambda m}$ carry-through only matters when learning $\mu/\text{shape}/\rho$). No-op for `:locmix`. |
 
