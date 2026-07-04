@@ -1,8 +1,10 @@
 # Birth/Death Move Reference
 
-*Updated: K!-correction round (2026-07-02). Added the K! occupied-label multiplicity
-term ($\Delta_{K!}$) to the birth/death acceptance ratio.
-Update this file at end of each sampler research round.*
+*Updated: proposal-kernel + $\Delta_{K\text{-prior}}$ correction round (2026-07-04).
+Corrected the death destination weights to the actual **predictive-only** proposal (the
+DM factor enters via $\Delta_{\text{partition}}$, not the proposal), and added the missing
+$\Delta_{K\text{-prior}}$ (Poisson-$K$) acceptance term. Prior round added the K!
+occupied-label multiplicity term ($\Delta_{K!}$). Update this file at end of each sampler research round.*
 
 **Code:** `propose_birth_death!` in `src/collapsed_moves.jl`.
 
@@ -36,9 +38,11 @@ Incremental $K \pm 1$ transitions with lower energy barriers than split/merge. T
 ## Death ($K \to K-1$)
 
 1. Pick random singleton cluster: $1/n_{\text{singletons}}$
-2. Compute DM-weighted predictive for each destination:
+2. Compute the **predictive-only** absorb weight for each destination (no $(n_k+\gamma)$
+   factor — the DM contribution enters via $\Delta_{\text{partition}}$ in the MH ratio,
+   `collapsed_moves.jl:1151`):
 
-$$w(k) = (n_k + \gamma) \times p_{\text{pred}}(d_i \mid \text{cluster}_k)$$
+$$w(k) = p_{\text{pred}}(d_i \mid \text{cluster}_k)$$
 
 3. Sample destination proportional to $w(k)$
 4. Absorb singleton loc into destination
@@ -53,14 +57,17 @@ $$q_{\text{birth}}(x \to x') = p_{\text{birth}}(x) \times \frac{1}{N_{\text{elig
 **Death reverse (from $x'$):**
 $$q_{\text{death\_rev}}(x' \to x) = p_{\text{death}}(x') \times \frac{1}{n_{\text{singletons}}(x')} \times \frac{w(\text{dest})}{\sum_k w(k)}$$
 
+where $w(k) = p_{\text{pred}}(d_i \mid \text{cluster}_k)$ is the **predictive-only** weight above
+(the DM factor is *not* in the proposal; it enters through $\Delta_{\text{partition}}$).
 Death forward and birth reverse are analogous with roles swapped.
 
 ---
 
 ## MH Acceptance
 
-$$\log \alpha = \Delta_{\text{spatial}} + \Delta_{\text{partition}} + \Delta_{\text{proposal}} + \Delta_{\text{count}} + \Delta_{K!}$$
+$$\log \alpha = \Delta_{\text{spatial}} + \Delta_{\text{partition}} + \Delta_{\text{proposal}} + \Delta_{\text{count}} + \Delta_{K\text{-prior}} + \Delta_{K!}$$
 
+(matches `collapsed_moves.jl`: `log_α = Δ_spatial + Δ_partition + Δ_proposal + Δ_count + Δ_K_prior + Δ_Kfac`.)
 No $\Delta_{\text{move\_type}}$ --- the $p_{\text{birth}}/p_{\text{death}}$ boundary handling is already in $q_{\text{fwd}}/q_{\text{rev}}$.
 
 | Term | Definition |
@@ -69,6 +76,7 @@ No $\Delta_{\text{move\_type}}$ --- the $p_{\text{birth}}/p_{\text{death}}$ boun
 | $\Delta_{\text{partition}}$ | $\log P_{\text{DM}}(z' \mid K') - \log P_{\text{DM}}(z \mid K)$ |
 | $\Delta_{\text{proposal}}$ | $\log q_{\text{rev}} - \log q_{\text{fwd}}$ |
 | $\Delta_{\text{count}}$ | $\log P(N \mid K') - \log P(N \mid K)$ (uses **fixed** $\mu_0$) |
+| $\Delta_{K\text{-prior}}$ | $\log P_{\text{Pois}}(K' \mid \rho A) - \log P_{\text{Pois}}(K \mid \rho A)$. **Only under a Poisson $K$ prior** (`:flat`, `_uses_poisson_k_prior`); $0$ for `:locmix`. |
 | $\Delta_{K!}$ | $\log K'! - \log K!$ ($=+\log(K{+}1)$ birth, $-\log K$ death). Same term as split/merge; **only under a Poisson $K$ prior** (`_uses_poisson_k_prior`), no-op for `:locmix`. Cancels the prior's $-\log K!$ → targets the coherent $T_{\text{fac}} = K!\,T_1$. |
 
 ---
