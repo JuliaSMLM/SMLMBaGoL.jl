@@ -311,7 +311,7 @@ function precision_dbscan(
             "neighbor_graph has $(neighbor_graph.n) nodes but received $n locs"))
         σ_eff = [mean_sigma(loc) for loc in locs]
         return precision_dbscan_labels(neighbor_graph, σ_eff, nsigma;
-                                       min_pts=min_pts, check_superset=true)
+                                       min_points=min_pts, check_superset=true)
     end
 
     # Build KDTree for fast neighbor queries
