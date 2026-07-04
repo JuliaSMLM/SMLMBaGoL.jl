@@ -64,6 +64,26 @@ function _collapsed_count_loglik(state::CollapsedState, dist::UnivariateDistribu
 end
 
 """
+    _collapsed_kn(state; cluster_mask=nothing) -> (K, N)
+
+Number of active (unmasked) clusters `K` and their total localization count `N`.
+Used by the shape update when the DM concentration is NOT tied to `shape`
+(fixed `gamma`, or `:decoupled`/`:categorical` allocation): then `shape` enters
+the target only through the total-count model `P(N|K)=NB(N; K·shape, p)`, so the
+per-cluster NB product would inject a spurious `P_DM(γ=shape)` factor.
+"""
+function _collapsed_kn(state::CollapsedState;
+                       cluster_mask::Union{Nothing, BitVector}=nothing)
+    K = 0; N = 0
+    @inbounds for (j, cs) in enumerate(state.clusters)
+        state.active[j] || continue
+        (cluster_mask !== nothing && !cluster_mask[j]) && continue
+        K += 1; N += Int(cs.n)
+    end
+    return (K, N)
+end
+
+"""
     _update_mu_collapsed(state, μ_current, shape, config) -> Float64
 
 MH update for μ using counts from the current collapsed state.
@@ -110,13 +130,22 @@ function _update_shape_collapsed(state::CollapsedState, μ::Float64,
     shape_proposed = shape_current * exp(randn() * 0.3)
     (shape_proposed < 0.5 || shape_proposed > 50.0) && return shape_current
 
-    p_current = shape_current / (shape_current + μ)
-    p_proposed = shape_proposed / (shape_proposed + μ)
-    dist_current = NegativeBinomial(shape_current, p_current)
-    dist_proposed = NegativeBinomial(shape_proposed, p_proposed)
-
-    log_lik_current = _collapsed_count_loglik(state, dist_current)
-    log_lik_proposed = _collapsed_count_loglik(state, dist_proposed)
+    # `shape` enters the DM partition prior only when γ is tied to shape (default
+    # :dm with gamma=nothing). Then the per-cluster NB product equals P_count·
+    # P_DM(γ=shape) up to a shape-constant, so it is the correct shape likelihood.
+    # Otherwise (fixed γ, or :decoupled/:categorical) shape enters ONLY via the
+    # total-count model P(N|K)=NB(N; K·shape, p); using the per-cluster product
+    # there would double-count a spurious P_DM(γ=shape) factor.
+    if config.allocation_model === :dm && config.gamma === nothing
+        p_current = shape_current / (shape_current + μ)
+        p_proposed = shape_proposed / (shape_proposed + μ)
+        log_lik_current = _collapsed_count_loglik(state, NegativeBinomial(shape_current, p_current))
+        log_lik_proposed = _collapsed_count_loglik(state, NegativeBinomial(shape_proposed, p_proposed))
+    else
+        K, Ntot = _collapsed_kn(state)
+        log_lik_current = logpdf(NegativeBinomial(K * shape_current, shape_current / (shape_current + μ)), Ntot)
+        log_lik_proposed = logpdf(NegativeBinomial(K * shape_proposed, shape_proposed / (shape_proposed + μ)), Ntot)
+    end
 
     prior_dist = Gamma(config.shape_prior_shape, config.shape_prior_scale)
     log_prior_current = logpdf(prior_dist, shape_current)
@@ -253,9 +282,23 @@ function _update_shape_collapsed_global!(states::AbstractVector{<:CollapsedState
     total_active == 0 && return (shape_current, scale)
 
     cm(i) = cluster_masks !== nothing ? cluster_masks[i] : nothing
-    count_loglik(sh) = (p = sh / (sh + μ);
-                        d = NegativeBinomial(sh, p);
-                        sum(_collapsed_count_loglik(s, d; cluster_mask=cm(i)) for (i, s) in enumerate(states)))
+    # See _update_shape_collapsed: only when γ is tied to shape does the per-cluster
+    # NB product give the correct shape likelihood; otherwise shape enters solely
+    # through each partition's total-count model NB(N_i; K_i·shape, p).
+    _shape_coupled_dm = config.allocation_model === :dm && config.gamma === nothing
+    count_loglik(sh) = if _shape_coupled_dm
+        p = sh / (sh + μ); d = NegativeBinomial(sh, p)
+        sum(_collapsed_count_loglik(s, d; cluster_mask=cm(i)) for (i, s) in enumerate(states))
+    else
+        p = sh / (sh + μ)
+        acc = 0.0
+        for (i, s) in enumerate(states)
+            Ki, Ni = _collapsed_kn(s; cluster_mask=cm(i))
+            Ki == 0 && continue
+            acc += logpdf(NegativeBinomial(Ki * sh, p), Ni)
+        end
+        acc
+    end
     prior_dist = Gamma(config.shape_prior_shape, config.shape_prior_scale)
 
     sh = shape_current
