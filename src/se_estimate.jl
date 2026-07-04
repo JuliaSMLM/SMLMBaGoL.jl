@@ -366,11 +366,24 @@ function estimate_se_adjust(smld::SMLMData.SMLD;
 
     # CI: reuse the final grouping; bootstrap the right-biased M-step over spatial
     # blocks (the independent unit).
-    rng = MersenneTwister(seed); boots = Float64[]
-    for _ in 1:n_boot
-        bi = _block_indices(pos, block_um, rng)
-        isempty(bi) || push!(boots, _mstep_rb(d, s2, grid, bi; ks_noise))
+    # The n_boot bootstrap resamples are independent and `_mstep_rb` is pure (reads
+    # d/s2/grid, allocates its own scratch), so thread them. Draw the block-index sets
+    # SERIALLY first — this keeps the exact MersenneTwister(seed) stream, so the CI is
+    # bit-identical to the serial loop — then parallelize only the expensive M-steps.
+    # This was the dominant single-threaded tail of the finder (200 sequential grid×KS
+    # searches pinned one core for minutes on large cells).
+    rng = MersenneTwister(seed)
+    bis = [_block_indices(pos, block_um, rng) for _ in 1:n_boot]
+    boots_raw = Vector{Float64}(undef, n_boot)
+    ok = falses(n_boot)
+    Threads.@threads for b in 1:n_boot
+        bi = bis[b]
+        if !isempty(bi)
+            boots_raw[b] = _mstep_rb(d, s2, grid, bi; ks_noise)
+            ok[b] = true
+        end
     end
+    boots = boots_raw[ok]
     lo, hi = isempty(boots) ? (NaN, NaN) : quantile(boots, [0.025, 0.975])
     ks_at = isempty(d) ? NaN : _ks_rayleigh1(d, s2, τ, eachindex(d))
 
