@@ -1,6 +1,6 @@
 name = "SMLMBaGoL"
 uuid = "70c4bcd9-ed9a-43d6-baf8-7d0db1eb70ee"
-version = "0.4.4-DEV"
+version = "0.4.5-DEV"
 authors = ["klidke@unm.edu"]
 
 [deps]
@@ -32,7 +32,7 @@ Distributions = "0.25"
 Hungarian = "0.6, 0.7"
 Metis = "1.5.0"
 NearestNeighbors = "0.4"
-SMLMClustering = "0.4"
+SMLMClustering = "0.4.3"
 SMLMData = "0.7"
 SMLMRender = "0.1 - 0.5"
 SparseArrays = "1"
@@ -40,9 +40,6 @@ SpecialFunctions = "2"
 StaticArrays = "1"
 Statistics = "1"
 julia = "1.10"
-
-[sources]
-SMLMClustering = {url = "https://github.com/JuliaSMLM/SMLMClustering.jl", rev = "7d67a5a"}
 
 [extras]
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
