@@ -48,6 +48,7 @@ function SMLMBaGoL.render_report(
     posterior_image::Union{Nothing, NamedTuple} = nothing,
     fov::Union{Nothing, Tuple{Float64, Float64, Float64, Float64}} = nothing,
     se_adjust = 0.0,
+    mapn_clip_percentile::Real = 0.99,
     force_se_adjust::Bool = false
 )
     mkpath(output_dir)
@@ -95,7 +96,7 @@ function SMLMBaGoL.render_report(
     # 1. Gaussian render of BaGoL MAP-N result
     mapn_path = joinpath(output_dir, "$(prefix)_mapn.png")
     render(bagol_smld; strategy=GaussianRender(), target=target,
-           colormap=:inferno, filename=mapn_path)
+           colormap=:inferno, clip_percentile=mapn_clip_percentile, filename=mapn_path)
     println("Saved: $mapn_path")
 
     # 2. Gaussian SR render of input localizations
