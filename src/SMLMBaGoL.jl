@@ -9,7 +9,7 @@ using NearestNeighbors
 using Random
 using SMLMData
 using SparseArrays
-using SpecialFunctions: logfactorial, logabsbinomial, loggamma
+using SpecialFunctions: logfactorial, logabsbinomial, loggamma, erf
 using StaticArrays
 using Statistics
 using SMLMClustering: build_precision_neighbor_graph, precision_dbscan_labels, PrecisionNeighborGraph
@@ -61,12 +61,13 @@ export plot_se_adjust          # extension stub (BaGoLMakieExt)
 
 # Export diagnostics — target density
 export AbstractTargetDensity, DecoupledTarget, DecoupledLocmixTarget
-export DMFlatTarget, DMLocmixTarget, DirectNegBinFlatTarget, DirectNegBinLocmixTarget
+export DMFlatTarget, DMLocmixTarget, DirectNegBinFlatTarget, DirectNegBinLocmixTarget, IPPTarget
 export FazelFlatTarget
 export log_target, evaluate_target
 
 # Export diagnostics — finite-state validation
-export AbstractSpatialModel, FlatSpatial, LocmixSpatial, spatial_ml, spatial_pred
+export AbstractSpatialModel, FlatSpatial, LocmixSpatial, IntensitySpatial, spatial_ml, spatial_pred
+export IntensityMap, build_intensity_map
 export AbstractAllocationModel, DMAllocation, DecoupledAllocation, CategoricalAllocation
 
 export enumerate_canonical_partitions, canonicalize, exact_posterior
@@ -88,6 +89,7 @@ include("motion.jl")
 include("types.jl")
 include("config.jl")
 include("priors.jl")
+include("intensity.jl")
 include("hierarchical.jl")
 include("mapn.jl")
 include("accumulators.jl")
