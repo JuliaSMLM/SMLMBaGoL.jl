@@ -217,15 +217,16 @@ function main()
                      for si in eachindex(SEPS_NM)]
 
     # statistic from a (possibly resampled) list of pair keys per separation
+    # (all names local to the function: it must not touch the observed fa/fg/rel below)
     function stats(sel)
-        fa, fg, rel = Float64[], Float64[], Float64[]
+        pa_, pg_, pr_ = Float64[], Float64[], Float64[]
         for si in eachindex(SEPS_NM)
             ks = sel[si]
-            push!(fa, mean(res[:alone][si][k][1] for k in ks)); push!(fg, mean(res[:grouped][si][k][1] for k in ks))
+            push!(pa_, mean(res[:alone][si][k][1] for k in ks)); push!(pg_, mean(res[:grouped][si][k][1] for k in ks))
             ca = mean(res[:alone][si][k][2] for k in ks); cg = mean(res[:grouped][si][k][2] for k in ks)
-            push!(rel, (cg - ca) / ca)
+            push!(pr_, (cg - ca) / ca)
         end
-        return fa, fg, rel, p50(SEPS_NM, fg) - p50(SEPS_NM, fa)
+        return pa_, pg_, pr_, p50(SEPS_NM, pg_) - p50(SEPS_NM, pa_)
     end
     fa, fg, rel, dp = stats(keys_by_sep)
     # block bootstrap (both arms of every pair in a block kept together)
@@ -234,7 +235,7 @@ function main()
     brel = zeros(B, length(SEPS_NM)); bdp = fill(NaN, B); bmax = zeros(B)
     for bi in 1:B
         sel = [reduce(vcat, rand(rng, bl, length(bl))) for bl in blocks_by_sep]
-        _, _, r, d = stats(sel)
+        _, _, r, d = stats(sel)      # bootstrap replicate only; observed fa/fg/rel/dp are untouched
         brel[bi, :] = r; bdp[bi] = d; bmax[bi] = maximum(abs.(r))
     end
     se_rel = vec(std(brel; dims=1)); se_dp = std(filter(isfinite, bdp)); se_max = std(bmax)
