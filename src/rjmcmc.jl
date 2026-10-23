@@ -137,7 +137,8 @@ n_j ~ Gamma(shape, μ/shape) where:
   input SMLD is already σ-corrected (`metadata["sigma_corrected"]==true`), se_adjust
   is skipped with a warning unless `force_se_adjust=true`. `se_adjust=:auto` runs the
   τ finder ([`estimate_se_adjust`](@ref)) first; its internal BaGoL E-steps use this
-  run's partitioning and model settings (not `n_iterations`/`burn_in`); with
+  run's partitioning and model settings (not `n_iterations`/`burn_in`) and is not
+  supported with `motion=:linear` (throws; pass a numeric `se_adjust`); with
   `keep_se_finder=true` they are recorded in `diagnostics.se_finder.bagol_kwargs`.
 - `force_se_adjust=false`: Override the already-corrected guard (intentional double-count).
 
@@ -399,6 +400,10 @@ function _run_bagol_collapsed(
         if get(_se_md, "sigma_corrected", false) === true
             se_adjust = 0.0
         else
+            motion === :linear && throw(ArgumentError(
+                "se_adjust=:auto is not supported with motion=:linear: the τ finder's distance " *
+                "statistic does not model drift and would attribute motion to localization error. " *
+                "Pass a numeric se_adjust (μm) instead."))
             _log_progress("se_adjust=:auto — running estimate_se_adjust finder...")
             # The finder's E-steps run BaGoL with the run's partitioning and model settings
             # (not n_iterations/burn_in — the finder keeps its own validated chain length —
@@ -407,7 +412,7 @@ function _run_bagol_collapsed(
                 partition_sigma, min_partition_size, max_partition_size, skip_partition_size,
                 overlap, spatial_model, allocation_model, k_prior, gamma, μ, shape,
                 learn_distribution, learn_rho, rho, sync_interval,
-                n_restricted_scans, n_bd_substeps, motion, motion_sigma,
+                n_restricted_scans, n_bd_substeps,
                 μ_prior_shape, μ_prior_scale, shape_prior_shape, shape_prior_scale,
                 ρ_prior_shape, ρ_prior_rate)
             se_adjust = _fres.tau_hat_um

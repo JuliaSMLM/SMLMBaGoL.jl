@@ -165,14 +165,18 @@ using Distributions
                             max_partition_size = 7, overlap = 0.02, spatial_model = :flat,
                             n_iterations = 100, burn_in = 20, verbose = false)
         kw = diag.se_finder.bagol_kwargs
-        @test kw[:max_partition_size] == 7
-        @test kw[:overlap] == 0.02
-        @test kw[:spatial_model] === :flat
+        @test kw.max_partition_size == 7
+        @test kw.overlap == 0.02
+        @test kw.spatial_model === :flat
         @test !haskey(kw, :neighbor_graph) && !haskey(kw, :n_iterations)
         # Direct callers: explicitly given kwargs are used as given.
         f = estimate_se_adjust(smld; max_partition_size = 9, n_boot = 5, n_iterations = 100,
                                burn_in = 20, max_steps = 1)
-        @test f.bagol_kwargs[:max_partition_size] == 9
+        @test f.bagol_kwargs.max_partition_size == 9
+        @test f.bagol_kwargs isa NamedTuple
+        # The finder does not model drift: :auto with motion=:linear must refuse.
+        @test_throws ArgumentError run_bagol(smld; se_adjust = :auto, motion = :linear,
+                                             n_iterations = 100, burn_in = 20, verbose = false)
     end
 
     # ================================================================

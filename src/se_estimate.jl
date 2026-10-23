@@ -340,7 +340,7 @@ function estimate_se_adjust(smld::SMLMData.SMLD;
     # threshold-many). Anchor the cached radius at the coarsest τ the descent can use
     # (max of grid ceiling and g_start) → a superset for every reachable τ;
     # precision_dbscan re-thresholds it per step (exact, no KDTree rebuild).
-    _kw_used = bagol_kwargs                      # settings the E-steps run with (reported below)
+    _kw_used = (; bagol_kwargs...)                     # settings the E-steps run with (reported below)
     _ng = _build_finder_neighbor_graph(smld, max(maximum(grid_um), g_start_um),
                                        Float64(get(bagol_kwargs, :partition_sigma, 3.0)))
     if _ng !== nothing
