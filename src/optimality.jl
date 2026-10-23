@@ -55,11 +55,12 @@ function _run_sweep_trial(;
     # Count-only MAP-K
     k_count = count_model_map_k(n_locs, mu, shape)
 
-    # Nohier: fixed μ, shape at true values, single partition
+    # Nohier: fixed μ, shape at true values, single partition; the emitter density ρ keeps
+    # learning (default sync_interval), so no hyperparameter is left at an arbitrary start.
     result_nohier, diag_nohier = run_bagol(sim.smld;
         n_iterations=n_iterations, burn_in=burn_in,
         shape=shape, learn_distribution=false,
-        partition_sigma=Inf, sync_interval=n_iterations + 1,
+        partition_sigma=Inf,
         μ=mu, verbose=false
     )
 

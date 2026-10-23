@@ -1,15 +1,15 @@
 # Octamer — model-combination comparison
 # =======================================
-# Simulates ONE 8-emitter ring (an "octamer") and runs BaGoL under six valid
+# Simulates ONE 8-emitter ring (an "octamer") and runs BaGoL under eight valid
 # combinations of {spatial prior} × {allocation model} × {K prior}, then compares
 # the recovered emitter count and localization accuracy. This shows how the
 # modeling choices interact on identical data.
 #
 # Data are simulated with a Poisson(10) blink model. All BaGoL arms use the fixed
 # correct count prior (learn_distribution=false, μ=10, shape=1000), with no tau
-# finder and no motion. The flat + Poisson-K arms additionally fix the emitter
-# density ρ over the bounding box (learn_rho=false, ρ = N/A_bbox) — the correct
-# fixed-ρ setup after the 1/A area cancellation.
+# finder and no motion. The flat / ipp + Poisson-K arms with "fixed ρ" additionally fix
+# the emitter density ρ over the bounding box (learn_rho=false, ρ = N/A_bbox) — the correct
+# fixed-ρ setup after the 1/A area cancellation; the plain ipp arm keeps ρ learning.
 #
 # Takeaway: locmix recovers N≈8 (count-driven), while every flat arm sits low even
 # with the area term cancelled and ρ held fixed. This is NOT the K prior or the
@@ -22,9 +22,9 @@
 # non-MCMC verification: dev/no_info_limit_derivation.md.
 #
 # The comparison grid (all entries pass run_bagol validation):
-#   spatial_model    ∈ {:locmix, :flat}
+#   spatial_model    ∈ {:ipp, :locmix, :flat}   (:ipp is the run_bagol default)
 #   allocation_model ∈ {:dm, :decoupled, :categorical}
-#   k_prior          ∈ {:auto, :poisson, :none}   (:poisson only valid with :flat;
+#   k_prior          ∈ {:auto, :poisson, :none}   (:poisson valid with :flat and :ipp;
 #                                                   :locmix carries no K prior)
 #
 # Run with: julia --threads=auto --project=examples examples/octamer_model_combos.jl
@@ -66,7 +66,7 @@ fov = compute_fov(sim.smld)
 
 # Fixed emitter density over the partition bounding box: ρ = N/A_bbox so the
 # Poisson(ρ·A) K prior peaks at the true count. area/UniformSpatialPrior are the same
-# quantities the sampler uses per partition. (Flat + Poisson-K arms only; locmix has no ρ.)
+# quantities the sampler uses per partition. (Flat / ipp + Poisson-K arms only; locmix has no ρ.)
 const A_BBOX    = SMLMBaGoL.area(SMLMBaGoL.UniformSpatialPrior(sim.smld.emitters))
 const RHO_FIXED = N_EMITTERS / A_BBOX
 
@@ -75,7 +75,9 @@ const RHO_FIXED = N_EMITTERS / A_BBOX
 # =============================================================================
 
 combos = [
-    (label="locmix + DM (default, count-driven)",      spatial=:locmix, alloc=:dm,          kp=:auto,    learn_rho=true,  rho=nothing),
+    (label="ipp + DM (default, learned ρ)",            spatial=:ipp,    alloc=:dm,          kp=:auto,    learn_rho=true,  rho=nothing),
+    (label="ipp + DM + Poisson-K (fixed ρ)",           spatial=:ipp,    alloc=:dm,          kp=:poisson, learn_rho=false, rho=RHO_FIXED),
+    (label="locmix + DM (count-driven)",               spatial=:locmix, alloc=:dm,          kp=:auto,    learn_rho=true,  rho=nothing),
     (label="locmix + categorical",                     spatial=:locmix, alloc=:categorical, kp=:auto,    learn_rho=true,  rho=nothing),
     (label="flat + DM + Poisson-K (fixed ρ)",          spatial=:flat,   alloc=:dm,          kp=:poisson, learn_rho=false, rho=RHO_FIXED),
     (label="flat + categorical + Poisson-K (fixed ρ)", spatial=:flat,   alloc=:categorical, kp=:poisson, learn_rho=false, rho=RHO_FIXED),
@@ -135,7 +137,8 @@ sig_nm = [1000*sqrt(e.σ_x*e.σ_y) for e in sim.smld.emitters]   # 1σ (nm); cir
 tx = 1000 .* [p[1] for p in sim.true_positions]
 ty = 1000 .* [p[2] for p in sim.true_positions]
 
-fig = Figure(size=(1290, 820))
+nrows = cld(length(results), 3)
+fig = Figure(size=(1290, 410 * nrows + 40))
 Label(fig[0, 1:3], "Octamer (true N = $N_EMITTERS): BaGoL MAP-N under each model combination";
       fontsize=19, font=:bold)
 for (i, r) in enumerate(results)
@@ -152,7 +155,7 @@ for (i, r) in enumerate(results)
     ey = 1000 .* [e.y for e in r.smld.emitters]
     scatter!(ax, ex, ey; color=:crimson, marker=:xcross, markersize=13)      # MAP-N
 end
-Legend(fig[3, 1:3],
+Legend(fig[nrows + 1, 1:3],
     [MarkerElement(color=(:steelblue,0.5), marker=:circle, markersize=8),
      MarkerElement(color=:black, marker=:circle, markersize=12),
      MarkerElement(color=:crimson, marker=:xcross, markersize=12)],

@@ -50,7 +50,7 @@ result_smld, diagnostics = run_bagol(sim.smld;
     n_iterations=N_ITERATIONS, burn_in=BURN_IN,
     partition_sigma=Inf,
     μ=sim.count_params.μ, shape=sim.count_params.shape, learn_distribution=false,
-    sync_interval=N_ITERATIONS + 1,
+    # μ and shape are fixed; the emitter density ρ keeps learning (global update every sync_interval)
     posterior_pixel_size=0.001,
     posterior_xlim=(fov[1], fov[2]),
     posterior_ylim=(fov[3], fov[4])

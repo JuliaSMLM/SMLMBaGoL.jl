@@ -68,7 +68,7 @@ fov = compute_fov(smld_sim)
 result_smld, diagnostics = run_bagol(smld_sim;
     n_iterations=N_ITERATIONS, burn_in=BURN_IN,
     μ=TRUE_MU, shape=1000.0, learn_distribution=false,
-    sync_interval=N_ITERATIONS + 1,
+    # μ and shape are fixed; the emitter density ρ keeps learning (global update every sync_interval)
     posterior_pixel_size=0.002,
     posterior_xlim=(fov[1], fov[2]),
     posterior_ylim=(fov[3], fov[4])
