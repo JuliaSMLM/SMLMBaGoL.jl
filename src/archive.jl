@@ -179,6 +179,13 @@ end
 Run an accumulator on archived samples from a partition.
 Enables post-hoc analysis with any accumulator type.
 
+Replay is model-independent: the built-in accumulators read only the assignment vector and
+the flat Gaussian cluster moments (counts, posterior means and covariances), never the
+spatial prior, so the same replay serves archives written under `:ipp`, `:flat` and
+`:locmix`. The reconstructed state carries a flat placeholder spatial model, so an
+accumulator that reads `state.spatial` (the `:ipp` map, say) is not supported here and
+would silently see the flat model; do not write one for replay.
+
 # Example
 ```julia
 archive = BaGoLArchive("results/archive/")

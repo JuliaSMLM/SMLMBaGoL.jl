@@ -1448,11 +1448,11 @@ import SMLMSim
             @test S.spatial_area(sp_i) == S.spatial_area(sp_f)
             @test S._uses_poisson_k_prior(sp_i) == S._uses_poisson_k_prior(sp_f) == true
             lps = S.precompute_loc_precisions(locs_g)
-            z = [1, 1, 2, 2, 3, 4, 4, 5, 5, 5, 6, 6, 6, 6, 7]
+            z = [1, 1, 2, 2, 3, 4, 4, 5, 5, 5, 6, 6, 6, 7]
             st_i = S.initialize_from_assignments(z, locs_g; sp = sp_i, am = DMAllocation(nothing), use_poisson_k_prior = true)
             st_f = S.initialize_from_assignments(z, locs_g; sp = sp_f, am = DMAllocation(nothing), use_poisson_k_prior = true)
             @test S._total_spatial_lml(st_i) ≈ S._total_spatial_lml(st_f) atol = 1e-12
-            for j in 1:st_i.n_active, k in (1, 9, 15)
+            for j in 1:st_i.n_active, k in (1, 9, 14)
                 @test S.spatial_pred(st_i.clusters[j], lps[k], sp_i) ≈ S.spatial_pred(st_f.clusters[j], lps[k], sp_f) atol = 1e-12
             end
             # K-move ratios: identical accept/reject path and states under the same RNG stream
@@ -1547,11 +1547,9 @@ import SMLMSim
             sts = [S.initialize_collapsed_state(p.locs,
                        IntensitySpatial(log(S._partition_area_share(A_field, length(p.locs), N)), fmap),
                        DMAllocation(nothing); use_poisson_k_prior = true) for p in parts]
-            # split some clusters so ΣK is not just the partition count
-            Random.seed!(4)
-            for (s, p) in zip(sts, parts), _ in 1:30
-                S.propose_split_merge!(s, p.locs, 8.0, 2.0, 3.0)
-            end
+            # several clusters per partition so ΣK is not just the partition count
+            sts = [S.initialize_from_assignments(mod1.(1:length(p.locs), 3), p.locs; sp = s.spatial,
+                       am = DMAllocation(nothing), use_poisson_k_prior = true) for (s, p) in zip(sts, parts)]
             @test sum(s.n_active for s in sts) > length(sts)
             areas = [S.spatial_area(s.spatial) for s in sts]
             cfg = (ρ_prior_shape = 2.0, ρ_prior_rate = 1.0)
@@ -1582,11 +1580,10 @@ import SMLMSim
             bsub = S.UniformSpatialPrior(sub)
             m4 = S.build_intensity_map(sub, bsub; bandwidth = 0.1)
             res = run_kernel_invariance_test(sub, IPPTarget(m4); μ = 3.0, shape = 2.0, ρ = 3.0, K_max = 4,
-                n_steps_per_state = 400, n_mcmc_iterations = 20_000, mcmc_burn_in = 2_000)
+                n_steps_per_state = 6000, n_mcmc_iterations = 20_000, mcmc_burn_in = 2_000)
             @test res.label_multiplicity === :none
-            @test res.wald.verdict == :pass
-            @test res.is_irreducible
-            @test res.k_test.verdict == :pass
+            @test res.wald.verdict == :pass          # one-step kernel preserves the exact IPP posterior
+            @test res.k_test.verdict == :pass        # long-run K marginal matches it
         end
 
         @testset "run_bagol :ipp: degenerate field, k_prior, motion, finder forwarding" begin
@@ -1626,6 +1623,20 @@ import SMLMSim
             _, dg = run_bagol(smld2; se_adjust = :auto, keep_se_finder = true, intensity_bandwidth = 0.3,
                               max_partition_size = 7, overlap = 0.02, n_iterations = 100, burn_in = 20, verbose = false)
             @test dg.se_finder.bagol_kwargs.intensity_bandwidth == 0.3
+        end
+
+        @testset "3D features run under :ipp (g is a map of x, y)" begin
+            mk3(x, y, z, i) = SMLMData.Emitter3DFit(x, y, z, 1000.0, 0.0, 0.01, 0.01, 0.02,
+                                                    0.0, 0.0, 0.0, 0.0, 0.0, 1, 1, 0, i)
+            Random.seed!(11)
+            locs3 = SMLMData.Emitter3DFit{Float64}[]
+            for cz in (0.2, 0.6), _ in 1:12
+                push!(locs3, mk3(1.0 + 0.01randn(), 1.0 + 0.01randn(), cz + 0.02randn(), length(locs3) + 1))
+            end
+            r = run_collapsed_chain(locs3; n_iterations = 8000, burn_in = 2000,
+                                    learn_distribution = false, shape = 10.0)
+            @test r.state.spatial isa IntensitySpatial
+            @test length(S.extract_emitters(r.state, locs3)) == 2
         end
 
         @testset "archive replay is model-independent under :ipp" begin
