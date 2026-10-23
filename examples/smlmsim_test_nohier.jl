@@ -65,10 +65,16 @@ fov = compute_fov(smld_sim)
 # Run BaGoL (fixed parameters)
 # =============================================================================
 
+# Fixed emitter density ρ = N/(μ·A_bbox): localizations per mean blinks, over the bounding box of
+# all localizations (the exposure run_bagol uses for ρ). μ, shape and ρ are all held fixed.
+_xs = extrema(e.x for e in smld_sim.emitters); _ys = extrema(e.y for e in smld_sim.emitters)
+const RHO_FIXED = length(smld_sim.emitters) / (TRUE_MU * (_xs[2] - _xs[1]) * (_ys[2] - _ys[1]))
+
 result_smld, diagnostics = run_bagol(smld_sim;
     n_iterations=N_ITERATIONS, burn_in=BURN_IN,
     μ=TRUE_MU, shape=1000.0, learn_distribution=false,
-    # μ and shape are fixed; the emitter density ρ keeps learning (global update every sync_interval)
+    learn_rho=false, rho=RHO_FIXED,
+    sync_interval=N_ITERATIONS + 1,
     posterior_pixel_size=0.002,
     posterior_xlim=(fov[1], fov[2]),
     posterior_ylim=(fov[3], fov[4])

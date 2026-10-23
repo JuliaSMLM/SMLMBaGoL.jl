@@ -119,7 +119,7 @@ function build_intensity_map(locs::Vector{<:SMLMData.AbstractEmitter}, box::Unif
     # Floor: one isolated kernel at the truncation radius, so g stays positive and
     # continuous where the truncated kernels vanish.
     g_floor = (A / N) * norm * exp(-_IPP_TRUNC^2 / 2)
-    g = Matrix{Float64}(undef, ny, nx)
+    g = κ                                  # in place: one grid-sized array in memory
     @inbounds for ix in 1:nx, iy in 1:ny
         g[iy, ix] = max((A / N) * κ[iy, ix] / (mx[ix] * my[iy]), g_floor)
     end
@@ -175,8 +175,8 @@ function _normalize_intensity(m::IntensityMap)
     I = intensity_integral(m, m.xlo, m.xhi, m.ylo, m.yhi)
     (isfinite(I) && I > 0) || error("intensity map has non-positive integral over its box")
     c = m.field_area / I
-    return IntensityMap(m.g .* c, m.x0, m.y0, m.dx, m.dy, m.nx, m.ny,
-                        m.xlo, m.xhi, m.ylo, m.yhi, m.field_area, m.n_all, m.bandwidth)
+    m.g .*= c                              # in place (the map is not yet shared)
+    return m
 end
 
 @inline function _bilinear(m::IntensityMap, x::Float64, y::Float64)
@@ -212,6 +212,10 @@ The per-emitter factor is `ρ·g(θ̂)` at the cluster's posterior mean (saddle 
 
 paired with the Poisson(ρA_i') K prior (as `FlatSpatial`), so the flat `-log A` cancels and
 the per-cluster factor is `ρ g(θ̂)·ML`. With `g ≡ 1` it is exactly `FlatSpatial`.
+
+Retained convention: ρ is the density of emitters with at least one localization and the
+count marks are not zero-truncated (the flat + Poisson convention; the omitted term is
+`-K log(1 - p₀)`, `p₀ = (α/(α+μ))^α`). docs/math_reference.md §4.6.
 """
 struct IntensitySpatial <: AbstractSpatialModel
     log_area::Float64

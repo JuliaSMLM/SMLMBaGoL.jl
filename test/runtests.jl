@@ -1505,6 +1505,19 @@ import SMLMSim
             @test r1.ρ == 4.0
         end
 
+        @testset "standalone positive-area policy: singleton, co-located, collinear" begin
+            mkl(x, y, i) = SMLMData.Emitter2DFit{Float64}(x, y, 1000.0, 10.0, 0.01, 0.01, 0.0, 0.0; frame = i)
+            for locs in ([mkl(0.1, 0.2, 1)], [mkl(0.1, 0.2, i) for i in 1:6], [mkl(0.02i, 0.0, i) for i in 1:8])
+                ri = run_collapsed_chain(locs; n_iterations = 100, burn_in = 20, hierarchical_interval = 20, verbose = false)
+                rf = run_collapsed_chain(locs; spatial_model = :flat, n_iterations = 100, burn_in = 20,
+                                         hierarchical_interval = 20, verbose = false)
+                # same padded, floored exposure as standalone flat, positive, learned rho finite
+                @test S.spatial_area(ri.state.spatial) > 0
+                @test S.spatial_area(ri.state.spatial) == S.spatial_area(rf.state.spatial)
+                @test isfinite(ri.ρ) && ri.ρ > 0
+            end
+        end
+
         @testset "P3 partition consistency (target factorizes across cuts)" begin
             N = length(locs_g)
             xs = extrema(l.x for l in locs_g); ys = extrema(l.y for l in locs_g)
