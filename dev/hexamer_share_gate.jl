@@ -112,9 +112,13 @@ end
 tsum(ts, f, sel=:) = sum(getfield(ts, f)[sel])
 share(ts, f, sel=:) = tsum(ts, f, sel) / max(tsum(ts, :nc, sel), 1)
 
+# GATE_CONTROL=ipp runs production settings with spatial_model=:ipp.
+const IPP = get(ENV, "GATE_CONTROL", "") == "ipp"
+
 function run_case(label, smld, x, y, cap, field)
+    ipp_kw = IPP ? (; spatial_model=:ipp) : (;)
     t0 = time()
-    r, diag = run_bagol(smld; n_iterations=N_ITER, burn_in=BURN_IN,
+    r, diag = run_bagol(smld; n_iterations=N_ITER, burn_in=BURN_IN, ipp_kw...,
         max_partition_size=cap, overlap=0.025, partition_sigma=3.0, se_adjust=0.0,
         posterior_pixel_size=0.0, verbose=false)
     nloc = Dict{Int,Int}(); sx = Dict{Int,Float64}(); sy = Dict{Int,Float64}()
@@ -153,7 +157,7 @@ end
 function main()
     t0 = time()
     Random.seed!(SEED)
-    println("hexamer_share_gate  seed=$SEED  threads=$(Threads.nthreads())  field=$(FIELD) um")
+    println("hexamer_share_gate  mode=$(IPP ? "ipp" : "production")  seed=$SEED  threads=$(Threads.nthreads())  field=$(FIELD) um")
     smld, x, y = simulate_field()
     c = run_case("dense + 10% hexamers", smld, x, y, 500, FIELD)
     show_case(c)

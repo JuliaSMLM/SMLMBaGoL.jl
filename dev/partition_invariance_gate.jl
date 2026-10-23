@@ -63,8 +63,17 @@ const N_ITER, BURN_IN = 6000, 2000
 # at the simulation's emitter density (2 emitters per 1.1 x 1.1 um grid cell), a prior that is
 # partition-invariant by construction. A gate that passes here and fails in the default
 # (production, locmix) mode is calibrated for its purpose.
-const CONTROL = get(ENV, "GATE_CONTROL", "") == "flat"
+# GATE_CONTROL=ipp: spatial_model=:ipp. One intensity map per separation is built from ALL that
+# separation's pair localizations (the blocks are tiled into one big field) and the same frozen
+# map is passed via intensity_map to every chain in both arms; rho is fixed at the field's true
+# emitter density (hyperparameters are fixed in this gate). Sensitivity line only: the alone arm
+# with a map refitted from each pair's own localizations (rho fixed at 2 / its box area).
+const MODE = get(ENV, "GATE_CONTROL", "")
+const CONTROL = MODE == "flat"
+const IPP = MODE == "ipp"
 const CONTROL_KW = CONTROL ? (; spatial_model=:flat, rho=2 / GRID_SPACING^2) : (;)
+const TILE_STEP = 5.0           # um between block origins when tiling blocks into one field (ipp)
+const TILE_COLS = 6
 const FIELD_PAD = 0.55          # um margin around the block grid
 
 # ---- SMLMSim fluorophore: bleaching 3-state (ON, OFF, bleached), dSTORM-like ----
@@ -134,11 +143,11 @@ function local_dahl(samples, psm, idx)
 end
 
 # Run one chain; score each requested pair (a vector of (ida, idb)) with the pair-local Dahl.
-function run_job(locs, pairs, μ, shape)
+function run_job(locs, pairs, μ, shape, kw=CONTROL_KW)
     psm_acc, ps_acc = PSMAccumulator(), PartitionSamples(thin=5)
     run_collapsed_chain(locs; n_iterations=N_ITER, burn_in=BURN_IN,
         shape=shape, μ_prior_shape=1.0, μ_prior_scale=μ,   # initial μ = μ_prior_shape*scale
-        learn_distribution=false, learn_rho=false, CONTROL_KW...,
+        learn_distribution=false, learn_rho=false, kw...,
         accumulators=AbstractAccumulator[ps_acc, psm_acc])
     psm = SMLMBaGoL.accumulator_result(psm_acc).psm
     ids = [e.track_id for e in locs]
@@ -172,7 +181,7 @@ end
 function main()
     t0 = time()
     Random.seed!(SEED)
-    println("partition_invariance_gate  seed=$SEED  threads=$(Threads.nthreads())  mode=$(CONTROL ? "CONTROL flat fixed-rho" : "production")")
+    println("partition_invariance_gate  seed=$SEED  threads=$(Threads.nthreads())  mode=$(IPP ? "ipp (shared frozen intensity map, fixed rho)" : CONTROL ? "CONTROL flat fixed-rho" : "production")")
     μ, shape = calibrate_count_model()
     @printf("simulation count model: mu = %.3f, shape = %.3f\n", μ, shape)
 
@@ -186,12 +195,35 @@ function main()
         np >= 150 || @warn "separation $(SEPS_NM[si]) nm has only $np pairs"
     end
 
+    # ipp: tile the blocks of each separation into one field (translation only) and build one map
+    ipp_kw = Dict{Int,Any}()
+    if IPP
+        for si in eachindex(SEPS_NM)
+            allocs = Emitter2DFit{Float64}[]
+            for b in 1:N_BLOCKS
+                locs, _ = blocks[(si, b)]
+                dx, dy = TILE_STEP * ((b - 1) % TILE_COLS), TILE_STEP * ((b - 1) ÷ TILE_COLS)
+                locs = [(e = deepcopy(l); e.x += dx; e.y += dy; e) for l in locs]
+                blocks[(si, b)] = (locs, blocks[(si, b)][2])
+                append!(allocs, locs)
+            end
+            box = UniformSpatialPrior(allocs)
+            imap = build_intensity_map(allocs, box)
+            nem = 2 * sum(length(blocks[(si, b)][2]) for b in 1:N_BLOCKS)
+            ipp_kw[si] = (; spatial_model=:ipp, intensity_map=imap, rho=nem / imap.field_area)
+            @printf("sep %2d nm: map over %d locs, field area %.0f um^2, rho = %.4f /um^2\n",
+                    SEPS_NM[si], length(allocs), imap.field_area, nem / imap.field_area)
+        end
+    end
+
     # jobs: grouped (whole block) and alone (each pair); seeded from job identity
     jobs = Tuple[]
     for ((si, b), (locs, pairs)) in blocks
         push!(jobs, (:grouped, si, b, 0, locs, pairs))
         for (pi, (ida, idb)) in enumerate(pairs)
-            push!(jobs, (:alone, si, b, pi, [e for e in locs if e.track_id == ida || e.track_id == idb], [(ida, idb)]))
+            pl = [e for e in locs if e.track_id == ida || e.track_id == idb]
+            push!(jobs, (:alone, si, b, pi, pl, [(ida, idb)]))
+            IPP && push!(jobs, (:refit, si, b, pi, pl, [(ida, idb)]))
         end
     end
     sort!(jobs; by=j -> (-length(j[5]), String(j[1]), j[2], j[3], j[4]))
@@ -199,12 +231,14 @@ function main()
     Threads.@threads :dynamic for k in eachindex(jobs)
         j = jobs[k]
         Random.seed!(UInt(hash((SEED, String(j[1]), j[2], j[3], j[4]))))
-        out[k] = run_job(j[5], j[6], μ, shape)
+        kw = !IPP ? CONTROL_KW : j[1] === :refit ?
+             (; spatial_model=:ipp, rho=2 / SMLMBaGoL.area(UniformSpatialPrior(j[5]))) : ipp_kw[j[2]]
+        out[k] = run_job(j[5], j[6], μ, shape, kw)
     end
     println(@sprintf("chains done: %d (%.1f min)", length(jobs), (time() - t0) / 60))
 
     # per separation, per arm: pair key -> (resolved, ncl)
-    res = Dict(arm => [Dict{Tuple{Int,Int},Tuple{Bool,Int}}() for _ in SEPS_NM] for arm in (:alone, :grouped))
+    res = Dict(arm => [Dict{Tuple{Int,Int},Tuple{Bool,Int}}() for _ in SEPS_NM] for arm in (:alone, :grouped, :refit))
     for (k, j) in enumerate(jobs)
         for ((ida, idb), r) in zip(j[6], out[k])
             res[j[1]][j[2]][(ida, idb)] = r
@@ -250,6 +284,13 @@ function main()
     @printf("\n50%% resolution point: alone %.1f nm, grouped %.1f nm\n", pa, pg)
     @printf("gated: 50%%-point difference %+.2f nm  (block-bootstrap SE %.2f nm; threshold 1.5 nm)\n", dp, se_dp)
     @printf("gated: max |rel. diff| in mean clusters/pair %.1f%%  (block-bootstrap SE %.1f%%; threshold 5%%)\n", 100 * mx, 100 * se_max)
+    if IPP
+        fr = [mean(res[:refit][si][k][1] for k in keys_by_sep[si]) for si in eachindex(SEPS_NM)]
+        rr = [(mean(res[:grouped][si][k][2] for k in keys_by_sep[si]) - mean(res[:refit][si][k][2] for k in keys_by_sep[si])) /
+              mean(res[:refit][si][k][2] for k in keys_by_sep[si]) for si in eachindex(SEPS_NM)]
+        @printf("SENSITIVITY (not gated): alone arm with per-pair refitted map: 50%% point %.1f nm (shared-map alone %.1f, grouped %.1f); max |grouped vs refit-alone clusters/pair| %.1f%%\n",
+                p50(SEPS_NM, fr), pa, pg, 100 * maximum(abs.(rr)))
+    end
     ok = isfinite(pa) && isfinite(pg) && abs(dp) <= 1.5 && mx <= 0.05
     @printf("runtime %.1f min\n", (time() - t0) / 60)
     println(ok ? "VERDICT: PASS (partition-invariance G2)" : "VERDICT: FAIL (partition-invariance G2)")

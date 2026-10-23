@@ -53,6 +53,7 @@
 #     Pkg.develop(path="../JuliaSMLM/SMLMSim"); Pkg.develop(path="../JuliaSMLM/SMLMData"); \
 #     Pkg.add(["SMLMClustering", "Statistics", "Random", "Printf"])'
 #   (adjust the two sibling paths; or Pkg.add(["SMLMSim", "SMLMData"]) for registered releases)
+# GATE_CONTROL=ipp runs production settings with spatial_model=:ipp.
 # GATE_CONTROL=flat runs the positive control (fixed-rho flat prior; see CONTROL below).
 # GATE_QUICK=1 shrinks the fields for a smoke run. Exit status: 0 on PASS, 1 on FAIL.
 # UNCERTAINTY: each gated difference is printed with a bootstrap SE (resampling 1 um tiles
@@ -72,6 +73,8 @@ const NBOOT = 1000
 # the simulation's emitter density of each field (learn_rho=false), partition-invariant by
 # construction. The control claim is the cap sweep; the density comparison is reported only.
 const CONTROL = get(ENV, "GATE_CONTROL", "") == "flat"
+# GATE_CONTROL=ipp: production settings but spatial_model=:ipp (pilot intensity map, learned rho).
+const IPP = get(ENV, "GATE_CONTROL", "") == "ipp"
 const DENSE = 250.0
 const SPARSE = parse(Float64, get(ENV, "GATE_LOW_DENSITY", "20"))   # low-density arm; median partition ~44 locs
 const N_ITER, BURN_IN = 6000, 2000
@@ -132,7 +135,7 @@ tsum(ts, f, sel=:) = sum(getfield(ts, f)[sel])
 share(ts, f, sel=:) = tsum(ts, f, sel) / max(tsum(ts, :nc, sel), 1)
 
 function run_case(label, smld, x, y, cap, field, ρ)
-    control_kw = CONTROL ? (; spatial_model=:flat, learn_rho=false, rho=ρ) : (;)
+    control_kw = CONTROL ? (; spatial_model=:flat, learn_rho=false, rho=ρ) : IPP ? (; spatial_model=:ipp) : (;)
     t0 = time()
     r, diag = run_bagol(smld; n_iterations=N_ITER, burn_in=BURN_IN,
         max_partition_size=cap, overlap=0.025, partition_sigma=3.0, se_adjust=0.0,
@@ -173,7 +176,7 @@ end
 function main()
     t0 = time()
     Random.seed!(SEED)
-    println("dense_field_gate  seed=$SEED  threads=$(Threads.nthreads())  mode=$(CONTROL ? "CONTROL flat fixed-rho" : "production")")
+    println("dense_field_gate  seed=$SEED  threads=$(Threads.nthreads())  mode=$(IPP ? "ipp" : CONTROL ? "CONTROL flat fixed-rho" : "production")")
     dense = simulate_field(DENSE, FIELD_DENSE)
     low = simulate_field(SPARSE, FIELD_LOW)
     cases = [
