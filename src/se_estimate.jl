@@ -264,6 +264,8 @@ A `NamedTuple` with τ values in **μm**:
 - `n_bagol` — number of BaGoL E-steps run (the descent length)
 - `path_um` — the descent trajectory as `(g, m)` pairs (grouping τ, M-step τ)
 - `grouping` — the grouping backend used
+- `bagol_kwargs` — the BaGoL kwargs the E-steps ran with (a `NamedTuple`; excludes the
+  internal neighbor graph)
 - `diagnostics` — `nothing`, or (with `return_diagnostics=true`) the arrays the
   `BaGoLMakieExt` plots consume, so the extension never re-runs BaGoL.
 
@@ -338,6 +340,7 @@ function estimate_se_adjust(smld::SMLMData.SMLD;
     # threshold-many). Anchor the cached radius at the coarsest τ the descent can use
     # (max of grid ceiling and g_start) → a superset for every reachable τ;
     # precision_dbscan re-thresholds it per step (exact, no KDTree rebuild).
+    _kw_used = (; bagol_kwargs...)                     # settings the E-steps run with (reported below)
     _ng = _build_finder_neighbor_graph(smld, max(maximum(grid_um), g_start_um),
                                        Float64(get(bagol_kwargs, :partition_sigma, 3.0)))
     if _ng !== nothing
@@ -398,7 +401,7 @@ function estimate_se_adjust(smld::SMLMData.SMLD;
     (; tau_hat_um = τ / 1000, ci_lo_um = lo / 1000, ci_hi_um = hi / 1000,
        ks_at_hat = ks_at, n_bagol,
        path_um = [(gᵢ / 1000, mᵢ / 1000) for (gᵢ, mᵢ) in path],
-       instr, grouping, diagnostics)
+       instr, grouping, bagol_kwargs = _kw_used, diagnostics)
 end
 
 # ============================================================================
