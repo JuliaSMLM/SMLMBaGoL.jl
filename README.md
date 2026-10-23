@@ -107,10 +107,17 @@ result_smld, diagnostics = run_bagol(smld;
 )
 ```
 
-Advanced model choices — the spatial prior (`spatial_model = :locmix` or `:flat`), the
+Advanced model choices — the spatial prior (`spatial_model = :ipp` (default), `:locmix` or `:flat`), the
 allocation model (`allocation_model = :dm`, `:decoupled`, or `:categorical`), and the
 `K`-prior gating (`k_prior`) — are documented in the
 [full documentation](https://juliasmlm.github.io/SMLMBaGoL.jl/stable).
+
+**Default spatial prior (0.4.6).** The default `spatial_model` is `:ipp`, an inhomogeneous
+Poisson process: emitters have intensity ρ·g(θ), with the shape g a fixed pilot intensity map
+estimated once from all localizations (bandwidth `intensity_bandwidth`, default 0.2 μm) and ρ
+the learned global emitter density. Unlike the previous default (`:locmix`), its posterior does
+not depend on how the field is partitioned. Results of a re-run differ from earlier versions;
+`spatial_model = :locmix` restores the old prior.
 
 ## What you get back
 

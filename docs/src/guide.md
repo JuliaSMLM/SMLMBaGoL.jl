@@ -90,11 +90,11 @@ value throws an `ArgumentError`.
 
 | Option | Values (default first) | Meaning |
 |---|---|---|
-| `spatial_model` | `:locmix`, `:flat` | The spatial prior on emitter positions: localization-mixture prior (`:locmix`) or a flat (uniform) prior (`:flat`). |
+| `spatial_model` | `:ipp`, `:locmix`, `:flat` | The spatial prior on emitter positions: an inhomogeneous Poisson process (`:ipp`, the default: a fixed pilot intensity map times a learned global density; its posterior does not depend on how the field is partitioned), the localization-mixture prior (`:locmix`, the pre-0.4.6 default, which does), or a flat (uniform) prior (`:flat`). `intensity_bandwidth` (default `0.2` μm) sets the `:ipp` pilot-map bandwidth. |
 | `allocation_model` | `:dm`, `:decoupled`, `:categorical` | The partition prior over localization-to-emitter assignments. `:dm` is the Dirichlet-Multinomial partition prior. |
-| `k_prior` | `:auto`, `:poisson`, `:none` | Gating of the emitter-count (`K`) prior. `:auto` uses the spatial model's default policy; `:poisson` is only valid with `spatial_model=:flat` and throws otherwise. |
+| `k_prior` | `:auto`, `:poisson`, `:none` | Gating of the emitter-count (`K`) prior. `:auto` uses the spatial model's default policy; `:poisson` is only valid with `spatial_model=:ipp` or `:flat` and throws otherwise. |
 
-The defaults (`:locmix` + `:dm` + `:auto`) are the recommended configuration. See
+The defaults (`:ipp` + `:dm` + `:auto`) are the recommended configuration. Results of version 0.4.6 differ from earlier ones because the default spatial prior changed; `spatial_model = :locmix` restores the old prior. See
 [Priors](math/priors.md) for what each prior is.
 
 ### Split/merge and birth/death tuning

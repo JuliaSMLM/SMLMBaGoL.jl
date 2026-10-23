@@ -69,6 +69,9 @@ partition_locs
 AbstractSpatialModel
 FlatSpatial
 LocmixSpatial
+IntensitySpatial
+IntensityMap
+build_intensity_map
 spatial_ml
 spatial_pred
 AbstractAllocationModel
@@ -152,6 +155,7 @@ DecoupledTarget
 DecoupledLocmixTarget
 DMFlatTarget
 DMLocmixTarget
+IPPTarget
 DirectNegBinFlatTarget
 DirectNegBinLocmixTarget
 FazelFlatTarget
