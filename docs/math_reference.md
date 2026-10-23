@@ -260,6 +260,12 @@ $\sum A_i'$ both include the duplicates, so $\hat\rho$ carries a bias set by the
 emitter counts relative to the duplicated exposure (small; measure it rather than assume it).
 The $\mu$/shape overlap masks are unchanged and a separate approximation.
 
+Exact partition consistency holds under these conditions: DM allocation with $\gamma$ = shape (the
+default coupling), the Poisson $K$ prior on, fixed hyperparameters ($\mu$, shape, $\rho$) and a fixed
+map, and groups separated beyond the map/likelihood reach with no overlap copies. Other allocation
+settings (`:decoupled`, `:categorical`, or $\gamma \ne$ shape) do not inherit it, and neither does a
+run with learned hyperparameters or overlap copies beyond the approximation described above.
+
 **Retained convention.** $\rho$ is the density of emitters with at least one localization, and the
 per-cluster count terms are not zero-truncated (the existing flat + Poisson convention, no
 $e^{\lambda m}$ carry-through). The omitted term is $-K\log(1-p_0)$ in the count target

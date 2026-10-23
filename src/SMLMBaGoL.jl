@@ -30,7 +30,7 @@ export BaGoLDiagnostics
 export CollapsedState, CollapsedChainResult, BaGoLResult
 export ClusterStats
 export MultiClusterStats, FeatureSet, run_multicue_chain, build_multicue_precisions, extract_multicue, gaussian_contribution
-export AbstractAccumulator, EmitterCountHist, PosteriorImage, NNDistHist
+export AbstractAccumulator, needs_spatial_model, EmitterCountHist, PosteriorImage, NNDistHist
 export PartitionSamples, PSMAccumulator
 
 # Export partitioning (internal use, partition_locs exposed for advanced users)

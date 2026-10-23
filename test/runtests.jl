@@ -1602,8 +1602,8 @@ import SMLMSim
                 n_steps_per_state = 6000, n_mcmc_iterations = 100_000, mcmc_burn_in = 2_000)
             @test res.label_multiplicity === :none
             # The Wald p-value is not calibrated at this size (it also rejects :flat in 9 of 12 seeds
-            # while the TV stays ~4e-4), so bound the one-step invariance TV instead: pi'P - pi'.
-            @test res.wald.tv_hat < 0.005
+            # while the TV stays ~4e-4), so bound the upper 95% confidence limit of the one-step invariance TV instead: pi'P - pi'.
+            @test res.wald.tv_upper_95 < 0.005
             @test res.k_test.verdict == :pass        # long-run K marginal matches the exact posterior
         end
 
@@ -1669,6 +1669,53 @@ import SMLMSim
             @test ar.n_partitions >= 1
             counts = S.compute_from_archive(EmitterCountHist, ar, 1, S.partition_locs(locs_g)[1][1].locs)
             @test sum(counts) > 0
+        end
+
+        # a custom accumulator that evaluates the spatial model
+        @eval struct SpatialScoreAcc <: AbstractAccumulator
+            scores::Vector{Float64}
+        end
+        @eval SpatialScoreAcc(; kw...) = SpatialScoreAcc(Float64[])
+        @eval SMLMBaGoL.needs_spatial_model(::Type{SpatialScoreAcc}) = true
+        @eval SMLMBaGoL.accumulator_update!(a::SpatialScoreAcc, state, locs, μ, shape, it) =
+            push!(a.scores, sum(spatial_ml(cs, state.spatial) for (k, cs) in enumerate(state.clusters) if state.active[k]))
+        @eval SMLMBaGoL.accumulator_result(a::SpatialScoreAcc) = a.scores
+
+        @testset "archive records the spatial model; replay of spatial-model accumulators" begin
+            plocs = S.partition_locs(locs_g)[1][1].locs
+            smld = SMLMData.BasicSMLD(locs_g, SMLMData.IdealCamera(1:16, 1:16, 0.1), 1, 1)
+            @test needs_spatial_model(EmitterCountHist) === false
+            @test needs_spatial_model(SpatialScoreAcc) === true
+            dir_i = mktempdir()
+            run_bagol(smld; spatial_model = :ipp, n_iterations = 100, burn_in = 20, sync_interval = 20,
+                      archive_path = dir_i, verbose = false, posterior_pixel_size = 0.0)
+            ar_i = BaGoLArchive(dir_i)
+            @test ar_i.spatial_model === :ipp
+            @test_throws ArgumentError S.compute_from_archive(SpatialScoreAcc, ar_i, 1, plocs)
+            la = log(S.area(S.UniformSpatialPrior(plocs)))
+            sc = S.compute_from_archive(SpatialScoreAcc, ar_i, 1, plocs; spatial = S.IntensitySpatial(la, map_g))
+            @test !isempty(sc) && all(isfinite, sc)
+            @test sum(S.compute_from_archive(EmitterCountHist, ar_i, 1, plocs)) > 0
+            dir_l = mktempdir()
+            run_bagol(smld; n_iterations = 100, burn_in = 20, sync_interval = 20,
+                      archive_path = dir_l, verbose = false, posterior_pixel_size = 0.0)
+            ar_l = BaGoLArchive(dir_l)
+            @test ar_l.spatial_model === :locmix
+            @test_throws ArgumentError S.compute_from_archive(SpatialScoreAcc, ar_l, 1, plocs)
+            dir_f = mktempdir()
+            run_bagol(smld; spatial_model = :flat, n_iterations = 100, burn_in = 20, sync_interval = 20,
+                      archive_path = dir_f, verbose = false, posterior_pixel_size = 0.0)
+            ar_f = BaGoLArchive(dir_f)
+            @test ar_f.spatial_model === :flat
+            @test !isempty(S.compute_from_archive(SpatialScoreAcc, ar_f, 1, plocs))
+        end
+
+        @testset "motion=:linear rejects spatial_model=:ipp with k_prior=:poisson" begin
+            @test_throws ArgumentError run_collapsed_chain(locs_g; spatial_model = :ipp, motion = :linear,
+                k_prior = :poisson, n_iterations = 5, burn_in = 1, verbose = false)
+            smld = SMLMData.BasicSMLD(locs_g, SMLMData.IdealCamera(1:16, 1:16, 0.1), 1, 1)
+            @test_throws ArgumentError run_bagol(smld; spatial_model = :ipp, motion = :linear, k_prior = :poisson,
+                se_adjust = 0.0, n_iterations = 20, burn_in = 5, sync_interval = 10, verbose = false)
         end
     end
 end

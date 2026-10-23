@@ -250,6 +250,9 @@ function run_collapsed_chain(
     # only matches a true Poisson(ρA) K prior when paired with flat ML's
     # A^-K cancellation. Disallow :poisson under non-flat to avoid
     # silently mixing inconsistent target pieces.
+    if motion === :linear && spatial_model === :ipp && k_prior === :poisson
+        throw(ArgumentError("k_prior=:poisson with spatial_model=:ipp is not supported with motion=:linear: the motion model uses its own spatial prior and no Poisson K prior"))
+    end
     use_poisson_k_prior = if k_prior === :poisson
         spatial_model in (:flat, :ipp) ||
             throw(ArgumentError("k_prior=:poisson is only valid with spatial_model=:flat or :ipp (the prior is the flat-area-cancelled form). Got spatial_model=:$spatial_model"))

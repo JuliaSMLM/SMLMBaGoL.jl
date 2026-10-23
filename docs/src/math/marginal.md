@@ -84,7 +84,7 @@ by comparison.*
 
 ## Inhomogeneous Poisson process prior (`:ipp`)
 
-`:ipp` is partition-invariant and calibrated for dense fields, but under-splits isolated structures (rulers, origami, single-structure fields), where `:locmix` is the better choice.
+`:ipp` is partition-invariant (under the conditions below) and calibrated for dense fields, but under-splits isolated structures (rulers, origami, single-structure fields), where `:locmix` is the better choice.
 
 `:ipp` models emitters as a marked inhomogeneous Poisson process with intensity
 ``\lambda(\boldsymbol\theta) = \rho\, g(\boldsymbol\theta)``: ``\rho`` is the global emitter
@@ -109,7 +109,10 @@ Poisson``(\rho A_i')`` prior on ``K`` as under `:flat`, so a cluster scores
 paired with ``K\log(\rho A_i')`` so the area cancels and each emitter contributes ``\rho\, g(\hat{\boldsymbol\theta})``.
 Because ``g`` and ``\rho`` are global and the partition exposures ``A_i' = A_{\text{field}} n_i/N_{\text{all}}``
 sum to the field, the target of separated groups factorizes: it does not depend on how the field
-is partitioned. With ``g \equiv 1`` it is exactly `:flat` + Poisson``(\rho A)``. The full statement
+is partitioned. This is exact only under DM allocation with ``\gamma`` = shape (the default
+coupling), the Poisson ``K`` prior on, fixed hyperparameters and a fixed map, and groups
+separated beyond the map/likelihood reach with no overlap copies; other allocation settings do
+not inherit it. With ``g \equiv 1`` it is exactly `:flat` + Poisson``(\rho A)``. The full statement
 (normalization, conventions, limits) is `docs/math_reference.md` §4.6.
 
 ## Predictive probability

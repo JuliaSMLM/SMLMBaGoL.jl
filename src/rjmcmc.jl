@@ -557,6 +557,10 @@ function _run_bagol_collapsed(
         throw(ArgumentError("k_prior=:poisson is only valid with spatial_model=:flat or :ipp (the prior is the flat-area-cancelled form). Got spatial_model=:$spatial_model_sym"))
     end
 
+    if motion === :linear && spatial_model_sym === :ipp && k_prior === :poisson
+        throw(ArgumentError("k_prior=:poisson with spatial_model=:ipp is not supported with motion=:linear: the motion model uses its own spatial prior and no Poisson K prior"))
+    end
+
     # IPP: ONE global pilot intensity map from all localizations (after se_adjust, before
     # the partitions are used), shared read-only by every partition. Normalized over the
     # unpadded bounding box (A_field); when that is degenerate (or no field exposure is
@@ -651,7 +655,8 @@ function _run_bagol_collapsed(
     archive = nothing
     if archive_path !== nothing
         archive = BaGoLArchive(archive_path, n_partitions,
-                               [length(p.locs) for p in partitions])
+                               [length(p.locs) for p in partitions];
+                               spatial_model = motion === :linear ? :motion : spatial_model_sym)
     end
 
     # Synchronized outer loop

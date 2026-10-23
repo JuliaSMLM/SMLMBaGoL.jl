@@ -118,7 +118,7 @@ precision-DBSCAN percolates into large partitions, are under-counted (measured o
 simulations). The new option `spatial_model = :ipp` is an inhomogeneous Poisson process:
 emitters have intensity ρ·g(θ), with the shape g a fixed pilot intensity map estimated once from
 all localizations (bandwidth `intensity_bandwidth`, default 0.2 μm) and ρ the learned global
-emitter density. It is partition-invariant and calibrated for dense fields, but under-splits
+emitter density. It is partition-invariant (exactly, for separated groups under the default DM allocation with the Poisson K prior, fixed hyperparameters and no overlap copies) and calibrated for dense fields, but under-splits
 isolated structures (rulers, origami, single-structure fields), where `:locmix` is the better choice.
 
 ## What you get back

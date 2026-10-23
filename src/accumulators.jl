@@ -14,6 +14,16 @@ Base type for MCMC accumulators. Subtypes must implement:
 """
 abstract type AbstractAccumulator end
 
+"""
+    needs_spatial_model(::Type{<:AbstractAccumulator}) -> Bool
+
+Whether an accumulator evaluates the state's spatial model (`spatial_ml`, `spatial_pred`) and
+so cannot be replayed from an archive without it. `false` for the built-in accumulators, which
+read only assignments and cluster moments; a custom accumulator that reads `state.spatial`
+defines `needs_spatial_model(::Type{MyAcc}) = true`.
+"""
+needs_spatial_model(::Type{<:AbstractAccumulator}) = false
+
 # ============================================================================
 # EmitterCountHist — histogram of K per iteration
 # ============================================================================

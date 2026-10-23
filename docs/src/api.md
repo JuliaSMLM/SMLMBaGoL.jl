@@ -49,6 +49,7 @@ estimate_mapn_overlap
 
 ```@docs
 AbstractAccumulator
+needs_spatial_model
 EmitterCountHist
 PosteriorImage
 NNDistHist
