@@ -796,6 +796,26 @@ import SMLMSim
             end
         end
 
+        # Degenerate (collinear, zero y-extent) field: the update must use every active
+        # cluster and every partition area, never the overlap-masked subset.
+        let locs = [SMLMData.Emitter2DFit{Float64}(0.01 * i + 0.5 * (i > 6) + 1.0 * (i > 12), 0.0,
+                        1000.0, 10.0, 0.004, 0.004, 0.0, 0.0; frame=i) for i in 1:18]
+            parts, _ = SMLMBaGoL.partition_locs(locs; partition_sigma=3.0, min_size=1)
+            @test length(parts) > 1
+            sts = [SMLMBaGoL.initialize_collapsed_state(p.locs,
+                       SMLMBaGoL.FlatSpatial(log(SMLMBaGoL.area(SMLMBaGoL.UniformSpatialPrior(p.locs)))),
+                       SMLMBaGoL.DMAllocation(nothing); use_poisson_k_prior=true) for p in parts]
+            areas = [SMLMBaGoL.spatial_area(s.spatial) for s in sts]
+            cfg = (ρ_prior_shape=2.0, ρ_prior_rate=1.0)
+            shp, rate = SMLMBaGoL._rho_posterior_params(sts, areas, cfg)
+            @test shp == 2.0 + sum(s.n_active for s in sts)
+            @test rate ≈ 1.0 + sum(areas)
+            r, d = run_bagol(SMLMData.BasicSMLD(locs, SMLMData.IdealCamera(1:10, 1:10, 0.1), 1, 1);
+                spatial_model=:flat, learn_rho=true, n_iterations=200, burn_in=100,
+                sync_interval=50, verbose=false)
+            @test isfinite(d.final_ρ) && d.final_ρ > 0
+        end
+
         smld_s, ρ_true_s = rho_field(3, 40, 2)                 # sparse, ~3 emitters/µm²
         d_s = learned_rho(smld_s, 300)
         @test abs(d_s.final_ρ / ρ_true_s - 1) < 0.30           # P3

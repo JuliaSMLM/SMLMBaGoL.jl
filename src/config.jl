@@ -22,7 +22,7 @@ Configuration for BaGoL analysis. All fields correspond 1:1 to `run_bagol` kwarg
   in both its FlatSpatial and its Poisson K prior, so they cancel at fixed ρ, and
   ρ ~ Gamma(a + ΣK_i, 1/(b + ΣA_i)) over all active clusters: the emitter density.
   The default prior Gamma(2, 1) acts as 1 µm² of pseudo-area: negligible on whole cells,
-  material on fields below a few µm² (set `ρ_prior_rate` there). The single-chain
+  material on fields below a few µm² (pass the `run_bagol` keyword `ρ_prior_rate` there; it is not a config field). The single-chain
   `run_collapsed_chain` update is unchanged.
   For fully fixed hyperparameters, set both `learn_distribution=false` and
   `learn_rho=false`.

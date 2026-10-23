@@ -204,6 +204,15 @@ function _update_rho_collapsed_global!(states::AbstractVector{<:CollapsedState},
                                        areas::Vector{Float64},
                                        config::NamedTuple;
                                        cluster_masks::Union{Nothing, Vector{BitVector}}=nothing)
+    shape, rate = _rho_posterior_params(states, areas, config; cluster_masks)
+    return rand(Gamma(shape, 1.0 / rate))
+end
+
+# (shape, rate) = (a + ΣK_j, b + ΣA_j) of the pooled ρ posterior.
+function _rho_posterior_params(states::AbstractVector{<:CollapsedState},
+                               areas::Vector{Float64},
+                               config::NamedTuple;
+                               cluster_masks::Union{Nothing, Vector{BitVector}}=nothing)
     a = config.ρ_prior_shape
     b = config.ρ_prior_rate
     total_K = 0
@@ -219,7 +228,7 @@ function _update_rho_collapsed_global!(states::AbstractVector{<:CollapsedState},
         total_K += k_i
         total_A += areas[i]
     end
-    return rand(Gamma(a + total_K, 1.0 / (b + total_A)))
+    return (a + total_K, b + total_A)
 end
 
 """
