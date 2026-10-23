@@ -2,27 +2,29 @@
 #
 # Emitters form a marked inhomogeneous Poisson process with intensity λ(θ) = ρ·g(θ).
 # g is a FIXED dimensionless shape, built once from all localizations before
-# partitioning, with ∫_box g = A_field (docs/math_reference.md §4.4). It is one
+# partitioning, with ∫_box g = A_field (docs/math_reference.md §4.6). It is one
 # read-only global object shared by every partition, so partition targets factorize.
 
 """
     IntensityMap
 
-Read-only lookup of the pilot intensity shape `g(θ)` on a regular grid (spacing
-`bandwidth/4`, covering the normalization box plus 4·bandwidth), evaluated by
-bilinear interpolation of `g` (linear scale).
+Read-only lookup of the pilot intensity shape `g(θ)` as `log g` on a regular grid (spacing
+`bandwidth/4`, covering the normalization box plus 4·bandwidth), evaluated by bilinear
+interpolation of `log g` (one lookup per `log g(θ̂)`, no `log` in the sampler's hot path).
 
 `g(θ) = A_field · κ_h(θ) / N_all`, with `κ_h(θ) = Σ_j N(θ; d_j, h²I) / m_h(θ)` and `m_h(θ)`
 the mass of the kernel at θ inside the box (edge correction). The final lookup function
-(floor and interpolation included) is normalized numerically so that `∫_box g = field_area`.
+`exp(bilinear(log g))` (floor and interpolation included) is normalized numerically
+(tensor Gauss-Legendre quadrature per grid cell, clipped to the box) so that
+`∫_box g = field_area`.
 
-Fields: `g` (ny × nx), grid origin `x0, y0` and spacing `dx, dy`, the normalization box
+Fields: `logg` (ny × nx), grid origin `x0, y0` and spacing `dx, dy`, the normalization box
 `(xlo, xhi, ylo, yhi)`, `field_area` (area of the box), `n_all` (localizations the map was
 built from; a partition of `n_i` localizations has exposure `field_area·n_i/n_all`) and the
 kernel `bandwidth` (µm).
 """
 struct IntensityMap
-    g::Matrix{Float64}
+    logg::Matrix{Float64}
     x0::Float64
     y0::Float64
     dx::Float64
@@ -69,10 +71,10 @@ function build_intensity_map(locs::Vector{<:SMLMData.AbstractEmitter}, box::Unif
     nx = ceil(Int, (xhi - xlo + 2R) / d) + 1
     ny = ceil(Int, (yhi - ylo + 2R) / d) + 1
 
-    xs = Float64[l.x for l in locs]
-    ys = Float64[l.y for l in locs]
-    order = sortperm(xs)
-    xs = xs[order]; ys = ys[order]
+    xs0 = Float64[l.x for l in locs]
+    order = sortperm(xs0)
+    xs = xs0[order]                        # single assignments: captured by the threaded loop
+    ys = Float64[locs[i].y for i in order]
 
     # Kernel density by splatting each localization onto the grid nodes within R. Column
     # strips are disjoint per task (no races, deterministic); each strip visits only the
@@ -119,12 +121,12 @@ function build_intensity_map(locs::Vector{<:SMLMData.AbstractEmitter}, box::Unif
     # Floor: one isolated kernel at the truncation radius, so g stays positive and
     # continuous where the truncated kernels vanish.
     g_floor = (A / N) * norm * exp(-_IPP_TRUNC^2 / 2)
-    g = κ                                  # in place: one grid-sized array in memory
+    logg = κ                               # in place: one grid-sized array in memory
     @inbounds for ix in 1:nx, iy in 1:ny
-        g[iy, ix] = max((A / N) * κ[iy, ix] / (mx[ix] * my[iy]), g_floor)
+        logg[iy, ix] = log(max((A / N) * κ[iy, ix] / (mx[ix] * my[iy]), g_floor))
     end
 
-    m = IntensityMap(g, x0, y0, d, d, nx, ny, xlo, xhi, ylo, yhi, A, N, h)
+    m = IntensityMap(logg, x0, y0, d, d, nx, ny, xlo, xhi, ylo, yhi, A, N, h)
     return _normalize_intensity(m)
 end
 
@@ -140,55 +142,73 @@ function constant_intensity_map(box::UniformSpatialPrior; n_all::Int = 1, bandwi
     x0 = box.x_min - R; y0 = box.y_min - R
     nx = ceil(Int, (box.x_max - box.x_min + 2R) / d) + 1
     ny = ceil(Int, (box.y_max - box.y_min + 2R) / d) + 1
-    return IntensityMap(ones(ny, nx), x0, y0, d, d, nx, ny,
+    return IntensityMap(zeros(ny, nx), x0, y0, d, d, nx, ny,
                         box.x_min, box.x_max, box.y_min, box.y_max, area(box), n_all, h)
 end
+
+# 4-point Gauss-Legendre rule on [-1, 1].
+const _GL4_X = (-0.8611363115940526, -0.3399810435848563, 0.3399810435848563, 0.8611363115940526)
+const _GL4_W = (0.3478548451374538, 0.6521451548625461, 0.6521451548625461, 0.3478548451374538)
 
 """
     intensity_integral(m::IntensityMap, xlo, xhi, ylo, yhi) -> Float64
 
-Exact integral of the bilinear lookup of `g` over a rectangle (clipped to the grid): per
-grid cell overlapped, the overlap area times `g` at the overlap's center (exact for a
-function bilinear in each cell).
+Integral of the lookup `g = exp(bilinear(log g))` over a rectangle (clipped to the grid):
+tensor 4-point Gauss-Legendre quadrature on each grid cell overlapped, over the part of the
+cell inside the rectangle (relative error far below 1e-8 for cells of a `h/4` grid). Threaded
+over column strips; the result is deterministic.
 """
 function intensity_integral(m::IntensityMap, xlo::Real, xhi::Real, ylo::Real, yhi::Real)
-    total = 0.0
     ixa = max(1, floor(Int, (xlo - m.x0) / m.dx) + 1)
     ixb = min(m.nx - 1, floor(Int, (xhi - m.x0) / m.dx) + 1)
     iya = max(1, floor(Int, (ylo - m.y0) / m.dy) + 1)
     iyb = min(m.ny - 1, floor(Int, (yhi - m.y0) / m.dy) + 1)
-    @inbounds for ix in ixa:ixb
-        cxa = max(xlo, m.x0 + (ix - 1) * m.dx); cxb = min(xhi, m.x0 + ix * m.dx)
-        cxb > cxa || continue
-        for iy in iya:iyb
-            cya = max(ylo, m.y0 + (iy - 1) * m.dy); cyb = min(yhi, m.y0 + iy * m.dy)
-            cyb > cya || continue
-            total += (cxb - cxa) * (cyb - cya) *
-                     _bilinear(m, (cxa + cxb) / 2, (cya + cyb) / 2)
+    ixb < ixa && return 0.0
+    ncol = ixb - ixa + 1
+    nstrip = max(1, min(ncol, 4 * Threads.nthreads()))
+    bounds = round.(Int, range(0, ncol; length = nstrip + 1))
+    partial = zeros(nstrip)
+    Threads.@threads for s in 1:nstrip
+        acc = 0.0
+        @inbounds for ix in (ixa + bounds[s]):(ixa + bounds[s + 1] - 1)
+            cxa = max(xlo, m.x0 + (ix - 1) * m.dx); cxb = min(xhi, m.x0 + ix * m.dx)
+            cxb > cxa || continue
+            hx = (cxb - cxa) / 2; mx = (cxb + cxa) / 2
+            for iy in iya:iyb
+                cya = max(ylo, m.y0 + (iy - 1) * m.dy); cyb = min(yhi, m.y0 + iy * m.dy)
+                cyb > cya || continue
+                hy = (cyb - cya) / 2; my = (cyb + cya) / 2
+                cell = 0.0
+                for a in 1:4, b in 1:4
+                    cell += _GL4_W[a] * _GL4_W[b] * exp(_bilinear_log(m, mx + hx * _GL4_X[a], my + hy * _GL4_X[b]))
+                end
+                acc += hx * hy * cell
+            end
         end
+        partial[s] = acc
     end
-    return total
+    return sum(partial)
 end
 
-# Scale g so that the lookup integrates to field_area over the box.
+# Shift log g so that the lookup integrates to field_area over the box.
 function _normalize_intensity(m::IntensityMap)
     I = intensity_integral(m, m.xlo, m.xhi, m.ylo, m.yhi)
     (isfinite(I) && I > 0) || error("intensity map has non-positive integral over its box")
-    c = m.field_area / I
-    m.g .*= c                              # in place (the map is not yet shared)
+    m.logg .+= log(m.field_area / I)       # in place (the map is not yet shared)
     return m
 end
 
-@inline function _bilinear(m::IntensityMap, x::Float64, y::Float64)
+@inline function _bilinear_log(m::IntensityMap, x::Float64, y::Float64)
     fx = clamp((x - m.x0) / m.dx + 1.0, 1.0, Float64(m.nx))
     fy = clamp((y - m.y0) / m.dy + 1.0, 1.0, Float64(m.ny))
     ix = max(min(floor(Int, fx), m.nx - 1), 1)
     iy = max(min(floor(Int, fy), m.ny - 1), 1)
     sx = fx - ix
     sy = fy - iy
+    lg = m.logg
     @inbounds begin
-        v00 = m.g[iy, ix]; v10 = m.g[iy, ix + 1]
-        v01 = m.g[iy + 1, ix]; v11 = m.g[iy + 1, ix + 1]
+        v00 = lg[iy, ix]; v10 = lg[iy, ix + 1]
+        v01 = lg[iy + 1, ix]; v11 = lg[iy + 1, ix + 1]
     end
     return (1 - sx) * (1 - sy) * v00 + sx * (1 - sy) * v10 +
            (1 - sx) * sy * v01 + sx * sy * v11
@@ -197,9 +217,9 @@ end
 """
     log_intensity(m::IntensityMap, x, y) -> Float64
 
-`log g(x, y)` by bilinear interpolation of `g` (clamped to the grid). O(1).
+`log g(x, y)` by bilinear interpolation of the stored `log g` (clamped to the grid). O(1).
 """
-@inline log_intensity(m::IntensityMap, x::Real, y::Real) = log(_bilinear(m, Float64(x), Float64(y)))
+@inline log_intensity(m::IntensityMap, x::Real, y::Real) = _bilinear_log(m, Float64(x), Float64(y))
 
 """
     IntensitySpatial <: AbstractSpatialModel
@@ -224,11 +244,18 @@ end
 
 # Empty cluster contributes nothing (guard before the solve). g is a map of the first two
 # coordinates (x, y), as the flat area is (3D features use the same xy exposure).
-@inline function spatial_ml(cs::ClusterStats, sp::IntensitySpatial)
-    cs.n == 0 && return 0.0
-    lml = log_marginal_likelihood(cs, sp.log_area)
-    isfinite(lml) || return lml
-    μ = cs.Λ \ cs.η
+@inline function spatial_ml(cs::ClusterStats{D}, sp::IntensitySpatial) where D
+    n = Int(cs.n)
+    n == 0 && return 0.0
+    det_Λ = det(cs.Λ)
+    det_Λ <= 0 && return -Inf
+    μ = cs.Λ \ cs.η                       # one solve: the flat ML term and θ̂ share it
+    # = log_marginal_likelihood(cs, sp.log_area) (cluster_stats.jl) + log g(θ̂)
+    lml = (1 - n) * (D / 2) * log(2π) -
+          0.5 * cs.log_det_sum -
+          0.5 * (cs.quad - dot(cs.η, μ)) -
+          0.5 * log(det_Λ) -
+          sp.log_area
     return lml + log_intensity(sp.map, μ[1], μ[2])
 end
 

@@ -210,11 +210,15 @@ with $h$ = `intensity_bandwidth` (default $0.2\,\mu\text{m}$) and $m_h(\theta)$ 
 kernel at $\theta$ inside the field's bounding box (edge correction), so $g$ is not depleted at
 the field edge. $\mu$ does not enter $\lambda$. $g$ is stored on a grid of spacing $h/4$ covering
 the box plus $4h$ (kernels truncated at $4h$, floor at one isolated kernel's value at the
-truncation radius so $g>0$) and read by bilinear interpolation of $g$. **Normalization:** the
-final lookup (floor, interpolation, edge correction in place) is rescaled so that its integral over
-the box, computed exactly for the bilinear interpolant (overlap area $\times$ value at the
-overlap center, per grid cell), equals $A_{\text{field}}$. A finite realization of a
-homogeneous field has $g \approx 1$ only in expectation.
+truncation radius so $g>0$) and read by bilinear interpolation of the stored $\log g$ (one lookup per
+$\log g(\hat\theta)$, no $\log$ in the hot path). **Normalization:** the final lookup
+$\exp(\text{bilinear}(\log g))$ (floor, interpolation, edge correction in place) is shifted in $\log g$
+so that its integral over the box, computed by tensor 4-point Gauss--Legendre quadrature on each
+grid cell (clipped to the box), equals $A_{\text{field}}$ (unit test P2 checks it with an
+independent 8-point rule to $10^{-6}$). A finite realization of a homogeneous field has
+$g \approx 1$ only in expectation; $g$ at a localization includes that localization's own kernel
+(no leave-one-out), an inflation of about $1/(2\pi h^2 \rho_{\text{loc}})$ ($\rho_{\text{loc}}$
+the localization density), negligible in dense fields and noticeable in sparse ones.
 
 **Target.** For partition $i$ ($n_i$ localizations including overlap copies), with exposure
 $A_i' = A_{\text{field}}\, n_i/N_{\text{all}}$ in both its spatial area and its Poisson prior,
