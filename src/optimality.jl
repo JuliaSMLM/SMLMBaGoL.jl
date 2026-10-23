@@ -55,13 +55,10 @@ function _run_sweep_trial(;
     # Count-only MAP-K
     k_count = count_model_map_k(n_locs, mu, shape)
 
-    # Nohier: fixed μ, shape at true values, single partition; ρ is fixed too, at the
-    # data-scaled density N/(μ·A_bbox) over the bounding box of the localizations
-    xs = extrema(e.x for e in sim.smld.emitters); ys = extrema(e.y for e in sim.smld.emitters)
-    rho_fixed = n_locs / (mu * (xs[2] - xs[1]) * (ys[2] - ys[1]))
+    # Nohier: fixed μ, shape at true values, single partition
     result_nohier, diag_nohier = run_bagol(sim.smld;
         n_iterations=n_iterations, burn_in=burn_in,
-        shape=shape, learn_distribution=false, learn_rho=false, rho=rho_fixed,
+        shape=shape, learn_distribution=false,
         partition_sigma=Inf, sync_interval=n_iterations + 1,
         μ=mu, verbose=false
     )

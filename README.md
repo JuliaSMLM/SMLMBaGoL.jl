@@ -107,17 +107,19 @@ result_smld, diagnostics = run_bagol(smld;
 )
 ```
 
-Advanced model choices — the spatial prior (`spatial_model = :ipp` (default), `:locmix` or `:flat`), the
+Advanced model choices — the spatial prior (`spatial_model = :locmix` (default), `:ipp` or `:flat`), the
 allocation model (`allocation_model = :dm`, `:decoupled`, or `:categorical`), and the
 `K`-prior gating (`k_prior`) — are documented in the
 [full documentation](https://juliasmlm.github.io/SMLMBaGoL.jl/stable).
 
-**Default spatial prior (0.4.6).** The default `spatial_model` is `:ipp`, an inhomogeneous
-Poisson process: emitters have intensity ρ·g(θ), with the shape g a fixed pilot intensity map
-estimated once from all localizations (bandwidth `intensity_bandwidth`, default 0.2 μm) and ρ
-the learned global emitter density. Unlike the previous default (`:locmix`), its posterior does
-not depend on how the field is partitioned. Results of a re-run differ from earlier versions;
-`spatial_model = :locmix` restores the old prior.
+**Spatial prior (0.4.6).** `spatial_model = :locmix` stays the default. It normalizes its position
+prior per partition, so its output depends on the partitioning: dense fields, where
+precision-DBSCAN percolates into large partitions, are under-counted (measured on matched
+simulations). The new option `spatial_model = :ipp` is an inhomogeneous Poisson process:
+emitters have intensity ρ·g(θ), with the shape g a fixed pilot intensity map estimated once from
+all localizations (bandwidth `intensity_bandwidth`, default 0.2 μm) and ρ the learned global
+emitter density. It is partition-invariant and calibrated for dense fields, but under-splits
+isolated structures (rulers, origami, single-structure fields), where `:locmix` is the better choice.
 
 ## What you get back
 

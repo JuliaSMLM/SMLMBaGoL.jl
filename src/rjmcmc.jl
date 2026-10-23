@@ -171,12 +171,13 @@ n_j ~ Gamma(shape, μ/shape) where:
 - `allocation_model=:dm`: `:dm` (Dirichlet-Multinomial), `:decoupled`
   (no partition prior), or `:categorical` (labeled K^(-N) — Fazel-equivalent
   when paired with `spatial_model=:flat` + `k_prior=:none`)
-- `spatial_model=:ipp`: `:ipp` (default; inhomogeneous Poisson process: emitters have
+- `spatial_model=:locmix`: `:locmix` (default; localization mixture, normalized per partition, so
+  its target depends on how the field is partitioned and dense fields are under-counted),
+  `:ipp` (inhomogeneous Poisson process, calibrated for dense fields but under-splitting isolated
+  structures such as rulers and origami; emitters have
   intensity ρ·g(θ), g a fixed pilot intensity shape built once from all localizations at
   bandwidth `intensity_bandwidth`, ρ the global density learned as for `:flat`; the target is
-  partition-invariant, docs/math_reference.md §4.4), `:flat` (uniform), or `:locmix`
-  (localization mixture, the pre-0.4.6 default; its target depends on how the field
-  is partitioned)
+  partition-invariant, docs/math_reference.md §4.6), or `:flat` (uniform)
 - `intensity_bandwidth=0.2`: Kernel bandwidth h (µm) of the `:ipp` pilot intensity g
 - `k_prior=:auto`: K-prior gating. `:auto` uses spatial-model default
   (Poisson(ρA) under `:ipp` and `:flat`, none under `:locmix`); `:poisson` always
@@ -211,7 +212,7 @@ function run_bagol(
     burn_in::Int = 2000,
     sync_interval::Int = 100,
     allocation_model::Symbol = :dm,
-    spatial_model::Symbol = :ipp,
+    spatial_model::Symbol = :locmix,
     intensity_bandwidth::Float64 = 0.2,
     k_prior::Symbol = :auto,
     n_restricted_scans::Int = 5,
@@ -368,7 +369,7 @@ function _run_bagol_collapsed(
     μ::Union{Nothing, Float64} = nothing,
     gamma::Union{Nothing, Float64} = nothing,
     allocation_model::Symbol = :dm,
-    spatial_model::Symbol = :ipp,
+    spatial_model::Symbol = :locmix,
     intensity_bandwidth::Float64 = 0.2,
     k_prior::Symbol = :auto,
     n_restricted_scans::Int = 5,

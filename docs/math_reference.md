@@ -70,9 +70,11 @@ In single-molecule localization microscopy (SMLM), fluorescent emitters activate
 
 BaGoL supports three spatial targets:
 
-- `spatial_model=:ipp` (default since 0.4.6): emitters form an inhomogeneous Poisson process, intensity $\rho\, g(\theta)$ with a fixed pilot shape $g$ and a learned global density $\rho$; $K \sim \text{Poisson}(\rho A)$ (Section 4.6).
-- `spatial_model=:locmix` (previous default): no explicit prior on $K$; $K$ is regularized by the count model. Its per-emitter factor depends on how the field is partitioned (Section 4.1).
+- `spatial_model=:ipp` (option since 0.4.6): emitters form an inhomogeneous Poisson process, intensity $\rho\, g(\theta)$ with a fixed pilot shape $g$ and a learned global density $\rho$; $K \sim \text{Poisson}(\rho A)$ (Section 4.6).
+- `spatial_model=:locmix` (default): no explicit prior on $K$; $K$ is regularized by the count model. Its per-emitter factor depends on how the field is partitioned (Section 4.1).
 - `spatial_model=:flat`: $K \sim \text{Poisson}(\rho A)$ with a flat spatial prior over area $A$.
+
+`:locmix` (default) normalizes its position prior per partition, so its output depends on the partitioning (dense fields, where precision-DBSCAN percolates into large partitions, are under-counted; measured on matched simulations). `:ipp` is partition-invariant and calibrated for dense fields, but under-splits isolated structures (rulers, origami, single-structure fields), where `:locmix` is the better choice.
 
 $$n_k \mid \mu, \alpha \stackrel{\text{iid}}{\sim} \text{NegBin}(\alpha,\; p), \quad p = \frac{\alpha}{\alpha+\mu}$$
 
@@ -100,7 +102,7 @@ The total count $N = \sum_k n_k \sim \text{NegBin}(K\alpha, p)$ by the NegBin su
 
 The sampler targets the collapsed posterior with positions integrated out:
 
-### 4.1 Locmix target (previous default)
+### 4.1 Locmix target (default)
 
 $$\boxed{P(z, K \mid \text{data}) \;\propto\; P_{\text{count}}(N \mid K) \;\times\; P_{\text{DM}}(z \mid K, N) \;\times\; \prod_{k=1}^{K} \text{ML}_{\text{locmix},k}(z)}$$
 
@@ -121,14 +123,14 @@ current sampler routes all spatial marginal likelihoods and predictives through:
 so `LocmixSpatial` uses `log_marginal_likelihood_locmix` and
 `log_predictive_locmix`, while `FlatSpatial` uses the uniform-area formulas.
 
-**Partition dependence (why `:locmix` is no longer the default).** Per partition $P$ the
+**Partition dependence.** Per partition $P$ the
 locmix per-emitter term is $\log\pi_{\text{locmix},P}(\hat\theta_k)$ with
 $\pi_{\text{locmix},P}$ the mixture of $P$'s own $N_P$ localizations (the $-\log N_P$ is part of
 the density), and there is no $K$ prior. The posterior of a field therefore depends on how it
 is cut: isolated pairs grouped into larger chains resolve worse, and dense fields, where
 DBSCAN percolates into METIS chunks of hundreds of localizations, undercount. `:locmix`
-stays available and unchanged, with this dependence documented; `:ipp` is the
-partition-invariant default.
+stays the default, with this dependence documented; `:ipp` is the partition-invariant option,
+which under-splits isolated structures (rulers, origami), where `:locmix` is the better choice.
 
 ### 4.2 Flat legacy target
 
@@ -195,7 +197,7 @@ in `src/collapsed_moves.jl`.
 
 Thermodynamic integration (Round 11) confirmed the marginal peaks near Q-PAINT's MAP $K$, while individual allocations at that $K$ score lower than allocations at lower $K$. This creates a K-mixing challenge for the collapsed sampler (see Section 9.1).
 
-### 4.6 Inhomogeneous Poisson process target (`spatial_model=:ipp`, default)
+### 4.6 Inhomogeneous Poisson process target (`spatial_model=:ipp`, option)
 
 **Model.** Emitters are a marked inhomogeneous Poisson process on the field with intensity
 $\lambda(\theta) = \rho\, g(\theta)$. The marks are the localization counts

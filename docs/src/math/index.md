@@ -149,7 +149,7 @@ p\big(\boldsymbol{\theta}_k \mid \{\mathbf{x}_i : z_i = k\}\big) =
 Because that posterior is analytic, the position can be **integrated out in closed form**,
 leaving the cluster's *marginal likelihood* — the probability of that collection of
 localizations with the emitter position already accounted for. (The Gaussian core is exact;
-the `:ipp` (default) and `:locmix` spatial-prior terms are fast plug-in approximations — see
+the `:locmix` (default) and `:ipp` spatial-prior terms are fast plug-in approximations — see
 [Spatial Models & Marginal Likelihood](marginal.md).) The sampler therefore carries a
 **collapsed** state: only the discrete allocation ``(K, \mathbf{z})``, scored by a product of
 analytic cluster marginals. This is the **collapsed Gibbs** sampler, with two benefits:

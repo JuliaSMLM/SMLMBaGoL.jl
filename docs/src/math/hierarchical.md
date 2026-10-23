@@ -73,11 +73,11 @@ Two regimes exist:
 *The ``K`` / ``\mu`` / shape / ``\rho`` traces over the chain with the burn-in line, for a
 field of ~2400 emitters (``K`` is the total emitter count). ``\mu`` and shape settle as the
 chain learns the count distribution; ``\rho`` stays flat in this trace, which is from a
-`:locmix` run, where ``\rho`` is dormant (under the default `:ipp` it is learned).*
+`:locmix` run, where ``\rho`` is dormant (under `:ipp` it is learned).*
 
 ## ``\rho`` — conjugate Gibbs (`:ipp` and `:flat` models)
 
-The Poisson-``K``-prior density ``\rho`` (used under `spatial_model = :ipp`, the default, and `:flat`) has a
+The Poisson-``K``-prior density ``\rho`` (used under `spatial_model = :ipp` and `:flat`) has a
 conjugate Gamma posterior and is drawn exactly — no accept/reject — from
 
 ```math
@@ -88,7 +88,7 @@ with ``\rho \sim \mathrm{Gamma}(2, 1)`` as prior. In the partitioned `run_bagol`
 summed exposure ``\sum_i A_i'``, ``A_i' = A_{\text{field}}\,n_i/N_{\text{all}}``, and ``K`` the total
 active cluster count, so ``\rho`` is the emitter density. Under `:locmix` there is no Poisson ``K``
 prior, so this step does not run; ``\rho`` stays at its initial value (see the
-[IPP target](marginal.md#Inhomogeneous-Poisson-process-prior-(:ipp,-the-default))).
+[IPP target](marginal.md#Inhomogeneous-Poisson-process-prior-(:ipp))).
 
 ## How learning closes the loop
 

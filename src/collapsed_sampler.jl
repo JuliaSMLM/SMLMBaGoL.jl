@@ -129,9 +129,9 @@ Run the collapsed Gibbs sampler on a set of localizations.
   flat Poisson-K runs. When `nothing` and the target has a Poisson K prior (`:ipp`,
   `:flat`), ρ starts at `N/(μ₀·A)` (μ₀ = the initial μ, A = the chain's exposure) so a
   run that never reaches a hierarchical update starts from a data-scaled density.
-- `spatial_model=:ipp`: `:ipp` (inhomogeneous Poisson process: a fixed pilot intensity
-  map g, bandwidth `intensity_bandwidth`, times the global density ρ; the default),
-  `:flat` (uniform) or `:locmix` (localization mixture; depends on the partitioning).
+- `spatial_model=:locmix`: `:ipp` (inhomogeneous Poisson process: a fixed pilot intensity
+  map g, bandwidth `intensity_bandwidth`, times the global density ρ; partition-invariant),
+  `:flat` (uniform) or `:locmix` (the default; localization mixture, depends on the partitioning).
   The chain's exposure is the padded, floored `UniformSpatialPrior` area (as `:flat`), the
   map is built from `locs` and normalized over that box, so at g ≡ 1 `:ipp` equals `:flat`.
 - `intensity_bandwidth=0.2`: Pilot-intensity kernel bandwidth h (µm) for `:ipp`.
@@ -177,7 +177,7 @@ function run_collapsed_chain(
     n_bd_substeps::Int = 5,
     gamma::Union{Nothing, Float64} = nothing,
     allocation_model::Symbol = :dm,
-    spatial_model::Symbol = :ipp,
+    spatial_model::Symbol = :locmix,
     intensity_bandwidth::Float64 = 0.2,
     intensity_map::Union{Nothing, IntensityMap} = nothing,
     k_prior::Symbol = :auto,

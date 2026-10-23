@@ -351,7 +351,7 @@ is enabled, these are also the states eligible for ρ hierarchical updates.
 
 Default policy by spatial model (used when the user passes k_prior=:auto):
 - FlatSpatial: true (legacy Fazel-with-Poisson-K behavior)
-- IntensitySpatial: true (inhomogeneous Poisson process, the default; `:ipp`)
+- IntensitySpatial: true (inhomogeneous Poisson process, `:ipp`)
 - LocmixSpatial: false (locmix target per docs/math_reference.md)
 
 The CollapsedState method consults the resolved field set at init time —

@@ -45,9 +45,9 @@ Occam factor ``-\log A`` per cluster (`cluster_stats.jl`, `log_marginal_likeliho
 This ``-\log A`` is what penalizes adding emitters under the flat model — each new cluster
 pays one factor of the area.
 
-## Localization-mixture prior (`:locmix`)
+## Localization-mixture prior (`:locmix`, the default)
 
-The `:locmix` model (the default before version 0.4.6) replaces the uniform prior with a **localization-mixture** prior that
+The default `:locmix` model replaces the uniform prior with a **localization-mixture** prior that
 concentrates emitter-position mass where localizations are dense:
 
 ```math
@@ -73,7 +73,7 @@ by comparison.*
 
 !!! warning "Partition dependence"
     The locmix per-emitter term is built from the localizations of the partition being sampled,
-    so the posterior of a field depends on how it is partitioned. The default `:ipp` model
+    so the posterior of a field depends on how it is partitioned. The `:ipp` model
     below uses one global map and does not.
 
 !!! note "Exact integral vs. the production path"
@@ -82,7 +82,9 @@ by comparison.*
     ``\boldsymbol\theta``. The exact mixture integral (`log_ml_locmix`) is implemented and used
     by the diagnostics, but the grid plug-in is the production path.
 
-## Inhomogeneous Poisson process prior (`:ipp`, the default)
+## Inhomogeneous Poisson process prior (`:ipp`)
+
+`:ipp` is partition-invariant and calibrated for dense fields, but under-splits isolated structures (rulers, origami, single-structure fields), where `:locmix` is the better choice.
 
 `:ipp` models emitters as a marked inhomogeneous Poisson process with intensity
 ``\lambda(\boldsymbol\theta) = \rho\, g(\boldsymbol\theta)``: ``\rho`` is the global emitter

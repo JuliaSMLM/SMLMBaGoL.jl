@@ -19,14 +19,14 @@
 # emitter per resolution cell), so its target is count-driven. This is why there is
 # no single "Fazel arm": Fazel's count-driven recovery is reproduced in the collapsed
 # formalism by locmix, not by the flat/uniform-prior arms.
-# The ipp arms (the run_bagol default since 0.4.6) carry the same flat marginal times a fixed
+# The ipp arms (the :ipp option, since 0.4.6) carry the same flat marginal times a fixed
 # pilot-intensity factor g; at h = 0.2 µm g is smooth over a 40 nm ring, so they behave like the
 # flat Poisson-K arms here (same Occam factor, N≈7). (Arm order matters a little: this script
 # reseeds per arm, but a later arm can still land on N=7 where the same arm run first gives N=8.) Full derivation + exact
 # non-MCMC verification: dev/no_info_limit_derivation.md.
 #
 # The comparison grid (all entries pass run_bagol validation):
-#   spatial_model    ∈ {:ipp, :locmix, :flat}   (:ipp is the run_bagol default)
+#   spatial_model    ∈ {:ipp, :locmix, :flat}   (:locmix is the run_bagol default)
 #   allocation_model ∈ {:dm, :decoupled, :categorical}
 #   k_prior          ∈ {:auto, :poisson, :none}   (:poisson valid with :flat and :ipp;
 #                                                   :locmix carries no K prior)
@@ -79,7 +79,7 @@ const RHO_FIXED = N_EMITTERS / A_BBOX
 # =============================================================================
 
 combos = [
-    (label="ipp + DM (default, learned ρ)",            spatial=:ipp,    alloc=:dm,          kp=:auto,    learn_rho=true,  rho=nothing),
+    (label="ipp + DM (learned ρ)",            spatial=:ipp,    alloc=:dm,          kp=:auto,    learn_rho=true,  rho=nothing),
     (label="ipp + DM + Poisson-K (fixed ρ)",           spatial=:ipp,    alloc=:dm,          kp=:poisson, learn_rho=false, rho=RHO_FIXED),
     (label="locmix + DM (count-driven)",               spatial=:locmix, alloc=:dm,          kp=:auto,    learn_rho=true,  rho=nothing),
     (label="locmix + categorical",                     spatial=:locmix, alloc=:categorical, kp=:auto,    learn_rho=true,  rho=nothing),

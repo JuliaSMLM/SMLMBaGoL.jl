@@ -1373,21 +1373,22 @@ import SMLMSim
         box_g = S.UniformSpatialPrior(locs_g)
         map_g = S.build_intensity_map(locs_g, box_g; bandwidth = 0.2)   # non-constant
 
-        @testset "P6 default is :ipp" begin
-            @test BaGoLConfig().spatial_model === :ipp
+        @testset "P6 default is :locmix, :ipp is an option" begin
+            @test BaGoLConfig().spatial_model === :locmix
+            @test BaGoLConfig(spatial_model = :ipp).spatial_model === :ipp
             @test BaGoLConfig().intensity_bandwidth == 0.2
             @test BaGoLConfig(intensity_bandwidth = 0.3).intensity_bandwidth == 0.3
-            r = run_collapsed_chain(locs_g; n_iterations = 20, burn_in = 5, verbose = false)
+            r = run_collapsed_chain(locs_g; spatial_model = :ipp, n_iterations = 20, burn_in = 5, verbose = false)
             @test r.state.spatial isa IntensitySpatial
             @test r.state.use_poisson_k_prior
             pf = tempname()
             smld = SMLMData.BasicSMLD(locs_g, SMLMData.IdealCamera(1:16, 1:16, 0.1), 1, 1)
-            run_bagol(smld; n_iterations = 40, burn_in = 10, sync_interval = 20, verbose = false,
+            run_bagol(smld; spatial_model = :ipp, n_iterations = 40, burn_in = 10, sync_interval = 20, verbose = false,
                       posterior_pixel_size = 0.0, progress_file = pf)
             @test occursin("ipp pilot intensity map (bandwidth 0.2", read(pf, String))
             # config path forwards the bandwidth
             pf2 = tempname()
-            run_bagol(smld, BaGoLConfig(n_iterations = 40, burn_in = 10, sync_interval = 20, verbose = false,
+            run_bagol(smld, BaGoLConfig(spatial_model = :ipp, n_iterations = 40, burn_in = 10, sync_interval = 20, verbose = false,
                                         posterior_pixel_size = 0.0, progress_file = pf2,
                                         intensity_bandwidth = 0.3, se_adjust = 0.0))
             @test occursin("ipp pilot intensity map (bandwidth 0.3", read(pf2, String))
@@ -1498,22 +1499,22 @@ import SMLMSim
             μ̂ = S.posterior_mean(cs)
             @test S.spatial_ml(cs, sp) ≈ S.log_marginal_likelihood(cs, log(2.0)) + S.log_intensity(map_g, μ̂...)
             # a supplied map fixes the exposure at field_area·n/n_all
-            r = run_collapsed_chain(locs_g[1:5]; n_iterations = 10, burn_in = 2, intensity_map = map_g, verbose = false)
+            r = run_collapsed_chain(locs_g[1:5]; spatial_model = :ipp, n_iterations = 10, burn_in = 2, intensity_map = map_g, verbose = false)
             @test S.spatial_area(r.state.spatial) ≈ map_g.field_area * 5 / map_g.n_all
             @test_throws ArgumentError run_collapsed_chain(locs_g; spatial_model = :flat, intensity_map = map_g,
                                                            n_iterations = 5, burn_in = 1, verbose = false)
             # data-scaled ρ start when rho is not given, explicit rho respected
-            r0 = run_collapsed_chain(locs_g; n_iterations = 3, burn_in = 0, hierarchical_interval = 100,
+            r0 = run_collapsed_chain(locs_g; spatial_model = :ipp, n_iterations = 3, burn_in = 0, hierarchical_interval = 100,
                                      verbose = false, μ_prior_shape = 1.0, μ_prior_scale = 10.0)
             @test r0.ρ ≈ length(locs_g) / (10.0 * S.area(box_g))
-            r1 = run_collapsed_chain(locs_g; n_iterations = 3, burn_in = 0, rho = 4.0, verbose = false)
+            r1 = run_collapsed_chain(locs_g; spatial_model = :ipp, n_iterations = 3, burn_in = 0, rho = 4.0, verbose = false)
             @test r1.ρ == 4.0
         end
 
         @testset "standalone positive-area policy: singleton, co-located, collinear" begin
             mkl(x, y, i) = SMLMData.Emitter2DFit{Float64}(x, y, 1000.0, 10.0, 0.01, 0.01, 0.0, 0.0; frame = i)
             for locs in ([mkl(0.1, 0.2, 1)], [mkl(0.1, 0.2, i) for i in 1:6], [mkl(0.02i, 0.0, i) for i in 1:8])
-                ri = run_collapsed_chain(locs; n_iterations = 100, burn_in = 20, hierarchical_interval = 20, verbose = false)
+                ri = run_collapsed_chain(locs; spatial_model = :ipp, n_iterations = 100, burn_in = 20, hierarchical_interval = 20, verbose = false)
                 rf = run_collapsed_chain(locs; spatial_model = :flat, n_iterations = 100, burn_in = 20,
                                          hierarchical_interval = 20, verbose = false)
                 # same padded, floored exposure as standalone flat, positive, learned rho finite
@@ -1611,23 +1612,23 @@ import SMLMSim
             # collinear (zero y-extent) field: warns, falls back to padded per-partition areas
             line = [SMLMData.Emitter2DFit{Float64}(0.004 * i, 0.0, 1000.0, 10.0, 0.004, 0.004,
                         0.0, 0.0; frame = i) for i in 1:120]
-            r, d = @test_logs (:warn, r"zero spatial extent") run_bagol(SMLMData.BasicSMLD(line, cam, 1, 1);
+            r, d = @test_logs (:warn, r"zero spatial extent") run_bagol(SMLMData.BasicSMLD(line, cam, 1, 1); spatial_model = :ipp,
                 max_partition_size = 40, overlap = 0.05, n_iterations = 100, burn_in = 50, sync_interval = 50,
                 verbose = false, posterior_pixel_size = 0.0)
             @test isfinite(d.final_ρ) && d.final_ρ > 0
             # k_prior=:poisson is valid with :ipp; k_prior=:none runs (per-partition padded areas)
             smld = SMLMData.BasicSMLD(locs_g, cam, 1, 1)
-            _, dp = run_bagol(smld; k_prior = :poisson, n_iterations = 60, burn_in = 20, sync_interval = 20, verbose = false, posterior_pixel_size = 0.0)
+            _, dp = run_bagol(smld; spatial_model = :ipp, k_prior = :poisson, n_iterations = 60, burn_in = 20, sync_interval = 20, verbose = false, posterior_pixel_size = 0.0)
             @test isfinite(dp.final_ρ)
-            _, dn = run_bagol(smld; k_prior = :none, n_iterations = 60, burn_in = 20, sync_interval = 20, verbose = false, posterior_pixel_size = 0.0)
+            _, dn = run_bagol(smld; spatial_model = :ipp, k_prior = :none, n_iterations = 60, burn_in = 20, sync_interval = 20, verbose = false, posterior_pixel_size = 0.0)
             @test dn isa BaGoLDiagnostics
             # fixed rho respected
-            _, df = run_bagol(smld; learn_rho = false, rho = 5.0, n_iterations = 60, burn_in = 20, sync_interval = 20, verbose = false, posterior_pixel_size = 0.0)
+            _, df = run_bagol(smld; spatial_model = :ipp, learn_rho = false, rho = 5.0, n_iterations = 60, burn_in = 20, sync_interval = 20, verbose = false, posterior_pixel_size = 0.0)
             @test df.final_ρ == 5.0
             # motion keeps its own prior; logged once
             pm = tempname()
             em = [SMLMData.Emitter2DFit{Float64}(0.0 + 0.002 * randn(), 0.0 + 0.002 * randn(), 1000.0, 10.0, 0.005, 0.005, 0.0, 0.0; frame = 10 * i) for i in 1:12]
-            run_bagol(SMLMData.BasicSMLD(em, cam, 1, 1); motion = :linear, se_adjust = 0.0, n_iterations = 60, burn_in = 20,
+            run_bagol(SMLMData.BasicSMLD(em, cam, 1, 1); spatial_model = :ipp, motion = :linear, se_adjust = 0.0, n_iterations = 60, burn_in = 20,
                       sync_interval = 20, verbose = false, posterior_pixel_size = 0.0, progress_file = pm)
             @test count("motion model's own spatial prior", read(pm, String)) == 1
             @test !occursin("ipp pilot intensity map", read(pm, String))
@@ -1640,7 +1641,7 @@ import SMLMSim
                         1000.0, 0.0, 0.01, 0.01, 0.0, 0.0, 0.0, 1, length(em2) + 1, 0, 1))
             end
             smld2 = SMLMData.BasicSMLD(em2, cam2, 1, 1, Dict{String,Any}())
-            _, dg = run_bagol(smld2; se_adjust = :auto, keep_se_finder = true, intensity_bandwidth = 0.3,
+            _, dg = run_bagol(smld2; spatial_model = :ipp, se_adjust = :auto, keep_se_finder = true, intensity_bandwidth = 0.3,
                               max_partition_size = 7, overlap = 0.02, n_iterations = 100, burn_in = 20, verbose = false)
             @test dg.se_finder.bagol_kwargs.intensity_bandwidth == 0.3
         end
@@ -1653,7 +1654,7 @@ import SMLMSim
             for cz in (0.2, 0.6), _ in 1:12
                 push!(locs3, mk3(1.0 + 0.01randn(), 1.0 + 0.01randn(), cz + 0.02randn(), length(locs3) + 1))
             end
-            r = run_collapsed_chain(locs3; n_iterations = 8000, burn_in = 2000,
+            r = run_collapsed_chain(locs3; spatial_model = :ipp, n_iterations = 8000, burn_in = 2000,
                                     learn_distribution = false, shape = 10.0)
             @test r.state.spatial isa IntensitySpatial
             @test length(S.extract_emitters(r.state, locs3)) == 2
@@ -1662,7 +1663,7 @@ import SMLMSim
         @testset "archive replay is model-independent under :ipp" begin
             dir = mktempdir()
             smld = SMLMData.BasicSMLD(locs_g, SMLMData.IdealCamera(1:16, 1:16, 0.1), 1, 1)
-            run_bagol(smld; n_iterations = 100, burn_in = 20, sync_interval = 20, archive_path = dir,
+            run_bagol(smld; spatial_model = :ipp, n_iterations = 100, burn_in = 20, sync_interval = 20, archive_path = dir,
                       verbose = false, posterior_pixel_size = 0.0)
             ar = BaGoLArchive(dir)
             @test ar.n_partitions >= 1

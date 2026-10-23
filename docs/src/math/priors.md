@@ -67,7 +67,7 @@ learned — see [Hierarchical Learning](hierarchical.md).*
 
 `k_prior = :auto` (default), `:poisson`, or `:none`. Under the `:locmix` spatial
 model there is **no separate ``K`` prior** — the count model plus the DM prior already
-regularize ``K``. Under the default `spatial_model = :ipp` and under `:flat`, the genuine Poisson prior
+regularize ``K``. Under `spatial_model = :ipp` and under `:flat`, the genuine Poisson prior
 ``K \sim \mathrm{Poisson}(\rho A)`` is added (`priors.jl`, `log_prior_k_poisson`):
 
 ```math

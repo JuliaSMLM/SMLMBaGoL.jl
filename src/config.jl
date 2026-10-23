@@ -38,9 +38,11 @@ Configuration for BaGoL analysis. All fields correspond 1:1 to `run_bagol` kwarg
 - `allocation_model=:dm`: `:dm` (Dirichlet-Multinomial), `:decoupled`
   (no partition prior), or `:categorical` (labeled K^(-N) — Fazel-equivalent
   when paired with `spatial_model=:flat` + `k_prior=:none`)
-- `spatial_model=:ipp`: `:ipp` (inhomogeneous Poisson process with a fixed pilot
-  intensity g and global density ρ; partition-invariant), `:flat` (uniform), or `:locmix`
-  (localization mixture, the pre-0.4.6 default; depends on the partitioning)
+- `spatial_model=:locmix`: `:locmix` (default; localization mixture, normalized per partition,
+  so its output depends on the partitioning: dense fields are under-counted), `:ipp`
+  (inhomogeneous Poisson process with a fixed pilot intensity g and global density ρ;
+  partition-invariant, calibrated for dense fields, but under-splits isolated structures such
+  as rulers and origami), or `:flat` (uniform)
 - `intensity_bandwidth=0.2`: Kernel bandwidth h (µm) of the `:ipp` pilot intensity g
 - `k_prior=:auto`: K-prior gating. `:auto` uses spatial-model default
   (Poisson(ρA) under `:ipp` and `:flat`, none under `:locmix`); `:poisson` always
@@ -86,7 +88,7 @@ Base.@kwdef struct BaGoLConfig <: SMLMData.AbstractSMLMConfig
     burn_in::Int = 2000
     sync_interval::Int = 100
     allocation_model::Symbol = :dm
-    spatial_model::Symbol = :ipp
+    spatial_model::Symbol = :locmix
     # Pilot-intensity kernel bandwidth (µm) for spatial_model=:ipp.
     intensity_bandwidth::Float64 = 0.2
     # K prior gating (:auto = use spatial-model default; :poisson = always include
