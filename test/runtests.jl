@@ -796,23 +796,29 @@ import SMLMSim
             end
         end
 
-        # Degenerate (collinear, zero y-extent) field: the update must use every active
-        # cluster and every partition area, never the overlap-masked subset.
-        let locs = [SMLMData.Emitter2DFit{Float64}(0.01 * i + 0.5 * (i > 6) + 1.0 * (i > 12), 0.0,
-                        1000.0, 10.0, 0.004, 0.004, 0.0, 0.0; frame=i) for i in 1:18]
-            parts, _ = SMLMBaGoL.partition_locs(locs; partition_sigma=3.0, min_size=1)
+        # Degenerate (collinear, zero y-extent) field forced into several METIS partitions
+        # WITH overlap copies: the update must use every active cluster and every partition
+        # area, never the overlap-masked subset.
+        let locs = [SMLMData.Emitter2DFit{Float64}(0.004 * i, 0.0, 1000.0, 10.0, 0.004, 0.004,
+                        0.0, 0.0; frame=i) for i in 1:120]
+            parts, _ = SMLMBaGoL.partition_locs(locs; partition_sigma=3.0, min_size=1,
+                                                max_size=40, overlap=0.05)
             @test length(parts) > 1
+            @test sum(count(p.is_overlap) for p in parts) > 0
             sts = [SMLMBaGoL.initialize_collapsed_state(p.locs,
                        SMLMBaGoL.FlatSpatial(log(SMLMBaGoL.area(SMLMBaGoL.UniformSpatialPrior(p.locs)))),
                        SMLMBaGoL.DMAllocation(nothing); use_poisson_k_prior=true) for p in parts]
+            masks = SMLMBaGoL._compute_cluster_overlap_masks(sts, parts)
+            # the fixture discriminates: some active cluster touches an overlap copy
+            @test any(any(sts[i].active .& .!masks[i]) for i in eachindex(sts))
             areas = [SMLMBaGoL.spatial_area(s.spatial) for s in sts]
             cfg = (ρ_prior_shape=2.0, ρ_prior_rate=1.0)
             shp, rate = SMLMBaGoL._rho_posterior_params(sts, areas, cfg)
             @test shp == 2.0 + sum(s.n_active for s in sts)
             @test rate ≈ 1.0 + sum(areas)
             r, d = run_bagol(SMLMData.BasicSMLD(locs, SMLMData.IdealCamera(1:10, 1:10, 0.1), 1, 1);
-                spatial_model=:flat, learn_rho=true, n_iterations=200, burn_in=100,
-                sync_interval=50, verbose=false)
+                spatial_model=:flat, learn_rho=true, max_partition_size=40, overlap=0.05,
+                n_iterations=200, burn_in=100, sync_interval=50, verbose=false)
             @test isfinite(d.final_ρ) && d.final_ρ > 0
         end
 

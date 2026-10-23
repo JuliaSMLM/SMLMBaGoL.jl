@@ -655,8 +655,7 @@ function _run_bagol_collapsed(
         # the target actually uses a Poisson(ρA) K prior. Partitions share
         # spatial-model type within a run, so it's enough to check the first state.
         ρ = if learn_rho && !isempty(states) && _uses_poisson_k_prior(states[1])
-            _update_rho_collapsed_global!(states, partition_areas, config_nt;
-                                          cluster_masks=nothing)  # all clusters, all areas: the Poisson priors cover every partition
+            _update_rho_collapsed_global!(states, partition_areas, config_nt)  # no overlap masks: the Poisson priors cover every partition
         else
             ρ
         end
