@@ -51,6 +51,7 @@
 #     Pkg.develop(path="../JuliaSMLM/SMLMSim"); Pkg.develop(path="../JuliaSMLM/SMLMData"); \
 #     Pkg.add(["SMLMClustering", "Statistics", "Random", "Printf"])'
 #   (adjust the two sibling paths; or Pkg.add(["SMLMSim", "SMLMData"]) for registered releases)
+# GATE_CONTROL=flat runs the positive control (fixed-rho flat prior; see CONTROL below).
 # GATE_QUICK=1 shrinks the fields for a smoke run. Exit status: 0 on PASS, 1 on FAIL.
 # UNCERTAINTY: each gated difference is printed with a bootstrap SE (resampling 1 um tiles
 # of the inner region, so the arms stay paired where they share data) next to its threshold.
@@ -65,6 +66,10 @@ const FIELD_LOW = QUICK ? 5.0 : 10.0            # um
 const MARGIN = 0.5                              # inner region = [MARGIN, field - MARGIN]^2
 const TILE = 1.0                                # um; bootstrap tile size
 const NBOOT = 1000
+# POSITIVE CONTROL (GATE_CONTROL=flat): spatial_model=:flat with the Poisson K prior and rho FIXED at
+# the simulation's emitter density of each field (learn_rho=false), partition-invariant by
+# construction. The control claim is the cap sweep; the density comparison is reported only.
+const CONTROL = get(ENV, "GATE_CONTROL", "") == "flat"
 const DENSE = 250.0
 const SPARSE = parse(Float64, get(ENV, "GATE_LOW_DENSITY", "20"))   # low-density arm; median partition ~44 locs
 const N_ITER, BURN_IN = 6000, 2000
@@ -124,11 +129,12 @@ end
 tsum(ts, f, sel=:) = sum(getfield(ts, f)[sel])
 share(ts, f, sel=:) = tsum(ts, f, sel) / max(tsum(ts, :nc, sel), 1)
 
-function run_case(label, smld, x, y, cap, field)
+function run_case(label, smld, x, y, cap, field, ρ)
+    control_kw = CONTROL ? (; spatial_model=:flat, learn_rho=false, rho=ρ) : (;)
     t0 = time()
     r, diag = run_bagol(smld; n_iterations=N_ITER, burn_in=BURN_IN,
         max_partition_size=cap, overlap=0.025, partition_sigma=3.0, se_adjust=0.0,
-        posterior_pixel_size=0.0, verbose=false)
+        posterior_pixel_size=0.0, verbose=false, control_kw...)
     nloc = Dict{Int,Int}(); sx = Dict{Int,Float64}(); sy = Dict{Int,Float64}()
     for e in smld.emitters
         nloc[e.track_id] = get(nloc, e.track_id, 0) + 1
@@ -165,14 +171,14 @@ end
 function main()
     t0 = time()
     Random.seed!(SEED)
-    println("dense_field_gate  seed=$SEED  threads=$(Threads.nthreads())")
+    println("dense_field_gate  seed=$SEED  threads=$(Threads.nthreads())  mode=$(CONTROL ? "CONTROL flat fixed-rho" : "production")")
     dense = simulate_field(DENSE, FIELD_DENSE)
     low = simulate_field(SPARSE, FIELD_LOW)
     cases = [
-        run_case("dense 250/um^2", dense..., 500, FIELD_DENSE),
-        run_case("low-density $(Int(SPARSE))/um^2", low..., 500, FIELD_LOW),
-        run_case("dense 250/um^2", dense..., 100, FIELD_DENSE),
-        run_case("dense 250/um^2", dense..., 1000, FIELD_DENSE),
+        run_case("dense 250/um^2", dense..., 500, FIELD_DENSE, DENSE),
+        run_case("low-density $(Int(SPARSE))/um^2", low..., 500, FIELD_LOW, SPARSE),
+        run_case("dense 250/um^2", dense..., 100, FIELD_DENSE, DENSE),
+        run_case("dense 250/um^2", dense..., 1000, FIELD_DENSE, DENSE),
     ]
     foreach(show_case, cases)
 
@@ -201,9 +207,11 @@ function main()
              ("cap 100 vs cap 500 (dense)", abs(cap100), std(b100), 0.02),
              ("cap 1000 vs cap 500 (dense)", abs(cap1000), std(b1000), 0.02)]
     ok = true
-    for (n, v, se, thr) in gated
-        pass = v <= thr; ok &= pass
-        @printf("  %s %-30s |value| %.4f   bootstrap SE %.4f   threshold %.2f\n", pass ? "ok  " : "FAIL", n, v, se, thr)
+    for (gi, (n, v, se, thr)) in enumerate(gated)
+        pass = v <= thr
+        counted = !(CONTROL && gi == 1)      # control: density comparison reported only
+        counted && (ok &= pass)
+        @printf("  %s %-30s |value| %.4f   bootstrap SE %.4f   threshold %.2f\n", counted ? (pass ? "ok  " : "FAIL") : "info", n, v, se, thr)
     end
     @printf("signed: r_dense - r_low %+.4f, cap100 %+.4f, cap1000 %+.4f\n", rd - rs, cap100, cap1000)
     @printf("runtime %.1f min\n", (time() - t0) / 60)

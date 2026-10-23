@@ -28,6 +28,8 @@
 # PASS criterion: |50%-point(alone) - 50%-point(grouped)| <= 1.5 nm AND, at every
 # separation, mean clusters per pair alone vs grouped agree within 5% (relative).
 #
+# CONTROL MODE: GATE_CONTROL=flat (see CONTROL below) runs the same gate with the fixed-rho flat prior.
+#
 # HOW TO RUN (gitignored env dev/output/gate_env, not committed):
 #   nice julia -t 16 --project=dev/output/gate_env dev/partition_invariance_gate.jl [seed]
 # RECREATE the env from scratch, from the repo root of this checkout (tested with Julia
@@ -57,6 +59,12 @@ const N_BLOCKS = parse(Int, get(ENV, "GATE_BLOCKS", "28"))            # blocks o
 const GRID_N = 4                # 4x4 pairs per block
 const GRID_SPACING = 1.1        # um
 const N_ITER, BURN_IN = 6000, 2000
+# POSITIVE CONTROL (GATE_CONTROL=flat): spatial_model=:flat with the Poisson K prior and rho FIXED
+# at the simulation's emitter density (2 emitters per 1.1 x 1.1 um grid cell), a prior that is
+# partition-invariant by construction. A gate that passes here and fails in the default
+# (production, locmix) mode is calibrated for its purpose.
+const CONTROL = get(ENV, "GATE_CONTROL", "") == "flat"
+const CONTROL_KW = CONTROL ? (; spatial_model=:flat, rho=2 / GRID_SPACING^2) : (;)
 const FIELD_PAD = 0.55          # um margin around the block grid
 
 # ---- SMLMSim fluorophore: bleaching 3-state (ON, OFF, bleached), dSTORM-like ----
@@ -130,7 +138,7 @@ function run_job(locs, pairs, μ, shape)
     psm_acc, ps_acc = PSMAccumulator(), PartitionSamples(thin=5)
     run_collapsed_chain(locs; n_iterations=N_ITER, burn_in=BURN_IN,
         shape=shape, μ_prior_shape=1.0, μ_prior_scale=μ,   # initial μ = μ_prior_shape*scale
-        learn_distribution=false, learn_rho=false,
+        learn_distribution=false, learn_rho=false, CONTROL_KW...,
         accumulators=AbstractAccumulator[ps_acc, psm_acc])
     psm = SMLMBaGoL.accumulator_result(psm_acc).psm
     ids = [e.track_id for e in locs]
@@ -164,7 +172,7 @@ end
 function main()
     t0 = time()
     Random.seed!(SEED)
-    println("partition_invariance_gate  seed=$SEED  threads=$(Threads.nthreads())")
+    println("partition_invariance_gate  seed=$SEED  threads=$(Threads.nthreads())  mode=$(CONTROL ? "CONTROL flat fixed-rho" : "production")")
     μ, shape = calibrate_count_model()
     @printf("simulation count model: mu = %.3f, shape = %.3f\n", μ, shape)
 
@@ -203,6 +211,10 @@ function main()
         end
     end
     keys_by_sep = [sort!(collect(keys(res[:alone][si]))) for si in eachindex(SEPS_NM)]
+    # grouped pairs share a chain per block, so the bootstrap resamples whole blocks
+    blocks_by_sep = [[filter(k -> div(k[1], 100_000) == b, keys_by_sep[si])
+                      for b in sort!(unique(div(k[1], 100_000) for k in keys_by_sep[si]))]
+                     for si in eachindex(SEPS_NM)]
 
     # statistic from a (possibly resampled) list of pair keys per separation
     function stats(sel)
@@ -216,18 +228,18 @@ function main()
         return fa, fg, rel, p50(SEPS_NM, fg) - p50(SEPS_NM, fa)
     end
     fa, fg, rel, dp = stats(keys_by_sep)
-    # paired bootstrap over pairs
+    # block bootstrap (both arms of every pair in a block kept together)
     rng = MersenneTwister(SEED + 1)
     B = 400
     brel = zeros(B, length(SEPS_NM)); bdp = fill(NaN, B); bmax = zeros(B)
     for bi in 1:B
-        sel = [rand(rng, ks, length(ks)) for ks in keys_by_sep]
+        sel = [reduce(vcat, rand(rng, bl, length(bl))) for bl in blocks_by_sep]
         _, _, r, d = stats(sel)
         brel[bi, :] = r; bdp[bi] = d; bmax[bi] = maximum(abs.(r))
     end
     se_rel = vec(std(brel; dims=1)); se_dp = std(filter(isfinite, bdp)); se_max = std(bmax)
 
-    println("\nsep_nm  npairs | resolved alone  grouped | grouped vs alone mean clusters/pair: rel.diff  (bootstrap SE)")
+    println("\nsep_nm  npairs | resolved alone  grouped | grouped vs alone mean clusters/pair: rel.diff  (block-bootstrap SE)")
     for (si, s) in enumerate(SEPS_NM)
         @printf("%5d  %6d |   %.3f   %.3f   |   %+.1f%%  (%.1f%%)\n", s, length(keys_by_sep[si]),
                 fa[si], fg[si], 100 * rel[si], 100 * se_rel[si])
@@ -235,8 +247,8 @@ function main()
     pa, pg = p50(SEPS_NM, fa), p50(SEPS_NM, fg)
     mx = maximum(abs.(rel))
     @printf("\n50%% resolution point: alone %.1f nm, grouped %.1f nm\n", pa, pg)
-    @printf("gated: 50%%-point difference %+.2f nm  (paired bootstrap SE %.2f nm; threshold 1.5 nm)\n", dp, se_dp)
-    @printf("gated: max |rel. diff| in mean clusters/pair %.1f%%  (bootstrap SE %.1f%%; threshold 5%%)\n", 100 * mx, 100 * se_max)
+    @printf("gated: 50%%-point difference %+.2f nm  (block-bootstrap SE %.2f nm; threshold 1.5 nm)\n", dp, se_dp)
+    @printf("gated: max |rel. diff| in mean clusters/pair %.1f%%  (block-bootstrap SE %.1f%%; threshold 5%%)\n", 100 * mx, 100 * se_max)
     ok = isfinite(pa) && isfinite(pg) && abs(dp) <= 1.5 && mx <= 0.05
     @printf("runtime %.1f min\n", (time() - t0) / 60)
     println(ok ? "VERDICT: PASS (partition-invariance G2)" : "VERDICT: FAIL (partition-invariance G2)")
