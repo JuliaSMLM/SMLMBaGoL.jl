@@ -11,7 +11,8 @@
 # ORACLE (one emitter per true emitter with >= 1 localization, at the mean of its
 # localizations) with the CURRENT sampler.
 #
-# WHAT IT TESTS: uniform random single emitters, 5 x 5 um, scored on the inner 4 x 4 um,
+# WHAT IT TESTS: uniform random single emitters; dense arm 5 x 5 um scored on the inner 4 x 4 um, low arm
+# 10 x 10 um scored on the inner 9 x 9 um (~1600 emitters),
 # at 250/um^2 (percolating) and 20/um^2 (not: median partition ~44 localizations, a few
 # emitters; 100/um^2 still percolated, median partition ~420), production run_bagol settings (locmix,
 # learned count model, partition_sigma 3, max_partition_size 500, overlap 0.025,
@@ -21,12 +22,13 @@
 #     and per true emitter with >= 1 localization;
 #   - share of Euclidean-DBSCAN clusters (SMLMClustering.DBSCANConfig, eps 30 nm,
 #     min_points 1, the same settings for BaGoL, oracle and truth) with >= 3 and >= 4
-#     emitters, clusters counted by centroid in the inner region;
+#     emitters; the FULL field is clustered and clusters are kept by centroid in the inner
+#     region (emitter counts crop by position);
 #   - median partition size per localization (diagnostics.partition_ids).
 # Truth = every true emitter (including those with no localization); oracle = true
 # emitters with >= 1 localization at the mean of their localizations.
 #
-# SIMULATION: SMLMSim only. uniform2D(rho, Nmer2D(n=1), 5, 5) places the emitters;
+# SIMULATION: SMLMSim only. uniform2D(rho, Nmer2D(n=1), field, field) places the emitters;
 # SMLMSim.simulate(StaticSMLMConfig; starting_conditions=...) runs a bleaching 3-state
 # GenericFluor (dSTORM-like, ~15 locs/emitter, shape ~1.1) with apply_noise. The true
 # emitter of every localization is its track_id.
@@ -38,18 +40,31 @@
 # assignments, so the best principled prior measured so far still sits 3-7% below it;
 # the gate tests that the bias does not depend on density or partitioning.
 #
-# HOW TO RUN (gitignored env at dev/output/gate_env: SMLMBaGoL dev'd to this checkout,
-# SMLMSim, SMLMData, SMLMClustering):
+# HOW TO RUN (gitignored env dev/output/gate_env, not committed):
 #   nice julia -t 16 --project=dev/output/gate_env dev/dense_field_gate.jl [seed]
-# GATE_QUICK=1 shrinks the field to 2.5 x 2.5 um for a smoke run.
+# RECREATE the env from scratch, from the repo root of this checkout (tested with Julia
+# 1.13.0; SMLMBaGoL = this checkout; SMLMSim v0.7.3-DEV @46bc484 and SMLMData v0.7.1
+# @0c9fb55 as sibling JuliaSMLM checkouts, or the registered 0.7.x releases; SMLMClustering
+# 0.4.3 registered; Statistics, Random, Printf stdlib):
+#   mkdir -p dev/output/gate_env
+#   julia --project=dev/output/gate_env -e 'using Pkg; Pkg.develop(path="."); \
+#     Pkg.develop(path="../JuliaSMLM/SMLMSim"); Pkg.develop(path="../JuliaSMLM/SMLMData"); \
+#     Pkg.add(["SMLMClustering", "Statistics", "Random", "Printf"])'
+#   (adjust the two sibling paths; or Pkg.add(["SMLMSim", "SMLMData"]) for registered releases)
+# GATE_QUICK=1 shrinks the fields for a smoke run. Exit status: 0 on PASS, 1 on FAIL.
+# UNCERTAINTY: each gated difference is printed with a bootstrap SE (resampling 1 um tiles
+# of the inner region, so the arms stay paired where they share data) next to its threshold.
 
 using SMLMBaGoL, SMLMSim, SMLMData, SMLMClustering
 using Statistics, Random, Printf
 
 const SEED = length(ARGS) >= 1 ? parse(Int, ARGS[1]) : 20261023
 const QUICK = get(ENV, "GATE_QUICK", "0") == "1"
-const FIELD = QUICK ? 2.5 : 5.0                 # um
-const MARGIN = QUICK ? 0.25 : 0.5               # inner region = [MARGIN, FIELD - MARGIN]^2
+const FIELD_DENSE = QUICK ? 2.5 : 5.0           # um
+const FIELD_LOW = QUICK ? 5.0 : 10.0            # um
+const MARGIN = 0.5                              # inner region = [MARGIN, field - MARGIN]^2
+const TILE = 1.0                                # um; bootstrap tile size
+const NBOOT = 1000
 const DENSE = 250.0
 const SPARSE = parse(Float64, get(ENV, "GATE_LOW_DENSITY", "20"))   # low-density arm; median partition ~44 locs
 const N_ITER, BURN_IN = 6000, 2000
@@ -64,8 +79,8 @@ const SIMCFG = StaticSMLMConfig(density=1.0, σ_psf=0.13, minphotons=30, ndatase
                                 nframes=NFRAMES, framerate=FRAMERATE)
 const CAMERA = IdealCamera(1:60, 1:60, 0.1)
 
-function simulate_field(ρ::Float64)
-    x, y, _ = uniform2D(ρ, Nmer2D(; n=1, d=0.0), FIELD, FIELD)
+function simulate_field(ρ::Float64, field::Float64)
+    x, y, _ = uniform2D(ρ, Nmer2D(; n=1, d=0.0), field, field)
     ems = [Emitter2DFit{Float64}(x[i], y[i], 1.0, 0.0, 0.0, 0.0, 0.0, 0.0; σ_xy=0.0,
                                  frame=1, dataset=1, track_id=i, id=i) for i in eachindex(x)]
     smld, _ = SMLMSim.simulate(SIMCFG; starting_conditions=ems, molecule=FLUOR,
@@ -73,109 +88,127 @@ function simulate_field(ρ::Float64)
     return smld, x, y
 end
 
-inner(x, y) = MARGIN <= x <= FIELD - MARGIN && MARGIN <= y <= FIELD - MARGIN
+ntiles(field) = floor(Int, (field - 2MARGIN) / TILE)
+# inner region = whole 1 um tiles inside the margin (= [MARGIN, field - MARGIN]^2 for the full-size fields)
+inner(x, y, field) = MARGIN <= x < MARGIN + ntiles(field) * TILE && MARGIN <= y < MARGIN + ntiles(field) * TILE
+function tile_of(x, y, field)
+    nt = ntiles(field)
+    inner(x, y, field) || return 0
+    return 1 + floor(Int, (x - MARGIN) / TILE) + nt * floor(Int, (y - MARGIN) / TILE)
+end
 
-# DBSCAN shares over a set of emitter positions; clusters counted by centroid in the inner region.
-function dbscan_shares(xs, ys)
-    n = length(xs)
+# Per-tile statistics of one emitter set: n emitters (by position), n DBSCAN clusters, clusters
+# with >= 3 and >= 4 emitters. The FULL field is clustered; clusters are kept by centroid tile.
+function tile_stats(xs, ys, field)
+    nt = ntiles(field)^2
+    ne, nc, n3, n4 = zeros(Int, nt), zeros(Int, nt), zeros(Int, nt), zeros(Int, nt)
+    for i in eachindex(xs)
+        t = tile_of(xs[i], ys[i], field); t > 0 && (ne[t] += 1)
+    end
     ems = [Emitter2DFit{Float64}(xs[i], ys[i], 1.0, 0.0, 0.0, 0.0, 0.0, 0.0; σ_xy=0.0,
-                                 frame=1, dataset=1, track_id=i, id=0) for i in 1:n]
+                                 frame=1, dataset=1, track_id=i, id=0) for i in eachindex(xs)]
     out, _ = cluster(BasicSMLD(ems, CAMERA, 1, 1, Dict{String,Any}()),
                      DBSCANConfig(eps_nm=DBSCAN_EPS_NM, min_points=1, per_dataset=false))
     members = Dict{Int,Vector{Int}}()
     for (i, e) in enumerate(out.emitters)
         push!(get!(members, e.id, Int[]), i)
     end
-    sizes = Int[]
     for idx in values(members)
-        inner(mean(xs[idx]), mean(ys[idx])) && push!(sizes, length(idx))
+        t = tile_of(mean(xs[idx]), mean(ys[idx]), field)
+        t > 0 || continue
+        nc[t] += 1; n3[t] += length(idx) >= 3; n4[t] += length(idx) >= 4
     end
-    return mean(sizes .>= 3), mean(sizes .>= 4), length(sizes)
+    return (; ne, nc, n3, n4)
 end
 
-struct Scored
-    count::Int; per3::Float64; per1::Float64
-    s3::Float64; s4::Float64
-end
+tsum(ts, f, sel=:) = sum(getfield(ts, f)[sel])
+share(ts, f, sel=:) = tsum(ts, f, sel) / max(tsum(ts, :nc, sel), 1)
 
-function score(xs, ys, n_true1, n_true3)
-    sel = [i for i in eachindex(xs) if inner(xs[i], ys[i])]
-    s3, s4, _ = dbscan_shares(xs[sel], ys[sel])
-    Scored(length(sel), length(sel) / n_true3, length(sel) / n_true1, s3, s4)
-end
-
-function run_case(label, smld, x, y, cap)
+function run_case(label, smld, x, y, cap, field)
     t0 = time()
     r, diag = run_bagol(smld; n_iterations=N_ITER, burn_in=BURN_IN,
         max_partition_size=cap, overlap=0.025, partition_sigma=3.0, se_adjust=0.0,
         posterior_pixel_size=0.0, verbose=false)
-    # ground truth bookkeeping
     nloc = Dict{Int,Int}(); sx = Dict{Int,Float64}(); sy = Dict{Int,Float64}()
     for e in smld.emitters
         nloc[e.track_id] = get(nloc, e.track_id, 0) + 1
         sx[e.track_id] = get(sx, e.track_id, 0.0) + e.x
         sy[e.track_id] = get(sy, e.track_id, 0.0) + e.y
     end
-    in_inner = [inner(x[i], y[i]) for i in eachindex(x)]
-    n_true1 = count(i -> in_inner[i] && get(nloc, i, 0) >= 1, eachindex(x))
-    n_true3 = count(i -> in_inner[i] && get(nloc, i, 0) >= 3, eachindex(x))
-    ids1 = [i for i in keys(nloc)]
-    oracle = score([sx[i] / nloc[i] for i in ids1], [sy[i] / nloc[i] for i in ids1], n_true1, n_true3)
-    truth = score(x, y, n_true1, n_true3)
-    bagol = score([e.x for e in r.emitters], [e.y for e in r.emitters], n_true1, n_true3)
-    # median partition size per localization
+    n_true1 = count(i -> inner(x[i], y[i], field) && get(nloc, i, 0) >= 1, eachindex(x))
+    n_true3 = count(i -> inner(x[i], y[i], field) && get(nloc, i, 0) >= 3, eachindex(x))
+    ids1 = collect(keys(nloc))
+    oracle = tile_stats([sx[i] / nloc[i] for i in ids1], [sy[i] / nloc[i] for i in ids1], field)
+    truth = tile_stats(x, y, field)
+    bagol = tile_stats([e.x for e in r.emitters], [e.y for e in r.emitters], field)
     pid = diag.partition_ids
     psize = Dict{Int,Int}(); for p in pid; p > 0 && (psize[p] = get(psize, p, 0) + 1); end
     medpart = median([psize[p] for p in pid if p > 0])
-    return (; label, cap, nloc=length(smld.emitters), n_true1, n_true3, bagol, oracle, truth,
+    return (; label, cap, field, nloc=length(smld.emitters), n_true1, n_true3, bagol, oracle, truth,
             medpart, nparts=diag.n_partitions, mu=diag.final_μ, shape=diag.final_shape,
             minutes=(time() - t0) / 60)
 end
 
 function show_case(c)
-    @printf("\n[%s] max_partition_size=%d  locs=%d  true emitters inner: %d with >=1 loc, %d with >=3 locs\n",
-            c.label, c.cap, c.nloc, c.n_true1, c.n_true3)
+    @printf("\n[%s] field=%.0f um  max_partition_size=%d  locs=%d  true emitters inner: %d with >=1 loc, %d with >=3 locs\n",
+            c.label, c.field, c.cap, c.nloc, c.n_true1, c.n_true3)
     @printf("  partitions=%d  median partition size per loc=%.0f  learned mu=%.2f shape=%.2f  (%.1f min)\n",
             c.nparts, c.medpart, c.mu, c.shape, c.minutes)
     println("  source   emitters  per-true(>=3)  per-true(>=1)  DBSCAN share>=3  share>=4")
     for (nm, s) in (("BaGoL ", c.bagol), ("oracle", c.oracle), ("truth ", c.truth))
-        @printf("  %s  %8d  %13.3f  %13.3f  %15.3f  %8.3f\n", nm, s.count, s.per3, s.per1, s.s3, s.s4)
+        n = tsum(s, :ne)
+        @printf("  %s  %8d  %13.3f  %13.3f  %15.3f  %8.3f\n", nm, n, n / c.n_true3, n / c.n_true1,
+                share(s, :n3), share(s, :n4))
     end
 end
 
 function main()
     t0 = time()
     Random.seed!(SEED)
-    println("dense_field_gate  seed=$SEED  threads=$(Threads.nthreads())  field=$(FIELD) um")
-    dense = simulate_field(DENSE)
-    sparse = simulate_field(SPARSE)
+    println("dense_field_gate  seed=$SEED  threads=$(Threads.nthreads())")
+    dense = simulate_field(DENSE, FIELD_DENSE)
+    low = simulate_field(SPARSE, FIELD_LOW)
     cases = [
-        run_case("dense 250/um^2", dense..., 500),
-        run_case("low-density $(Int(SPARSE))/um^2", sparse..., 500),
-        run_case("dense 250/um^2", dense..., 100),
-        run_case("dense 250/um^2", dense..., 1000),
+        run_case("dense 250/um^2", dense..., 500, FIELD_DENSE),
+        run_case("low-density $(Int(SPARSE))/um^2", low..., 500, FIELD_LOW),
+        run_case("dense 250/um^2", dense..., 100, FIELD_DENSE),
+        run_case("dense 250/um^2", dense..., 1000, FIELD_DENSE),
     ]
     foreach(show_case, cases)
 
-    ratio(c) = c.bagol.count / c.oracle.count
-    rd, rs = ratio(cases[1]), ratio(cases[2])
-    cap100 = cases[3].bagol.count / cases[1].bagol.count - 1
-    cap1000 = cases[4].bagol.count / cases[1].bagol.count - 1
-    println("\n=== SUMMARY (r = BaGoL emitters / oracle emitters, inner region) ===")
-    @printf("r(250/um^2, cap 500) = %.4f   r(low, cap 500) = %.4f   |difference| = %.4f\n", rd, rs, abs(rd - rs))
-    @printf("cap sweep on dense: cap100 %+.4f, cap1000 %+.4f vs cap500\n", cap100, cap1000)
-    @printf("DBSCAN share>=4: dense BaGoL/oracle/truth %.3f/%.3f/%.3f; low %.3f/%.3f/%.3f\n",
-            cases[1].bagol.s4, cases[1].oracle.s4, cases[1].truth.s4,
-            cases[2].bagol.s4, cases[2].oracle.s4, cases[2].truth.s4)
-    @printf("reported, not gated: r-1 = %+.3f (dense), %+.3f (low)\n", rd - 1, rs - 1)
-    checks = [abs(rd - rs) <= 0.03, abs(cap100) <= 0.02, abs(cap1000) <= 0.02]
-    names = ["|r_dense-r_low|<=3%", "cap100 within 2%", "cap1000 within 2%"]
-    for (n, ok) in zip(names, checks)
-        println("  ", ok ? "ok  " : "FAIL", " ", n)
+    rat(c, sel=:) = tsum(c.bagol, :ne, sel) / tsum(c.oracle, :ne, sel)
+    rd, rs = rat(cases[1]), rat(cases[2])
+    cnt(c, sel=:) = tsum(c.bagol, :ne, sel)
+    cap100 = cnt(cases[3]) / cnt(cases[1]) - 1
+    cap1000 = cnt(cases[4]) / cnt(cases[1]) - 1
+    # tile bootstrap (dense arms share tiles, so the cap sweep stays paired)
+    rng = MersenneTwister(SEED + 1)
+    nd, nl = length(cases[1].bagol.ne), length(cases[2].bagol.ne)
+    bdiff, b100, b1000 = zeros(NBOOT), zeros(NBOOT), zeros(NBOOT)
+    for b in 1:NBOOT
+        sd, sl = rand(rng, 1:nd, nd), rand(rng, 1:nl, nl)
+        bdiff[b] = rat(cases[1], sd) - rat(cases[2], sl)
+        b100[b] = cnt(cases[3], sd) / cnt(cases[1], sd) - 1
+        b1000[b] = cnt(cases[4], sd) / cnt(cases[1], sd) - 1
     end
+    println("\n=== SUMMARY (r = BaGoL emitters / oracle emitters, inner region) ===")
+    @printf("r(250/um^2, cap 500) = %.4f   r(low, cap 500) = %.4f\n", rd, rs)
+    @printf("reported, not gated: r-1 = %+.3f (dense), %+.3f (low)\n", rd - 1, rs - 1)
+    @printf("DBSCAN share>=4: dense BaGoL/oracle/truth %.3f/%.3f/%.3f; low %.3f/%.3f/%.3f\n",
+            share(cases[1].bagol, :n4), share(cases[1].oracle, :n4), share(cases[1].truth, :n4),
+            share(cases[2].bagol, :n4), share(cases[2].oracle, :n4), share(cases[2].truth, :n4))
+    gated = [("|r_dense - r_low|", abs(rd - rs), std(bdiff), 0.03),
+             ("cap 100 vs cap 500 (dense)", abs(cap100), std(b100), 0.02),
+             ("cap 1000 vs cap 500 (dense)", abs(cap1000), std(b1000), 0.02)]
+    ok = true
+    for (n, v, se, thr) in gated
+        pass = v <= thr; ok &= pass
+        @printf("  %s %-30s |value| %.4f   bootstrap SE %.4f   threshold %.2f\n", pass ? "ok  " : "FAIL", n, v, se, thr)
+    end
+    @printf("signed: r_dense - r_low %+.4f, cap100 %+.4f, cap1000 %+.4f\n", rd - rs, cap100, cap1000)
     @printf("runtime %.1f min\n", (time() - t0) / 60)
-    println(all(checks) ? "VERDICT: PASS (dense-field G5/G7)" : "VERDICT: FAIL (dense-field G5/G7)")
-    return all(checks)
+    println(ok ? "VERDICT: PASS (dense-field G5/G7)" : "VERDICT: FAIL (dense-field G5/G7)")
+    return ok
 end
 
-main()
+exit(main() ? 0 : 1)

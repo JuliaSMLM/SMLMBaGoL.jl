@@ -28,17 +28,32 @@
 # PASS criterion: |50%-point(alone) - 50%-point(grouped)| <= 1.5 nm AND, at every
 # separation, mean clusters per pair alone vs grouped agree within 5% (relative).
 #
-# HOW TO RUN (gitignored env at dev/output/gate_env: SMLMBaGoL dev'd to this checkout,
-# SMLMSim, SMLMData, SMLMClustering; see the commit message for how it was built):
+# HOW TO RUN (gitignored env dev/output/gate_env, not committed):
 #   nice julia -t 16 --project=dev/output/gate_env dev/partition_invariance_gate.jl [seed]
-# GATE_BLOCKS=2 gives a quick smoke run. Chains run in parallel across threads, so results vary run to run (seed fixes the data).
+# RECREATE the env from scratch, from the repo root of this checkout (tested with Julia
+# 1.13.0; SMLMBaGoL = this checkout; SMLMSim v0.7.3-DEV @46bc484 and SMLMData v0.7.1
+# @0c9fb55 as sibling JuliaSMLM checkouts, or the registered 0.7.x releases; SMLMClustering
+# 0.4.3 registered; Statistics, Random, Printf stdlib):
+#   mkdir -p dev/output/gate_env
+#   julia --project=dev/output/gate_env -e 'using Pkg; Pkg.develop(path="."); \
+#     Pkg.develop(path="../JuliaSMLM/SMLMSim"); Pkg.develop(path="../JuliaSMLM/SMLMData"); \
+#     Pkg.add(["SMLMClustering", "Statistics", "Random", "Printf"])'
+#   (adjust the two sibling paths; or Pkg.add(["SMLMSim", "SMLMData"]) for registered releases)
+# Exit status: 0 on PASS, 1 on FAIL.
+# GATE_BLOCKS=2 gives a quick smoke run. Each chain is seeded from (seed, job identity), so results do
+# not depend on thread scheduling.
+#
+# ESTIMATOR: both arms use a PAIR-LOCAL Dahl estimate: the sample minimizing the Dahl loss
+# restricted to that pair's localizations (PSM submatrix). A single block-wide Dahl sample
+# would itself shift clusters per pair even for independent pairs. UNCERTAINTY: paired
+# bootstrap over pairs (alone/grouped kept together) gives an SE for each gated difference.
 
 using SMLMBaGoL, SMLMSim, SMLMData
 using Statistics, Random, Printf
 
 const SEED = length(ARGS) >= 1 ? parse(Int, ARGS[1]) : 20261023
 const SEPS_NM = [0, 5, 10, 15, 20, 25, 30, 40]
-const N_BLOCKS = parse(Int, get(ENV, "GATE_BLOCKS", "12"))            # blocks of 16 pairs per separation (~8% dropped => >= 150 pairs)
+const N_BLOCKS = parse(Int, get(ENV, "GATE_BLOCKS", "28"))            # blocks of 16 pairs per separation (~8% dropped => ~400 pairs)
 const GRID_N = 4                # 4x4 pairs per block
 const GRID_SPACING = 1.1        # um
 const N_ITER, BURN_IN = 6000, 2000
@@ -98,22 +113,36 @@ function make_block(sep_nm::Int, id0::Int)
     return locs, [(id0 + 2p - 1, id0 + 2p) for p in keep]
 end
 
-function dahl_labels(locs, μ, shape)
+# Pair-local Dahl: among the stored samples, the one minimizing the Dahl loss restricted
+# to the localizations `idx` (PSM submatrix). Returns that sample's labels over `idx`.
+function local_dahl(samples, psm, idx)
+    sub = psm[idx, idx]
+    best, bd = 1, Inf
+    for (t, smp) in enumerate(samples)
+        d = SMLMBaGoL._association_psm_distance(smp[idx], sub)
+        d < bd && ((best, bd) = (t, d))
+    end
+    return samples[best][idx]
+end
+
+# Run one chain; score each requested pair (a vector of (ida, idb)) with the pair-local Dahl.
+function run_job(locs, pairs, μ, shape)
     psm_acc, ps_acc = PSMAccumulator(), PartitionSamples(thin=5)
     run_collapsed_chain(locs; n_iterations=N_ITER, burn_in=BURN_IN,
         shape=shape, μ_prior_shape=1.0, μ_prior_scale=μ,   # initial μ = μ_prior_shape*scale
         learn_distribution=false, learn_rho=false,
         accumulators=AbstractAccumulator[ps_acc, psm_acc])
     psm = SMLMBaGoL.accumulator_result(psm_acc).psm
-    _, _, _, z = estimate_dahl(ps_acc.samples, locs, psm)
-    return z
+    ids = [e.track_id for e in locs]
+    return [score_pair(local_dahl(ps_acc.samples, psm, findall(i -> i == ida || i == idb, ids)),
+                       [i for i in ids if i == ida || i == idb], ida, idb) for (ida, idb) in pairs]
 end
 
-# resolved?, n clusters  for one pair given labels z over `locs` and the emitters' ids
+# resolved?, n clusters for one pair given labels z over the pair's locs and each loc's emitter id
 function score_pair(z, ids_of_loc, ida, idb)
     A = [z[i] for i in eachindex(z) if ids_of_loc[i] == ida]
     B = [z[i] for i in eachindex(z) if ids_of_loc[i] == idb]
-    ncl = length(unique(vcat(A, B)))
+    ncl = length(unique(z))
     major(v) = (u = unique(v); u[argmax([count(==(x), v) for x in u])])
     ca, cb = major(A), major(B)
     res = ca != cb &&
@@ -149,53 +178,69 @@ function main()
         np >= 150 || @warn "separation $(SEPS_NM[si]) nm has only $np pairs"
     end
 
-    # jobs: grouped (whole block) and alone (each pair), largest first
+    # jobs: grouped (whole block) and alone (each pair); seeded from job identity
     jobs = Tuple[]
     for ((si, b), (locs, pairs)) in blocks
-        push!(jobs, (:grouped, si, b, 0, locs))
+        push!(jobs, (:grouped, si, b, 0, locs, pairs))
         for (pi, (ida, idb)) in enumerate(pairs)
-            push!(jobs, (:alone, si, b, pi, [e for e in locs if e.track_id == ida || e.track_id == idb]))
+            push!(jobs, (:alone, si, b, pi, [e for e in locs if e.track_id == ida || e.track_id == idb], [(ida, idb)]))
         end
     end
-    sort!(jobs; by=j -> -length(j[5]))
-    labels = Vector{Vector{Int16}}(undef, length(jobs))
+    sort!(jobs; by=j -> (-length(j[5]), String(j[1]), j[2], j[3], j[4]))
+    out = Vector{Any}(undef, length(jobs))
     Threads.@threads :dynamic for k in eachindex(jobs)
-        labels[k] = dahl_labels(jobs[k][5], μ, shape)
+        j = jobs[k]
+        Random.seed!(UInt(hash((SEED, String(j[1]), j[2], j[3], j[4]))))
+        out[k] = run_job(j[5], j[6], μ, shape)
     end
     println(@sprintf("chains done: %d (%.1f min)", length(jobs), (time() - t0) / 60))
 
-    # score
-    res = Dict(arm => [(Int[], Int[]) for _ in SEPS_NM] for arm in (:alone, :grouped))
-    for (k, (arm, si, b, pi, locs)) in enumerate(jobs)
-        ids = [e.track_id for e in locs]
-        pairs = blocks[(si, b)][2]
-        for (pj, (ida, idb)) in enumerate(pairs)
-            (arm === :alone && pj != pi) && continue
-            r, n = score_pair(labels[k], ids, ida, idb)
-            push!(res[arm][si][1], r)
-            push!(res[arm][si][2], n)
+    # per separation, per arm: pair key -> (resolved, ncl)
+    res = Dict(arm => [Dict{Tuple{Int,Int},Tuple{Bool,Int}}() for _ in SEPS_NM] for arm in (:alone, :grouped))
+    for (k, j) in enumerate(jobs)
+        for ((ida, idb), r) in zip(j[6], out[k])
+            res[j[1]][j[2]][(ida, idb)] = r
         end
     end
+    keys_by_sep = [sort!(collect(keys(res[:alone][si]))) for si in eachindex(SEPS_NM)]
 
-    println("\nsep_nm  npairs | resolved alone  grouped | clusters/pair alone  grouped  rel.diff")
-    fr = Dict(:alone => Float64[], :grouped => Float64[])
-    worst = 0.0
-    for (si, s) in enumerate(SEPS_NM)
-        ra, na = res[:alone][si]; rg, ng = res[:grouped][si]
-        fa, fg = mean(ra), mean(rg)
-        push!(fr[:alone], fa); push!(fr[:grouped], fg)
-        ca, cg = mean(na), mean(ng)
-        worst = max(worst, abs(ca - cg) / ca)
-        @printf("%5d  %6d |   %.3f   %.3f   |   %.3f   %.3f   %+.1f%%\n",
-                s, length(ra), fa, fg, ca, cg, 100 * (cg - ca) / ca)
+    # statistic from a (possibly resampled) list of pair keys per separation
+    function stats(sel)
+        fa, fg, rel = Float64[], Float64[], Float64[]
+        for si in eachindex(SEPS_NM)
+            ks = sel[si]
+            push!(fa, mean(res[:alone][si][k][1] for k in ks)); push!(fg, mean(res[:grouped][si][k][1] for k in ks))
+            ca = mean(res[:alone][si][k][2] for k in ks); cg = mean(res[:grouped][si][k][2] for k in ks)
+            push!(rel, (cg - ca) / ca)
+        end
+        return fa, fg, rel, p50(SEPS_NM, fg) - p50(SEPS_NM, fa)
     end
-    pa, pg = p50(SEPS_NM, fr[:alone]), p50(SEPS_NM, fr[:grouped])
-    @printf("\n50%% resolution point: alone %.1f nm, grouped %.1f nm (diff %+.1f nm)\n", pa, pg, pg - pa)
-    @printf("max relative difference in mean clusters/pair: %.1f%%\n", 100 * worst)
-    ok = isfinite(pa) && isfinite(pg) && abs(pa - pg) <= 1.5 && worst <= 0.05
+    fa, fg, rel, dp = stats(keys_by_sep)
+    # paired bootstrap over pairs
+    rng = MersenneTwister(SEED + 1)
+    B = 400
+    brel = zeros(B, length(SEPS_NM)); bdp = fill(NaN, B); bmax = zeros(B)
+    for bi in 1:B
+        sel = [rand(rng, ks, length(ks)) for ks in keys_by_sep]
+        _, _, r, d = stats(sel)
+        brel[bi, :] = r; bdp[bi] = d; bmax[bi] = maximum(abs.(r))
+    end
+    se_rel = vec(std(brel; dims=1)); se_dp = std(filter(isfinite, bdp)); se_max = std(bmax)
+
+    println("\nsep_nm  npairs | resolved alone  grouped | grouped vs alone mean clusters/pair: rel.diff  (bootstrap SE)")
+    for (si, s) in enumerate(SEPS_NM)
+        @printf("%5d  %6d |   %.3f   %.3f   |   %+.1f%%  (%.1f%%)\n", s, length(keys_by_sep[si]),
+                fa[si], fg[si], 100 * rel[si], 100 * se_rel[si])
+    end
+    pa, pg = p50(SEPS_NM, fa), p50(SEPS_NM, fg)
+    mx = maximum(abs.(rel))
+    @printf("\n50%% resolution point: alone %.1f nm, grouped %.1f nm\n", pa, pg)
+    @printf("gated: 50%%-point difference %+.2f nm  (paired bootstrap SE %.2f nm; threshold 1.5 nm)\n", dp, se_dp)
+    @printf("gated: max |rel. diff| in mean clusters/pair %.1f%%  (bootstrap SE %.1f%%; threshold 5%%)\n", 100 * mx, 100 * se_max)
+    ok = isfinite(pa) && isfinite(pg) && abs(dp) <= 1.5 && mx <= 0.05
     @printf("runtime %.1f min\n", (time() - t0) / 60)
     println(ok ? "VERDICT: PASS (partition-invariance G2)" : "VERDICT: FAIL (partition-invariance G2)")
     return ok
 end
 
-main()
+exit(main() ? 0 : 1)
