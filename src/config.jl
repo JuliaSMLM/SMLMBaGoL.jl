@@ -47,6 +47,8 @@ Configuration for BaGoL analysis. All fields correspond 1:1 to `run_bagol` kwarg
 
 # Uncertainty Correction (standalone; 0 in the integrated pipeline)
 - `se_adjust=:auto`: `:auto` runs the finder (`estimate_se_adjust`) and uses τ̂
+  (its internal BaGoL E-steps use this config's partitioning and model settings;
+  `n_iterations`/`burn_in` stay the finder's own)
   (skipped if the SMLD is already σ-corrected); `0.0` = no correction; a numeric
   value = manual τ (μm) added in quadrature to per-loc σ (σ²+τ²) — scalar,
   `(τx,τy)` tuple, length-N vector, or `(τx_vec,τy_vec)`.
