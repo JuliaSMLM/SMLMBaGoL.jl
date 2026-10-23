@@ -120,6 +120,8 @@ Run the collapsed Gibbs sampler on a set of localizations.
   `true`=learn both μ and shape, `false`=fix both,
   `:mu`=learn μ only (fix shape), `:shape`=learn shape only (fix μ)
 - `learn_rho=true`: Learn Poisson-K emitter density ρ independently of μ/shape.
+  (Single chain: ρ ~ Gamma(a + K, 1/(b + A)) with A the chain's own spatial area;
+  `run_bagol`'s partitioned update uses the analyzed field area instead.)
   For fully fixed hyperparameters, set both `learn_distribution=false` and
   `learn_rho=false`.
 - `rho=nothing`: Initial ρ in emitters per unit area. If provided with

@@ -343,7 +343,17 @@ $\sim1.4$ nats measured). $\mu$ needs no such branch: it enters only the count m
 **Bounds:** $\mu \in [1, 500]$, $\alpha \in [0.5, 50]$.
 
 The density parameter $\rho$ is conjugate-updated only for `FlatSpatial`,
-because only that target contains $P_K(K\mid\rho,A)$. For `LocmixSpatial`,
+because only that target contains $P_K(K\mid\rho,A)$. In the partitioned
+`run_bagol` path the update is
+$\rho \mid \cdot \sim \text{Gamma}(a+\sum K,\, 1/(b+A_{\text{field}}))$, where
+$A_{\text{field}}$ is the bounding-box area of all localizations (computed once,
+before partitioning) and $\sum K$ counts each emitter once: a cluster weighs the
+fraction of its localizations that are not overlap (duplicated) localizations.
+The spatial area cancels at fixed $\rho$ in the flat + Poisson target, so $\rho$ is
+the per-emitter prior factor and its value is the emitter density; summing the padded,
+floored, overlapping partition areas instead biases it low (the floor caps it near
+$1/(\mu\,9\pi\sigma^2)$). The single-chain path (`run_collapsed_chain`) is
+unchanged and uses its own area. For `LocmixSpatial`,
 $\rho$ is not part of the target and remains at its initialized value in
 diagnostics.
 

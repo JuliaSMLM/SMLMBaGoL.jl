@@ -16,6 +16,11 @@ Configuration for BaGoL analysis. All fields correspond 1:1 to `run_bagol` kwarg
   `:mu`=learn μ only, `:shape`=learn shape only
 - `gamma=nothing`: DM concentration. `nothing`=use shape (default), `Float64`=fixed
 - `learn_rho=true`: Learn Poisson-K emitter density ρ independently of μ/shape.
+  Partitioned (`run_bagol`): ρ ~ Gamma(a + ΣK, 1/(b + A)), the density of emitters over
+  the analyzed region: A is the bounding-box area of all localizations (computed once
+  before partitioning) and ΣK counts each emitter once (a cluster weighs the fraction of
+  its localizations that are not overlap duplicates). Not the sum of partition areas.
+  The single-chain `run_collapsed_chain` update is unchanged.
   For fully fixed hyperparameters, set both `learn_distribution=false` and
   `learn_rho=false`.
 - `rho=nothing`: Initial ρ in emitters per unit area. If provided with

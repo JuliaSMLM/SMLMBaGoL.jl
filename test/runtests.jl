@@ -4,6 +4,7 @@ using SMLMData
 using Random
 using Statistics
 using Distributions
+import SMLMSim
 
 @testset "SMLMBaGoL.jl Tests" begin
     # ================================================================
@@ -749,6 +750,42 @@ using Distributions
         @test diagnostics isa BaGoLDiagnostics
         @test diagnostics.n_emitters >= 0
         @test diagnostics.n_partitions >= 1
+    end
+
+    @testset "Partitioned flat rho = emitter density over analyzed area" begin
+        # Uniform field of single emitters from SMLMSim (Nmer2D n=1), σ ≈ 11 nm. The
+        # pooled flat ρ update must learn the density of emitters that produced ≥ 1
+        # localization over the bounding box of the localizations, independent of how
+        # METIS chunks the field (padded/floored chunk areas used to give ρ ≈ 1/6 true).
+        function rho_field(density, npix, seed)
+            Random.seed!(seed)
+            cam = SMLMData.IdealCamera(1:npix, 1:npix, 0.1)
+            params = SMLMSim.StaticSMLMConfig(; density=density, nframes=300, framerate=50.0,
+                ndatasets=1, σ_psf=0.13, minphotons=30)
+            smld, _ = SMLMSim.simulate(params; pattern=SMLMSim.Nmer2D(n=1, d=0.0),
+                molecule=SMLMSim.GenericFluor(photons=12000.0, k_off=50.0, k_on=0.5),
+                camera=cam)
+            xs = [e.x for e in smld.emitters]; ys = [e.y for e in smld.emitters]
+            A = (maximum(xs) - minimum(xs)) * (maximum(ys) - minimum(ys))
+            smld, length(unique(e.track_id for e in smld.emitters)) / A
+        end
+        learned_rho(smld, mps) = run_bagol(smld; spatial_model=:flat, learn_rho=true,
+            max_partition_size=mps, ρ_prior_rate=0.01, n_iterations=4000, burn_in=2000,
+            sync_interval=100, verbose=false)[2]
+
+        smld, ρ_true = rho_field(250, 11, 1)   # ~1 µm², ~210 emitters/µm² visible
+        d300 = learned_rho(smld, 300)
+        d100 = learned_rho(smld, 100)
+        @test d300.n_partitions > 1
+        @test d100.n_partitions > d300.n_partitions
+        @test abs(d300.final_ρ / ρ_true - 1) < 0.30            # P1
+        @test abs(d100.final_ρ / ρ_true - 1) < 0.30
+        @test abs(d300.final_ρ / d100.final_ρ - 1) < 0.20      # P2
+
+        smld_s, ρ_true_s = rho_field(3, 40, 2)                 # sparse, ~3 emitters/µm²
+        d_s = learned_rho(smld_s, 300)
+        @test abs(d_s.final_ρ / ρ_true_s - 1) < 0.30           # P3
+        @info "flat ρ test" dense=(ρ_true, d300.final_ρ, d100.final_ρ) sparse=(ρ_true_s, d_s.final_ρ)
     end
 
     @testset "Fixed rho control" begin

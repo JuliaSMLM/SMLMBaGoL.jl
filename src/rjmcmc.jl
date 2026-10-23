@@ -147,6 +147,11 @@ n_j ~ Gamma(shape, μ/shape) where:
   `true`=learn both μ and shape, `false`=fix both,
   `:mu`=learn μ only (fix shape), `:shape`=learn shape only (fix μ)
 - `learn_rho=true`: Learn Poisson-K emitter density ρ independently of μ/shape.
+  Partitioned (`run_bagol`): ρ ~ Gamma(a + ΣK, 1/(b + A)), the density of emitters over
+  the analyzed region: A is the bounding-box area of all localizations (computed once
+  before partitioning) and ΣK counts each emitter once (a cluster weighs the fraction of
+  its localizations that are not overlap duplicates). Not the sum of partition areas.
+  The single-chain `run_collapsed_chain` update is unchanged.
   For fully fixed hyperparameters, set both `learn_distribution=false` and
   `learn_rho=false`.
 - `rho=nothing`: Initial ρ in emitters per unit area. If provided with
@@ -406,6 +411,16 @@ function _run_bagol_collapsed(
     locs, _se_tau, _se_msg = _maybe_apply_se_adjust(locs, _se_md, se_adjust, force_se_adjust)
     _se_tau !== nothing && _log_progress(_se_msg)
 
+    # Analyzed area for the pooled flat ρ update: bounding box of all localizations (no
+    # padding floor), computed once before partitioning. NaN if degenerate (zero extent).
+    _field_area = if isempty(locs)
+        NaN
+    else
+        xs = extrema(l.x for l in locs); ys = extrema(l.y for l in locs)
+        A = (xs[2] - xs[1]) * (ys[2] - ys[1])
+        A > 0 ? Float64(A) : NaN
+    end
+
     _log_progress("Partitioning $(length(locs)) localizations (partition_sigma=$partition_sigma)...")
 
     partitions, skipped = partition_locs(locs; partition_sigma, min_size=min_partition_size,
@@ -624,7 +639,9 @@ function _run_bagol_collapsed(
         # spatial-model type within a run, so it's enough to check the first state.
         ρ = if learn_rho && !isempty(states) && _uses_poisson_k_prior(states[1])
             _update_rho_collapsed_global!(states, partition_areas, config_nt;
-                                          cluster_masks=cluster_masks)
+                                          cluster_masks=cluster_masks,
+                                          field_area=isnan(_field_area) ? nothing : _field_area,
+                                          is_overlap=[p.is_overlap for p in partitions])
         else
             ρ
         end

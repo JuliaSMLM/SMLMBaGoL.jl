@@ -183,20 +183,56 @@ function _update_rho_collapsed(state::CollapsedState, A::Float64, config::NamedT
 end
 
 """
-    _update_rho_collapsed_global!(states, areas, config; cluster_masks=nothing) -> Float64
+    _update_rho_collapsed_global!(states, areas, config; cluster_masks=nothing,
+                                  field_area=nothing, is_overlap=nothing) -> Float64
 
-Conjugate Gamma update for ρ pooled across all partitions.
-If `cluster_masks` is provided, only counts non-overlap active clusters per partition.
-Includes a partition's area only if it contributes ≥1 unmasked active cluster.
+Conjugate Gamma update for the emitter density ρ pooled across all partitions.
 
-Posterior: ρ | {K_j}, {A_j} ~ Gamma(a + ΣK_j, 1/(b + ΣA_j))
+Partitioned (`field_area` and `is_overlap` given): ρ is the density of emitters over
+the analyzed region. In the flat + Poisson target the spatial area cancels at fixed ρ
+(each cluster's −log A against the Poisson prior's +K log A), so ρ is the per-emitter
+prior factor and its correct value is the emitter density, not K per summed partition
+area. Partition areas are padded, floored and overlap-duplicated, so summing them
+biases ρ (the floor alone caps it near 1/(μ·9πσ²)).
+- Area: `field_area`, the bounding-box area of all localizations, computed once before
+  partitioning.
+- Count: each emitter once. A cluster counts with weight equal to the fraction of its
+  localizations that are not overlap (duplicated) localizations (`is_overlap[i]` is
+  the per-localization flag of partition `i`), so ΣK may be non-integer.
+
+Posterior: ρ | K, A ~ Gamma(a + ΣK_j, 1/(b + field_area))
+
+Without `field_area`/`is_overlap` it keeps the legacy pooled form: counts the active
+clusters (those with `cluster_masks[i][j]` if given) and sums the areas of partitions
+that contribute at least one, Gamma(a + ΣK_j, 1/(b + ΣA_j)). The single-chain path
+(`run_collapsed_chain`, `_update_rho_collapsed`) is unchanged.
 """
 function _update_rho_collapsed_global!(states::AbstractVector{<:CollapsedState},
                                        areas::Vector{Float64},
                                        config::NamedTuple;
-                                       cluster_masks::Union{Nothing, Vector{BitVector}}=nothing)
+                                       cluster_masks::Union{Nothing, Vector{BitVector}}=nothing,
+                                       field_area::Union{Nothing, Float64}=nothing,
+                                       is_overlap::Union{Nothing, Vector{BitVector}}=nothing)
     a = config.ρ_prior_shape
     b = config.ρ_prior_rate
+    if field_area !== nothing && is_overlap !== nothing
+        total_K = 0.0
+        for i in eachindex(states)
+            st = states[i]
+            n_tot = zeros(Int, length(st.clusters))
+            n_own = zeros(Int, length(st.clusters))
+            @inbounds for l in eachindex(st.assignments)
+                c = st.assignments[l]
+                c > 0 || continue
+                n_tot[c] += 1
+                is_overlap[i][l] || (n_own[c] += 1)
+            end
+            for c in eachindex(n_tot)
+                st.active[c] && n_tot[c] > 0 && (total_K += n_own[c] / n_tot[c])
+            end
+        end
+        return rand(Gamma(a + total_K, 1.0 / (b + field_area)))
+    end
     total_K = 0
     total_A = 0.0
     for i in eachindex(states)
