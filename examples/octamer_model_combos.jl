@@ -18,7 +18,11 @@
 # localization-mixture prior cancels that factor (≡ flat with ρ = 1/(2πσ²), one
 # emitter per resolution cell), so its target is count-driven. This is why there is
 # no single "Fazel arm": Fazel's count-driven recovery is reproduced in the collapsed
-# formalism by locmix, not by the flat/uniform-prior arms. Full derivation + exact
+# formalism by locmix, not by the flat/uniform-prior arms.
+# The ipp arms (the run_bagol default since 0.4.6) carry the same flat marginal times a fixed
+# pilot-intensity factor g; at h = 0.2 µm g is smooth over a 40 nm ring, so they behave like the
+# flat Poisson-K arms here (same Occam factor, N≈7). (Arm order matters a little: this script
+# reseeds per arm, but a later arm can still land on N=7 where the same arm run first gives N=8.) Full derivation + exact
 # non-MCMC verification: dev/no_info_limit_derivation.md.
 #
 # The comparison grid (all entries pass run_bagol validation):
