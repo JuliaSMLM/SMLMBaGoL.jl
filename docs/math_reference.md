@@ -344,16 +344,21 @@ $\sim1.4$ nats measured). $\mu$ needs no such branch: it enters only the count m
 
 The density parameter $\rho$ is conjugate-updated only for `FlatSpatial`,
 because only that target contains $P_K(K\mid\rho,A)$. In the partitioned
-`run_bagol` path the update is
-$\rho \mid \cdot \sim \text{Gamma}(a+\sum K,\, 1/(b+A_{\text{field}}))$, where
-$A_{\text{field}}$ is the bounding-box area of all localizations (computed once,
-before partitioning) and $\sum K$ counts each emitter once: a cluster weighs the
-fraction of its localizations that are not overlap (duplicated) localizations.
-The spatial area cancels at fixed $\rho$ in the flat + Poisson target, so $\rho$ is
-the per-emitter prior factor and its value is the emitter density; summing the padded,
-floored, overlapping partition areas instead biases it low (the floor caps it near
-$1/(\mu\,9\pi\sigma^2)$). The single-chain path (`run_collapsed_chain`) is
-unchanged and uses its own area. For `LocmixSpatial`,
+`run_bagol` path with the flat target and Poisson $K$ prior, partition $i$ is given the
+area $A_i' = A_{\text{field}}\, n_i/N_{\text{all}}$ ($A_{\text{field}}$: bounding box
+of all localizations, computed once; $n_i$: localizations of partition $i$ including
+overlap copies; $N_{\text{all}}$: all input localizations) in both its flat spatial
+prior and its Poisson prior, so the areas cancel at fixed $\rho$ and the clustering
+target is unchanged. The full conditional is then exactly conjugate,
+$\rho \mid z \sim \text{Gamma}(a+\sum_i K_i,\, 1/(b+\sum_i A_i'))$, with $K_i$ all
+active clusters of partition $i$ (no overlap masking: halo copies carry their own area
+share) and $\sum_i A_i'$ the exposure, so $\rho$ is the emitter density. Summing the
+padded, floored, overlapping partition areas instead biases it low (the floor caps it
+near $1/(\mu\,9\pi\sigma^2)$). The default prior $\text{Gamma}(2,1)$ acts as
+$1\,\mu\text{m}^2$ of pseudo-area: negligible on whole cells, material below a few
+$\mu\text{m}^2$ (set `ρ_prior_rate` on small fields). A zero-extent field falls back to
+the old areas with a warning; `k_prior=:none`, locmix and the single-chain path
+(`run_collapsed_chain`) are unchanged. For `LocmixSpatial`,
 $\rho$ is not part of the target and remains at its initialized value in
 diagnostics.
 

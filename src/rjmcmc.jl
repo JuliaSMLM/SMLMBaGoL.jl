@@ -147,11 +147,14 @@ n_j ~ Gamma(shape, μ/shape) where:
   `true`=learn both μ and shape, `false`=fix both,
   `:mu`=learn μ only (fix shape), `:shape`=learn shape only (fix μ)
 - `learn_rho=true`: Learn Poisson-K emitter density ρ independently of μ/shape.
-  Partitioned (`run_bagol`): ρ ~ Gamma(a + ΣK, 1/(b + A)), the density of emitters over
-  the analyzed region: A is the bounding-box area of all localizations (computed once
-  before partitioning) and ΣK counts each emitter once (a cluster weighs the fraction of
-  its localizations that are not overlap duplicates). Not the sum of partition areas.
-  The single-chain `run_collapsed_chain` update is unchanged.
+  Partitioned `run_bagol` with the flat spatial model and Poisson K prior: partition i
+  gets the area A_i = A_field·n_i/N_all (A_field = bounding box of all localizations,
+  n_i = its localizations including overlap copies, N_all = all input localizations)
+  in both its FlatSpatial and its Poisson K prior, so they cancel at fixed ρ, and
+  ρ ~ Gamma(a + ΣK_i, 1/(b + ΣA_i)) over all active clusters: the emitter density.
+  The default prior Gamma(2, 1) acts as 1 µm² of pseudo-area: negligible on whole cells,
+  material on fields below a few µm² (set `ρ_prior_rate` there). The single-chain
+  `run_collapsed_chain` update is unchanged.
   For fully fixed hyperparameters, set both `learn_distribution=false` and
   `learn_rho=false`.
 - `rho=nothing`: Initial ρ in emitters per unit area. If provided with
@@ -316,6 +319,9 @@ end
 # Collapsed Gibbs sampler dispatch
 # ============================================================================
 
+# Area share of a partition of n_i localizations (overlap copies included) out of n_all.
+_partition_area_share(field_area, n_i, n_all) = field_area * n_i / n_all
+
 function _run_bagol_collapsed(
     smld::SMLMData.SMLD;
     partition_sigma::Float64 = 3.0,
@@ -420,6 +426,7 @@ function _run_bagol_collapsed(
         A = (xs[2] - xs[1]) * (ys[2] - ys[1])
         A > 0 ? Float64(A) : NaN
     end
+    _n_all = length(locs)
 
     _log_progress("Partitioning $(length(locs)) localizations (partition_sigma=$partition_sigma)...")
 
@@ -445,6 +452,15 @@ function _run_bagol_collapsed(
     n_overlap_locs = sum(count(p.is_overlap) for p in partitions)
 
     n_partitions = length(partitions)
+
+    # Flat + Poisson K prior: partition i gets the area share A_field·n_i/N_all (n_i counts
+    # overlap copies) in BOTH its FlatSpatial and its Poisson prior, so they still cancel at
+    # fixed ρ (clustering target unchanged) and ΣA_i is the exposure of the pooled ρ update.
+    _use_field_area = spatial_model === :flat && motion === :none && k_prior !== :none
+    if _use_field_area && isnan(_field_area)
+        @warn "run_bagol: localizations have zero spatial extent; learned ρ uses the summed partition areas"
+        _use_field_area = false
+    end
 
     # Allocation model
     allocation_model in (:dm, :decoupled, :categorical) ||
@@ -514,7 +530,8 @@ function _run_bagol_collapsed(
             elseif spatial_model_sym === :locmix
                 LocmixSpatial(p_locs)
             else
-                FlatSpatial(log(area(UniformSpatialPrior(p_locs))))
+                FlatSpatial(_use_field_area ? log(_partition_area_share(_field_area, length(p_locs), _n_all)) :
+                            log(area(UniformSpatialPrior(p_locs))))
             end
             # Resolve k_prior into a concrete bool for this partition.
             # (Compatibility check already done outside the @spawn block.)
@@ -639,9 +656,7 @@ function _run_bagol_collapsed(
         # spatial-model type within a run, so it's enough to check the first state.
         ρ = if learn_rho && !isempty(states) && _uses_poisson_k_prior(states[1])
             _update_rho_collapsed_global!(states, partition_areas, config_nt;
-                                          cluster_masks=cluster_masks,
-                                          field_area=isnan(_field_area) ? nothing : _field_area,
-                                          is_overlap=[p.is_overlap for p in partitions])
+                                          cluster_masks=_use_field_area ? nothing : cluster_masks)
         else
             ρ
         end

@@ -782,6 +782,20 @@ import SMLMSim
         @test abs(d100.final_ρ / ρ_true - 1) < 0.30
         @test abs(d300.final_ρ / d100.final_ρ - 1) < 0.20      # P2
 
+        # Deterministic: area shares sum to A_field·(N with copies)/N_all, and a partition's
+        # FlatSpatial area (used by its Poisson K prior via spatial_area) equals its share.
+        let locs = smld.emitters
+            parts, _ = SMLMBaGoL.partition_locs(locs; max_size=300)
+            xs = extrema(e.x for e in locs); ys = extrema(e.y for e in locs)
+            A_field = (xs[2] - xs[1]) * (ys[2] - ys[1])
+            shares = [SMLMBaGoL._partition_area_share(A_field, length(p.locs), length(locs)) for p in parts]
+            @test sum(shares) ≈ A_field * sum(length(p.locs) for p in parts) / length(locs)
+            for (p, A) in zip(parts, shares)
+                sp = SMLMBaGoL.FlatSpatial(log(A))
+                @test SMLMBaGoL.spatial_area(sp) ≈ A
+            end
+        end
+
         smld_s, ρ_true_s = rho_field(3, 40, 2)                 # sparse, ~3 emitters/µm²
         d_s = learned_rho(smld_s, 300)
         @test abs(d_s.final_ρ / ρ_true_s - 1) < 0.30           # P3
