@@ -36,8 +36,9 @@ n_iterations = 4000
 burn_in = 2000
 sync_interval = 100         # iterations between global hierarchical μ/shape/ρ updates
 allocation_model = :dm      # :dm (Dirichlet-Multinomial) | :decoupled | :categorical
-spatial_model = :locmix     # :locmix (localization mixture) | :flat
-k_prior = :auto             # :auto | :poisson (only valid with :flat) | :none
+spatial_model = :locmix     # :locmix (default; per-partition normalization) | :ipp (inhomogeneous Poisson process, partition-invariant, under-splits isolated structures) | :flat
+intensity_bandwidth = 0.2   # kernel bandwidth h (μm) of the :ipp pilot intensity map
+k_prior = :auto             # :auto | :poisson (valid with :ipp and :flat) | :none
 n_restricted_scans = 5      # Jain-Neal restricted Gibbs scans for split/merge
 n_bd_substeps = 5           # birth/death substeps per BD selection
 

@@ -16,11 +16,12 @@ Configuration for BaGoL analysis. All fields correspond 1:1 to `run_bagol` kwarg
   `:mu`=learn μ only, `:shape`=learn shape only
 - `gamma=nothing`: DM concentration. `nothing`=use shape (default), `Float64`=fixed
 - `learn_rho=true`: Learn Poisson-K emitter density ρ independently of μ/shape.
-  Partitioned `run_bagol` with the flat spatial model and Poisson K prior: partition i
-  gets the area A_i = A_field·n_i/N_all (A_field = bounding box of all localizations,
-  n_i = its localizations including overlap copies, N_all = all input localizations)
-  in both its FlatSpatial and its Poisson K prior, so they cancel at fixed ρ, and
-  ρ ~ Gamma(a + ΣK_i, 1/(b + ΣA_i)) over all active clusters: the emitter density.
+  Partitioned `run_bagol` with the `:ipp` or `:flat` spatial model and Poisson K prior:
+  partition i gets the exposure A_i = A_field·n_i/N_all (A_field = bounding box of all
+  localizations, n_i = its localizations including overlap copies, N_all = all input
+  localizations) in both its spatial area and its Poisson K prior, so they cancel at
+  fixed ρ, and ρ ~ Gamma(a + ΣK_i, 1/(b + ΣA_i)) over all active clusters: the emitter
+  density.
   The default prior Gamma(2, 1) acts as 1 µm² of pseudo-area: negligible on whole cells,
   material on fields below a few µm² (pass the `run_bagol` keyword `ρ_prior_rate` there; it is not a config field). The single-chain
   `run_collapsed_chain` update is unchanged.
@@ -28,7 +29,7 @@ Configuration for BaGoL analysis. All fields correspond 1:1 to `run_bagol` kwarg
   `learn_rho=false`.
 - `rho=nothing`: Initial ρ in emitters per unit area. If provided with
   `learn_rho=false`, hold this fixed for Fazel-style fixed-ρ-over-bounding-box
-  flat Poisson-K runs.
+  flat Poisson-K runs. When `nothing` (`:ipp`, `:flat`), ρ starts at `N_all/(μ₀·A_field)`.
 
 # MCMC
 - `n_iterations=4000`: Total MCMC iterations
@@ -37,10 +38,15 @@ Configuration for BaGoL analysis. All fields correspond 1:1 to `run_bagol` kwarg
 - `allocation_model=:dm`: `:dm` (Dirichlet-Multinomial), `:decoupled`
   (no partition prior), or `:categorical` (labeled K^(-N) — Fazel-equivalent
   when paired with `spatial_model=:flat` + `k_prior=:none`)
-- `spatial_model=:locmix`: `:locmix` (localization mixture) or `:flat`
+- `spatial_model=:locmix`: `:locmix` (default; localization mixture, normalized per partition,
+  so its output depends on the partitioning: dense fields are under-counted), `:ipp`
+  (inhomogeneous Poisson process with a fixed pilot intensity g and global density ρ;
+  partition-invariant, calibrated for dense fields, but under-splits isolated structures such
+  as rulers and origami), or `:flat` (uniform)
+- `intensity_bandwidth=0.2`: Kernel bandwidth h (µm) of the `:ipp` pilot intensity g
 - `k_prior=:auto`: K-prior gating. `:auto` uses spatial-model default
-  (Poisson(ρA) under `:flat`, none under `:locmix`); `:poisson` always
-  include (only valid with `:flat`); `:none` always disable
+  (Poisson(ρA) under `:ipp` and `:flat`, none under `:locmix`); `:poisson` always
+  include (valid with `:ipp` and `:flat`); `:none` always disable
 - `n_restricted_scans=5`: Jain-Neal restricted Gibbs scans for split/merge
 - `n_bd_substeps=5`: Birth/death substeps per BD selection
 
@@ -83,6 +89,8 @@ Base.@kwdef struct BaGoLConfig <: SMLMData.AbstractSMLMConfig
     sync_interval::Int = 100
     allocation_model::Symbol = :dm
     spatial_model::Symbol = :locmix
+    # Pilot-intensity kernel bandwidth (µm) for spatial_model=:ipp.
+    intensity_bandwidth::Float64 = 0.2
     # K prior gating (:auto = use spatial-model default; :poisson = always include
     # Poisson(ρA); :none = never). ρ updates are controlled by learn_rho.
     # :auto preserves existing behavior.

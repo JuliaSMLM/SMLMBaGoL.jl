@@ -93,6 +93,29 @@ algebraic check of the DM decomposition under locmix spatial likelihoods.
 struct DirectNegBinLocmixTarget <: AbstractTargetDensity end
 
 """
+    IPPTarget(map::IntensityMap) <: AbstractTargetDensity
+
+Inhomogeneous-Poisson-process target (`spatial_model=:ipp`, `allocation_model=:dm`,
+`k_prior=:poisson`) for a FIXED prebuilt pilot intensity `map` (the same `IntensityMap` the
+sampler is given through `intensity_map`). The cancelled canonical target, the one
+convention used by `exact_posterior` (with `label_multiplicity=:none`) and by the
+brute-force / detailed-balance drivers:
+
+    log T(z) = Σ_k [log ML_flat(c_k) + log ρ + log g(θ̂_k)] + log DM(z|K,γ)
+               + log NegBin(N; Kα, p) − ρA
+
+i.e. the sampler's Poisson(ρA) prior with its `−log K!` removed by the `+log K!` of the
+K! labeled-occupant correction (`Δ_Kfac`), and the flat `−log A` per cluster cancelled by
+the prior's `K log A`. The exposure is `A = exp(log_area)` of the spatial model
+(`A_i' = A_field·n_i/N_all` for a partition). Here `θ̂_k` is the cluster posterior mean
+(saddle point of `ML × E[g]`). With `map ≡ 1` this equals `DMFlatTarget` with
+`label_multiplicity=:factorial`.
+"""
+struct IPPTarget <: AbstractTargetDensity
+    map::IntensityMap
+end
+
+"""
     FazelFlatTarget <: AbstractTargetDensity
 
 Fazel-equivalent no-drift collapsed target after analytically integrating
@@ -198,6 +221,21 @@ function log_target(::DirectNegBinLocmixTarget, z::AbstractVector{<:Integer},
     return log_counts + log_assign + log_spatial
 end
 
+function log_target(::IPPTarget, z::AbstractVector{<:Integer},
+                    loc_precs::Vector{<:LocPrecision}, sp::IntensitySpatial,
+                    μ::Float64, shape::Float64, ρ::Float64)
+    N = length(z)
+    K = _count_clusters(z)
+    A = spatial_area(sp)
+    counts = _cluster_counts(z)
+    log_count = _log_count_term(K, N, shape, μ)
+    log_dm = _log_dm_term(counts, N, shape)
+    # cancelled canonical Poisson prior: log_prior_k_poisson(K) + log K! (the sampler's Δ_Kfac)
+    log_k_prior = log_prior_k_poisson(K, ρ, A) + logfactorial(K)
+    log_spatial = _sum_cluster_ml_spatial(z, loc_precs, sp)
+    return log_k_prior + log_count + log_dm + log_spatial
+end
+
 function log_target(::FazelFlatTarget, z::AbstractVector{<:Integer},
                     loc_precs::Vector{<:LocPrecision}, sp::AbstractSpatialModel,
                     μ::Float64, shape::Float64, ρ::Float64)
@@ -219,8 +257,7 @@ function evaluate_target(td::AbstractTargetDensity,
                          locs::Vector{<:SMLMData.AbstractEmitter};
                          μ::Float64, shape::Float64, ρ::Float64=2.0)
     loc_precs = precompute_loc_precisions(locs)
-    spatial_prior = UniformSpatialPrior(locs)
-    log_area = log(area(spatial_prior))
+    log_area = _target_log_area(td, locs)
     sp = _target_spatial(td, loc_precs, log_area)
     return log_target(td, z, loc_precs, sp, μ, shape, ρ)
 end
@@ -229,12 +266,23 @@ end
 # Internal helpers
 # ============================================================================
 
+# Log exposure of the target for `locs`: the padded uniform-prior area, except for a
+# prebuilt IPP map whose exposure is its field area times the share of localizations.
+_target_log_area(::AbstractTargetDensity, locs) = log(area(UniformSpatialPrior(locs)))
+_target_log_area(td::IPPTarget, locs) = log(td.map.field_area * length(locs) / td.map.n_all)
+
+# Default label_multiplicity of exact_posterior / run_kernel_invariance_test: IPPTarget's
+# log_target is already the cancelled canonical target.
+_default_label_multiplicity(::AbstractTargetDensity) = :factorial
+_default_label_multiplicity(::IPPTarget) = :none
+
 _target_spatial(::DecoupledTarget, loc_precs::Vector{<:LocPrecision}, log_area::Float64) = FlatSpatial(log_area)
 _target_spatial(::DMFlatTarget, loc_precs::Vector{<:LocPrecision}, log_area::Float64) = FlatSpatial(log_area)
 _target_spatial(::DirectNegBinFlatTarget, loc_precs::Vector{<:LocPrecision}, log_area::Float64) = FlatSpatial(log_area)
 _target_spatial(::DecoupledLocmixTarget, loc_precs::Vector{<:LocPrecision}, log_area::Float64) = LocmixSpatial(loc_precs)
 _target_spatial(::DMLocmixTarget, loc_precs::Vector{<:LocPrecision}, log_area::Float64) = LocmixSpatial(loc_precs)
 _target_spatial(::DirectNegBinLocmixTarget, loc_precs::Vector{<:LocPrecision}, log_area::Float64) = LocmixSpatial(loc_precs)
+_target_spatial(td::IPPTarget, loc_precs::Vector{<:LocPrecision}, log_area::Float64) = IntensitySpatial(log_area, td.map)
 _target_spatial(::FazelFlatTarget, loc_precs::Vector{<:LocPrecision}, log_area::Float64) = FlatSpatial(log_area)
 
 _diagnostic_sampler_kwargs(::DecoupledTarget) = (spatial_model=:flat, allocation_model=:decoupled, k_prior=:poisson)
@@ -243,6 +291,7 @@ _diagnostic_sampler_kwargs(::DirectNegBinFlatTarget) = (spatial_model=:flat, all
 _diagnostic_sampler_kwargs(::DecoupledLocmixTarget) = (spatial_model=:locmix, allocation_model=:decoupled, k_prior=:none)
 _diagnostic_sampler_kwargs(::DMLocmixTarget) = (spatial_model=:locmix, allocation_model=:dm, k_prior=:none)
 _diagnostic_sampler_kwargs(::DirectNegBinLocmixTarget) = (spatial_model=:locmix, allocation_model=:dm, k_prior=:none)
+_diagnostic_sampler_kwargs(td::IPPTarget) = (spatial_model=:ipp, allocation_model=:dm, k_prior=:poisson, intensity_map=td.map)
 _diagnostic_sampler_kwargs(::FazelFlatTarget) = (spatial_model=:flat, allocation_model=:categorical, k_prior=:none)
 
 function _count_clusters(z::AbstractVector{<:Integer})

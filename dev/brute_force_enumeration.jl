@@ -5,12 +5,19 @@
 # then run the MCMC sampler and compare empirical visit frequencies to the
 # exact posterior.
 #
+# Targets: `:flat` (flat spatial + Poisson K) and `:ipp` (inhomogeneous Poisson process with a
+# NON-constant pilot intensity map, built from the data at a bandwidth of a few sigma). Both
+# use the single diagnostics convention, the cancelled canonical target (label_multiplicity
+# = :none): the sampler's Poisson(rho A) prior with its -log K! removed by the K! of the
+# K-moves, i.e. log_prior_k_poisson(K) + log K!. (The earlier T1 convention without the +log K!
+# differs from what the sampler samples by a factor K! and hid in peaked posteriors.)
+#
 # Usage:
 #   julia --project=. dev/brute_force_enumeration.jl
 
 using SMLMBaGoL
 using SMLMData
-using SpecialFunctions: loggamma
+using SpecialFunctions: loggamma, logfactorial
 using Distributions
 using Random
 using Printf
@@ -105,14 +112,19 @@ log π(z) = log P_count(N|K) + log P_partition(z|K) + Σ_k log ML_k + log P_K(K|
 where:
 - P_count uses _log_count_posterior (NegBin)
 - P_partition uses the Dirichlet-Multinomial formula (MFM)
-- ML_k uses log_marginal_likelihood with log_area (uniform spatial prior)
+- ML_k uses spatial_ml(cs, sp): log_marginal_likelihood with log_area (flat), plus log g(θ̂) (ipp)
+- the K prior is the cancelled canonical one: log_prior_k_poisson(K) + log K!  (the sampler's
+  Δ_Kfac), so this is the target the sampler actually samples over canonical partitions.
+  Pass `kfac=false` for the old T1 convention (self-validation only).
 """
 function log_target_density(z::Vector{Int}, K::Int, N::Int,
                             locs::Vector{<:SMLMData.AbstractEmitter},
                             loc_precs::Vector{<:SMLMBaGoL.LocPrecision},
                             log_area::Float64,
                             μ::Float64, shape::Float64,
-                            ρ::Float64, A::Float64)
+                            ρ::Float64, A::Float64;
+                            sp::SMLMBaGoL.AbstractSpatialModel = SMLMBaGoL.FlatSpatial(log_area),
+                            kfac::Bool = true)
     # 1. Count model: P(N|K)
     log_count = SMLMBaGoL._log_count_posterior(K, N, shape, μ)
 
@@ -138,11 +150,11 @@ function log_target_density(z::Vector{Int}, K::Int, N::Int,
                 cs = SMLMBaGoL.add_loc(cs, loc_precs[i])
             end
         end
-        log_spatial += SMLMBaGoL.log_marginal_likelihood(cs, log_area)
+        log_spatial += SMLMBaGoL.spatial_ml(cs, sp)
     end
 
-    # 4. Poisson(ρA) prior on K
-    log_k_prior = SMLMBaGoL.log_prior_k_poisson(K, ρ, A)
+    # 4. Poisson(ρA) prior on K, with the K! labeled-occupant correction (cancelled target)
+    log_k_prior = SMLMBaGoL.log_prior_k_poisson(K, ρ, A) + (kfac ? logfactorial(K) : 0.0)
 
     return log_count + log_partition + log_spatial + log_k_prior
 end
@@ -192,11 +204,12 @@ function run_mcmc_with_tracking(locs::Vector{<:SMLMData.AbstractEmitter},
                                  n_iterations::Int, burn_in::Int,
                                  μ::Float64, shape::Float64, ρ::Float64,
                                  K_max::Int;
-                                 seed::Int=123)
+                                 seed::Int=123,
+                                 sp::SMLMBaGoL.AbstractSpatialModel = SMLMBaGoL.FlatSpatial(
+                                     log(SMLMBaGoL.area(SMLMBaGoL.UniformSpatialPrior(locs)))))
     Random.seed!(seed)
 
-    spatial_prior = SMLMBaGoL.UniformSpatialPrior(locs)
-    state = SMLMBaGoL.initialize_collapsed_state(locs, spatial_prior)
+    state = SMLMBaGoL.initialize_collapsed_state(locs, sp)
 
     visit_counts = Dict{Int, Int}()
     k_trace = Int[]  # K time series for ESS estimation
@@ -304,6 +317,28 @@ end
 
 
 # ============================================================================
+# Spatial model setup
+# ============================================================================
+
+"""
+(sp, td) for a spatial config. `:flat` -> FlatSpatial + DMFlatTarget. `:ipp` -> IntensitySpatial
+with a pilot intensity map built from the data over the same padded box at `bandwidth`
+(a few sigma, so log g varies strongly across the localizations: a NON-constant map) +
+IPPTarget (the library's cancelled canonical target, used as a cross-check of the
+driver's own component sum).
+"""
+function spatial_setup(spatial::Symbol, locs, spatial_prior; bandwidth::Float64=0.02)
+    log_area = log(SMLMBaGoL.area(spatial_prior))
+    if spatial === :flat
+        return SMLMBaGoL.FlatSpatial(log_area), SMLMBaGoL.DMFlatTarget()
+    elseif spatial === :ipp
+        m = SMLMBaGoL.build_intensity_map(locs, spatial_prior; bandwidth=bandwidth)
+        return SMLMBaGoL.IntensitySpatial(log_area, m), SMLMBaGoL.IPPTarget(m)
+    end
+    error("unknown spatial config $spatial")
+end
+
+# ============================================================================
 # Main test
 # ============================================================================
 
@@ -319,6 +354,8 @@ function run_test(;
     test_name::String,
     seed_data::Int=42,
     seed_mcmc::Int=123,
+    spatial::Symbol=:flat,
+    bandwidth::Float64=0.02,
 )
     println("\n" * "="^80)
     println("TEST: $test_name")
@@ -341,6 +378,10 @@ function run_test(;
     log_area = log(SMLMBaGoL.area(spatial_prior))
     ρ = 2.0  # Poisson rate for K prior
     A = exp(log_area)
+    sp, td = spatial_setup(spatial, locs, spatial_prior; bandwidth=bandwidth)
+    println("  spatial = $spatial" * (spatial === :ipp ?
+            "  (non-constant map, bandwidth $(bandwidth) um: log g at locs in [" *
+            @sprintf("%.3f, %.3f", extrema(SMLMBaGoL.log_intensity(sp.map, l.x, l.y) for l in locs)...) * "])" : ""))
 
     # -----------------------------------------------------------------------
     # Step 1: Enumerate all canonical partitions
@@ -365,7 +406,7 @@ function run_test(;
     log_targets = Float64[]
     hashes = Int[]
     for (z, K) in partitions
-        lt = log_target_density(z, K, N, locs, loc_precs, log_area, μ, shape, ρ, A)
+        lt = log_target_density(z, K, N, locs, loc_precs, log_area, μ, shape, ρ, A; sp=sp)
         push!(log_targets, lt)
         z_canon = canonicalize(z)
         push!(hashes, partition_hash(z_canon, K_max))
@@ -376,6 +417,13 @@ function run_test(;
     probs_unnorm = exp.(log_targets .- max_lt)
     Z = sum(probs_unnorm)
     probs_exact = probs_unnorm ./ Z
+
+    # Cross-check against the library target (same convention: cancelled canonical,
+    # label_multiplicity = :none for IPPTarget, :factorial = +log K! for the flat target).
+    p_lib, _ = SMLMBaGoL.exact_posterior([z for (z, _) in partitions], locs, td; μ=μ, shape=shape, ρ=ρ)
+    xcheck = maximum(abs.(p_lib .- probs_exact))
+    @printf("  Library exact_posterior(%s) vs driver component sum: max |dP| = %.2e\n",
+            nameof(typeof(td)), xcheck)
 
     # Show top partitions by exact probability
     sorted_idx = sortperm(probs_exact, rev=true)
@@ -405,7 +453,7 @@ function run_test(;
     # -----------------------------------------------------------------------
     println("\n  Running MCMC: $n_iterations iterations, $burn_in burn-in...")
     visit_counts, n_samples, acceptance, k_trace = run_mcmc_with_tracking(
-        locs, n_iterations, burn_in, μ, shape, ρ, K_max; seed=seed_mcmc)
+        locs, n_iterations, burn_in, μ, shape, ρ, K_max; seed=seed_mcmc, sp=sp)
 
     println("  Collected $n_samples post-burn-in samples")
     ess_k = estimate_ess_from_trace(k_trace)
@@ -497,6 +545,18 @@ function run_test(;
     kl_marginal = kl_divergence(pk_exact_vec, pk_mcmc_vec)
     tv_marginal = tv_distance(pk_exact_vec, pk_mcmc_vec)
 
+    # Self-validation of the convention: the OLD T1 target (no +log K!) must fit the sampler
+    # worse than the cancelled one whenever the K posterior is spread over several K.
+    lt_T1 = [log_target_density(z, K, N, locs, loc_precs, log_area, μ, shape, ρ, A; sp=sp, kfac=false)
+             for (z, K) in partitions]
+    p_T1 = exp.(lt_T1 .- maximum(lt_T1)); p_T1 ./= sum(p_T1)
+    pk_T1 = Dict{Int, Float64}()
+    for (i, (_, K)) in enumerate(partitions)
+        pk_T1[K] = get(pk_T1, K, 0.0) + p_T1[i]
+    end
+    kl_T1 = kl_divergence([pk_T1[K] for K in sort(collect(keys(pk_exact)))], pk_mcmc_vec)
+    spread = maximum(values(pk_exact)) < 0.95
+
     # Chi-squared on marginal P(K) with ESS correction for autocorrelation
     n_eff = ess_k
     chi2_marginal = 0.0
@@ -548,7 +608,10 @@ function run_test(;
     pass_kl = kl_marginal < 0.05
     pass_tv = tv_marginal < 0.10
     pass_ratio = max_ratio_dev < 0.50
-    pass = pass_kl && pass_tv && pass_ratio
+    pass_xcheck = xcheck < 1e-9
+    pass_conv = !spread || kl_marginal < kl_T1      # cancelled target beats T1 when K is spread
+    spread && @printf("    KL(T1 convention, no +log K!) = %.6f  vs cancelled %.6f  (spread posterior)\n", kl_T1, kl_marginal)
+    pass = pass_kl && pass_tv && pass_ratio && pass_xcheck && pass_conv
 
     verdict = pass ? "PASS" : "FAIL"
     color_start = pass ? "\033[32m" : "\033[31m"
@@ -577,8 +640,10 @@ end
 # Run tests
 # ============================================================================
 
-function main()
-    println("Brute-Force Enumeration Test for Collapsed Gibbs Sampler")
+function main(spatial::Symbol)
+    println("\n" * "#"^80)
+    println("# Brute-Force Enumeration Test for Collapsed Gibbs Sampler, spatial = $spatial")
+    println("#"^80)
     println("Comparing exact posterior P(z|data) to MCMC visit frequencies")
 
     all_pass = true
@@ -596,6 +661,7 @@ function main()
         test_name = "Well-separated dimer (50nm apart, σ=5nm, d/σ=10)",
         seed_data = 42,
         seed_mcmc = 123,
+        spatial = spatial,
     )
     all_pass &= pass1
 
@@ -612,6 +678,7 @@ function main()
         test_name = "Close dimer (15nm apart, σ=5nm, d/σ=3)",
         seed_data = 42,
         seed_mcmc = 456,
+        spatial = spatial,
     )
     all_pass &= pass2
 
@@ -628,6 +695,7 @@ function main()
         test_name = "Single emitter (N=6, μ=6)",
         seed_data = 42,
         seed_mcmc = 789,
+        spatial = spatial,
     )
     all_pass &= pass3
 
@@ -644,19 +712,39 @@ function main()
         test_name = "Well-separated dimer N=8 (40nm apart, σ=5nm, d/σ=8)",
         seed_data = 42,
         seed_mcmc = 321,
+        spatial = spatial,
     )
     all_pass &= pass4
 
+    # Test 5: marginally resolved dimer (22.5nm): the K posterior is spread over K=1,2
+    # (about 0.6 / 0.4), so a wrong K! convention or spatial term shows up in P(K).
+    pass5, _, _, _ = run_test(
+        emitter_positions = [(0.0, 0.0), (0.0225, 0.0)],
+        n_per = 3,
+        σ = 0.005,
+        μ = 6.0,
+        shape = 2.0,
+        K_max = 4,
+        n_iterations = 2_000_000,
+        burn_in = 50_000,
+        test_name = "Spread posterior (marginal dimer, 22.5nm, σ=5nm, n_per=3, μ=6)",
+        seed_data = 42,
+        seed_mcmc = 654,
+        spatial = spatial,
+    )
+    all_pass &= pass5
+
     println("\n" * "="^80)
     if all_pass
-        println("\033[32mALL TESTS PASSED\033[0m")
+        println("\033[32mALL TESTS PASSED ($spatial)\033[0m")
     else
-        println("\033[31mSOME TESTS FAILED\033[0m")
+        println("\033[31mSOME TESTS FAILED ($spatial)\033[0m")
     end
     println("="^80)
+    return all_pass
 end
 
-main()
+all_ok = Bool[main(sp) for sp in (:flat, :ipp)]
 
 # ============================================================================
 # SPLIT/MERGE ONLY mode — isolate whether bias comes from Gibbs or split/merge
@@ -674,11 +762,12 @@ function run_splitmerge_only_tracking(locs::Vector{<:SMLMData.AbstractEmitter},
                                       n_iterations::Int, burn_in::Int,
                                       μ::Float64, shape::Float64, ρ::Float64,
                                       K_max::Int;
-                                      seed::Int=123)
+                                      seed::Int=123,
+                                      sp::SMLMBaGoL.AbstractSpatialModel = SMLMBaGoL.FlatSpatial(
+                                          log(SMLMBaGoL.area(SMLMBaGoL.UniformSpatialPrior(locs)))))
     Random.seed!(seed)
 
-    spatial_prior = SMLMBaGoL.UniformSpatialPrior(locs)
-    state = SMLMBaGoL.initialize_collapsed_state(locs, spatial_prior)
+    state = SMLMBaGoL.initialize_collapsed_state(locs, sp)
 
     visit_counts = Dict{Int, Int}()
     k_trace = Int[]
@@ -730,6 +819,8 @@ function run_splitmerge_only_test(;
     test_name::String,
     seed_data::Int=42,
     seed_mcmc::Int=123,
+    spatial::Symbol=:flat,
+    bandwidth::Float64=0.02,
 )
     println("\n" * "="^80)
     println("TEST: $test_name")
@@ -752,6 +843,7 @@ function run_splitmerge_only_test(;
     log_area = log(SMLMBaGoL.area(spatial_prior))
     ρ = 2.0
     A = exp(log_area)
+    sp, td = spatial_setup(spatial, locs, spatial_prior; bandwidth=bandwidth)
 
     # -----------------------------------------------------------------------
     # Step 1: Enumerate all canonical partitions
@@ -775,7 +867,7 @@ function run_splitmerge_only_test(;
     log_targets = Float64[]
     hashes = Int[]
     for (z, K) in partitions
-        lt = log_target_density(z, K, N, locs, loc_precs, log_area, μ, shape, ρ, A)
+        lt = log_target_density(z, K, N, locs, loc_precs, log_area, μ, shape, ρ, A; sp=sp)
         push!(log_targets, lt)
         z_canon = canonicalize(z)
         push!(hashes, partition_hash(z_canon, K_max))
@@ -801,7 +893,7 @@ function run_splitmerge_only_test(;
     # -----------------------------------------------------------------------
     println("\n  Running SPLIT/MERGE ONLY MCMC: $n_iterations iterations, $burn_in burn-in...")
     visit_counts, n_samples, acceptance, k_trace = run_splitmerge_only_tracking(
-        locs, n_iterations, burn_in, μ, shape, ρ, K_max; seed=seed_mcmc)
+        locs, n_iterations, burn_in, μ, shape, ρ, K_max; seed=seed_mcmc, sp=sp)
 
     println("  Collected $n_samples post-burn-in samples")
     ess_k = estimate_ess_from_trace(k_trace)
@@ -967,24 +1059,31 @@ println("# SPLIT/MERGE ONLY DIAGNOSTIC")
 println("# Isolating whether bias comes from Gibbs sweep or split/merge kernel")
 println("#"^80)
 
-pass_sm, _, _, _ = run_splitmerge_only_test(
-    emitter_positions = [(0.0, 0.0), (0.05, 0.0)],  # 50nm apart (same as Test 1)
-    n_per = 3,
-    σ = 0.005,  # 5nm uncertainty
-    μ = 3.0,
-    shape = 2.0,
-    K_max = 4,
-    n_iterations = 500_000,
-    burn_in = 50_000,
-    test_name = "SPLIT/MERGE ONLY (no Gibbs) — Well-separated dimer (50nm, σ=5nm, d/σ=10)",
-    seed_data = 42,
-    seed_mcmc = 123,
-)
-
-println("\n" * "="^80)
-if pass_sm
-    println("\033[32mSPLIT/MERGE ONLY: PASS — bias likely comes from Gibbs sweep\033[0m")
-else
-    println("\033[31mSPLIT/MERGE ONLY: FAIL — split/merge kernel has a bias\033[0m")
+pass_sm = Bool[]
+for spatial in (:flat, :ipp)
+    ok, _, _, _ = run_splitmerge_only_test(
+        emitter_positions = [(0.0, 0.0), (0.05, 0.0)],  # 50nm apart (same as Test 1)
+        n_per = 3,
+        σ = 0.005,  # 5nm uncertainty
+        μ = 3.0,
+        shape = 2.0,
+        K_max = 4,
+        n_iterations = 500_000,
+        burn_in = 50_000,
+        test_name = "SPLIT/MERGE ONLY (no Gibbs), $spatial — Well-separated dimer (50nm, σ=5nm, d/σ=10)",
+        seed_data = 42,
+        seed_mcmc = 123,
+        spatial = spatial,
+    )
+    push!(pass_sm, ok)
+    println("\n" * "="^80)
+    if ok
+        println("\033[32mSPLIT/MERGE ONLY ($spatial): PASS — bias likely comes from Gibbs sweep\033[0m")
+    else
+        println("\033[31mSPLIT/MERGE ONLY ($spatial): FAIL — split/merge kernel has a bias\033[0m")
+    end
+    println("="^80)
 end
-println("="^80)
+
+println("\nBRUTE-FORCE VERDICT: full-chain flat=$(all_ok[1]) ipp=$(all_ok[2]); split/merge-only flat=$(pass_sm[1]) ipp=$(pass_sm[2])")
+exit(all(all_ok) && all(pass_sm) ? 0 : 1)
