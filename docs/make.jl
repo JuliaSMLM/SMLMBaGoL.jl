@@ -1,8 +1,6 @@
 using Documenter
 using SMLMBaGoL
 
-DocMeta.setdocmeta!(SMLMBaGoL, :DocTestSetup, :(using SMLMBaGoL); recursive=true)
-
 makedocs(;
     modules = [SMLMBaGoL],
     authors = "klidke@unm.edu",
@@ -31,6 +29,8 @@ makedocs(;
         "API Reference" => "api.md",
     ],
     checkdocs = :exports,
+    # QA runs every docstring's jldoctest (decision 0018); manual pages use plain @example blocks
+    doctest = false,
 )
 
 deploydocs(;

@@ -9,6 +9,10 @@ Every exported type and function, grouped by topic.
 ```@index
 ```
 
+```@docs
+SMLMBaGoL
+```
+
 ## Main entry points
 
 ```@docs
