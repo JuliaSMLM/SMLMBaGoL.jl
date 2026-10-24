@@ -1680,12 +1680,21 @@ import SMLMSim
         @eval SMLMBaGoL.accumulator_update!(a::SpatialScoreAcc, state, locs, μ, shape, it) =
             push!(a.scores, sum(spatial_ml(cs, state.spatial) for (k, cs) in enumerate(state.clusters) if state.active[k]))
         @eval SMLMBaGoL.accumulator_result(a::SpatialScoreAcc) = a.scores
+        # a custom accumulator that has not declared its replay needs
+        @eval struct UndeclaredAcc <: AbstractAccumulator end
+        @eval UndeclaredAcc(; kw...) = UndeclaredAcc()
+        @eval SMLMBaGoL.accumulator_update!(a::UndeclaredAcc, state, locs, μ, shape, it) = nothing
+        @eval SMLMBaGoL.accumulator_result(a::UndeclaredAcc) = nothing
 
         @testset "archive records the spatial model; replay of spatial-model accumulators" begin
             plocs = S.partition_locs(locs_g)[1][1].locs
             smld = SMLMData.BasicSMLD(locs_g, SMLMData.IdealCamera(1:16, 1:16, 0.1), 1, 1)
             @test needs_spatial_model(EmitterCountHist) === false
             @test needs_spatial_model(SpatialScoreAcc) === true
+            for T in (EmitterCountHist, PosteriorImage, NNDistHist, S.PartitionSamples, S.PSMAccumulator)
+                @test needs_spatial_model(T) === false
+            end
+            @test_throws ArgumentError needs_spatial_model(UndeclaredAcc)
             dir_i = mktempdir()
             run_bagol(smld; spatial_model = :ipp, n_iterations = 100, burn_in = 20, sync_interval = 20,
                       archive_path = dir_i, verbose = false, posterior_pixel_size = 0.0)
@@ -1702,12 +1711,33 @@ import SMLMSim
             ar_l = BaGoLArchive(dir_l)
             @test ar_l.spatial_model === :locmix
             @test_throws ArgumentError S.compute_from_archive(SpatialScoreAcc, ar_l, 1, plocs)
+            @test_throws ArgumentError S.compute_from_archive(UndeclaredAcc, ar_l, 1, plocs)
+            @test_throws ArgumentError S.compute_from_archive(UndeclaredAcc, ar_i, 1, plocs)
             dir_f = mktempdir()
             run_bagol(smld; spatial_model = :flat, n_iterations = 100, burn_in = 20, sync_interval = 20,
                       archive_path = dir_f, verbose = false, posterior_pixel_size = 0.0)
             ar_f = BaGoLArchive(dir_f)
             @test ar_f.spatial_model === :flat
-            @test !isempty(S.compute_from_archive(SpatialScoreAcc, ar_f, 1, plocs))
+            # flat archives too: replay does not rebuild the chain's field-share exposure
+            @test_throws ArgumentError S.compute_from_archive(SpatialScoreAcc, ar_f, 1, plocs)
+            @test !isempty(S.compute_from_archive(SpatialScoreAcc, ar_f, 1, plocs;
+                                                  spatial = S.FlatSpatial(la)))
+            @test sum(S.compute_from_archive(EmitterCountHist, ar_f, 1, plocs)) > 0
+
+            # motion archives cannot be replayed with spatial accumulators
+            em = [SMLMData.Emitter2DFit{Float64}(0.002 * randn(), 0.002 * randn(), 1000.0, 10.0, 0.005, 0.005, 0.0, 0.0; frame = 10 * i) for i in 1:12]
+            dir_m = mktempdir()
+            run_bagol(SMLMData.BasicSMLD(em, SMLMData.IdealCamera(1:16, 1:16, 0.1), 1, 1); motion = :linear, se_adjust = 0.0,
+                      n_iterations = 60, burn_in = 20, sync_interval = 20, archive_path = dir_m,
+                      verbose = false, posterior_pixel_size = 0.0)
+            ar_m = BaGoLArchive(dir_m)
+            @test ar_m.spatial_model === :motion
+            mlocs = S.partition_locs(em)[1][1].locs
+            @test_throws ArgumentError S.compute_from_archive(SpatialScoreAcc, ar_m, 1, mlocs)
+            msp = S.motion_spatial(mlocs, 0.002, log(S.area(S.UniformSpatialPrior(mlocs))), 10.0, 110.0)
+            @test_throws ArgumentError S.compute_from_archive(SpatialScoreAcc, ar_m, 1, mlocs; spatial = msp)
+            @test_throws ArgumentError S.compute_from_archive(SpatialScoreAcc, ar_f, 1, plocs; spatial = msp)
+            @test sum(S.compute_from_archive(EmitterCountHist, ar_m, 1, mlocs)) > 0
         end
 
         @testset "motion=:linear rejects spatial_model=:ipp with k_prior=:poisson" begin

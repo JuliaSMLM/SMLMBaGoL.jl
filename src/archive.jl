@@ -205,15 +205,17 @@ end
 Run an accumulator on archived samples from a partition.
 Enables post-hoc analysis with any accumulator type.
 
-The built-in accumulators read only the assignment vector and the flat Gaussian cluster
-moments (counts, posterior means and covariances), never the spatial prior, so the same
-replay serves archives written under any spatial model. The reconstructed state carries a
-flat placeholder spatial model; an accumulator that evaluates it (`spatial_ml`, `spatial_pred`)
-declares so with `needs_spatial_model(::Type{MyAcc}) = true`. Replaying an `:ipp`, `:locmix` or
-`:motion` archive into such an accumulator throws an `ArgumentError` unless the caller supplies
-the model with `spatial=` (an `AbstractSpatialModel`, used for every sample, so it must be the
-one of this partition: e.g. `IntensitySpatial(log_area, map)`). The model is recorded in the
-archive header (`archive.spatial_model`; `:unrecorded` for older archives, replayed as flat).
+Every accumulator type declares its replay need with [`needs_spatial_model`](@ref); an
+undeclared type throws. The built-ins read only the assignment vector and the flat Gaussian
+cluster moments (counts, posterior means and covariances), declare `false`, and replay under
+any archive's spatial model with a placeholder state. An accumulator declaring `true`
+(it evaluates `spatial_ml` / `spatial_pred`) always needs the caller to pass the original
+partition model with its exposure via `spatial=` (an `AbstractSpatialModel` used for every
+sample, e.g. `IntensitySpatial(log_area, map)` or `FlatSpatial(log_area)` with the field-share
+area the chain used), for flat archives too: sampling uses the field exposure share
+`A_field·n_i/N_all`, which a rebuilt padded-area model does not reproduce. Archives written
+under `motion=:linear` cannot be replayed with spatial accumulators (`MotionSpatial` is not
+supported for replay). The sampling model is recorded in the header (`archive.spatial_model`).
 
 # Example
 ```julia
@@ -227,11 +229,15 @@ function compute_from_archive(::Type{T}, archive::BaGoLArchive,
                                locs::Vector{<:SMLMData.AbstractEmitter};
                                spatial::Union{Nothing,AbstractSpatialModel} = nothing,
                                kwargs...) where T<:AbstractAccumulator
-    if needs_spatial_model(T) && spatial === nothing &&
-       archive.spatial_model in (:ipp, :locmix, :motion)
-        throw(ArgumentError("$T evaluates the spatial model, but this archive was written under " *
-            "spatial_model=:$(archive.spatial_model) and replay rebuilds states with a flat " *
-            "placeholder; pass the partition's model with spatial=..."))
+    needs_spatial = needs_spatial_model(T)   # throws for an undeclared accumulator
+    if needs_spatial
+        if archive.spatial_model === :motion || spatial isa MotionSpatial
+            throw(ArgumentError("$T evaluates the spatial model, but motion=:linear archives cannot be " *
+                "replayed with spatial accumulators (MotionSpatial is not supported for replay)"))
+        end
+        spatial === nothing && throw(ArgumentError("$T evaluates the spatial model: pass the original " *
+            "partition model with its exposure via spatial=... (archive written under " *
+            "spatial_model=:$(archive.spatial_model); replay does not rebuild it)"))
     end
     acc = T(; kwargs...)
 
