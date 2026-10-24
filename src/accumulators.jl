@@ -14,6 +14,21 @@ Base type for MCMC accumulators. Subtypes must implement:
 """
 abstract type AbstractAccumulator end
 
+"""
+    needs_spatial_model(::Type{<:AbstractAccumulator}) -> Bool
+
+Replay declaration, read by `compute_from_archive`. `false`: the accumulator reads only
+assignments and cluster moments (counts, posterior means and covariances), so replay with a
+placeholder spatial model is exact. `true`: it evaluates the state's spatial model
+(`spatial_ml`, `spatial_pred`) and replay needs the caller to pass the original model with its
+exposure (`spatial=`). Every accumulator type must declare one; an undeclared type throws on
+replay. The built-in accumulators declare `false`.
+"""
+needs_spatial_model(::Type{T}) where {T<:AbstractAccumulator} = throw(ArgumentError(
+    "$T has not declared whether archive replay needs the spatial model; define " *
+    "`SMLMBaGoL.needs_spatial_model(::Type{$T}) = false` (reads assignments and cluster moments only) " *
+    "or `= true` (evaluates state.spatial; replay then needs `spatial=`)"))
+
 # ============================================================================
 # EmitterCountHist — histogram of K per iteration
 # ============================================================================
@@ -404,3 +419,6 @@ end
 function accumulator_merge!(target::PSMAccumulator, source::PSMAccumulator)
     # PSM from different partitions can't be merged (different loc sets)
 end
+
+# Replay declarations of the built-in accumulators: assignments and cluster moments only
+needs_spatial_model(::Type{<:Union{EmitterCountHist, PosteriorImage, NNDistHist, PartitionSamples, PSMAccumulator}}) = false

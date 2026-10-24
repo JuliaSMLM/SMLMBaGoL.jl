@@ -151,11 +151,12 @@ n_j ~ Gamma(shape, μ/shape) where:
   `true`=learn both μ and shape, `false`=fix both,
   `:mu`=learn μ only (fix shape), `:shape`=learn shape only (fix μ)
 - `learn_rho=true`: Learn Poisson-K emitter density ρ independently of μ/shape.
-  Partitioned `run_bagol` with the flat spatial model and Poisson K prior: partition i
-  gets the area A_i = A_field·n_i/N_all (A_field = bounding box of all localizations,
-  n_i = its localizations including overlap copies, N_all = all input localizations)
-  in both its FlatSpatial and its Poisson K prior, so they cancel at fixed ρ, and
-  ρ ~ Gamma(a + ΣK_i, 1/(b + ΣA_i)) over all active clusters: the emitter density.
+  Partitioned `run_bagol` with the `:ipp` or `:flat` spatial model and Poisson K prior:
+  partition i gets the exposure A_i = A_field·n_i/N_all (A_field = bounding box of all
+  localizations, n_i = its localizations including overlap copies, N_all = all input
+  localizations) in both its spatial area and its Poisson K prior, so they cancel at
+  fixed ρ, and ρ ~ Gamma(a + ΣK_i, 1/(b + ΣA_i)) over all active clusters: the emitter
+  density.
   The default prior Gamma(2, 1) acts as 1 µm² of pseudo-area: negligible on whole cells,
   material on fields below a few µm² (set `ρ_prior_rate` there). The single-chain
   `run_collapsed_chain` update is unchanged.
@@ -163,14 +164,26 @@ n_j ~ Gamma(shape, μ/shape) where:
   `learn_rho=false`.
 - `rho=nothing`: Initial ρ in emitters per unit area. If provided with
   `learn_rho=false`, hold this fixed for Fazel-style fixed-ρ-over-bounding-box
-  flat Poisson-K runs.
+  flat Poisson-K runs. When `nothing` and the target has a Poisson K prior (`:ipp`,
+  `:flat`), ρ starts at `N_all/(μ₀·A_field)` (μ₀ = the initial μ) rather than the prior
+  mean, so runs that never sync (`sync_interval > n_iterations`) start from a data-scaled
+  density.
 - `allocation_model=:dm`: `:dm` (Dirichlet-Multinomial), `:decoupled`
   (no partition prior), or `:categorical` (labeled K^(-N) — Fazel-equivalent
   when paired with `spatial_model=:flat` + `k_prior=:none`)
-- `spatial_model=:locmix`: `:locmix` (localization mixture) or `:flat`
+- `spatial_model=:locmix`: `:locmix` (default; localization mixture, normalized per partition, so
+  its target depends on how the field is partitioned and dense fields are under-counted),
+  `:ipp` (inhomogeneous Poisson process, calibrated for dense fields but under-splitting isolated
+  structures such as rulers and origami; emitters have
+  intensity ρ·g(θ), g a fixed pilot intensity shape built once from all localizations at
+  bandwidth `intensity_bandwidth`, ρ the global density learned as for `:flat`; the target is
+  partition-invariant, docs/math_reference.md §4.6), or `:flat` (uniform)
+- `intensity_bandwidth=0.2`: Kernel bandwidth h (µm) of the `:ipp` pilot intensity g
 - `k_prior=:auto`: K-prior gating. `:auto` uses spatial-model default
-  (Poisson(ρA) under `:flat`, none under `:locmix`); `:poisson` always
-  include (only valid with `:flat`); `:none` always disable
+  (Poisson(ρA) under `:ipp` and `:flat`, none under `:locmix`); `:poisson` always
+  include (valid with `:ipp` and `:flat`); `:none` always disable
+- With `motion=:linear` the motion model's own spatial prior (flat position, Gaussian
+  velocity, no Poisson K prior) is used whatever `spatial_model` says; this is logged once.
 - `verbose=true`: Print progress
 
 # Posterior Image
@@ -200,6 +213,7 @@ function run_bagol(
     sync_interval::Int = 100,
     allocation_model::Symbol = :dm,
     spatial_model::Symbol = :locmix,
+    intensity_bandwidth::Float64 = 0.2,
     k_prior::Symbol = :auto,
     n_restricted_scans::Int = 5,
     n_bd_substeps::Int = 5,
@@ -245,7 +259,7 @@ function run_bagol(
         posterior_pixel_size, posterior_xlim, posterior_ylim,
         archive_path, progress_file, verbose,
         μ=μ, gamma=gamma, allocation_model=allocation_model,
-        spatial_model=spatial_model, k_prior=k_prior,
+        spatial_model=spatial_model, intensity_bandwidth=intensity_bandwidth, k_prior=k_prior,
         n_restricted_scans=n_restricted_scans,
         n_bd_substeps=n_bd_substeps,
         μ_prior_shape=μ_prior_shape, μ_prior_scale=μ_prior_scale,
@@ -271,7 +285,7 @@ function run_bagol(
         n_iterations=cfg.n_iterations, burn_in=cfg.burn_in,
         sync_interval=cfg.sync_interval,
         allocation_model=cfg.allocation_model, spatial_model=cfg.spatial_model,
-        k_prior=cfg.k_prior,
+        intensity_bandwidth=cfg.intensity_bandwidth, k_prior=cfg.k_prior,
         n_restricted_scans=cfg.n_restricted_scans, n_bd_substeps=cfg.n_bd_substeps,
         partition_sigma=cfg.partition_sigma,
         min_partition_size=cfg.min_partition_size,
@@ -356,6 +370,7 @@ function _run_bagol_collapsed(
     gamma::Union{Nothing, Float64} = nothing,
     allocation_model::Symbol = :dm,
     spatial_model::Symbol = :locmix,
+    intensity_bandwidth::Float64 = 0.2,
     k_prior::Symbol = :auto,
     n_restricted_scans::Int = 5,
     n_bd_substeps::Int = 3,
@@ -421,7 +436,7 @@ function _run_bagol_collapsed(
             # nor output/IO settings). Visible afterwards as diagnostics.se_finder.bagol_kwargs.
             _fres = estimate_se_adjust(smld; return_diagnostics = keep_se_finder,
                 partition_sigma, min_partition_size, max_partition_size, skip_partition_size,
-                overlap, spatial_model, allocation_model, k_prior, gamma, μ, shape,
+                overlap, spatial_model, intensity_bandwidth, allocation_model, k_prior, gamma, μ, shape,
                 learn_distribution, learn_rho, rho, sync_interval,
                 n_restricted_scans, n_bd_substeps,
                 μ_prior_shape, μ_prior_scale, shape_prior_shape, shape_prior_scale,
@@ -470,14 +485,17 @@ function _run_bagol_collapsed(
 
     n_partitions = length(partitions)
 
-    # Flat + Poisson K prior: partition i gets the area share A_field·n_i/N_all (n_i counts
-    # overlap copies) in BOTH its FlatSpatial and its Poisson prior, so they still cancel at
-    # fixed ρ (clustering target unchanged) and ΣA_i is the exposure of the pooled ρ update.
-    _use_field_area = spatial_model === :flat && motion === :none && k_prior !== :none
+    # Flat / IPP + Poisson K prior: partition i gets the area share A_field·n_i/N_all (n_i
+    # counts overlap copies) in BOTH its spatial area and its Poisson prior, so they still
+    # cancel at fixed ρ (clustering target unchanged) and ΣA_i is the exposure of the pooled
+    # ρ update.
+    _use_field_area = spatial_model in (:flat, :ipp) && motion === :none && k_prior !== :none
     if _use_field_area && isnan(_field_area)
         @warn "run_bagol: localizations have zero spatial extent; learned ρ uses the summed partition areas"
         _use_field_area = false
     end
+    motion === :linear && _log_progress(
+        "motion=:linear uses the motion model's own spatial prior (flat position + velocity); spatial_model=:$spatial_model is not applied")
 
     # Allocation model
     allocation_model in (:dm, :decoupled, :categorical) ||
@@ -491,8 +509,8 @@ function _run_bagol_collapsed(
     end
 
     spatial_model_sym = spatial_model
-    spatial_model_sym in (:locmix, :flat) ||
-        throw(ArgumentError("spatial_model must be :locmix or :flat"))
+    spatial_model_sym in (:ipp, :locmix, :flat) ||
+        throw(ArgumentError("spatial_model must be :ipp, :locmix or :flat"))
     motion in (:none, :linear) ||
         throw(ArgumentError("motion must be :none or :linear (got :$motion)"))
     # Global time reference for the linear-motion model — shared across partitions so μ
@@ -517,7 +535,8 @@ function _run_bagol_collapsed(
     # Initialize collapsed states and accumulators per partition
     # Use concrete parametric type for the state vector
     _sp_type = motion === :linear ? _motion_sp_type(eltype(locs)) :
-               (spatial_model_sym === :locmix ? LocmixSpatial : FlatSpatial)
+               (spatial_model_sym === :locmix ? LocmixSpatial :
+                spatial_model_sym === :ipp ? IntensitySpatial : FlatSpatial)
     _am_type = if allocation_model === :dm
         DMAllocation
     elseif allocation_model === :decoupled
@@ -534,8 +553,26 @@ function _run_bagol_collapsed(
     # Validate k_prior compatibility with spatial model BEFORE the @spawn
     # loop — otherwise the ArgumentError gets wrapped in CompositeException
     # and is hard to surface cleanly to callers.
-    if k_prior === :poisson && spatial_model_sym !== :flat
-        throw(ArgumentError("k_prior=:poisson is only valid with spatial_model=:flat (the prior is the flat-area-cancelled form). Got spatial_model=:$spatial_model_sym"))
+    if k_prior === :poisson && !(spatial_model_sym in (:flat, :ipp))
+        throw(ArgumentError("k_prior=:poisson is only valid with spatial_model=:flat or :ipp (the prior is the flat-area-cancelled form). Got spatial_model=:$spatial_model_sym"))
+    end
+
+    if motion === :linear && spatial_model_sym === :ipp && k_prior === :poisson
+        throw(ArgumentError("k_prior=:poisson with spatial_model=:ipp is not supported with motion=:linear: the motion model uses its own spatial prior and no Poisson K prior"))
+    end
+
+    # IPP: ONE global pilot intensity map from all localizations (after se_adjust, before
+    # the partitions are used), shared read-only by every partition. Normalized over the
+    # unpadded bounding box (A_field); when that is degenerate (or no field exposure is
+    # used) over the padded box of all localizations, with the per-partition padded areas.
+    _ipp_map = if spatial_model_sym === :ipp && motion === :none
+        _box = _use_field_area ?
+            UniformSpatialPrior(extrema(l.x for l in locs)..., extrema(l.y for l in locs)...) :
+            UniformSpatialPrior(locs)
+        _log_progress("Building the :ipp pilot intensity map (bandwidth $(intensity_bandwidth) µm)...")
+        build_intensity_map(locs, _box; bandwidth = intensity_bandwidth)
+    else
+        nothing
     end
 
     @sync for i in 1:n_partitions
@@ -547,8 +584,9 @@ function _run_bagol_collapsed(
             elseif spatial_model_sym === :locmix
                 LocmixSpatial(p_locs)
             else
-                FlatSpatial(_use_field_area ? log(_partition_area_share(_field_area, length(p_locs), _n_all)) :
-                            log(area(UniformSpatialPrior(p_locs))))
+                _la = _use_field_area ? log(_partition_area_share(_field_area, length(p_locs), _n_all)) :
+                      log(area(UniformSpatialPrior(p_locs)))
+                spatial_model_sym === :ipp ? IntensitySpatial(_la, _ipp_map) : FlatSpatial(_la)
             end
             # Resolve k_prior into a concrete bool for this partition.
             # (Compatibility check already done outside the @spawn block.)
@@ -595,6 +633,14 @@ function _run_bagol_collapsed(
     # Per-partition areas (for conjugate ρ update)
     partition_areas = [spatial_area(states[i].spatial) for i in 1:n_partitions]
 
+    # No explicit rho and a Poisson-K target: start ρ at the data-scaled density
+    # N/(μ₀·A) = Σn_i/(μ₀·ΣA_i) (= N_all/(μ₀·A_field) with field exposures) rather than the
+    # prior mean, so runs that never sync start from a sensible density.
+    if rho === nothing && states[1].spatial isa Union{FlatSpatial, IntensitySpatial} &&
+       _uses_poisson_k_prior(states[1])
+        ρ = sum(length(p.locs) for p in partitions) / (μ * sum(partition_areas))
+    end
+
     # Log cluster-level overlap stats (now that states exist)
     if n_overlap_locs > 0
         init_masks = _compute_cluster_overlap_masks(states, partitions)
@@ -609,7 +655,8 @@ function _run_bagol_collapsed(
     archive = nothing
     if archive_path !== nothing
         archive = BaGoLArchive(archive_path, n_partitions,
-                               [length(p.locs) for p in partitions])
+                               [length(p.locs) for p in partitions];
+                               spatial_model = motion === :linear ? :motion : spatial_model_sym)
     end
 
     # Synchronized outer loop

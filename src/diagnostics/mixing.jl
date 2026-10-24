@@ -34,6 +34,9 @@ end
 
 accumulator_result(acc::ChainDiagnosticAccumulator) = (k_trace=acc.k_trace,)
 
+# Replay declaration: reads only state.n_active
+needs_spatial_model(::Type{ChainDiagnosticAccumulator}) = false
+
 function accumulator_merge!(target::ChainDiagnosticAccumulator,
                              source::ChainDiagnosticAccumulator)
 end

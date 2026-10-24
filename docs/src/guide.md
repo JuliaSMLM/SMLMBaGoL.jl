@@ -90,11 +90,11 @@ value throws an `ArgumentError`.
 
 | Option | Values (default first) | Meaning |
 |---|---|---|
-| `spatial_model` | `:locmix`, `:flat` | The spatial prior on emitter positions: localization-mixture prior (`:locmix`) or a flat (uniform) prior (`:flat`). |
+| `spatial_model` | `:locmix`, `:ipp`, `:flat` | The spatial prior on emitter positions: the localization-mixture prior (`:locmix`, the default; it normalizes its position prior per partition, so its output depends on the partitioning, and dense fields, where precision-DBSCAN percolates into large partitions, are under-counted), an inhomogeneous Poisson process (`:ipp`: a fixed pilot intensity map times a learned global density; partition-invariant and calibrated for dense fields, but it under-splits isolated structures such as rulers, origami and single-structure fields, where `:locmix` is the better choice), or a flat (uniform) prior (`:flat`). `intensity_bandwidth` (default `0.2` μm) sets the `:ipp` pilot-map bandwidth. |
 | `allocation_model` | `:dm`, `:decoupled`, `:categorical` | The partition prior over localization-to-emitter assignments. `:dm` is the Dirichlet-Multinomial partition prior. |
-| `k_prior` | `:auto`, `:poisson`, `:none` | Gating of the emitter-count (`K`) prior. `:auto` uses the spatial model's default policy; `:poisson` is only valid with `spatial_model=:flat` and throws otherwise. |
+| `k_prior` | `:auto`, `:poisson`, `:none` | Gating of the emitter-count (`K`) prior. `:auto` uses the spatial model's default policy; `:poisson` is only valid with `spatial_model=:ipp` or `:flat` and throws otherwise. |
 
-The defaults (`:locmix` + `:dm` + `:auto`) are the recommended configuration. See
+The defaults (`:locmix` + `:dm` + `:auto`) are the recommended configuration; `spatial_model = :ipp` is the option for dense fields. See
 [Priors](math/priors.md) for what each prior is.
 
 ### Split/merge and birth/death tuning

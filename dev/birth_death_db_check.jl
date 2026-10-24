@@ -55,15 +55,28 @@
 # GATE semantics: nonzero exit if any hard requirement fails. Build so a
 # hypothetical birth/death DB bug (fabricated reverse density) would FLAG here.
 #
-# Usage:  julia --project=. dev/birth_death_db_check.jl [M]
+# DIAGNOSTICS CONVENTION (all targets): the cancelled canonical target, i.e. the
+# sampler's Poisson(rho*A) K prior with its -log K! removed by the K! labeled-occupant
+# correction of the K-moves: log pi = log_target + log K! for the T1 flat target,
+# IPPTarget.log_target as is (already cancelled), locmix as is (no K prior).
+#
+# TWO MODES. Default: :flat and :locmix targets on exactly co-located localizations.
+# `ipp` argument: the :ipp target (IntensitySpatial + IPPTarget) with a NON-constant pilot
+# intensity map (bandwidth 4 nm) on localizations spread over ~15 nm, so log g(theta-hat)
+# differs between the clusters of every compared partition.
+#
+# Usage:  julia --project=. dev/birth_death_db_check.jl [M] [ipp]
 #         M = MC samples per kernel estimate in Part 4 (default 2_000_000).
 
 using SMLMBaGoL
 using SMLMData
 using Printf
 using Random
+using SpecialFunctions: logfactorial
 
 const S = SMLMBaGoL
+
+const MODE = "ipp" in ARGS ? :ipp : :flat
 
 const SIGMA = 0.0058
 const MU    = 5.0
@@ -77,15 +90,36 @@ const SP_FLAT = S.FlatSpatial(LOG_AREA)
 const AM = S.DMAllocation()
 const AREA = exp(LOG_AREA)
 
-colocated_locs(N) =
+# :flat mode: exactly co-located. :ipp mode: a golden-angle spiral of radius
+# ~0.8*sigma*sqrt(i) (about 15 nm for N=11), so every loc has its own position.
+spread_xy(i) = (0.8 * SIGMA * sqrt(i) * cos(2.399963 * i), 0.8 * SIGMA * sqrt(i) * sin(2.399963 * i))
+colocated_locs(N) = MODE === :ipp ?
+    [SMLMData.Emitter2DFit(spread_xy(i)..., 1000.0, 0.0, SIGMA, SIGMA, 0.0, 0.0, 0.0, 1, 1, 0, i) for i in 1:N] :
     [SMLMData.Emitter2DFit(0.0, 0.0, 1000.0, 0.0, SIGMA, SIGMA, 0.0, 0.0, 0.0, 1, 1, 0, i) for i in 1:N]
+
+# ONE fixed non-constant pilot intensity map (bandwidth 4 nm ~ 0.7 sigma, 0.1 x 0.1 um box,
+# built from a fixed cloud). The exposure stays LOG_AREA; DB holds for ANY fixed g.
+const MAP_IPP = let box = S.UniformSpatialPrior(-0.05, 0.05, -0.05, 0.05)
+    cloud = [SMLMData.Emitter2DFit(spread_xy(i)..., 1000.0, 0.0, SIGMA, SIGMA, 0.0, 0.0, 0.0, 1, 1, 0, i) for i in 1:40]
+    S.build_intensity_map(cloud, box; bandwidth = 0.004)
+end
+const SP_IPP = S.IntensitySpatial(LOG_AREA, MAP_IPP)
+const TD_IPP = S.IPPTarget(MAP_IPP)
+const SPATIALS = MODE === :ipp ? (:ipp,) : (:flat, :locmix)
 
 "Resolve (sp, td, use_kprior) for a spatial config symbol given this run's lps."
 function spatial_config(spatial::Symbol, lps)
     spatial === :flat   && return SP_FLAT, TD_FLAT, true
+    spatial === :ipp    && return SP_IPP, TD_IPP, true
     spatial === :locmix && return S.LocmixSpatial(lps), S.DMLocmixTarget(), false
     error("unknown spatial config $spatial")
 end
+
+# K! labeled-occupant correction that cancels the Poisson prior's -log K! (the sampler's
+# Delta_Kfac): the T1 flat target needs it added; IPPTarget's log_target already has it;
+# locmix has no Poisson K prior.
+kcancel(::S.DMFlatTarget, K) = logfactorial(K)
+kcancel(::S.AbstractTargetDensity, K) = 0.0
 
 # ---------------------------------------------------------------------------
 # Gate bookkeeping.
@@ -202,7 +236,7 @@ function death_densities(z_cp::Vector{Int}, j::Int, dest_slot::Int, locs, sp, us
     return z_c2, log_q_fwd, log_q_rev, fcp, fc2
 end
 
-logpi(td, z, lps, sp) = S.log_target(td, z, lps, sp, MU, SHAPE, RHO)
+logpi(td, z, lps, sp) = S.log_target(td, z, lps, sp, MU, SHAPE, RHO) + kcancel(td, length(unique(z)))
 
 # ---------------------------------------------------------------------------
 # Co-located configuration builders. c = (K-1) singletons + one m-cluster.
@@ -360,7 +394,7 @@ function part3()
     println("  every (singleton,dest) death realization summed and classified by canon().")
     println("  n_elig(c) vs n_sing(c') differ -- if the code mis-normalized, ratio != 1.")
     println("="^90)
-    for spatial in (:flat, :locmix)
+    for spatial in SPATIALS
         println("\n  spatial = $spatial")
         @printf("  %-8s %-4s %8s %8s %14s %14s %12s %10s\n",
                 "K<->K+1", "m", "n_elig", "n_sing", "pi(c)K_birth", "pi(c')K_death", "rel", "death/birth")
@@ -377,9 +411,9 @@ function part3()
         gate!(worst < 1e-9, "P3: BD marginal flux balance ($spatial)")
     end
     # self-validation: perturb one alpha by +0.5 -> flux must break
-    println("\n  SELF-VALIDATION: perturb birth alpha by +0.5 on the K=7<->8 m=4 locmix row:")
+    println("\n  SELF-VALIDATION: perturb birth alpha by +0.5 on the K=7<->8 m=4 last-target row:")
     let
-        K, m, spatial = 7, 4, :locmix
+        K, m, spatial = 7, 4, first(reverse(SPATIALS))   # :locmix (default mode) / :ipp
         N, locs, lps, z_c = coloc_config(K=K, m=m)
         sp, td, ukp = spatial_config(spatial, lps)
         z_cp, lqf_b, lqr_b, fc, fcp, A_slot = birth_densities(z_c, N, locs, sp, ukp)
@@ -422,7 +456,7 @@ function part4(; M::Int=2_000_000)
     println("  measured flux must balance.")
     println("="^90)
     RESOLVE = 25.0   # expected hits needed to call a kernel MC-resolvable
-    for spatial in (:flat, :locmix)
+    for spatial in SPATIALS
         for (K, m) in ((6, 4), (7, 4))
             N, locs, lps, z_c = coloc_config(K=K, m=m)
             sp, td, ukp = spatial_config(spatial, lps)
@@ -431,7 +465,7 @@ function part4(; M::Int=2_000_000)
             lpc = logpi(td, z_c, lps, sp); lpcp = logpi(td, z_cp, lps, sp)
             ana = flux_balance(K=K, m=m, spatial=spatial)
 
-            Mrun = spatial === :flat ? M : max(M ÷ 2, 500_000)
+            Mrun = spatial === :locmix ? max(M ÷ 2, 500_000) : M
             Kb = mc_bd_kernel(z_c,  key_cp, locs, sp, ukp, Mrun; seed=101)
             Kd = mc_bd_kernel(z_cp, key_c,  locs, sp, ukp, Mrun; seed=202)
             seb = sqrt(max(Kb,1/Mrun)*(1-Kb)/Mrun); sed = sqrt(max(Kd,1/Mrun)*(1-Kd)/Mrun)
@@ -495,7 +529,7 @@ function part5(; N::Int=8)
     println("="^90)
     locs = colocated_locs(N); lps = S.precompute_loc_precisions(locs, SP_FLAT)
     parts = all_partitions(N)
-    for spatial in (:flat, :locmix)
+    for spatial in SPATIALS
         sp, td, _ = spatial_config(spatial, lps)
         byK = Dict{Int,Float64}()
         lts = Float64[]
@@ -529,12 +563,14 @@ end
 function main(; M::Int=2_000_000)
     println("#"^90)
     println("# GATE-3b BIRTH/DEATH DB CHECKER  (co-located, K=6<->7 and 7<->8)")
-    println("# targets: DMFlatTarget (:flat/:dm/:poisson) + DMLocmixTarget (:locmix/:dm/:none)")
+    println(MODE === :ipp ?
+        "# target: IPPTarget (:ipp/:dm/:poisson), NON-constant map (bw 4 nm), spread locs; cancelled convention" :
+        "# targets: DMFlatTarget (:flat/:dm/:poisson) + DMLocmixTarget (:locmix/:dm/:none); cancelled convention (+log K!)")
     @printf("# mu=%.1f shape=%.1f rho=%.1f sigma=%.4f log_area=%.4f  M=%d\n",
             MU, SHAPE, RHO, SIGMA, LOG_AREA, M)
     println("#"^90)
-    part1(spatial=:flat); part1(spatial=:locmix)
-    part2(spatial=:flat); part2(spatial=:locmix)
+    for sp in SPATIALS; part1(spatial=sp); end
+    for sp in SPATIALS; part2(spatial=sp); end
     part3()
     part4(M=M)
     part5(N=8)
@@ -543,8 +579,8 @@ function main(; M::Int=2_000_000)
     println("#"^90)
     if isempty(FAILURES)
         println("""
-  ALL BD GATES PASS: birth/death satisfies EXACT detailed balance for the intended
-  target at K=6<->7 and 7<->8 on the co-located set, flat AND locmix:
+  ALL BD GATES PASS ($(join(SPATIALS, ", ")) target(s)): birth/death satisfies EXACT
+  detailed balance for the intended target at K=6<->7 and 7<->8:
     * Part 1: reverse densities are HONEST (birth-reverse == death-forward from
       c''s own mechanism; alpha_b + alpha_d = 0) -- no fabrication/mis-normalization.
     * Part 2: move-type (p_birth/p_death) and Delta_count factors are boundary-aware
@@ -566,5 +602,6 @@ function main(; M::Int=2_000_000)
     return length(FAILURES)
 end
 
-nfail = main(M=(isempty(ARGS) ? 2_000_000 : parse(Int, ARGS[1])))
+nums = filter(a -> tryparse(Int, a) !== nothing, ARGS)
+nfail = main(M=(isempty(nums) ? 2_000_000 : parse(Int, nums[1])))
 exit(nfail == 0 ? 0 : 1)
