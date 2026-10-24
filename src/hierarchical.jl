@@ -183,34 +183,38 @@ function _update_rho_collapsed(state::CollapsedState, A::Float64, config::NamedT
 end
 
 """
-    _update_rho_collapsed_global!(states, areas, config; cluster_masks=nothing) -> Float64
+    _update_rho_collapsed_global!(states, areas, config) -> Float64
 
 Conjugate Gamma update for ρ pooled across all partitions.
-If `cluster_masks` is provided, only counts non-overlap active clusters per partition.
-Includes a partition's area only if it contributes ≥1 unmasked active cluster.
+
+The target has per-partition Poisson(ρ A_j) K priors, so
+ρ | z ~ Gamma(a + ΣK_j, 1/(b + ΣA_j)). In `run_bagol` with the flat spatial model and
+Poisson K prior, the areas are the shares A_j = A_field · n_j / N_all of the analyzed
+field (n_j = localizations of partition j including overlap copies, N_all = all input
+localizations), used for both the partition's FlatSpatial and its Poisson prior so they
+cancel at fixed ρ; ΣA_j is then the exposure and ρ the emitter density.
+All active clusters and all partition areas are used, with no overlap masking: halo
+copies carry their own area share (overlap masks apply to μ/shape only).
+The single-chain path (`run_collapsed_chain`, `_update_rho_collapsed`) is unchanged.
 
 Posterior: ρ | {K_j}, {A_j} ~ Gamma(a + ΣK_j, 1/(b + ΣA_j))
 """
 function _update_rho_collapsed_global!(states::AbstractVector{<:CollapsedState},
                                        areas::Vector{Float64},
-                                       config::NamedTuple;
-                                       cluster_masks::Union{Nothing, Vector{BitVector}}=nothing)
+                                       config::NamedTuple)
+    shape, rate = _rho_posterior_params(states, areas, config)
+    return rand(Gamma(shape, 1.0 / rate))
+end
+
+# (shape, rate) = (a + ΣK_j, b + ΣA_j) of the pooled ρ posterior.
+function _rho_posterior_params(states::AbstractVector{<:CollapsedState},
+                               areas::Vector{Float64},
+                               config::NamedTuple)
     a = config.ρ_prior_shape
     b = config.ρ_prior_rate
-    total_K = 0
-    total_A = 0.0
-    for i in eachindex(states)
-        k_i = if cluster_masks === nothing
-            states[i].n_active
-        else
-            count(j -> states[i].active[j] && cluster_masks[i][j],
-                  eachindex(states[i].active))
-        end
-        k_i == 0 && continue  # skip partitions with zero unmasked active clusters
-        total_K += k_i
-        total_A += areas[i]
-    end
-    return rand(Gamma(a + total_K, 1.0 / (b + total_A)))
+    total_K = sum(s.n_active for s in states)
+    total_A = sum(areas)
+    return (a + total_K, b + total_A)
 end
 
 """

@@ -35,6 +35,7 @@ NearestNeighbors = "0.4"
 SMLMClustering = "0.4.3"
 SMLMData = "0.7"
 SMLMRender = "0.1 - 0.5"
+SMLMSim = "0.7"
 SparseArrays = "1"
 SpecialFunctions = "2"
 StaticArrays = "1"
@@ -43,7 +44,8 @@ julia = "1.10"
 
 [extras]
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+SMLMSim = "5a0a87e4-02d4-41f5-bf26-b8c94c784a04"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["BenchmarkTools", "Test"]
+test = ["BenchmarkTools", "SMLMSim", "Test"]
