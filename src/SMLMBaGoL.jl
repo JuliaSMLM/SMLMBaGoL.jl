@@ -1,3 +1,11 @@
+"""
+    SMLMBaGoL
+
+Bayesian Grouping of Localizations (BaGoL) for single-molecule localization microscopy: a
+collapsed Gibbs / RJMCMC sampler that groups blinking localizations into emitters and
+returns MAP-N emitter positions with posterior covariances (Fazel et al., Nat. Commun. 13,
+7152, 2022). The main entry point is [`run_bagol`](@ref).
+"""
 module SMLMBaGoL
 
 using Distributions
