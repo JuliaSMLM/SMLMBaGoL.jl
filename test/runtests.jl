@@ -150,6 +150,35 @@ using Distributions
         @test !isempty(bi) && all(1 .≤ bi .≤ length(pos))
     end
 
+    @testset "run_bagol(:auto) forwards run settings to the τ finder" begin
+        # Small field of 6 two-loc pairs; the finder keeps its own chain length, so the
+        # run is cheap only because the field is tiny.
+        cam = SMLMData.IdealCamera(1:64, 1:64, 0.1)
+        rng = Random.MersenneTwister(11)
+        em = SMLMData.Emitter2DFit{Float64}[]
+        for k in 1:6, j in 1:2
+            push!(em, SMLMData.Emitter2DFit(0.5 + 0.4k + 0.01randn(rng), 1.0 + 0.01randn(rng),
+                    1000.0, 0.0, 0.01, 0.01, 0.0, 0.0, 0.0, 1, length(em) + 1, 0, 1))
+        end
+        smld = SMLMData.BasicSMLD(em, cam, 1, 1, Dict{String,Any}())
+        _, diag = run_bagol(smld; se_adjust = :auto, keep_se_finder = true,
+                            max_partition_size = 7, overlap = 0.02, spatial_model = :flat,
+                            n_iterations = 100, burn_in = 20, verbose = false)
+        kw = diag.se_finder.bagol_kwargs
+        @test kw.max_partition_size == 7
+        @test kw.overlap == 0.02
+        @test kw.spatial_model === :flat
+        @test !haskey(kw, :neighbor_graph) && !haskey(kw, :n_iterations)
+        # Direct callers: explicitly given kwargs are used as given.
+        f = estimate_se_adjust(smld; max_partition_size = 9, n_boot = 5, n_iterations = 100,
+                               burn_in = 20, max_steps = 1)
+        @test f.bagol_kwargs.max_partition_size == 9
+        @test f.bagol_kwargs isa NamedTuple
+        # The finder does not model drift: :auto with motion=:linear must refuse.
+        @test_throws ArgumentError run_bagol(smld; se_adjust = :auto, motion = :linear,
+                                             n_iterations = 100, burn_in = 20, verbose = false)
+    end
+
     # ================================================================
     # ClusterStats unit tests
     # ================================================================
