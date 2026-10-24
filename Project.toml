@@ -43,9 +43,10 @@ Statistics = "1"
 julia = "1.10"
 
 [extras]
-BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+Pkg = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
 SMLMSim = "5a0a87e4-02d4-41f5-bf26-b8c94c784a04"
+TOML = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["BenchmarkTools", "SMLMSim", "Test"]
+test = ["Pkg", "SMLMSim", "TOML", "Test"]
