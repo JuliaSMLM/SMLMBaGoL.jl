@@ -17,7 +17,10 @@ dev/*
 !dev/birth_death_db_check.jl
 !dev/brute_force_enumeration.jl
 !dev/dbscan_reuse_validation.jl
+!dev/dense_field_gate.jl
 !dev/detailed_balance_check.jl
+!dev/hexamer_share_gate.jl
+!dev/partition_invariance_gate.jl
 !dev/se_estimate_validation.jl
 !dev/sampler_reference.md
 examples/output/
