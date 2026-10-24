@@ -1695,6 +1695,7 @@ import SMLMSim
                 @test needs_spatial_model(T) === false
             end
             @test_throws ArgumentError needs_spatial_model(UndeclaredAcc)
+            @test needs_spatial_model(ChainDiagnosticAccumulator) === false
             dir_i = mktempdir()
             run_bagol(smld; spatial_model = :ipp, n_iterations = 100, burn_in = 20, sync_interval = 20,
                       archive_path = dir_i, verbose = false, posterior_pixel_size = 0.0)
@@ -1705,6 +1706,8 @@ import SMLMSim
             sc = S.compute_from_archive(SpatialScoreAcc, ar_i, 1, plocs; spatial = S.IntensitySpatial(la, map_g))
             @test !isempty(sc) && all(isfinite, sc)
             @test sum(S.compute_from_archive(EmitterCountHist, ar_i, 1, plocs)) > 0
+            kt = S.compute_from_archive(ChainDiagnosticAccumulator, ar_i, 1, plocs)
+            @test length(kt.k_trace) == ar_i.sample_counts[1] && all(>(0), kt.k_trace)
             dir_l = mktempdir()
             run_bagol(smld; n_iterations = 100, burn_in = 20, sync_interval = 20,
                       archive_path = dir_l, verbose = false, posterior_pixel_size = 0.0)
