@@ -29,7 +29,7 @@ makedocs(;
         "API Reference" => "api.md",
     ],
     checkdocs = :exports,
-    # QA runs every docstring's jldoctest (decision 0018); manual pages use plain @example blocks
+    # No QA group or jldoctest blocks yet; manual pages use plain @example blocks.
     doctest = false,
 )
 

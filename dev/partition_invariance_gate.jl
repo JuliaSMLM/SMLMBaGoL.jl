@@ -210,9 +210,9 @@ function main()
             box = UniformSpatialPrior(allocs)
             imap = build_intensity_map(allocs, box)
             nem = 2 * sum(length(blocks[(si, b)][2]) for b in 1:N_BLOCKS)
-            ipp_kw[si] = (; spatial_model=:ipp, intensity_map=imap, rho=nem / imap.field_area)
+            ipp_kw[si] = (; spatial_model=:ipp, intensity_map=imap, rho=nem / field_area(imap))
             @printf("sep %2d nm: map over %d locs, field area %.0f um^2, rho = %.4f /um^2\n",
-                    SEPS_NM[si], length(allocs), imap.field_area, nem / imap.field_area)
+                    SEPS_NM[si], length(allocs), field_area(imap), nem / field_area(imap))
         end
     end
 

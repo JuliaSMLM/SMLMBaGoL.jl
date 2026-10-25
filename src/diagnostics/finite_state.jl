@@ -70,23 +70,20 @@ end
 
 """
     exact_posterior(partitions, locs, td; μ, shape, ρ,
-                    label_multiplicity=nothing) -> (probs, log_targets)
+                    label_multiplicity=:factorial) -> (probs, log_targets)
 
 Normalized exact posterior over canonical partitions.
 
 `label_multiplicity` controls how canonical partitions are weighted:
-- `:factorial` multiplies each K-cluster partition by `K!`
+- `:factorial` (default) multiplies each K-cluster partition by `K!`
 - `:none` uses a single canonical representative with no multiplicity factor
-- `nothing` (default) picks the target's convention: `:none` for `IPPTarget` (its
-  `log_target` is already the cancelled canonical target), `:factorial` otherwise
 """
 function exact_posterior(partitions::Vector{Vector{Int}},
                           locs::Vector{<:SMLMData.AbstractEmitter},
                           td::AbstractTargetDensity;
                           μ::Float64, shape::Float64, ρ::Float64=2.0,
-                          label_multiplicity::Union{Nothing,Symbol}=nothing)
+                          label_multiplicity::Symbol=:factorial)
     isempty(partitions) && return (Float64[], Float64[])
-    label_multiplicity = something(label_multiplicity, _default_label_multiplicity(td))
 
     loc_precs = precompute_loc_precisions(locs)
     log_area = _target_log_area(td, locs)
@@ -114,7 +111,7 @@ end
 """
     run_kernel_invariance_test(locs, td; μ, shape, K_max=3,
                                 n_steps_per_state=1500,
-                                label_multiplicity=nothing,
+                                label_multiplicity=:factorial,
                                 seed=nothing, verbose=false) -> NamedTuple
 
 Build empirical one-step transition matrix P and verify:
@@ -134,13 +131,12 @@ function run_kernel_invariance_test(locs::Vector{<:SMLMData.AbstractEmitter},
                                      n_steps_per_state::Int=1500,
                                      n_mcmc_iterations::Int=100_000,
                                      mcmc_burn_in::Int=10_000,
-                                     label_multiplicity::Union{Nothing,Symbol}=nothing,
+                                     label_multiplicity::Symbol=:factorial,
                                      seed::Union{Int, Nothing}=nothing,
                                      verbose::Bool=false)
     if seed !== nothing
         Random.seed!(seed)
     end
-    label_multiplicity = something(label_multiplicity, _default_label_multiplicity(td))
 
     N = length(locs)
     partitions = enumerate_canonical_partitions(N, K_max)

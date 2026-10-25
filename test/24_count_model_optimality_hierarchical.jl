@@ -2,10 +2,7 @@ using Test
 using SMLMBaGoL
 using SMLMData
 using Random
-using Statistics
 using Distributions
-import LinearAlgebra
-import SMLMSim
 
 # ================================================================
 # Count-Model Optimality with Hierarchical Learning
@@ -85,8 +82,10 @@ import SMLMSim
 
                 # Score the PRODUCTION estimator (Dahl consensus), NOT peak-K.
                 # peak-K (estimate_mapn_collapsed = histogram-mode of per-iteration K) reads
-                # the locmix marginal's diffuse upward K-bias directly and regresses ~15-20pt
-                # once Fix A removes the compensating over-merge; Dahl reads a PSM consensus,
+                # the locmix marginal's diffuse upward K-bias directly and regresses
+                # ~15-20pt
+                # once Fix A removes the compensating over-merge; Dahl reads a PSM
+                # consensus,
                 # is robust (mean-K stays at truth), and is what production/render ship.
                 # See dev/KNOWLEDGE_BASE.md (peak-K vs Dahl under Fix A).
                 samples = SMLMBaGoL.accumulator_result(ps_acc)
@@ -98,8 +97,10 @@ import SMLMSim
             observed = n_correct / n_trials
             threshold = 0.80 * p_theory
             @test observed >= threshold
-            println("  K=$K_true: $(n_correct)/$(n_trials) = $(round(observed*100, digits=1))% " *
-                    "(theory=$(round(p_theory*100, digits=1))%, threshold=$(round(threshold*100, digits=1))%)")
+            println("  K=$K_true: $(n_correct)/$(n_trials) = " *
+                    "$(round(observed*100, digits=1))% " *
+                    "(theory=$(round(p_theory*100, digits=1))%, " *
+                    "threshold=$(round(threshold*100, digits=1))%)")
         end
     end
 end

@@ -102,7 +102,7 @@ The defaults (`:locmix` + `:dm` + `:auto`) are the recommended configuration; `s
 ```julia
 result_smld, diagnostics = run_bagol(smld;
     n_restricted_scans = 5,   # Jain-Neal restricted Gibbs scans per split/merge proposal
-    n_bd_substeps      = 3,   # birth/death substeps per iteration
+    n_bd_substeps      = 5,   # birth/death substeps per iteration
     gamma              = nothing, # DM concentration γ (nothing ties it to `shape`)
 )
 ```

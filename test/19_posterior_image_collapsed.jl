@@ -2,10 +2,6 @@ using Test
 using SMLMBaGoL
 using SMLMData
 using Random
-using Statistics
-using Distributions
-import LinearAlgebra
-import SMLMSim
 
 @testset "Posterior Image (Collapsed)" begin
     Random.seed!(555)

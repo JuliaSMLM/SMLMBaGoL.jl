@@ -16,33 +16,65 @@ interpolation of `log g` (one lookup per `log g(θ̂)`, no `log` in the sampler'
 the mass of the kernel at θ inside the box (edge correction). The final lookup function
 `exp(bilinear(log g))` (floor and interpolation included) is normalized numerically
 (tensor Gauss-Legendre quadrature per grid cell, clipped to the box) so that
-`∫_box g = field_area`.
+`∫_box g = field_area(map)`.
 
-Fields: `logg` (ny × nx), grid origin `x0, y0` and spacing `dx, dy`, the normalization box
-`(xlo, xhi, ylo, yhi)`, `field_area` (area of the box), `n_all` (localizations the map was
-built from; a partition of `n_i` localizations has exposure `field_area·n_i/n_all`) and the
-kernel `bandwidth` (µm).
+Fields: `logg` (ny × nx), grid origin `x0, y0`, one `spacing`, the normalization
+`box::UniformSpatialPrior`, `n_all` (localizations used to build the map), and kernel
+`bandwidth` (μm). Use [`field_area`](@ref) for the box area and [`exposure`](@ref) for
+a partition's localization share.
 """
 struct IntensityMap
     logg::Matrix{Float64}
     x0::Float64
     y0::Float64
-    dx::Float64
-    dy::Float64
-    nx::Int
-    ny::Int
-    xlo::Float64
-    xhi::Float64
-    ylo::Float64
-    yhi::Float64
-    field_area::Float64
+    spacing::Float64
+    box::UniformSpatialPrior
     n_all::Int
     bandwidth::Float64
 end
 
+"""Default pilot-intensity kernel bandwidth in μm."""
+const DEFAULT_INTENSITY_BANDWIDTH = 0.2
+
+"""
+    field_area(m::IntensityMap)
+
+Area of the map's normalization box in μm².
+"""
+field_area(m::IntensityMap) = area(m.box)
+
+"""
+    exposure(m::IntensityMap, n_locs)
+    exposure(box::UniformSpatialPrior, n_locs, n_all)
+
+Partition exposure `field_area(m) * n_locs / m.n_all`, including overlap copies.
+The box overload supplies the same field share for the flat spatial model.
+"""
+exposure(m::IntensityMap, n_locs) = exposure(m.box, n_locs, m.n_all)
+exposure(box::UniformSpatialPrior, n_locs, n_all) = area(box) * n_locs / n_all
+
 # Kernel truncation radius in bandwidths, grid spacing in bandwidths.
 const _IPP_TRUNC = 4.0
 const _IPP_GRID = 0.25
+
+# At most 2^27 Float64 cells (1 GiB for the grid itself).
+const _MAX_INTENSITY_CELLS = 2^27
+
+function _intensity_grid(box::UniformSpatialPrior, h::Float64)
+    (isfinite(h) && h > 0) ||
+        throw(ArgumentError("bandwidth must be finite and positive (got $h)"))
+    W, H = box.x_max - box.x_min, box.y_max - box.y_min
+    (isfinite(W) && isfinite(H) && W > 0 && H > 0) ||
+        throw(ArgumentError("intensity map box must have finite positive extents"))
+    d, R = _IPP_GRID * h, _IPP_TRUNC * h
+    # Check before integer conversion and allocation, even for extreme bandwidths.
+    nx = ceil((W + 2R) / d) + 1
+    ny = ceil((H + 2R) / d) + 1
+    nx * ny <= _MAX_INTENSITY_CELLS || throw(ArgumentError(
+        "bandwidth=$h μm on field [$box] ($W × $H μm) needs $(nx * ny) cells; " *
+        "limit is $_MAX_INTENSITY_CELLS; increase bandwidth or reduce the field"))
+    return box.x_min - R, box.y_min - R, d, Int(nx), Int(ny)
+end
 
 _norm_cdf(z) = 0.5 * (1 + erf(z / sqrt(2.0)))
 
@@ -50,30 +82,28 @@ _norm_cdf(z) = 0.5 * (1 + erf(z / sqrt(2.0)))
     build_intensity_map(locs, box::UniformSpatialPrior; bandwidth=0.2) -> IntensityMap
 
 Build the pilot intensity shape from all localizations `locs`: Gaussian kernel density
-(bandwidth `bandwidth`, µm) with the kernel mass inside `box` as edge correction,
+(bandwidth `bandwidth`, μm) with the kernel mass inside `box` as edge correction,
 scaled by `A_field/N_all` (`A_field = area(box)`, `N_all = length(locs)`), floored where the
 kernels truncate to zero, then normalized so that the bilinear lookup integrates to
 `A_field` over `box`. Cost O(N·(2·4h/(h/4))²), threaded over grid column strips.
 """
-function build_intensity_map(locs::Vector{<:SMLMData.AbstractEmitter}, box::UniformSpatialPrior;
-                             bandwidth::Real = 0.2)
+function build_intensity_map(locs::Vector{<:SMLMData.AbstractEmitter},
+                             box::UniformSpatialPrior;
+                             bandwidth::Real = DEFAULT_INTENSITY_BANDWIDTH)
     h = Float64(bandwidth)
-    h > 0 || throw(ArgumentError("intensity_bandwidth must be positive (got $bandwidth)"))
     N = length(locs)
     N > 0 || throw(ArgumentError("build_intensity_map needs at least one localization"))
     A = area(box)
     A > 0 || throw(ArgumentError("intensity map box has zero area"))
 
     xlo, xhi, ylo, yhi = box.x_min, box.x_max, box.y_min, box.y_max
-    d = _IPP_GRID * h
+    x0, y0, d, nx, ny = _intensity_grid(box, h)
     R = _IPP_TRUNC * h
-    x0 = xlo - R; y0 = ylo - R
-    nx = ceil(Int, (xhi - xlo + 2R) / d) + 1
-    ny = ceil(Int, (yhi - ylo + 2R) / d) + 1
 
     xs0 = Float64[l.x for l in locs]
     order = sortperm(xs0)
-    xs = xs0[order]                        # single assignments: captured by the threaded loop
+    # single assignments: captured by the threaded loop
+    xs = xs0[order]
     ys = Float64[locs[i].y for i in order]
 
     # Kernel density by splatting each localization onto the grid nodes within R. Column
@@ -116,8 +146,10 @@ function build_intensity_map(locs::Vector{<:SMLMData.AbstractEmitter}, box::Unif
     end
 
     # Edge correction (kernel mass inside the box) and scale A_field/N_all.
-    mx = [max(_norm_cdf((xhi - (x0 + (i - 1) * d)) / h) - _norm_cdf((xlo - (x0 + (i - 1) * d)) / h), 1e-12) for i in 1:nx]
-    my = [max(_norm_cdf((yhi - (y0 + (i - 1) * d)) / h) - _norm_cdf((ylo - (y0 + (i - 1) * d)) / h), 1e-12) for i in 1:ny]
+    mx = [max(_norm_cdf((xhi - (x0 + (i - 1) * d)) / h) -
+              _norm_cdf((xlo - (x0 + (i - 1) * d)) / h), 1e-12) for i in 1:nx]
+    my = [max(_norm_cdf((yhi - (y0 + (i - 1) * d)) / h) -
+              _norm_cdf((ylo - (y0 + (i - 1) * d)) / h), 1e-12) for i in 1:ny]
     # Floor: one isolated kernel at the truncation radius, so g stays positive and
     # continuous where the truncated kernels vanish.
     g_floor = (A / N) * norm * exp(-_IPP_TRUNC^2 / 2)
@@ -126,43 +158,43 @@ function build_intensity_map(locs::Vector{<:SMLMData.AbstractEmitter}, box::Unif
         logg[iy, ix] = log(max((A / N) * κ[iy, ix] / (mx[ix] * my[iy]), g_floor))
     end
 
-    m = IntensityMap(logg, x0, y0, d, d, nx, ny, xlo, xhi, ylo, yhi, A, N, h)
+    m = IntensityMap(logg, x0, y0, d, box, N, h)
     return _normalize_intensity(m)
 end
 
 """
     constant_intensity_map(box::UniformSpatialPrior; n_all=1, bandwidth=0.2) -> IntensityMap
 
-The map g ≡ 1 over `box` (∫ g = area(box)): `:ipp` then reduces to `:flat` + Poisson K prior.
+The map g ≡ 1 over `box` (∫ g = area(box)): `:ipp` then reduces to `:flat` with a
+Poisson K prior.
 """
-function constant_intensity_map(box::UniformSpatialPrior; n_all::Int = 1, bandwidth::Real = 0.2)
+function constant_intensity_map(box::UniformSpatialPrior; n_all::Int = 1,
+                                bandwidth::Real = DEFAULT_INTENSITY_BANDWIDTH)
     h = Float64(bandwidth)
-    d = _IPP_GRID * h
-    R = _IPP_TRUNC * h
-    x0 = box.x_min - R; y0 = box.y_min - R
-    nx = ceil(Int, (box.x_max - box.x_min + 2R) / d) + 1
-    ny = ceil(Int, (box.y_max - box.y_min + 2R) / d) + 1
-    return IntensityMap(zeros(ny, nx), x0, y0, d, d, nx, ny,
-                        box.x_min, box.x_max, box.y_min, box.y_max, area(box), n_all, h)
+    n_all > 0 || throw(ArgumentError("n_all must be positive (got $n_all)"))
+    x0, y0, d, nx, ny = _intensity_grid(box, h)
+    return IntensityMap(zeros(ny, nx), x0, y0, d, box, n_all, h)
 end
 
 # 4-point Gauss-Legendre rule on [-1, 1].
-const _GL4_X = (-0.8611363115940526, -0.3399810435848563, 0.3399810435848563, 0.8611363115940526)
-const _GL4_W = (0.3478548451374538, 0.6521451548625461, 0.6521451548625461, 0.3478548451374538)
+const _GL4_X = (-0.8611363115940526, -0.3399810435848563, 0.3399810435848563,
+    0.8611363115940526)
+const _GL4_W = (0.3478548451374538, 0.6521451548625461, 0.6521451548625461,
+    0.3478548451374538)
 
 """
     intensity_integral(m::IntensityMap, xlo, xhi, ylo, yhi) -> Float64
 
 Integral of the lookup `g = exp(bilinear(log g))` over a rectangle (clipped to the grid):
 tensor 4-point Gauss-Legendre quadrature on each grid cell overlapped, over the part of the
-cell inside the rectangle (relative error far below 1e-8 for cells of a `h/4` grid). Threaded
-over column strips; the result is deterministic.
+cell inside the rectangle (relative error far below 1e-8 for cells of a `h/4` grid).
+Threaded over column strips; the result is deterministic.
 """
 function intensity_integral(m::IntensityMap, xlo::Real, xhi::Real, ylo::Real, yhi::Real)
-    ixa = max(1, floor(Int, (xlo - m.x0) / m.dx) + 1)
-    ixb = min(m.nx - 1, floor(Int, (xhi - m.x0) / m.dx) + 1)
-    iya = max(1, floor(Int, (ylo - m.y0) / m.dy) + 1)
-    iyb = min(m.ny - 1, floor(Int, (yhi - m.y0) / m.dy) + 1)
+    ixa = max(1, floor(Int, (xlo - m.x0) / m.spacing) + 1)
+    ixb = min(size(m.logg, 2) - 1, floor(Int, (xhi - m.x0) / m.spacing) + 1)
+    iya = max(1, floor(Int, (ylo - m.y0) / m.spacing) + 1)
+    iyb = min(size(m.logg, 1) - 1, floor(Int, (yhi - m.y0) / m.spacing) + 1)
     ixb < ixa && return 0.0
     ncol = ixb - ixa + 1
     nstrip = max(1, min(ncol, 4 * Threads.nthreads()))
@@ -171,16 +203,19 @@ function intensity_integral(m::IntensityMap, xlo::Real, xhi::Real, ylo::Real, yh
     Threads.@threads for s in 1:nstrip
         acc = 0.0
         @inbounds for ix in (ixa + bounds[s]):(ixa + bounds[s + 1] - 1)
-            cxa = max(xlo, m.x0 + (ix - 1) * m.dx); cxb = min(xhi, m.x0 + ix * m.dx)
+            cxa = max(xlo, m.x0 + (ix - 1) * m.spacing)
+            cxb = min(xhi, m.x0 + ix * m.spacing)
             cxb > cxa || continue
             hx = (cxb - cxa) / 2; mx = (cxb + cxa) / 2
             for iy in iya:iyb
-                cya = max(ylo, m.y0 + (iy - 1) * m.dy); cyb = min(yhi, m.y0 + iy * m.dy)
+                cya = max(ylo, m.y0 + (iy - 1) * m.spacing)
+                cyb = min(yhi, m.y0 + iy * m.spacing)
                 cyb > cya || continue
                 hy = (cyb - cya) / 2; my = (cyb + cya) / 2
                 cell = 0.0
                 for a in 1:4, b in 1:4
-                    cell += _GL4_W[a] * _GL4_W[b] * exp(_bilinear_log(m, mx + hx * _GL4_X[a], my + hy * _GL4_X[b]))
+                    cell += _GL4_W[a] * _GL4_W[b] * exp(_bilinear_log(
+                        m, mx + hx * _GL4_X[a], my + hy * _GL4_X[b]))
                 end
                 acc += hx * hy * cell
             end
@@ -192,17 +227,17 @@ end
 
 # Shift log g so that the lookup integrates to field_area over the box.
 function _normalize_intensity(m::IntensityMap)
-    I = intensity_integral(m, m.xlo, m.xhi, m.ylo, m.yhi)
+    I = intensity_integral(m, m.box.x_min, m.box.x_max, m.box.y_min, m.box.y_max)
     (isfinite(I) && I > 0) || error("intensity map has non-positive integral over its box")
-    m.logg .+= log(m.field_area / I)       # in place (the map is not yet shared)
+    m.logg .+= log(field_area(m) / I)       # in place (the map is not yet shared)
     return m
 end
 
 @inline function _bilinear_log(m::IntensityMap, x::Float64, y::Float64)
-    fx = clamp((x - m.x0) / m.dx + 1.0, 1.0, Float64(m.nx))
-    fy = clamp((y - m.y0) / m.dy + 1.0, 1.0, Float64(m.ny))
-    ix = max(min(floor(Int, fx), m.nx - 1), 1)
-    iy = max(min(floor(Int, fy), m.ny - 1), 1)
+    fx = clamp((x - m.x0) / m.spacing + 1.0, 1.0, Float64(size(m.logg, 2)))
+    fy = clamp((y - m.y0) / m.spacing + 1.0, 1.0, Float64(size(m.logg, 1)))
+    ix = max(min(floor(Int, fx), size(m.logg, 2) - 1), 1)
+    iy = max(min(floor(Int, fy), size(m.logg, 1) - 1), 1)
     sx = fx - ix
     sy = fy - iy
     lg = m.logg
@@ -219,13 +254,15 @@ end
 
 `log g(x, y)` by bilinear interpolation of the stored `log g` (clamped to the grid). O(1).
 """
-@inline log_intensity(m::IntensityMap, x::Real, y::Real) = _bilinear_log(m, Float64(x), Float64(y))
+@inline log_intensity(m::IntensityMap, x::Real, y::Real) = _bilinear_log(m, Float64(x),
+    Float64(y))
 
 """
     IntensitySpatial <: AbstractSpatialModel
 
 Inhomogeneous Poisson process spatial prior. Partition exposure `exp(log_area)`
-(`A_i' = A_field·n_i/N_all` when partitioned) and ONE shared read-only [`IntensityMap`](@ref).
+(`A_i' = A_field·n_i/N_all` when partitioned) and ONE shared read-only
+[`IntensityMap`](@ref).
 The per-emitter factor is `ρ·g(θ̂)` at the cluster's posterior mean (saddle point):
 
     spatial_ml(cs, sp) = log_marginal_likelihood(cs, log_area) + log g(θ̂)
@@ -242,20 +279,19 @@ struct IntensitySpatial <: AbstractSpatialModel
     map::IntensityMap
 end
 
-# Empty cluster contributes nothing (guard before the solve). g is a map of the first two
-# coordinates (x, y), as the flat area is (3D features use the same xy exposure).
-@inline function spatial_ml(cs::ClusterStats{D}, sp::IntensitySpatial) where D
-    n = Int(cs.n)
-    n == 0 && return 0.0
-    det_Λ = det(cs.Λ)
-    det_Λ <= 0 && return -Inf
-    μ = cs.Λ \ cs.η                       # one solve: the flat ML term and θ̂ share it
-    # = log_marginal_likelihood(cs, sp.log_area) (cluster_stats.jl) + log g(θ̂)
-    lml = (1 - n) * (D / 2) * log(2π) -
-          0.5 * cs.log_det_sum -
-          0.5 * (cs.quad - dot(cs.η, μ)) -
-          0.5 * log(det_Λ) -
-          sp.log_area
+"""
+    IntensitySpatial(m::IntensityMap, n_locs)
+
+Use a shared map with the exposure of `n_locs` localizations from its field.
+"""
+IntensitySpatial(m::IntensityMap, n_locs::Integer) =
+    IntensitySpatial(log(exposure(m, n_locs)), m)
+
+# g uses x, y; 3D features share the same xy exposure.
+@inline function spatial_ml(cs::ClusterStats, sp::IntensitySpatial)
+    lml = log_marginal_likelihood(cs, sp.log_area)
+    (cs.n == 0 || !isfinite(lml)) && return lml
+    μ = cs.Λ \ cs.η
     return lml + log_intensity(sp.map, μ[1], μ[2])
 end
 

@@ -282,22 +282,34 @@ normalized over the same box. With a supplied `intensity_map` the exposure is
 $A_{\text{field}}\, n/N_{\text{all}}$ of that map. `k_prior=:none` uses per-partition padded areas.
 
 **Motion.** With `motion=:linear` the motion model's own spatial prior is used (flat position,
-Gaussian velocity, no Poisson $K$ prior), as for every `spatial_model`; this is logged once per run.
+Gaussian velocity), as for every `spatial_model`; this is logged once per run.
+`k_prior=:poisson` adds a Poisson $K$ prior to the motion model's flat position prior.
 
 **Known limits.** The per-emitter factor $\rho g$ is the density of independent emitters at the
 observed density: dense random fields are calibrated, but isolated designed structures
-(rulers, origami, sparse oligomers) resolve somewhat worse than under the previous locmix
-default, and the flat Occam volume factor $-\tfrac12\log|\Lambda_k|$ still penalizes splitting
-co-located emitters. `spatial_model=:locmix` restores the previous prior.
+(rulers, origami, sparse oligomers) resolve somewhat worse than under the default locmix
+model, and the flat Occam volume factor $-\tfrac12\log|\Lambda_k|$ still penalizes splitting
+co-located emitters. `spatial_model=:locmix` selects that default prior.
 
-**Diagnostics.** `IPPTarget(map)` is the cancelled canonical target above; use it with
-`label_multiplicity=:none` (its default). `exact_posterior`, `dev/brute_force_enumeration.jl`,
-`dev/detailed_balance_check.jl ipp` and `dev/birth_death_db_check.jl ipp` all use this one
-convention (for flat, $\log T_1 + \log K!$), with a prebuilt non-constant map. $\rho$'s
-conditional cannot be validated by fixed-$\rho$ detailed balance and is unit-tested (P5).
+**Diagnostics.** `IPPTarget(map)` returns a labeled target, including $-\log K!$,
+like `DMFlatTarget`. `exact_posterior` uses `label_multiplicity=:factorial` by default
+for both, adding $\log K!$ to obtain the canonical target above. The detailed-balance
+and birth/death drivers likewise add that correction for flat and IPP targets with a
+prebuilt non-constant map. $\rho$'s conditional cannot be validated by fixed-$\rho$
+detailed balance and is unit-tested (P5).
 
-**Archive replay** is model-independent: the accumulators read only the assignment vector and
-the flat Gaussian cluster moments, never the spatial prior.
+**Archive replay.** Built-in accumulators read assignments and Gaussian cluster moments
+and can replay every model. An accumulator that evaluates the spatial prior needs the
+original partition model and exposure via `spatial=`; otherwise recorded archives throw
+at first spatial use. Code-0 archives retain the legacy flat placeholder. Motion-model
+replay is unsupported.
+
+The map stores `logg`, grid origin `x0, y0`, one `spacing`, its normalization `box`,
+`n_all`, and `bandwidth`. Use `field_box(locs)` for the unpadded field box (`nothing`
+for zero extent), `field_area(map)` for its area, `exposure(map, n)` for a partition's
+share, and `IntensitySpatial(map, n)` to construct that partition's spatial model.
+Map construction rejects grids exceeding `2^27` cells (1 GiB for the Float64 grid);
+increase the bandwidth or reduce the field if this guard fires.
 
 **Code:** `IntensityMap`, `build_intensity_map`, `IntensitySpatial` in `src/intensity.jl`;
 `IPPTarget` in `src/diagnostics/target.jl`; exposure and map routing in `_run_bagol_collapsed`
@@ -459,10 +471,15 @@ $\sim1.4$ nats measured). $\mu$ needs no such branch: it enters only the count m
 `_update_shape_collapsed`/`_update_shape_collapsed_global!`.
 
 **Hyperpriors:** $\mu \sim \text{Gamma}(2, 5)$, $\alpha \sim \text{Gamma}(2, 1)$.
+The bare `run_bagol` and `run_collapsed_chain` keywords `μ_prior_shape`, `μ_prior_scale`,
+`shape_prior_shape`, `shape_prior_scale`, `ρ_prior_shape`, and `ρ_prior_rate` control
+these priors (the last is a rate; the others use Gamma shape/scale). These are not
+`BaGoLConfig` fields.
 **Bounds:** $\mu \in [1, 500]$, $\alpha \in [0.5, 50]$.
 
-The density parameter $\rho$ is conjugate-updated only for `FlatSpatial` and
-`IntensitySpatial` (Section 4.6), because only those targets contain $P_K(K\mid\rho,A)$.
+The density parameter $\rho$ is conjugate-updated when the target uses a Poisson $K$
+prior: by default for `FlatSpatial` and `IntensitySpatial` (Section 4.6), or explicitly
+with `k_prior=:poisson` under motion.
 In the partitioned `run_bagol` path with the flat or ipp target and Poisson $K$ prior, partition $i$ is given the
 area $A_i' = A_{\text{field}}\, n_i/N_{\text{all}}$ ($A_{\text{field}}$: bounding box
 of all localizations, computed once; $n_i$: localizations of partition $i$ including
@@ -475,7 +492,8 @@ share) and $\sum_i A_i'$ the exposure, so $\rho$ is the emitter density. Summing
 padded, floored, overlapping partition areas instead biases it low (the floor caps it
 near $1/(\mu\,9\pi\sigma^2)$). The default prior $\text{Gamma}(2,1)$ acts as
 $1\,\mu\text{m}^2$ of pseudo-area: negligible on whole cells, material below a few
-$\mu\text{m}^2$ (set `ρ_prior_rate` on small fields). A zero-extent field falls back to
+$\mu\text{m}^2$ (set the bare `run_bagol` keyword `ρ_prior_rate` on small fields;
+it is not a `BaGoLConfig` field). A zero-extent field falls back to
 the old areas with a warning; `k_prior=:none`, locmix and the single-chain path
 (`run_collapsed_chain`) are unchanged. For `LocmixSpatial`,
 $\rho$ is not part of the target and remains at its initialized value in
@@ -615,7 +633,7 @@ The finite-state diagnostics use explicit target marker types:
 | `DMFlatTarget` | flat | DM | $\text{Poisson}(\rho A)$ |
 | `DirectNegBinFlatTarget` | flat | direct NegBin assignment form | $\text{Poisson}(\rho A)$ |
 | `DecoupledTarget` | flat | decoupled | $\text{Poisson}(\rho A)$ |
-| `IPPTarget(map)` | ipp (fixed prebuilt map) | DM | $\text{Poisson}(\rho A)$, cancelled canonical convention |
+| `IPPTarget(map)` | ipp (fixed prebuilt map) | DM | $\text{Poisson}(\rho A)$, labeled convention |
 | `DMLocmixTarget` | locmix | DM | none |
 | `DirectNegBinLocmixTarget` | locmix | direct NegBin assignment form | none |
 | `DecoupledLocmixTarget` | locmix | decoupled | none |
