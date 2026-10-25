@@ -2,10 +2,6 @@ using Test
 using SMLMBaGoL
 using SMLMData
 using Random
-using Statistics
-using Distributions
-import LinearAlgebra
-import SMLMSim
 
 @testset "estimate_se_adjust τ finder" begin
     # M-step kernel: at the true τ the within-group scaled neighbor distances

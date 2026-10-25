@@ -53,7 +53,6 @@ estimate_mapn_overlap
 
 ```@docs
 AbstractAccumulator
-needs_spatial_model
 EmitterCountHist
 PosteriorImage
 NNDistHist
@@ -77,6 +76,9 @@ LocmixSpatial
 IntensitySpatial
 IntensityMap
 build_intensity_map
+field_box
+field_area
+exposure
 spatial_ml
 spatial_pred
 AbstractAllocationModel

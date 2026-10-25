@@ -361,9 +361,17 @@ k_prior=:none or :poisson on `run_collapsed_chain` / `run_bagol`.
 _uses_poisson_k_prior(::FlatSpatial) = true
 _uses_poisson_k_prior(::IntensitySpatial) = true
 _uses_poisson_k_prior(::LocmixSpatial) = false
-# Motion pairs with the DM/count prior for now (no Poisson-K); revisit later.
+# Motion defaults to DM/count only; k_prior=:poisson can opt in.
 _uses_poisson_k_prior(::MotionSpatial) = false
 _uses_poisson_k_prior(state::CollapsedState) = state.use_poisson_k_prior
+
+_data_scaled_rho_start(::AbstractSpatialModel) = false
+_data_scaled_rho_start(::FlatSpatial) = true
+_data_scaled_rho_start(::IntensitySpatial) = true
+
+function _initial_rho(rho, use_data_start::Bool, N, μ0, A, a, b)
+    return rho !== nothing ? Float64(rho) : use_data_start ? N / (μ0 * A) : a / b
+end
 
 """
     _total_spatial_lml(state) -> Float64

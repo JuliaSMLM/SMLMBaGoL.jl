@@ -53,6 +53,21 @@ end
 
 area(prior::UniformSpatialPrior) = (prior.x_max - prior.x_min) * (prior.y_max - prior.y_min)
 
+"""
+    field_box(locs) -> Union{UniformSpatialPrior, Nothing}
+
+Unpadded bounding box of all localizations. Return `nothing` for empty input or
+zero extent in either axis; standalone spatial priors use `UniformSpatialPrior(locs)`
+for a padded, positive-area box instead.
+"""
+function field_box(locs::AbstractVector{<:SMLMData.AbstractEmitter})
+    isempty(locs) && return nothing
+    xlo, xhi = extrema(l.x for l in locs)
+    ylo, yhi = extrema(l.y for l in locs)
+    (xhi > xlo && yhi > ylo) || return nothing
+    return UniformSpatialPrior(xlo, xhi, ylo, yhi)
+end
+
 function log_spatial_prior(x::Float64, y::Float64, prior::UniformSpatialPrior)
     if prior.x_min <= x <= prior.x_max && prior.y_min <= y <= prior.y_max
         return -log(area(prior))

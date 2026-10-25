@@ -21,7 +21,7 @@
 # fixed-ρ arm look low; that conclusion was an artifact.) The flat marginal still carries an Occam
 # volume factor (−½·log det Λ) that penalizes splitting close/co-located emitters, which the
 # localization-mixture prior of locmix cancels (≡ flat with ρ = 1/(2πσ²), one emitter per
-# resolution cell). At g ≈ 1 over a 40 nm ring (h = 0.2 µm) the ipp arms equal the flat arms.
+# resolution cell). At g ≈ 1 over a 40 nm ring (h = 0.2 μm) the ipp arms equal the flat arms.
 # Arm order matters a little: this script reseeds per arm, but a later arm can land on a different N.
 #
 # The comparison grid (all entries pass run_bagol validation):
@@ -71,8 +71,10 @@ fov = compute_fov(sim.smld)
 # peaks at the true count. A_field is the unpadded bounding box of all localizations, the exposure
 # run_bagol uses for the flat / ipp Poisson-K prior (a single partition's share is the whole field).
 # (Flat / ipp + Poisson-K arms only; locmix has no ρ.)
-_xs = extrema(e.x for e in sim.smld.emitters); _ys = extrema(e.y for e in sim.smld.emitters)
-const A_FIELD   = (_xs[2] - _xs[1]) * (_ys[2] - _ys[1])
+const FIELD_BOX = field_box(sim.smld.emitters)
+FIELD_BOX === nothing && error("octamer field has zero spatial extent")
+const N_LOCS = length(sim.smld.emitters)
+const A_FIELD = exposure(FIELD_BOX, N_LOCS, N_LOCS)
 const RHO_FIXED = N_EMITTERS / A_FIELD
 
 # =============================================================================

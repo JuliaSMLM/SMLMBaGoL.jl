@@ -7,8 +7,7 @@
 #
 # Targets: `:flat` (flat spatial + Poisson K) and `:ipp` (inhomogeneous Poisson process with a
 # NON-constant pilot intensity map, built from the data at a bandwidth of a few sigma). Both
-# use the single diagnostics convention, the cancelled canonical target (label_multiplicity
-# = :none): the sampler's Poisson(rho A) prior with its -log K! removed by the K! of the
+# use the canonical target (`exact_posterior` adds K! to both labeled library targets): the sampler's Poisson(rho A) prior with its -log K! removed by the K! of the
 # K-moves, i.e. log_prior_k_poisson(K) + log K!. (The earlier T1 convention without the +log K!
 # differs from what the sampler samples by a factor K! and hid in peaked posteriors.)
 #
@@ -324,8 +323,8 @@ end
 (sp, td) for a spatial config. `:flat` -> FlatSpatial + DMFlatTarget. `:ipp` -> IntensitySpatial
 with a pilot intensity map built from the data over the same padded box at `bandwidth`
 (a few sigma, so log g varies strongly across the localizations: a NON-constant map) +
-IPPTarget (the library's cancelled canonical target, used as a cross-check of the
-driver's own component sum).
+IPPTarget (a labeled library target; exact_posterior adds K! for the canonical
+cross-check of the driver's own component sum).
 """
 function spatial_setup(spatial::Symbol, locs, spatial_prior; bandwidth::Float64=0.02)
     log_area = log(SMLMBaGoL.area(spatial_prior))
@@ -419,7 +418,7 @@ function run_test(;
     probs_exact = probs_unnorm ./ Z
 
     # Cross-check against the library target (same convention: cancelled canonical,
-    # label_multiplicity = :none for IPPTarget, :factorial = +log K! for the flat target).
+    # label_multiplicity = :factorial adds log K! for both flat and IPP targets).
     p_lib, _ = SMLMBaGoL.exact_posterior([z for (z, _) in partitions], locs, td; μ=μ, shape=shape, ρ=ρ)
     xcheck = maximum(abs.(p_lib .- probs_exact))
     @printf("  Library exact_posterior(%s) vs driver component sum: max |dP| = %.2e\n",

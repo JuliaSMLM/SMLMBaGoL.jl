@@ -1,11 +1,7 @@
 using Test
 using SMLMBaGoL
 using SMLMData
-using Random
 using Statistics
-using Distributions
-import LinearAlgebra
-import SMLMSim
 
 # ================================================================
 # ClusterStats unit tests
@@ -68,7 +64,8 @@ import SMLMSim
     @test SMLMBaGoL.log_marginal_likelihood(cs0, log_area) == 0.0
 
     # Predictive probability
-    new_loc = SMLMData.Emitter2DFit(0.101, 0.1, 1000.0, 10.0, σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, 4)
+    new_loc = SMLMData.Emitter2DFit(0.101, 0.1, 1000.0, 10.0, σ, σ, 0.0, 0.0, 0.0, 1, 1,
+        0, 4)
     lp = SMLMBaGoL.log_predictive(cs3, new_loc, log_area)
     @test isfinite(lp)
 

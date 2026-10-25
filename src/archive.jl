@@ -1,7 +1,8 @@
 # Mmap-based chain archive for collapsed Gibbs sampler
 #
 # Binary format per partition:
-#   Header (64 bytes): magic, n_locs, n_samples, spatial-model code (0 = unrecorded), reserved
+#   Header (64 bytes): magic, n_locs, n_samples, spatial-model code
+#   (0 = unrecorded), reserved
 #   Per sample: Int16[n_locs] assignments + Float64 μ + Float64 shape
 #
 # For N=50 locs, 8k samples: ~864 KB per partition.
@@ -12,18 +13,28 @@ const ARCHIVE_HEADER_SIZE = 64
 
 # Spatial model the chain sampled, stored in the header at byte 24 (0 = archive written
 # before this field existed: treated as flat, as before)
-const _ARCHIVE_SPATIAL_CODES = (flat = 1, locmix = 2, ipp = 3, motion = 4)
-_archive_spatial_code(s::Symbol) = s === :unrecorded ? Int64(0) :
-    Int64(get(_ARCHIVE_SPATIAL_CODES, s) do
-        throw(ArgumentError("unknown archive spatial model :$s"))
-    end)
-function _archive_spatial_symbol(code::Integer)
-    code == 0 && return :unrecorded
-    for (k, v) in pairs(_ARCHIVE_SPATIAL_CODES)
-        v == code && return k
-    end
+const _ARCHIVE_SPATIAL_CODES = Dict(
+    :unrecorded => Int64(0), :flat => Int64(1), :locmix => Int64(2),
+    :ipp => Int64(3), :motion => Int64(4))
+const _ARCHIVE_SPATIAL_SYMBOLS = Dict(v => k for (k, v) in _ARCHIVE_SPATIAL_CODES)
+_archive_spatial_code(s::Symbol) = get(_ARCHIVE_SPATIAL_CODES, s) do
+    throw(ArgumentError("unknown archive spatial model :$s"))
+end
+_archive_spatial_symbol(code::Integer) = get(_ARCHIVE_SPATIAL_SYMBOLS, code) do
     error("Invalid archive spatial-model code $code")
 end
+
+# A recorded archive has no saved spatial model or exposure. Fail at first use,
+# while allowing assignment/moment accumulators to replay without declarations.
+struct ReplaySpatial <: AbstractSpatialModel end
+_replay_spatial_error() = throw(ArgumentError(
+    "pass spatial= to replay a spatial-model accumulator"))
+spatial_ml(cs::AbstractClusterStats, ::ReplaySpatial) = _replay_spatial_error()
+spatial_pred(cs::AbstractClusterStats, lp::AbstractLocPrecision, ::ReplaySpatial) =
+    _replay_spatial_error()
+spatial_area(::ReplaySpatial) = _replay_spatial_error()
+spatial_log_area(::ReplaySpatial) = _replay_spatial_error()
+_uses_poisson_k_prior(::ReplaySpatial) = false
 
 """
     BaGoLArchive
@@ -40,15 +51,16 @@ mutable struct BaGoLArchive
     ios::Vector{Union{IOStream, Nothing}}  # Write handles (nothing if read-only)
     sample_counts::Vector{Int}     # Number of samples written per partition
     mode::Symbol                   # :write or :read
-    spatial_model::Symbol          # :flat, :locmix, :ipp, :motion, or :unrecorded (older archives)
+    # :flat, :locmix, :ipp, :motion, or :unrecorded (older archives)
+    spatial_model::Symbol
 end
 
 """
     BaGoLArchive(path, n_partitions, partition_sizes; spatial_model=:unrecorded)
 
 Create a new archive for writing. Creates directory and per-partition files. The
-`spatial_model` the chain samples under (`:flat`, `:locmix`, `:ipp`, `:motion`) is recorded in
-each header so replay can tell which accumulators it cannot serve.
+`spatial_model` the chain samples under (`:flat`, `:locmix`, `:ipp`, `:motion`) is
+recorded in each header. Replay requires `spatial=` when an accumulator uses that model.
 """
 function BaGoLArchive(path::String, n_partitions::Int, partition_sizes::Vector{Int};
                       spatial_model::Symbol = :unrecorded)
@@ -74,7 +86,8 @@ function BaGoLArchive(path::String, n_partitions::Int, partition_sizes::Vector{I
         ios[i] = io
     end
 
-    return BaGoLArchive(path, n_partitions, partition_sizes, ios, sample_counts, :write, spatial_model)
+    return BaGoLArchive(path, n_partitions, partition_sizes, ios, sample_counts, :write,
+        spatial_model)
 end
 
 """
@@ -102,11 +115,16 @@ function BaGoLArchive(path::String)
         end
     end
 
-    all(==(first(codes)), codes) || error("Archive $path mixes spatial models across partitions")
-    spatial_model = isempty(codes) ? :unrecorded : _archive_spatial_symbol(first(codes))
+    spatial_model = if isempty(codes)
+        :unrecorded
+    else
+        allequal(codes) || error("Archive $path mixes spatial models across partitions")
+        _archive_spatial_symbol(first(codes))
+    end
 
     ios = fill(nothing, n_partitions)
-    return BaGoLArchive(path, n_partitions, partition_sizes, ios, sample_counts, :read, spatial_model)
+    return BaGoLArchive(path, n_partitions, partition_sizes, ios, sample_counts, :read,
+        spatial_model)
 end
 
 """
@@ -205,17 +223,14 @@ end
 Run an accumulator on archived samples from a partition.
 Enables post-hoc analysis with any accumulator type.
 
-Every accumulator type declares its replay need with [`needs_spatial_model`](@ref); an
-undeclared type throws. The built-ins read only the assignment vector and the flat Gaussian
-cluster moments (counts, posterior means and covariances), declare `false`, and replay under
-any archive's spatial model with a placeholder state. An accumulator declaring `true`
-(it evaluates `spatial_ml` / `spatial_pred`) always needs the caller to pass the original
-partition model with its exposure via `spatial=` (an `AbstractSpatialModel` used for every
-sample, e.g. `IntensitySpatial(log_area, map)` or `FlatSpatial(log_area)` with the field-share
-area the chain used), for flat archives too: sampling uses the field exposure share
-`A_field·n_i/N_all`, which a rebuilt padded-area model does not reproduce. Archives written
-under `motion=:linear` cannot be replayed with spatial accumulators (`MotionSpatial` is not
-supported for replay). The sampling model is recorded in the header (`archive.spatial_model`).
+Accumulators that read only assignments and Gaussian cluster moments replay without
+extra declarations. For a recorded archive, touching the spatial model throws
+"pass spatial= to replay a spatial-model accumulator". Pass the original partition
+model and exposure via `spatial=` (e.g. `IntensitySpatial(map, n_locs)` or
+`FlatSpatial(log_area)`). This applies to flat archives too: sampling's field exposure
+share differs from a rebuilt padded area. Unrecorded archives (code 0) retain the legacy
+`FlatSpatial` placeholder. `MotionSpatial` replay is unsupported. The header records the
+sampling model (`archive.spatial_model`), but not the model's parameters or exposure.
 
 # Example
 ```julia
@@ -229,16 +244,8 @@ function compute_from_archive(::Type{T}, archive::BaGoLArchive,
                                locs::Vector{<:SMLMData.AbstractEmitter};
                                spatial::Union{Nothing,AbstractSpatialModel} = nothing,
                                kwargs...) where T<:AbstractAccumulator
-    needs_spatial = needs_spatial_model(T)   # throws for an undeclared accumulator
-    if needs_spatial
-        if archive.spatial_model === :motion || spatial isa MotionSpatial
-            throw(ArgumentError("$T evaluates the spatial model, but motion=:linear archives cannot be " *
-                "replayed with spatial accumulators (MotionSpatial is not supported for replay)"))
-        end
-        spatial === nothing && throw(ArgumentError("$T evaluates the spatial model: pass the original " *
-            "partition model with its exposure via spatial=... (archive written under " *
-            "spatial_model=:$(archive.spatial_model); replay does not rebuild it)"))
-    end
+    spatial isa MotionSpatial && throw(ArgumentError(
+        "MotionSpatial is not supported for archive replay"))
     acc = T(; kwargs...)
 
     assignments, μs, shapes = read_partition(archive, partition_id)
@@ -249,9 +256,16 @@ function compute_from_archive(::Type{T}, archive::BaGoLArchive,
     spatial_prior = UniformSpatialPrior(locs)
     log_area = log(area(spatial_prior))
 
+    replay_spatial = if spatial !== nothing
+        spatial
+    elseif archive.spatial_model === :unrecorded
+        FlatSpatial(log_area)
+    else
+        ReplaySpatial()
+    end
     for s in 1:n_samples
         # Reconstruct CollapsedState from assignments
-        state = _reconstruct_state(assignments[:, s], locs, log_area, spatial)
+        state = _reconstruct_state(assignments[:, s], locs, log_area, replay_spatial)
         accumulator_update!(acc, state, locs, μs[s], shapes[s], s)
     end
 
@@ -282,10 +296,8 @@ function _reconstruct_state(assignments::Vector{Int16},
     N = length(assignments)
     _loc_precs = precompute_loc_precisions(locs)
     max_K = max(N, 16)
-    # Archived state predates explicit k_prior config — assume legacy flat
-    # behavior (Poisson K prior + ρ updates). Archive format does not yet
-    # carry target metadata; downstream callers can override the field on
-    # the returned state if they reconstructed under a different target.
+    # The header records the spatial-model kind, but not allocation or K-prior gating.
+    # Reconstruction is for accumulator replay; it cannot reproduce a sampling target.
     sp = spatial === nothing ? FlatSpatial(log_area) : spatial
     return CollapsedState(assignments, clusters, active, n_active,
                           sp, DMAllocation(),

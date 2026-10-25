@@ -1,11 +1,6 @@
 using Test
 using SMLMBaGoL
 using SMLMData
-using Random
-using Statistics
-using Distributions
-import LinearAlgebra
-import SMLMSim
 
 @testset "Fazel Target Configuration" begin
     # Verify the public API for the Fazel-equivalent target:

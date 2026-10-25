@@ -110,7 +110,8 @@ Run the collapsed Gibbs sampler on a set of localizations.
 
 # Arguments
 - `locs`: Vector of localizations (Emitter2DFit or similar)
-- `n_iterations=10000`: Total MCMC iterations
+- `n_iterations=10000`: Total MCMC iterations. This single-partition primitive
+  deliberately defaults to a longer chain than `run_bagol` (4000 iterations).
 - `burn_in=2000`: Burn-in iterations before accumulating
 - `initial_assignments=nothing`: Optional initial assignment vector.
   If provided, the chain starts from this state instead of all-in-one.
@@ -131,12 +132,14 @@ Run the collapsed Gibbs sampler on a set of localizations.
   run that never reaches a hierarchical update starts from a data-scaled density.
 - `spatial_model=:locmix`: `:ipp` (inhomogeneous Poisson process: a fixed pilot intensity
   map g, bandwidth `intensity_bandwidth`, times the global density ρ; partition-invariant),
-  `:flat` (uniform) or `:locmix` (the default; localization mixture, depends on the partitioning).
+  `:flat` (uniform) or `:locmix` (the default; localization mixture, depends on the
+  partitioning).
   The chain's exposure is the padded, floored `UniformSpatialPrior` area (as `:flat`), the
   map is built from `locs` and normalized over that box, so at g ≡ 1 `:ipp` equals `:flat`.
-- `intensity_bandwidth=0.2`: Pilot-intensity kernel bandwidth h (µm) for `:ipp`.
-- `intensity_map=nothing`: A prebuilt [`IntensityMap`](@ref) for `:ipp` (built over a larger field and shared by
-  several chains); the exposure is then `map.field_area · length(locs) / map.n_all`.
+- `intensity_bandwidth=0.2`: Pilot-intensity kernel bandwidth h (μm) for `:ipp`.
+- `intensity_map=nothing`: A prebuilt [`IntensityMap`](@ref) for `:ipp` (built over a
+  larger field and shared by several chains); its exposure is
+  `exposure(map, length(locs))`.
 - `hierarchical_interval=100`: Iterations between μ/shape MH updates
 - `accumulators=AbstractAccumulator[]`: List of accumulators to update after burn-in
 - `verbose=false`: Print progress
@@ -178,7 +181,7 @@ function run_collapsed_chain(
     gamma::Union{Nothing, Float64} = nothing,
     allocation_model::Symbol = :dm,
     spatial_model::Symbol = :locmix,
-    intensity_bandwidth::Float64 = 0.2,
+    intensity_bandwidth::Float64 = DEFAULT_INTENSITY_BANDWIDTH,
     intensity_map::Union{Nothing, IntensityMap} = nothing,
     k_prior::Symbol = :auto,
     motion::Symbol = :none,
@@ -214,13 +217,16 @@ function run_collapsed_chain(
 
     # Construct spatial model
     spatial_model in (:ipp, :locmix, :flat) ||
-        throw(ArgumentError("spatial_model must be :ipp, :locmix or :flat (got :$spatial_model)"))
+        throw(ArgumentError("spatial_model must be :ipp, :locmix or :flat " *
+                            "(got :$spatial_model)"))
     intensity_map === nothing || spatial_model === :ipp ||
-        throw(ArgumentError("intensity_map is only used with spatial_model=:ipp (got :$spatial_model)"))
+        throw(ArgumentError("intensity_map is only used with spatial_model=:ipp " *
+                            "(got :$spatial_model)"))
     motion in (:none, :linear) ||
         throw(ArgumentError("motion must be :none or :linear (got :$motion)"))
     motion === :linear && verbose &&
-        println("motion=:linear uses the motion model's own spatial prior (flat position + velocity); spatial_model=:$spatial_model is not applied")
+        println("motion=:linear uses the motion model's own spatial prior " *
+        "(flat position + velocity); spatial_model=:$spatial_model is not applied")
     sp = if motion === :linear
         # Linear per-emitter motion: flat μ + Gaussian velocity prior (σ = motion_sigma μm
         # per-axis end-to-end drift). Global time reference from the loc frame range.
@@ -236,10 +242,10 @@ function run_collapsed_chain(
             # Same exposure as standalone flat (padded, floored, positive for singleton /
             # collinear / co-located data); the map is normalized over that same box.
             box = UniformSpatialPrior(locs)
-            IntensitySpatial(log(area(box)), build_intensity_map(locs, box; bandwidth=intensity_bandwidth))
+            IntensitySpatial(build_intensity_map(locs, box;
+                bandwidth=intensity_bandwidth), N)
         else
-            IntensitySpatial(log(_partition_area_share(intensity_map.field_area, N, intensity_map.n_all)),
-                             intensity_map)
+            IntensitySpatial(intensity_map, N)
         end
     else
         FlatSpatial(log(area(UniformSpatialPrior(locs))))
@@ -248,14 +254,14 @@ function run_collapsed_chain(
     # Resolve k_prior into a concrete bool. The Poisson(ρA) prior in the
     # current sampler is the flat-area-cancelled form e^{-ρA}ρ^K/K! — it
     # only matches a true Poisson(ρA) K prior when paired with flat ML's
-    # A^-K cancellation. Disallow :poisson under non-flat to avoid
+    # A^-K cancellation. Allow :poisson for flat or IPP spatial models to avoid
     # silently mixing inconsistent target pieces.
-    if motion === :linear && spatial_model === :ipp && k_prior === :poisson
-        throw(ArgumentError("k_prior=:poisson with spatial_model=:ipp is not supported with motion=:linear: the motion model uses its own spatial prior and no Poisson K prior"))
-    end
     use_poisson_k_prior = if k_prior === :poisson
         spatial_model in (:flat, :ipp) ||
-            throw(ArgumentError("k_prior=:poisson is only valid with spatial_model=:flat or :ipp (the prior is the flat-area-cancelled form). Got spatial_model=:$spatial_model"))
+            throw(ArgumentError("k_prior=:poisson is only valid with " *
+                "spatial_model=:flat or :ipp " *
+                "(the prior is the flat-area-cancelled form). " *
+                "Got spatial_model=:$spatial_model"))
         true
     elseif k_prior === :none
         false
@@ -275,13 +281,8 @@ function run_collapsed_chain(
     μ = μ_prior_shape * μ_prior_scale  # Initial μ from prior mean
     current_shape = shape
     A = spatial_area(state.spatial)
-    ρ = if rho !== nothing
-        Float64(rho)
-    elseif use_poisson_k_prior && state.spatial isa Union{FlatSpatial, IntensitySpatial}
-        N / (μ * A)       # data-scaled start (μ is the initial μ here)
-    else
-        ρ_prior_shape / ρ_prior_rate
-    end
+    use_data_start = use_poisson_k_prior && _data_scaled_rho_start(state.spatial)
+    ρ = _initial_rho(rho, use_data_start, N, μ, A, ρ_prior_shape, ρ_prior_rate)
 
     acceptance = Dict{Symbol, Tuple{Int, Int}}(
         :gibbs_sweep => (0, 0),
