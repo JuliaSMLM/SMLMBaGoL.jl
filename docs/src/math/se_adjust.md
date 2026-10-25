@@ -35,20 +35,38 @@ too small (``\tau = 0``, shifted right — localizations look over-spread), corr
 The estimator picks the ``\tau`` whose empirical distribution best matches Rayleigh(1), via
 the Kolmogorov–Smirnov criterion above.*
 
-## Over-merge descent
+## Self-consistent root search
 
-Grouping depends on ``\tau`` and ``\tau`` depends on the grouping, so the finder alternates
-an EM-style loop:
+Grouping depends on ``\tau`` and ``\tau`` depends on the grouping, so the estimate is the
+self-consistent value ``\tau^*`` with ``m(\tau^*) = \tau^*``, where ``m(g)`` is built from
+two steps:
 
-1. **E-step** — regroup the data with a temporary BaGoL run at the current ``\tau`` (using
-   BaGoL's own Dahl-consensus labels);
+1. **E-step** — regroup the data with a temporary BaGoL run at ``g`` (using BaGoL's own
+   Dahl-consensus labels);
 2. **M-step** — find the KS-minimizing ``\tau`` on that frozen grouping (right-biased, to
-   preserve same-emitter spread),
+   preserve same-emitter spread; interpolating the threshold crossing between grid points
+   removes grid quantization). Grouping changes and E-step noise mean ``m(g)`` is still
+   only approximately continuous.
 
-descending from above until ``\tau`` is self-consistent. A spatial-block bootstrap provides a
-95% confidence interval. The estimator is **isotropic**: it uses one per-localization
-uncertainty (the reported ``\sigma_x``) and a single scalar ``\tau``, so it is intended for
-data with roughly isotropic localization precision.
+The finder starts over-merged (clamping the start into the grid range) and searches for
+the root of ``r(g) = m(g) - g`` with secant steps and a sign-change bracket (Illinois
+regula falsi). The search stops when the root is bracketed within 2·stop_tol_um;
+τ̂ interpolates inside that bracket. More precisely, `converged=true` requires either
+an exact ``r = 0`` or measured endpoints ``r(a) > 0 > r(b)`` with
+``b - a \le 2\,\mathtt{stop\_tol\_um}``. Each bracketed proposal stays at least
+`stop_tol_um` from either end, with bisection as a fallback. The returned ``\hat\tau``
+is the linear-interpolation root inside the final bracket, so for a root ``g^*`` inside
+it, ``|\hat\tau - g^*| \le b - a \le 2\,\mathtt{stop\_tol\_um}`` on a width stop.
+The result reports this bracket as `bracket_um`, or `(NaN, NaN)` without one (including
+an exact root found before bracketing).
+
+The bracket guarantees a sign change of the **measured** residual, not continuity or
+uniqueness of a root. Start independence is measured behavior on genmab fields and
+sr-signaling, not a theorem. A spatial-block bootstrap on the grouping nearest
+``\hat\tau`` provides a 95% confidence interval (conditional on that grouping). The
+estimator is **isotropic**: it uses one per-localization uncertainty (the reported
+``\sigma_x``) and a single scalar ``\tau``, so it is intended for data with roughly
+isotropic localization precision.
 
 ## Applying the correction
 
