@@ -1,11 +1,6 @@
 using Test
 using SMLMBaGoL
 using SMLMData
-using Random
-using Statistics
-using Distributions
-import LinearAlgebra
-import SMLMSim
 
 @testset "Locmix vs Flat Target Routing" begin
     # P0 fix verification: the sampler must route through spatial_ml /

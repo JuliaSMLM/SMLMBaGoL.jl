@@ -2,10 +2,6 @@ using Test
 using SMLMBaGoL
 using SMLMData
 using Random
-using Statistics
-using Distributions
-import LinearAlgebra
-import SMLMSim
 
 # ================================================================
 # run_bagol integration

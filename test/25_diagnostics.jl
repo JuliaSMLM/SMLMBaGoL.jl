@@ -2,10 +2,6 @@ using Test
 using SMLMBaGoL
 using SMLMData
 using Random
-using Statistics
-using Distributions
-import LinearAlgebra
-import SMLMSim
 
 # ================================================================
 # Diagnostics module tests
@@ -63,7 +59,8 @@ import SMLMSim
             SMLMData.Emitter2DFit(0.1, 0.1, 1000.0, 10.0, σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, 1),
             SMLMData.Emitter2DFit(0.12, 0.1, 1000.0, 10.0, σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, 2),
             SMLMData.Emitter2DFit(0.1, 0.12, 1000.0, 10.0, σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, 3),
-            SMLMData.Emitter2DFit(0.12, 0.12, 1000.0, 10.0, σ, σ, 0.0, 0.0, 0.0, 1, 1, 0, 4),
+            SMLMData.Emitter2DFit(0.12, 0.12, 1000.0, 10.0, σ, σ, 0.0, 0.0, 0.0, 1, 1,
+                0, 4),
         ]
 
         z_all_one = [1, 1, 1, 1]
@@ -93,7 +90,8 @@ import SMLMSim
         @test sum(probs_none) ≈ 1.0 atol=1e-10
         for (i, z) in enumerate(parts)
             K = maximum(z)
-            @test log_targets[i] ≈ log_targets_none[i] + SMLMBaGoL.logfactorial(K) atol=1e-10
+            @test log_targets[i] ≈ log_targets_none[i] +
+                SMLMBaGoL.logfactorial(K) atol=1e-10
         end
 
         # The collapsed DM form must match the direct NegBin-assignment form
@@ -117,7 +115,8 @@ import SMLMSim
         let lps_area = [SMLMBaGoL._loc_precision(l) for l in locs]
             pk_at = A -> begin
                 sp = SMLMBaGoL.FlatSpatial(log(A))
-                lts = [SMLMBaGoL.log_target(td_dm, z, lps_area, sp, 10.0, 2.0, 2.0) for z in parts]
+                lts = [SMLMBaGoL.log_target(td_dm, z, lps_area, sp, 10.0, 2.0,
+                    2.0) for z in parts]
                 m = maximum(lts); w = exp.(lts .- m); w ./= sum(w)
                 p = zeros(length(locs))
                 for (z, wi) in zip(parts, w); p[length(unique(z))] += wi; end
@@ -139,14 +138,17 @@ import SMLMSim
         end
 
         probs_locmix, _ = exact_posterior(parts, locs, td_locmix; μ=10.0, shape=2.0, ρ=2.0)
-        probs_direct_locmix, _ = exact_posterior(parts, locs, td_direct_locmix; μ=10.0, shape=2.0, ρ=2.0)
+        probs_direct_locmix, _ = exact_posterior(parts, locs, td_direct_locmix; μ=10.0,
+            shape=2.0, ρ=2.0)
         @test sum(probs_locmix) ≈ 1.0 atol=1e-10
         @test all(isapprox.(probs_locmix, probs_direct_locmix; atol=1e-12))
 
         @test SMLMBaGoL._diagnostic_sampler_kwargs(td_dm).spatial_model == :flat
         @test SMLMBaGoL._diagnostic_sampler_kwargs(td_locmix).spatial_model == :locmix
-        @test SMLMBaGoL._diagnostic_sampler_kwargs(DecoupledTarget()).allocation_model == :decoupled
-        @test SMLMBaGoL._diagnostic_sampler_kwargs(DecoupledLocmixTarget()).allocation_model == :decoupled
+        @test SMLMBaGoL._diagnostic_sampler_kwargs(DecoupledTarget()).allocation_model ==
+              :decoupled
+        @test SMLMBaGoL._diagnostic_sampler_kwargs(
+            DecoupledLocmixTarget()).allocation_model == :decoupled
 
         # FazelFlatTarget: count × K^-N × ∏ ML_flat, NO K prior
         td_fazel = FazelFlatTarget()

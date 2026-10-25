@@ -120,19 +120,23 @@ collapsed Gibbs MCMC on each partition with global hierarchical updates.
 
 # Count Model
 n_j ~ Gamma(shape, μ/shape) where:
-- μ = mean locs per emitter
+- `μ=nothing`: Mean locs per emitter; starts at `μ_prior_shape * μ_prior_scale`
+  (10.0 with default hyperpriors, matching `BaGoLConfig().μ`).
 - shape = 1: exponential (dSTORM), shape > 1: peaked (DNA-PAINT)
 
 # Partitioning Arguments
 - `partition_sigma=3.0`: DBSCAN threshold in sigma units (Inf = no partitioning)
 - `min_partition_size=0`: Minimum locs per partition (smaller clusters dropped as noise)
 - `max_partition_size=1000`: Split partitions larger than this
+- `bridge_ratio=0.0`: Optional DBSCAN bridge refinement strength
+- `min_split_size=3`: Minimum core component size for bridge refinement
 - `skip_partition_size=typemax(Int)`: Skip partitions larger than this
 
 # Uncertainty Correction (standalone — leave 0 in the integrated pipeline)
-- `se_adjust=0.0`: Independent extra position error τ (μm) added in quadrature to
-  the per-loc CRLB σ (σ²_eff = σ² + τ²). Accepts a scalar (both axes), a `(τx, τy)`
-  tuple (per-axis), a length-N vector (per-loc), or `(τx_vec, τy_vec)`. Corrects
+- `se_adjust=0.0`: Deliberately differs from `BaGoLConfig`'s `:auto`, so bare
+  and test calls do not run the finder. Independent extra position error τ (μm) is
+  added in quadrature to the per-loc CRLB σ (σ²_eff = σ² + τ²). Accepts a scalar or
+  `(τx, τy)` tuple (per-axis), a length-N vector (per-loc), or `(τx_vec, τy_vec)`. Corrects
   BaGoL under-grouping when CRLB underestimates the true localization error. If the
   input SMLD is already σ-corrected (`metadata["sigma_corrected"]==true`), se_adjust
   is skipped with a warning unless `force_se_adjust=true`. `se_adjust=:auto` runs the
@@ -157,8 +161,8 @@ n_j ~ Gamma(shape, μ/shape) where:
   localizations) in both its spatial area and its Poisson K prior, so they cancel at
   fixed ρ, and ρ ~ Gamma(a + ΣK_i, 1/(b + ΣA_i)) over all active clusters: the emitter
   density.
-  The default prior Gamma(2, 1) acts as 1 µm² of pseudo-area: negligible on whole cells,
-  material on fields below a few µm² (set `ρ_prior_rate` there). The single-chain
+  The default prior Gamma(2, 1) acts as 1 μm² of pseudo-area: negligible on whole cells,
+  material on fields below a few μm² (set `ρ_prior_rate` there). The single-chain
   `run_collapsed_chain` update is unchanged.
   For fully fixed hyperparameters, set both `learn_distribution=false` and
   `learn_rho=false`.
@@ -171,25 +175,32 @@ n_j ~ Gamma(shape, μ/shape) where:
 - `allocation_model=:dm`: `:dm` (Dirichlet-Multinomial), `:decoupled`
   (no partition prior), or `:categorical` (labeled K^(-N) — Fazel-equivalent
   when paired with `spatial_model=:flat` + `k_prior=:none`)
-- `spatial_model=:locmix`: `:locmix` (default; localization mixture, normalized per partition, so
-  its target depends on how the field is partitioned and dense fields are under-counted),
-  `:ipp` (inhomogeneous Poisson process, calibrated for dense fields but under-splitting isolated
-  structures such as rulers and origami; emitters have
+- `spatial_model=:locmix`: `:locmix` (default; localization mixture, normalized per
+  partition, so its target depends on how the field is partitioned and dense fields
+  are under-counted),
+  `:ipp` (inhomogeneous Poisson process, calibrated for dense fields but under-splitting
+  isolated structures such as rulers and origami; emitters have
   intensity ρ·g(θ), g a fixed pilot intensity shape built once from all localizations at
-  bandwidth `intensity_bandwidth`, ρ the global density learned as for `:flat`; the target is
-  partition-invariant, docs/math_reference.md §4.6), or `:flat` (uniform)
-- `intensity_bandwidth=0.2`: Kernel bandwidth h (µm) of the `:ipp` pilot intensity g
+  bandwidth `intensity_bandwidth`, ρ the global density learned as for `:flat`; the
+  target is partition-invariant, docs/math_reference.md §4.6), or `:flat` (uniform)
+- `intensity_bandwidth=0.2`: Kernel bandwidth h (μm) of the `:ipp` pilot intensity g
 - `k_prior=:auto`: K-prior gating. `:auto` uses spatial-model default
   (Poisson(ρA) under `:ipp` and `:flat`, none under `:locmix`); `:poisson` always
   include (valid with `:ipp` and `:flat`); `:none` always disable
 - With `motion=:linear` the motion model's own spatial prior (flat position, Gaussian
-  velocity, no Poisson K prior) is used whatever `spatial_model` says; this is logged once.
+  velocity) is used whatever `spatial_model` says; this is logged once.
+  `k_prior=:poisson` adds a Poisson K prior to that flat position prior.
 - `verbose=true`: Print progress
 
 # Posterior Image
 - `posterior_pixel_size=0.001`: Rao-Blackwellized posterior image pixel size in μm (0.0 to disable)
 - `posterior_xlim=nothing`: Override x bounds for posterior image
 - `posterior_ylim=nothing`: Override y bounds for posterior image
+
+# Hyperpriors (bare keyword entry point; not BaGoLConfig fields)
+- `μ_prior_shape=2.0`, `μ_prior_scale=5.0`: Gamma prior for mean count μ
+- `shape_prior_shape=2.0`, `shape_prior_scale=1.0`: Gamma prior for count shape
+- `ρ_prior_shape=2.0`, `ρ_prior_rate=1.0`: Gamma shape/rate prior for density ρ
 
 # Archive
 - `archive_path=nothing`: Enable mmap chain archive for post-hoc analysis
@@ -213,7 +224,7 @@ function run_bagol(
     sync_interval::Int = 100,
     allocation_model::Symbol = :dm,
     spatial_model::Symbol = :locmix,
-    intensity_bandwidth::Float64 = 0.2,
+    intensity_bandwidth::Float64 = DEFAULT_INTENSITY_BANDWIDTH,
     k_prior::Symbol = :auto,
     n_restricted_scans::Int = 5,
     n_bd_substeps::Int = 5,
@@ -227,6 +238,8 @@ function run_bagol(
     max_partition_size::Int = 1000,
     skip_partition_size::Int = typemax(Int),
     overlap::Union{Float64, Symbol} = :auto,
+    bridge_ratio::Float64 = 0.0,
+    min_split_size::Int = 3,
     # Reuse: prebuilt precision neighbor graph shared across the τ-finder's E-steps
     # (nothing = build internally per call, unchanged behavior).
     neighbor_graph::Union{Nothing, PrecisionNeighborGraph} = nothing,
@@ -254,12 +267,15 @@ function run_bagol(
 )
     return _run_bagol_collapsed(smld;
         partition_sigma, min_partition_size, max_partition_size, skip_partition_size,
-        overlap, neighbor_graph, se_adjust, force_se_adjust, keep_se_finder, motion, motion_sigma, sync_interval, n_iterations, burn_in, shape, learn_distribution,
+        overlap, bridge_ratio, min_split_size, neighbor_graph, se_adjust, force_se_adjust,
+        keep_se_finder, motion, motion_sigma, sync_interval, n_iterations, burn_in,
+        shape, learn_distribution,
         learn_rho, rho,
         posterior_pixel_size, posterior_xlim, posterior_ylim,
         archive_path, progress_file, verbose,
         μ=μ, gamma=gamma, allocation_model=allocation_model,
-        spatial_model=spatial_model, intensity_bandwidth=intensity_bandwidth, k_prior=k_prior,
+        spatial_model=spatial_model, intensity_bandwidth=intensity_bandwidth,
+        k_prior=k_prior,
         n_restricted_scans=n_restricted_scans,
         n_bd_substeps=n_bd_substeps,
         μ_prior_shape=μ_prior_shape, μ_prior_scale=μ_prior_scale,
@@ -291,7 +307,8 @@ function run_bagol(
         min_partition_size=cfg.min_partition_size,
         max_partition_size=cfg.max_partition_size,
         skip_partition_size=cfg.skip_partition_size,
-        overlap=cfg.overlap,
+        overlap=cfg.overlap, bridge_ratio=cfg.bridge_ratio,
+        min_split_size=cfg.min_split_size,
         se_adjust=cfg.se_adjust, force_se_adjust=cfg.force_se_adjust,
         keep_se_finder=keep_se_finder,
         motion=cfg.motion, motion_sigma=cfg.motion_sigma,
@@ -337,9 +354,6 @@ end
 # Collapsed Gibbs sampler dispatch
 # ============================================================================
 
-# Area share of a partition of n_i localizations (overlap copies included) out of n_all.
-_partition_area_share(field_area, n_i, n_all) = field_area * n_i / n_all
-
 function _run_bagol_collapsed(
     smld::SMLMData.SMLD;
     partition_sigma::Float64 = 3.0,
@@ -347,6 +361,8 @@ function _run_bagol_collapsed(
     max_partition_size::Int = 1000,
     skip_partition_size::Int = typemax(Int),
     overlap::Union{Float64, Symbol} = :auto,
+    bridge_ratio::Float64 = 0.0,
+    min_split_size::Int = 3,
     neighbor_graph::Union{Nothing, PrecisionNeighborGraph} = nothing,
     se_adjust::Union{Real, Tuple, AbstractVector, Symbol} = 0.0,
     force_se_adjust::Bool = false,
@@ -370,10 +386,10 @@ function _run_bagol_collapsed(
     gamma::Union{Nothing, Float64} = nothing,
     allocation_model::Symbol = :dm,
     spatial_model::Symbol = :locmix,
-    intensity_bandwidth::Float64 = 0.2,
+    intensity_bandwidth::Float64 = DEFAULT_INTENSITY_BANDWIDTH,
     k_prior::Symbol = :auto,
     n_restricted_scans::Int = 5,
-    n_bd_substeps::Int = 3,
+    n_bd_substeps::Int = 5,
     μ_prior_shape::Float64 = 2.0,
     μ_prior_scale::Float64 = 5.0,
     shape_prior_shape::Float64 = 2.0,
@@ -397,7 +413,6 @@ function _run_bagol_collapsed(
     if rho !== nothing && rho <= 0.0
         throw(ArgumentError("rho must be positive when provided (got $rho)"))
     end
-    _initial_ρ = rho === nothing ? ρ_prior_shape / ρ_prior_rate : Float64(rho)
 
     locs = smld.emitters
     camera = smld.camera
@@ -427,16 +442,21 @@ function _run_bagol_collapsed(
             se_adjust = 0.0
         else
             motion === :linear && throw(ArgumentError(
-                "se_adjust=:auto is not supported with motion=:linear: the τ finder's distance " *
-                "statistic does not model drift and would attribute motion to localization error. " *
+                "se_adjust=:auto is not supported with motion=:linear: " *
+                "the τ finder's distance " *
+                "statistic does not model drift and would attribute motion " *
+                "to localization error. " *
                 "Pass a numeric se_adjust (μm) instead."))
             _log_progress("se_adjust=:auto — running estimate_se_adjust finder...")
             # The finder's E-steps run BaGoL with the run's partitioning and model settings
             # (not n_iterations/burn_in — the finder keeps its own validated chain length —
-            # nor output/IO settings). Visible afterwards as diagnostics.se_finder.bagol_kwargs.
+            # nor output/IO settings). Visible afterwards as
+            # diagnostics.se_finder.bagol_kwargs.
             _fres = estimate_se_adjust(smld; return_diagnostics = keep_se_finder,
-                partition_sigma, min_partition_size, max_partition_size, skip_partition_size,
-                overlap, spatial_model, intensity_bandwidth, allocation_model, k_prior, gamma, μ, shape,
+                partition_sigma, min_partition_size, max_partition_size,
+                skip_partition_size,
+                overlap, bridge_ratio, min_split_size, spatial_model, intensity_bandwidth,
+                allocation_model, k_prior, gamma, μ, shape,
                 learn_distribution, learn_rho, rho, sync_interval,
                 n_restricted_scans, n_bd_substeps,
                 μ_prior_shape, μ_prior_scale, shape_prior_shape, shape_prior_scale,
@@ -449,15 +469,8 @@ function _run_bagol_collapsed(
     locs, _se_tau, _se_msg = _maybe_apply_se_adjust(locs, _se_md, se_adjust, force_se_adjust)
     _se_tau !== nothing && _log_progress(_se_msg)
 
-    # Analyzed area for the pooled flat ρ update: bounding box of all localizations (no
-    # padding floor), computed once before partitioning. NaN if degenerate (zero extent).
-    _field_area = if isempty(locs)
-        NaN
-    else
-        xs = extrema(l.x for l in locs); ys = extrema(l.y for l in locs)
-        A = (xs[2] - xs[1]) * (ys[2] - ys[1])
-        A > 0 ? Float64(A) : NaN
-    end
+    # Unpadded analyzed box, shared by field exposures and the pilot map.
+    _field_box = field_box(locs)
     _n_all = length(locs)
 
     _log_progress("Partitioning $(length(locs)) localizations (partition_sigma=$partition_sigma)...")
@@ -465,7 +478,8 @@ function _run_bagol_collapsed(
     partitions, skipped = partition_locs(locs; partition_sigma, min_size=min_partition_size,
                                           max_size=max_partition_size,
                                           skip_size=skip_partition_size,
-                                          overlap=overlap, neighbor_graph=neighbor_graph)
+                                          overlap, bridge_ratio, min_split_size,
+                                          neighbor_graph)
 
     _log_progress("  Created $(length(partitions)) partitions")
     if !isempty(skipped)
@@ -475,6 +489,8 @@ function _run_bagol_collapsed(
 
     if isempty(partitions)
         @warn "No valid partitions"
+        _initial_ρ = _initial_rho(rho, false, length(locs),
+            something(μ, μ_prior_shape * μ_prior_scale), 0.0, ρ_prior_shape, ρ_prior_rate)
         empty_smld = SMLMData.BasicSMLD(SMLMData.Emitter2DFit{Float64}[], camera, 1, 1)
         empty_diag = BaGoLDiagnostics(0, Int[], Dict{Symbol,Float64}(), 0.0, shape, _initial_ρ, 0, Int[], Int[], Int[], nothing, _se_tau,
             (; iters=Int[], K=Int[], mu=Float64[], shape=Float64[], rho=Float64[], burn_in=0), _se_finder, nothing)
@@ -489,13 +505,15 @@ function _run_bagol_collapsed(
     # counts overlap copies) in BOTH its spatial area and its Poisson prior, so they still
     # cancel at fixed ρ (clustering target unchanged) and ΣA_i is the exposure of the pooled
     # ρ update.
-    _use_field_area = spatial_model in (:flat, :ipp) && motion === :none && k_prior !== :none
-    if _use_field_area && isnan(_field_area)
-        @warn "run_bagol: localizations have zero spatial extent; learned ρ uses the summed partition areas"
-        _use_field_area = false
+    _wants_field = spatial_model in (:flat, :ipp) && motion === :none && k_prior !== :none
+    if _wants_field && _field_box === nothing
+        @warn "run_bagol: localizations have zero spatial extent; " *
+              "learned ρ uses the summed partition areas"
     end
+    _use_field_area = _wants_field && _field_box !== nothing
     motion === :linear && _log_progress(
-        "motion=:linear uses the motion model's own spatial prior (flat position + velocity); spatial_model=:$spatial_model is not applied")
+        "motion=:linear uses the motion model's own spatial prior " *
+        "(flat position + velocity); spatial_model=:$spatial_model is not applied")
 
     # Allocation model
     allocation_model in (:dm, :decoupled, :categorical) ||
@@ -554,11 +572,10 @@ function _run_bagol_collapsed(
     # loop — otherwise the ArgumentError gets wrapped in CompositeException
     # and is hard to surface cleanly to callers.
     if k_prior === :poisson && !(spatial_model_sym in (:flat, :ipp))
-        throw(ArgumentError("k_prior=:poisson is only valid with spatial_model=:flat or :ipp (the prior is the flat-area-cancelled form). Got spatial_model=:$spatial_model_sym"))
-    end
-
-    if motion === :linear && spatial_model_sym === :ipp && k_prior === :poisson
-        throw(ArgumentError("k_prior=:poisson with spatial_model=:ipp is not supported with motion=:linear: the motion model uses its own spatial prior and no Poisson K prior"))
+        throw(ArgumentError("k_prior=:poisson is only valid with " *
+                "spatial_model=:flat or :ipp " *
+                "(the prior is the flat-area-cancelled form). " *
+                "Got spatial_model=:$spatial_model_sym"))
     end
 
     # IPP: ONE global pilot intensity map from all localizations (after se_adjust, before
@@ -566,10 +583,9 @@ function _run_bagol_collapsed(
     # unpadded bounding box (A_field); when that is degenerate (or no field exposure is
     # used) over the padded box of all localizations, with the per-partition padded areas.
     _ipp_map = if spatial_model_sym === :ipp && motion === :none
-        _box = _use_field_area ?
-            UniformSpatialPrior(extrema(l.x for l in locs)..., extrema(l.y for l in locs)...) :
-            UniformSpatialPrior(locs)
-        _log_progress("Building the :ipp pilot intensity map (bandwidth $(intensity_bandwidth) µm)...")
+        _box = _use_field_area ? _field_box : UniformSpatialPrior(locs)
+        _log_progress("Building the :ipp pilot intensity map " *
+                      "(bandwidth $(intensity_bandwidth) μm)...")
         build_intensity_map(locs, _box; bandwidth = intensity_bandwidth)
     else
         nothing
@@ -584,9 +600,15 @@ function _run_bagol_collapsed(
             elseif spatial_model_sym === :locmix
                 LocmixSpatial(p_locs)
             else
-                _la = _use_field_area ? log(_partition_area_share(_field_area, length(p_locs), _n_all)) :
-                      log(area(UniformSpatialPrior(p_locs)))
-                spatial_model_sym === :ipp ? IntensitySpatial(_la, _ipp_map) : FlatSpatial(_la)
+                if spatial_model_sym === :ipp && _use_field_area
+                    IntensitySpatial(_ipp_map, length(p_locs))
+                else
+                    A = _use_field_area ?
+                        exposure(_field_box, length(p_locs), _n_all) :
+                        area(UniformSpatialPrior(p_locs))
+                    spatial_model_sym === :ipp ?
+                        IntensitySpatial(log(A), _ipp_map) : FlatSpatial(log(A))
+                end
             end
             # Resolve k_prior into a concrete bool for this partition.
             # (Compatibility check already done outside the @spawn block.)
@@ -628,7 +650,6 @@ function _run_bagol_collapsed(
     # Direct μ kwarg takes precedence over hyperprior product
     μ = μ !== nothing ? Float64(μ) : μ_prior_shape * μ_prior_scale
     current_shape = shape
-    ρ = _initial_ρ  # Initial ρ from explicit rho or prior mean
 
     # Per-partition areas (for conjugate ρ update)
     partition_areas = [spatial_area(states[i].spatial) for i in 1:n_partitions]
@@ -636,10 +657,10 @@ function _run_bagol_collapsed(
     # No explicit rho and a Poisson-K target: start ρ at the data-scaled density
     # N/(μ₀·A) = Σn_i/(μ₀·ΣA_i) (= N_all/(μ₀·A_field) with field exposures) rather than the
     # prior mean, so runs that never sync start from a sensible density.
-    if rho === nothing && states[1].spatial isa Union{FlatSpatial, IntensitySpatial} &&
-       _uses_poisson_k_prior(states[1])
-        ρ = sum(length(p.locs) for p in partitions) / (μ * sum(partition_areas))
-    end
+    use_data_start = _uses_poisson_k_prior(states[1]) &&
+                     _data_scaled_rho_start(states[1].spatial)
+    ρ = _initial_rho(rho, use_data_start, sum(length(p.locs) for p in partitions),
+                     μ, sum(partition_areas), ρ_prior_shape, ρ_prior_rate)
 
     # Log cluster-level overlap stats (now that states exist)
     if n_overlap_locs > 0
@@ -656,7 +677,8 @@ function _run_bagol_collapsed(
     if archive_path !== nothing
         archive = BaGoLArchive(archive_path, n_partitions,
                                [length(p.locs) for p in partitions];
-                               spatial_model = motion === :linear ? :motion : spatial_model_sym)
+                               spatial_model =
+                                   motion === :linear ? :motion : spatial_model_sym)
     end
 
     # Synchronized outer loop
@@ -719,7 +741,8 @@ function _run_bagol_collapsed(
         # the target actually uses a Poisson(ρA) K prior. Partitions share
         # spatial-model type within a run, so it's enough to check the first state.
         ρ = if learn_rho && !isempty(states) && _uses_poisson_k_prior(states[1])
-            _update_rho_collapsed_global!(states, partition_areas, config_nt)  # no overlap masks: the Poisson priors cover every partition
+            # no overlap masks: the Poisson priors cover every partition
+            _update_rho_collapsed_global!(states, partition_areas, config_nt)
         else
             ρ
         end

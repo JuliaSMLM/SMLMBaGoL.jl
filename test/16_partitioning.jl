@@ -2,10 +2,6 @@ using Test
 using SMLMBaGoL
 using SMLMData
 using Random
-using Statistics
-using Distributions
-import LinearAlgebra
-import SMLMSim
 
 @testset "Partitioning" begin
     Random.seed!(456)
@@ -16,7 +12,8 @@ import SMLMSim
         fixed_sigma=0.005, mean_count=15.0, count_model=:fixed)
     locs = vcat(sim1.smld.emitters, sim2.smld.emitters)
 
-    partitions, skipped = partition_locs(locs; partition_sigma=4.0, min_size=5, max_size=100)
+    partitions, skipped = partition_locs(locs; partition_sigma=4.0, min_size=5,
+        max_size=100)
 
     @test length(partitions) == 2
     @test isempty(skipped)

@@ -38,7 +38,7 @@ export BaGoLDiagnostics
 export CollapsedState, CollapsedChainResult, BaGoLResult
 export ClusterStats
 export MultiClusterStats, FeatureSet, run_multicue_chain, build_multicue_precisions, extract_multicue, gaussian_contribution
-export AbstractAccumulator, needs_spatial_model, EmitterCountHist, PosteriorImage, NNDistHist
+export AbstractAccumulator, EmitterCountHist, PosteriorImage, NNDistHist
 export PartitionSamples, PSMAccumulator
 
 # Export partitioning (internal use, partition_locs exposed for advanced users)
@@ -69,13 +69,15 @@ export plot_se_adjust          # extension stub (BaGoLMakieExt)
 
 # Export diagnostics — target density
 export AbstractTargetDensity, DecoupledTarget, DecoupledLocmixTarget
-export DMFlatTarget, DMLocmixTarget, DirectNegBinFlatTarget, DirectNegBinLocmixTarget, IPPTarget
+export DMFlatTarget, DMLocmixTarget, DirectNegBinFlatTarget, DirectNegBinLocmixTarget,
+    IPPTarget
 export FazelFlatTarget
 export log_target, evaluate_target
 
 # Export diagnostics — finite-state validation
-export AbstractSpatialModel, FlatSpatial, LocmixSpatial, IntensitySpatial, spatial_ml, spatial_pred
-export IntensityMap, build_intensity_map
+export AbstractSpatialModel, FlatSpatial, LocmixSpatial, IntensitySpatial, spatial_ml,
+    spatial_pred
+export IntensityMap, build_intensity_map, field_area, exposure, field_box
 export AbstractAllocationModel, DMAllocation, DecoupledAllocation, CategoricalAllocation
 
 export enumerate_canonical_partitions, canonicalize, exact_posterior
@@ -95,9 +97,9 @@ include("spatial.jl")
 include("cluster_stats.jl")
 include("motion.jl")
 include("types.jl")
-include("config.jl")
 include("priors.jl")
 include("intensity.jl")
+include("config.jl")
 include("hierarchical.jl")
 include("mapn.jl")
 include("accumulators.jl")

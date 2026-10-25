@@ -57,8 +57,8 @@
 #
 # DIAGNOSTICS CONVENTION (all targets): the cancelled canonical target, i.e. the
 # sampler's Poisson(rho*A) K prior with its -log K! removed by the K! labeled-occupant
-# correction of the K-moves: log pi = log_target + log K! for the T1 flat target,
-# IPPTarget.log_target as is (already cancelled), locmix as is (no K prior).
+# correction of the K-moves: log pi = log_target + log K! for flat and IPP targets;
+# locmix uses log_target as is (no K prior).
 #
 # TWO MODES. Default: :flat and :locmix targets on exactly co-located localizations.
 # `ipp` argument: the :ipp target (IntensitySpatial + IPPTarget) with a NON-constant pilot
@@ -116,9 +116,8 @@ function spatial_config(spatial::Symbol, lps)
 end
 
 # K! labeled-occupant correction that cancels the Poisson prior's -log K! (the sampler's
-# Delta_Kfac): the T1 flat target needs it added; IPPTarget's log_target already has it;
-# locmix has no Poisson K prior.
-kcancel(::S.DMFlatTarget, K) = logfactorial(K)
+# Delta_Kfac): both flat and IPP targets use labeled densities; locmix has no K prior.
+kcancel(::Union{S.DMFlatTarget,S.IPPTarget}, K) = logfactorial(K)
 kcancel(::S.AbstractTargetDensity, K) = 0.0
 
 # ---------------------------------------------------------------------------

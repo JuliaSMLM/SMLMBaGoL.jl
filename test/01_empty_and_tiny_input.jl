@@ -1,11 +1,6 @@
 using Test
 using SMLMBaGoL
 using SMLMData
-using Random
-using Statistics
-using Distributions
-import LinearAlgebra
-import SMLMSim
 
 # ================================================================
 # Empty / tiny input — must not crash (graceful empty result)
@@ -15,7 +10,8 @@ import SMLMSim
 @testset "Empty and tiny input" begin
     cam = SMLMData.IdealCamera(1:64, 1:64, 0.1)
     mksmld(n) = SMLMData.BasicSMLD(
-        [SMLMData.Emitter2DFit(0.5 + 0.02i, 0.5, 1000.0, 0.0, 0.01, 0.01, 0.0, 0.0, 0.0, 1, 1, 0, i) for i in 1:n],
+        [SMLMData.Emitter2DFit(0.5 + 0.02i, 0.5, 1000.0, 0.0, 0.01, 0.01, 0.0, 0.0, 0.0,
+            1, 1, 0, i) for i in 1:n],
         cam, 1, 1, Dict{String,Any}())
 
     # 0 localizations: graceful empty result, not a crash
