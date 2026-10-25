@@ -55,10 +55,64 @@ using Random
         @test all(t -> abs(t - gs) ≤ 0.05, ts)
         @test maximum(ts) - minimum(ts) ≤ 0.05
     end
+
+    # The point-resolution guard must shrink with the stopping tolerance so it
+    # cannot reject the final bracket-closing steps as already evaluated.
+    @testset "small-tolerance bracket regression" begin
+        tol = 0.01
+        found = search(affine(6.3, 0.8), 3.0; tol, root = 6.3, max_steps = 24)
+        @test found.converged
+        @test found.n_evals ≤ 24
+        a, b = found.bracket_nm
+        @test a ≤ 6.3 ≤ b
+        # An evaluated exact root retains the existing immediate-stop behavior;
+        # otherwise convergence requires a bracket no wider than 2tol.
+        exact = any(p -> p[1] == p[2] == found.tau_nm, found.path)
+        @test exact || b - a ≤ 2tol
+    end
+
+    @testset "affine tolerance sweep" begin
+        for s in (0.6, 0.8), gs in (3.7, 6.3), g0 in (1.0, 3.0, 8.0, 14.0),
+                tol in (0.01, 0.03, 0.1)
+            @testset "s=$s, root=$gs, start=$g0, tol=$tol" begin
+                found = search(affine(gs, s), g0; tol, root = gs, max_steps = 24)
+                @test found.converged
+                @test found.n_evals ≤ 24
+                @test all(isfinite, found.bracket_nm)
+                check_minimum_steps(found, tol)
+            end
+        end
+    end
+
     r = search(affine(6.3, 0.8), 14.0)
     @test r.converged
     @test length(r.method_path) == r.n_evals == length(r.path)
     @test r.method_path[1] === :start
+
+    # Without a usable secant, small residuals probe 2tol in either direction
+    # after the separated second point. Equal residuals leave the slope unresolved.
+    for direction in (-1, 1)
+        rp = search(g -> g + direction * 0.125, 7.0; tol = 0.125, max_steps = 3)
+        @test first.(rp.path) == [7.0, 7.0 + direction * 0.5, 7.0 + direction * 0.75]
+        @test rp.method_path == [:start, :jump, :jump]
+        @test !rp.converged
+    end
+
+    # Small tolerances must not stall or exhaust the cap on a flat residual;
+    # an unevaluated grid end must still be tried when it is near the last point.
+    for (g0, root, tol) in ((3.0, 6.0, 0.01), (13.28, 14.0, 0.1))
+        rp = search(g -> min(g + 0.125, root), g0; tol, root)
+        @test rp.converged
+        @test rp.tau_nm == root
+        @test rp.n_evals ≤ 12
+        @test last(rp.path) == (root, root)
+    end
+    # The same grid-end exception applies at the lower bound.
+    bottom = search(g -> max(g - 0.125, 0.0), 0.72; root = 0.0)
+    @test bottom.converged
+    @test bottom.tau_nm == 0.0
+    @test bottom.n_evals ≤ 12
+    @test last(bottom.path) == (0.0, 0.0)
 
     # The bracket secant slope gives no distance bound across this kink. In
     # particular, start 7 used to return 6.507 nm with converged=true (tol = 0.1).
@@ -151,6 +205,66 @@ using Random
     rn = search(g -> (calls[] += 1; calls[] == 2 ? NaN : affine(6.3, 0.8)(g)), 14.0)
     @test !rn.converged
     @test isfinite(rn.tau_nm)
+end
+
+# Measured genmab day-1 maps, from dev/output/scaling/finder_start_new_d1f{1,2}.log
+# in the source checkout. Combine each field's available (g, m) paths,
+# printed to 0.01 nm, and interpolate linearly with flat extension at both ends.
+# Both logs include starts 3, 8 and 14. Average repeated g values: field 2's
+# g = 7.10 has m = 7.18 and 7.16, giving the single map value m = 7.17.
+@testset "τ finder measured-map replay" begin
+    grid = collect(0.0:0.1:14.0)
+    tol = 0.1
+    fields = (
+        (points = [(3.00, 3.80), (3.80, 4.34), (3.83, 4.38), (4.69, 4.94),
+                   (4.93, 5.05), (5.08, 5.14), (5.09, 5.15), (5.14, 5.15),
+                   (5.18, 5.15), (5.19, 5.18), (5.24, 5.24), (5.32, 5.26),
+                   (5.37, 5.27), (5.46, 5.33), (6.48, 5.82), (8.00, 6.48),
+                   (9.85, 7.40), (14.00, 9.85)],
+         root_nm = 5.15, before = (5, 6, 7), after = (5, 4, 7)),
+        (points = [(3.00, 4.17), (4.17, 5.17), (6.38, 6.77), (6.40, 6.77),
+                   (6.68, 6.97), (7.08, 7.18), (7.10, 7.17), (7.18, 7.18),
+                   (7.20, 7.19), (7.23, 7.18), (7.27, 7.23), (7.30, 7.27),
+                   (7.37, 7.28), (7.50, 7.36), (8.00, 7.56), (10.60, 8.72),
+                   (11.14, 9.02), (14.00, 10.60)],
+         root_nm = 7.18, before = (7, 4, 6), after = (7, 4, 6)),
+    )
+    # Field 1's rounded (5.24, 5.24) is also an exact, tangential root; root_nm
+    # identifies the sign-changing root. Both are inside the requested 2tol error.
+    observed = Tuple{Int, Int}[]
+    for (field, fixture) in enumerate(fields)
+        gs = first.(fixture.points); ms = last.(fixture.points)
+        function map_m(g)
+            g ≤ first(gs) && return first(ms)
+            g ≥ last(gs) && return last(ms)
+            i = searchsortedlast(gs, g)
+            ms[i] + (ms[i + 1] - ms[i]) * (g - gs[i]) / (gs[i + 1] - gs[i])
+        end
+        @test map_m(fixture.root_nm) ≈ fixture.root_nm
+        @test map_m(0.0) == first(ms)
+        @test map_m(14.0) == last(ms)
+        for (i, start) in enumerate((3.0, 8.0, 14.0))
+            @testset "field $field, start $start nm" begin
+                found = SMLMBaGoL._tau_root_search(map_m, start; grid_nm = grid,
+                    stop_tol_nm = tol, max_steps = 12)
+                push!(observed, (found.n_evals, fixture.before[i]))
+                @test found.converged
+                @test abs(found.tau_nm - fixture.root_nm) ≤ 2tol
+                @test found.n_evals ≤ fixture.after[i]
+                @test length(found.path) == length(found.method_path) == found.n_evals
+                a, b = found.bracket_nm
+                if any(p -> p[1] == p[2] == found.tau_nm, found.path)
+                    @test map_m(found.tau_nm) == found.tau_nm
+                else
+                    @test a ≤ found.tau_nm ≤ b
+                    @test map_m(a) > a && map_m(b) < b
+                    @test b - a ≤ 2tol
+                end
+            end
+        end
+    end
+    @test all(p -> first(p) ≤ last(p), observed)
+    @test sum(first, observed) < sum(last, observed)
 end
 
 # The CI must pick the same nearest grouping while retaining at most three E-steps.

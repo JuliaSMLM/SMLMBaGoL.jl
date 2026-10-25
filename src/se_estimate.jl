@@ -274,6 +274,7 @@ end
 function _tau_root_search(evalm, g0_nm; grid_nm, stop_tol_nm, max_steps,
                           probe_nm = 0.5, resolve_nm = 0.05)
     lo, hi = extrema(grid_nm)
+    resolve = min(resolve_nm, stop_tol_nm / 2)     # resolve steps at the stopping scale
     g = clamp(Float64(g0_nm), lo, hi); prop = g; method = :start
     path = Tuple{Float64, Float64}[]; method_path = Symbol[]
     gs = Float64[]; rs = Float64[]
@@ -282,7 +283,7 @@ function _tau_root_search(evalm, g0_nm; grid_nm, stop_tol_nm, max_steps,
     side = 0                                     # end replaced last: +1 a, −1 b
     exact = NaN; converged = false
     jump(gk, rk) = clamp(gk + (rk == 0 ? -1 : sign(rk)) * max(abs(rk), probe_nm), lo, hi)
-    near(x) = any(h -> abs(h - x) < resolve_nm, gs)
+    near(x) = any(h -> abs(h - x) < resolve, gs)
     for _ in 1:max_steps
         m = evalm(g)
         (m === nothing || !isfinite(m)) && break
@@ -307,6 +308,12 @@ function _tau_root_search(evalm, g0_nm; grid_nm, stop_tol_nm, max_steps,
                 break
             end
             x = ga - fa * (gb - ga) / (fb - fa); method = :illinois
+            # Near an end, aim tol past the interpolated root toward the other end.
+            if x - ga ≤ stop_tol_nm
+                x += stop_tol_nm
+            elseif gb - x ≤ stop_tol_nm
+                x -= stop_tol_nm
+            end
             # Dekker: shrink the bracket from either side by at least stop_tol.
             x = clamp(x, ga + stop_tol_nm, gb - stop_tol_nm)
             if !(ga < x < gb) || near(x)
@@ -315,15 +322,26 @@ function _tau_root_search(evalm, g0_nm; grid_nm, stop_tol_nm, max_steps,
         else
             x = jump(g, r); method = :jump
             if length(gs) ≥ 2
+                # Keep the second point separated. Later closing probes must be
+                # resolved and reach at least m(g), or flat residuals make them crawl.
+                if abs(r) < probe_nm
+                    step = max(2stop_tol_nm, 2resolve)
+                    xp = clamp(g + sign(r) * step, lo, hi)
+                    abs(r) ≤ step && !near(xp) && (x = xp)
+                end
                 Δg = gs[end] - gs[end - 1]; Δr = rs[end] - rs[end - 1]
-                if abs(Δg) ≥ resolve_nm && Δr / Δg < 0
-                    xs = clamp(g - r * Δg / Δr, lo, hi)
+                if abs(Δg) ≥ resolve && Δr / Δg < 0
+                    # Aim past the secant root to avoid approaching from one side.
+                    xs = clamp(g - r * Δg / Δr + sign(r) * stop_tol_nm, lo, hi)
                     near(xs) || ((x, method) = (xs, :secant))
                 end
             end
         end
         prop = x
-        if near(x)                               # no usable step left (grid edge)
+        # A clamped grid end can be closer than resolve and still be an
+        # unevaluated exact root. Only stall if that end has already been tried.
+        new_edge = (x == lo || x == hi) && !(x in gs)
+        if near(x) && !new_edge
             prop = g
             break
         end
