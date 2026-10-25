@@ -9,7 +9,7 @@ states the mathematics **as implemented in the source** and cites the file that 
 it. Read it top to bottom for the full derivation, or jump to a single concept:
 
 - [Collapsed Representation](collapsed.md) — state = allocation; positions integrated out.
-- [Spatial Models & Marginal Likelihood](marginal.md) — flat vs. locmix; the marginal.
+- [Spatial Models & Marginal Likelihood](marginal.md) — flat vs. locmix vs. ipp; the marginal.
 - [Priors](priors.md) — allocation (DM), count (NegBin), and the K prior.
 - [The Sampler: Moves](moves.md) — Gibbs sweep, split/merge, birth/death, acceptance.
 - [Hierarchical Learning](hierarchical.md) — learning ``\mu``, shape, and ``\rho``.
@@ -149,7 +149,7 @@ p\big(\boldsymbol{\theta}_k \mid \{\mathbf{x}_i : z_i = k\}\big) =
 Because that posterior is analytic, the position can be **integrated out in closed form**,
 leaving the cluster's *marginal likelihood* — the probability of that collection of
 localizations with the emitter position already accounted for. (The Gaussian core is exact;
-the default `:locmix` spatial-prior term is a fast plug-in approximation — see
+the `:locmix` (default) and `:ipp` spatial-prior terms are fast plug-in approximations — see
 [Spatial Models & Marginal Likelihood](marginal.md).) The sampler therefore carries a
 **collapsed** state: only the discrete allocation ``(K, \mathbf{z})``, scored by a product of
 analytic cluster marginals. This is the **collapsed Gibbs** sampler, with two benefits:

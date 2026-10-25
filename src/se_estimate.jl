@@ -14,19 +14,24 @@
 #   are Rayleigh(1)  (CDF 1 − exp(−z²/2)).  Pick the τ whose z best matches
 #   Rayleigh(1) by the Kolmogorov–Smirnov statistic.
 #
-# ADAPTIVE OVER-MERGE DESCENT (Keith + Codex, 2026-06-20):
+# ADAPTIVE OVER-MERGE ROOT SEARCH (Keith + Codex, 2026-06-20; root search 0.4.6):
 #   E-step  group the localizations with BaGoL at the current τ (expensive).
 #   M-step  on that FIXED grouping, the τ best matching Rayleigh(1) — the
 #           unscaled distances d are fixed, so this is a cheap 1-D KS search
-#           (no BaGoL), right-biased (see `_mstep_rb`).
+#           (no BaGoL), right-biased (see `_mstep_rb`) with the threshold crossing
+#           interpolated between grid points to remove grid quantization. m(g)
+#           remains only approximately continuous (grouping changes, E-step noise).
+#   The estimate is the self-consistent τ, m(τ) = τ: the root of r(g) = m(g) − g.
 #   Start deliberately OVER-merged (`g_start`, a large se_adjust → the full
-#   same-molecule spread, no truncation, only catchable contamination), then
-#   JUMP to the M-step estimate each step (g ← m). Approaching the truth FROM
-#   ABOVE means no under-group truncation, so it converges without the ascending
-#   creep — in ~2–5 BaGoL runs. Stop when the grouping is self-consistent
-#   (|m − g| ≤ tol). KS(τ) is not provably unimodal (discrete grouping + BaGoL
-#   stochasticity), so a bracketing search (golden-section) is unsafe;
-#   descend-from-above + the right-biased tie rule is the safe family.
+#   same-molecule spread, no truncation, only catchable contamination); r is
+#   positive below the root and negative above it in measured maps. Safeguarded
+#   secant / regula falsi steps stop at an exact r = 0 or a measured sign-change
+#   bracket of width ≤ 2·stop_tol; τ̂ interpolates inside that bracket. For a root
+#   inside the bracket, |τ̂ − g*| ≤ its width ≤ 2·stop_tol. The bracket guarantees
+#   a sign change of measured r, not continuity or uniqueness. Start independence
+#   is measured behavior (genmab fields, sr-signaling), not a theorem. KS(τ) is
+#   not provably unimodal (discrete grouping + BaGoL stochasticity), so a
+#   golden-section search is unsafe.
 #
 # Method developed and validated in SMLMClustering dev scratch (nanoruler
 # τ = 0/4/8 nm → recovers 0.3/3.8/8.5 nm; circularity refuted via re-grouped /
@@ -170,11 +175,18 @@ _mstep(d, s2, grid_nm, idxs) = grid_nm[argmin([_ks_rayleigh1(d, s2, τ, idxs) fo
 # RIGHT-BIASED M-step (Codex's tie rule): among τ within `ks_noise` of the min
 # KS, take the LARGEST — preserves the same-molecule spread and avoids the
 # under-group truncation that causes the ascending creep. This is the M-step the
-# descent and the bootstrap use.
-function _mstep_rb(d, s2, grid_nm, idxs; ks_noise = 0.01)
+# descent and the bootstrap use. The rule is a statement about continuous τ; the
+# grid only discretizes it, and a grid-quantized m has plateaus where several g are
+# exact fixed points of the finder's map. `interpolate=true` locates the threshold
+# crossing by linear interpolation of the KS curve between the last qualifying grid
+# point and the next one (none when the last qualifying point is the grid end).
+function _mstep_rb(d, s2, grid_nm, idxs; ks_noise = 0.01, interpolate = false)
     ks = [_ks_rayleigh1(d, s2, τ, idxs) for τ in grid_nm]
     kmin = minimum(ks)
-    maximum(grid_nm[i] for i in eachindex(grid_nm) if ks[i] ≤ kmin + ks_noise)
+    thr = kmin + ks_noise
+    j = argmax([ks[i] ≤ thr ? grid_nm[i] : -Inf for i in eachindex(grid_nm)])
+    (!interpolate || j == lastindex(grid_nm) || !(ks[j + 1] > thr)) && return grid_nm[j]
+    grid_nm[j] + (thr - ks[j]) / (ks[j + 1] - ks[j]) * (grid_nm[j + 1] - grid_nm[j])
 end
 
 # UPPER-TAIL KS of z vs Rayleigh(1), over the [qlo,qhi] quantile band ONLY. The
@@ -244,13 +256,131 @@ function _build_finder_neighbor_graph(smld, tau_ceiling_um::Float64, partition_s
     return build_precision_neighbor_graph(coords, max_radius)
 end
 
+# Root search for the finder's self-consistent τ (nm): the root g* of r(g) = m(g) − g.
+# `evalm(g)` runs the E-step at g and the M-step on its grouping and returns m(g) in
+# nm, or `nothing` when the E-step is empty (the search ends, `converged=false`). It
+# is the only place the search touches BaGoL, so tests drive it with synthetic maps.
+# Since m lies in the grid, r is nonnegative at the bottom and nonpositive at the
+# top; grouping changes and E-step noise can still make r discontinuous. Convergence
+# requires an exact r = 0 or a measured sign-change bracket [a, b] of width ≤ 2·tol.
+# τ̂ linearly interpolates inside the final bracket, giving |τ̂ − g*| ≤ b − a for a
+# root inside it. Steps: a separated jump, then secant on the last two points while
+# the slope of r is resolved and negative, regula falsi (Illinois) inside the bracket,
+# bisection when a proposal is unusable. Bracketed steps stay at least tol from
+# either end (Dekker's minimum step). Returns `(; tau_nm, converged, path,
+# method_path, n_evals, bracket_nm)`; `bracket_nm` is (NaN, NaN) without a sign-change
+# bracket (including an exact root found before bracketing). `path` holds the (g, m)
+# pairs and `method_path` how each g was chosen (:start, :jump, :secant, :illinois, :bisect).
+function _tau_root_search(evalm, g0_nm; grid_nm, stop_tol_nm, max_steps,
+                          probe_nm = 0.5, resolve_nm = 0.05)
+    lo, hi = extrema(grid_nm)
+    resolve = min(resolve_nm, stop_tol_nm / 2)     # resolve steps at the stopping scale
+    g = clamp(Float64(g0_nm), lo, hi); prop = g; method = :start
+    path = Tuple{Float64, Float64}[]; method_path = Symbol[]
+    gs = Float64[]; rs = Float64[]
+    ga = NaN; ra = NaN; fa = NaN                 # bracket end with r > 0 (g smaller)
+    gb = NaN; rb = NaN; fb = NaN                 # bracket end with r < 0; f = Illinois-weighted r
+    side = 0                                     # end replaced last: +1 a, −1 b
+    exact = NaN; converged = false
+    jump(gk, rk) = clamp(gk + (rk == 0 ? -1 : sign(rk)) * max(abs(rk), probe_nm), lo, hi)
+    near(x) = any(h -> abs(h - x) < resolve, gs)
+    for _ in 1:max_steps
+        m = evalm(g)
+        (m === nothing || !isfinite(m)) && break
+        r = m - g
+        push!(path, (g, m)); push!(method_path, method); push!(gs, g); push!(rs, r)
+        if r == 0
+            exact = g; converged = true
+            break
+        elseif r > 0 && (isnan(gb) || g < gb) && (isnan(ga) || g > ga)
+            ga = g; ra = r; fa = r
+            side == 1 && (fb /= 2)               # Illinois: b kept twice
+            side = 1
+        elseif r < 0 && (isnan(ga) || g > ga) && (isnan(gb) || g < gb)
+            gb = g; rb = r; fb = r
+            side == -1 && (fa /= 2)
+            side = -1
+        end
+        bracket = !isnan(ga) && !isnan(gb)
+        if bracket
+            if gb - ga ≤ 2stop_tol_nm
+                converged = true
+                break
+            end
+            x = ga - fa * (gb - ga) / (fb - fa); method = :illinois
+            # Near an end, aim tol past the interpolated root toward the other end.
+            if x - ga ≤ stop_tol_nm
+                x += stop_tol_nm
+            elseif gb - x ≤ stop_tol_nm
+                x -= stop_tol_nm
+            end
+            # Dekker: shrink the bracket from either side by at least stop_tol.
+            x = clamp(x, ga + stop_tol_nm, gb - stop_tol_nm)
+            if !(ga < x < gb) || near(x)
+                x = (ga + gb) / 2; method = :bisect
+            end
+        else
+            x = jump(g, r); method = :jump
+            if length(gs) ≥ 2
+                # Keep the second point separated. Later closing probes must be
+                # resolved and reach at least m(g), or flat residuals make them crawl.
+                if abs(r) < probe_nm
+                    step = max(2stop_tol_nm, 2resolve)
+                    xp = clamp(g + sign(r) * step, lo, hi)
+                    abs(r) ≤ step && !near(xp) && (x = xp)
+                end
+                Δg = gs[end] - gs[end - 1]; Δr = rs[end] - rs[end - 1]
+                if abs(Δg) ≥ resolve && Δr / Δg < 0
+                    # Aim past the secant root to avoid approaching from one side.
+                    xs = clamp(g - r * Δg / Δr + sign(r) * stop_tol_nm, lo, hi)
+                    near(xs) || ((x, method) = (xs, :secant))
+                end
+            end
+        end
+        prop = x
+        # A clamped grid end can be closer than resolve and still be an
+        # unevaluated exact root. Only stall if that end has already been tried.
+        new_edge = (x == lo || x == hi) && !(x in gs)
+        if near(x) && !new_edge
+            prop = g
+            break
+        end
+        g = x
+    end
+    tau = !isnan(exact) ? exact :
+          !isnan(ga) && !isnan(gb) ? ga + ra / (ra - rb) * (gb - ga) :
+          prop
+    bracket_nm = !isnan(ga) && !isnan(gb) ? (ga, gb) : (NaN, NaN)
+    (; tau_nm = clamp(tau, lo, hi), converged, path, method_path,
+       n_evals = length(path), bracket_nm)
+end
+
+# τ̂ lies inside the sign-change bracket, so its nearest evaluated g is a bracket
+# end; without a bracket, τ̂ is the last proposal. Only the largest positive-r g
+# below the smallest negative-r g, that negative-r end, and the latest E-step can
+# supply the CI grouping. Drop superseded arrays immediately (at most three kept).
+function _keep_finder_eval!(evals, e)
+    push!(evals, e)
+    b = minimum((p.g for p in evals if p.m < p.g); init = Inf)
+    a = maximum((p.g for p in evals if p.m > p.g && p.g < b); init = -Inf)
+    filter!(p -> p === e || p.g == a || p.g == b, evals)
+    evals
+end
+
 """
     estimate_se_adjust(smld::SMLMData.SMLD; kwargs...) -> NamedTuple
 
 Estimate the per-blink systematic localization error τ (the `se_adjust` value)
-directly from data, by distribution comparison to Rayleigh(1) via an adaptive
-over-merge descent. The "find" companion to [`apply_se_adjust`](@ref) /
+directly from data, by distribution comparison to Rayleigh(1): the self-consistent τ
+(the grouping at τ gives an M-step estimate equal to τ) is found by root search from an
+over-merged start. The "find" companion to [`apply_se_adjust`](@ref) /
 `run_bagol(; se_adjust)`.
+
+Interpolating the KS threshold crossing removes grid quantization; `m(g)` remains
+only approximately continuous because groupings change and E-steps are noisy. The
+bracket guarantees a sign change of the measured `r(g) = m(g) − g`, not continuity
+or uniqueness of its root. Start independence is measured behavior (genmab fields,
+sr-signaling), not a theorem.
 
 `smld` must hold **raw-σ** localizations (e.g. frame-connected blinks). τ is the
 correction to *find*, so an already-σ-corrected input
@@ -259,22 +389,32 @@ correction to *find*, so an already-σ-corrected input
 # Returns
 A `NamedTuple` with τ values in **μm**:
 - `tau_hat_um` — point estimate (feeds `run_bagol(; se_adjust = tau_hat_um)`)
-- `ci_lo_um`, `ci_hi_um` — spatial-block-bootstrap 95% CI
+- `ci_lo_um`, `ci_hi_um` — spatial-block-bootstrap 95% CI, conditional on the grouping of
+  the E-step nearest `tau_hat_um` (it omits E-step variability)
 - `ks_at_hat` — KS-to-Rayleigh(1) at the estimate (lower = better fit)
-- `n_bagol` — number of BaGoL E-steps run (the descent length)
-- `path_um` — the descent trajectory as `(g, m)` pairs (grouping τ, M-step τ)
+- `n_bagol` — number of BaGoL E-steps run (the search length)
+- `path_um` — the search trajectory as `(g, m)` pairs (grouping τ, M-step τ)
+- `converged` — `true` at an exact `r = 0` or when the measured sign-change bracket
+  has width ≤ `2·stop_tol_um`; otherwise `false` (cap, empty/nonfinite E-step, or stalled
+  search), and `tau_hat_um` is then the best estimate so far
+- `method_path` — how each step's g was chosen (`:start`, `:jump`, `:secant`, `:illinois`,
+  `:bisect`)
 - `grouping` — the grouping backend used
+- `bagol_kwargs` — the BaGoL kwargs the E-steps ran with (a `NamedTuple`; excludes the
+  internal neighbor graph)
 - `diagnostics` — `nothing`, or (with `return_diagnostics=true`) the arrays the
   `BaGoLMakieExt` plots consume, so the extension never re-runs BaGoL.
+- `bracket_um::Tuple{Float64,Float64}` — final measured sign-change bracket;
+  `(NaN, NaN)` without one, including an exact root found before bracketing. For a
+  root `g*` inside `[a, b]`, `|tau_hat_um − g*| ≤ b − a ≤ 2·stop_tol_um` on a width stop.
 
 # Keyword arguments
-- `g_start_um = 0.008` — over-merged starting τ for the descent (μm)
-- `stop_tol_um = 2e-4` — self-consistency tolerance `|m−g|` to stop (μm). Tight
-  enough to avoid a premature stop when `g_start` sits just above the fixed point.
-- `max_steps = 12` — descent step cap (`:dahl` descends slower than the old proxy,
-  so it needs more steps to reach the fixed point from an over-merged start)
+- `g_start_um = 0.008` — over-merged starting τ (μm), clamped into the grid range
+- `stop_tol_um = 1e-4` — the search stops when the root is bracketed within
+  2·stop_tol_um; τ̂ interpolates inside that bracket (an exact `r = 0` also stops)
+- `max_steps = 12` — E-step cap; if it is reached without the stop rule, `converged = false`
 - `ks_noise = 0.01` — KS tie band for the right-biased M-step
-- `grid_um = 0.0:0.0001:0.014` — fine M-step τ grid (μm)
+- `grid_um = 0.0:0.0001:0.014` — M-step τ grid (μm); also the range the search stays in
 - `n_iterations = 4000`, `burn_in = 2000` — per-E-step BaGoL chain length
 - `n_boot = 200` — bootstrap resamples for the CI
 - `block_um = 1.0` — spatial-block tile size (μm)
@@ -293,7 +433,7 @@ A `NamedTuple` with τ values in **μm**:
 """
 function estimate_se_adjust(smld::SMLMData.SMLD;
         g_start_um = 0.008,
-        stop_tol_um::Float64 = 2e-4,
+        stop_tol_um::Float64 = 1e-4,
         max_steps::Int = 12,
         ks_noise::Float64 = 0.01,
         grid_um = 0.0:0.0001:0.014,
@@ -324,11 +464,10 @@ function estimate_se_adjust(smld::SMLMData.SMLD;
     g        = 1000 * g_start_um                 # nm — start over-merged
     stop_tol = 1000 * stop_tol_um
 
-    # ADAPTIVE OVER-MERGE DESCENT: jump to the right-biased M-step each step
-    # (g ← m); descent from above ⇒ no under-group truncation ⇒ no creep.
-    n_bagol = 0; τ = g
-    d = Float64[]; s2 = Float64[]; pos = NTuple{2, Float64}[]
-    path = Tuple{Float64, Float64}[]
+    # ROOT SEARCH on r(g) = m(g) − g from an over-merged start (see `_tau_root_search`);
+    # keep only bracket ends and the latest E-step for the CI grouping nearest τ̂.
+    n_bagol = Ref{Int}(0)
+    evals = NamedTuple[]
     # Per-descent-g instrumentation. No sim reproduces the real-data collapse, so
     # the REAL ruler is the only gate: log every candidate stop-signal at τ=g and
     # pick the winner empirically — ks_full (faked low by over-split), ks_tail +
@@ -338,16 +477,21 @@ function estimate_se_adjust(smld::SMLMData.SMLD;
     # threshold-many). Anchor the cached radius at the coarsest τ the descent can use
     # (max of grid ceiling and g_start) → a superset for every reachable τ;
     # precision_dbscan re-thresholds it per step (exact, no KDTree rebuild).
+    _kw_used = (; bagol_kwargs...)                     # settings the E-steps run with (reported below)
     _ng = _build_finder_neighbor_graph(smld, max(maximum(grid_um), g_start_um),
                                        Float64(get(bagol_kwargs, :partition_sigma, 3.0)))
     if _ng !== nothing
         bagol_kwargs = (; bagol_kwargs..., neighbor_graph = _ng)
     end
-    for _ in 1:max_steps
+    # E-step + M-step at g. Interpolating the KS threshold crossing removes grid
+    # quantization; grouping changes and E-step noise still affect continuity of m(g).
+    function evalm(g)
+        local d, s2, pos, n_emit, loglik
         d, s2, pos, n_emit, loglik = _group_distances(smld, g; n_iterations, burn_in, grouping, bagol_kwargs)
-        n_bagol += 1
-        isempty(d) && break
-        m = _mstep_rb(d, s2, grid, eachindex(d); ks_noise)
+        n_bagol[] += 1
+        isempty(d) && return nothing
+        m = _mstep_rb(d, s2, grid, eachindex(d); ks_noise, interpolate = true)
+        _keep_finder_eval!(evals, (; g, m, d, s2, pos))
         ix = eachindex(d)
         # BIC/Occam evidence score = −2·loglik + k·log(N), k = 2·n_emit (x,y per
         # emitter): MIN ≈ true count — over-split-proof (it pays the complexity the
@@ -359,13 +503,20 @@ function estimate_se_adjust(smld::SMLMData.SMLD;
                       ks_full = _ks_rayleigh1(d, s2, g, ix),
                       ks_tail = _ks_rayleigh1_tail(d, s2, g, ix),
                       r_tail  = _r_tail(d, s2, g, ix)))
-        push!(path, (g, m)); τ = m
-        abs(m - g) ≤ stop_tol && break           # grouping self-consistent
-        g = m                                    # jump (descend from above)
+        m
+    end
+    found = _tau_root_search(evalm, g; grid_nm = grid, stop_tol_nm = stop_tol, max_steps)
+    τ = found.tau_nm; path = found.path
+
+    # CI, KS and diagnostics all use the arrays of the E-step whose g is nearest τ̂.
+    if isempty(evals)
+        d = Float64[]; s2 = Float64[]; pos = NTuple{2, Float64}[]
+    else
+        (; d, s2, pos) = evals[argmin([abs(e.g - τ) for e in evals])]
     end
 
-    # CI: reuse the final grouping; bootstrap the right-biased M-step over spatial
-    # blocks (the independent unit).
+    # CI: reuse that grouping (so it is conditional on it: E-step variability is not in
+    # it); bootstrap the right-biased M-step over spatial blocks (the independent unit).
     # The n_boot bootstrap resamples are independent and `_mstep_rb` is pure (reads
     # d/s2/grid, allocates its own scratch), so thread them. Draw the block-index sets
     # SERIALLY first — this keeps the exact MersenneTwister(seed) stream, so the CI is
@@ -379,7 +530,7 @@ function estimate_se_adjust(smld::SMLMData.SMLD;
     Threads.@threads for b in 1:n_boot
         bi = bis[b]
         if !isempty(bi)
-            boots_raw[b] = _mstep_rb(d, s2, grid, bi; ks_noise)
+            boots_raw[b] = _mstep_rb(d, s2, grid, bi; ks_noise, interpolate = true)
             ok[b] = true
         end
     end
@@ -396,9 +547,11 @@ function estimate_se_adjust(smld::SMLMData.SMLD;
     end
 
     (; tau_hat_um = τ / 1000, ci_lo_um = lo / 1000, ci_hi_um = hi / 1000,
-       ks_at_hat = ks_at, n_bagol,
+       ks_at_hat = ks_at, n_bagol = n_bagol[],
        path_um = [(gᵢ / 1000, mᵢ / 1000) for (gᵢ, mᵢ) in path],
-       instr, grouping, diagnostics)
+       converged = found.converged, method_path = found.method_path,
+       instr, grouping, bagol_kwargs = _kw_used, diagnostics,
+       bracket_um = (found.bracket_nm[1] / 1000, found.bracket_nm[2] / 1000))
 end
 
 # ============================================================================

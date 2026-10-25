@@ -2,7 +2,7 @@
 
 **Authoritative reference for the collapsed Gibbs sampler. Read before modifying. Update after modifying.**
 
-*Matches the implementation on `main`. Predictive-only proposals everywhere (DM removed from all proposal kernels, MH-corrected); flat spatial + Poisson(ρA) K prior; Fix A merge-DB seed guard and the K! multiplicity term Δ_K! (Poisson-K only, no-op for locmix), DB-exact (6e-16). 2026-07-04: the α (shape) update uses the count-only likelihood on non-coupled allocation paths (§6.2). Recovery gates use Dahl, not peak-K (see math_reference §9.4).*
+*Matches the implementation on `main`. Default spatial model `:locmix`; option since 0.4.6: `:ipp` (inhomogeneous Poisson process, fixed pilot intensity map g times global ρ, partition-invariant; §2 "`:ipp` spatial model"); `:flat` is also an option. Predictive-only proposals everywhere (DM removed from all proposal kernels, MH-corrected); flat spatial + Poisson(ρA) K prior; Fix A merge-DB seed guard and the K! multiplicity term Δ_K! (Poisson-K only, no-op for locmix), DB-exact (6e-16). 2026-07-04: the α (shape) update uses the count-only likelihood on non-coupled allocation paths (§6.2). Recovery gates use Dahl, not peak-K (see math_reference §9.4).*
 
 ---
 
@@ -108,6 +108,12 @@ log p_pred(d_i | cluster_k) = log p(data_{k∪{i}}) - log p(data_k)
 For an empty cluster: `p_pred = P_locmix(d_i)` (locmix prior at the localization position).
 
 **Code:** `log_predictive_locmix(cs, lp, grid)` in `cluster_stats.jl`
+
+### Spatial model option (0.4.6): `:ipp`
+
+`IntensitySpatial(log_area, map)`: `spatial_ml(cs) = log_marginal_likelihood(cs, log A_i') + log g(ŝ_j)`, empty-cluster predictive `-log A_i' + log g(d_i)`, empty-cluster `spatial_ml = 0`; `_uses_poisson_k_prior = true` (so Δ_K-prior and Δ_K! apply as for flat). `g` is ONE global read-only `IntensityMap` (Gaussian KDE of all localizations at `intensity_bandwidth`, kernel-mass edge correction, floor, stored as log g with a bilinear lookup, normalized by 4-point Gauss–Legendre quadrature so ∫_box g = A_field), built after `se_adjust` and before partitioning; `A_i' = A_field·n_i/N_all`. Cancelled canonical target per partition: `Σ_k [ML_flat^(noA) + log ρ + log g(ŝ_k)] + log DM + log NegBin − ρA_i'`; at `g ≡ 1` it is `:flat`. ρ conditional: `Gamma(a + ΣK_i, b + ΣA_i')`; ρ starts at `N_all/(μ₀A_field)` when not given. `motion=:linear` keeps its own prior. Diagnostics: `IPPTarget(map)` returns the labeled density; `exact_posterior` adds K! with `label_multiplicity = :factorial` for every target. See `docs/math_reference.md` §4.6.
+
+**Code:** `src/intensity.jl`.
 
 ---
 

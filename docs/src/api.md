@@ -9,6 +9,10 @@ Every exported type and function, grouped by topic.
 ```@index
 ```
 
+```@docs
+SMLMBaGoL
+```
+
 ## Main entry points
 
 ```@docs
@@ -69,6 +73,12 @@ partition_locs
 AbstractSpatialModel
 FlatSpatial
 LocmixSpatial
+IntensitySpatial
+IntensityMap
+build_intensity_map
+field_box
+field_area
+exposure
 spatial_ml
 spatial_pred
 AbstractAllocationModel
@@ -152,6 +162,7 @@ DecoupledTarget
 DecoupledLocmixTarget
 DMFlatTarget
 DMLocmixTarget
+IPPTarget
 DirectNegBinFlatTarget
 DirectNegBinLocmixTarget
 FazelFlatTarget

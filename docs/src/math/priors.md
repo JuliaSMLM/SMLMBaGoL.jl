@@ -48,7 +48,7 @@ N \mid K \;\sim\; \mathrm{NegBin}\!\Big(r = K\alpha,\ p = \tfrac{\alpha}{\alpha 
 with ``\mathbb{E}[n_k] = \mu`` and shape ``\alpha = \texttt{shape}``. This term is **always
 active**; it enters every ``K``-changing move as
 ``\Delta_{\text{count}} = \log P(N \mid K') - \log P(N \mid K)`` and is the main regularizer
-of ``K`` under the default `:locmix` model.
+of ``K`` under the `:locmix` model.
 
 ![Count distribution for several shape values](../assets/priors_negbin_family.png)
 
@@ -65,9 +65,9 @@ learned — see [Hierarchical Learning](hierarchical.md).*
 
 ## The emitter-count (``K``) prior
 
-`k_prior = :auto` (default), `:poisson`, or `:none`. Under the default `:locmix` spatial
+`k_prior = :auto` (default), `:poisson`, or `:none`. Under the `:locmix` spatial
 model there is **no separate ``K`` prior** — the count model plus the DM prior already
-regularize ``K``. Under `spatial_model = :flat`, the genuine Poisson prior
+regularize ``K``. Under `spatial_model = :ipp` and under `:flat`, the genuine Poisson prior
 ``K \sim \mathrm{Poisson}(\rho A)`` is added (`priors.jl`, `log_prior_k_poisson`):
 
 ```math

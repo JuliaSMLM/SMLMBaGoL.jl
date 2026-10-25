@@ -6,7 +6,7 @@ CurrentModule = SMLMBaGoL
 
 Integrating the emitter position ``\boldsymbol{\theta}`` out of a cluster gives its
 **marginal likelihood** — the score each MCMC move evaluates. The two spatial models
-(`spatial_model = :flat` or `:locmix`) share the Gaussian core and differ only in the
+(`spatial_model = :ipp`, `:flat` or `:locmix`) share the Gaussian core and differ only in the
 position-prior term.
 
 ## The Gaussian core
@@ -47,7 +47,7 @@ pays one factor of the area.
 
 ## Localization-mixture prior (`:locmix`, the default)
 
-The default model replaces the uniform prior with a **localization-mixture** prior that
+The default `:locmix` model replaces the uniform prior with a **localization-mixture** prior that
 concentrates emitter-position mass where localizations are dense:
 
 ```math
@@ -71,11 +71,49 @@ not as the full integral over ``\boldsymbol{\theta}`` — a saddle-point approxi
 localization field — prior mass pools on the data. The flat prior would be a constant sheet
 by comparison.*
 
+!!! warning "Partition dependence"
+    The locmix per-emitter term is built from the localizations of the partition being sampled,
+    so the posterior of a field depends on how it is partitioned. The `:ipp` model
+    below uses one global map and does not.
+
 !!! note "Exact integral vs. the production path"
     ``\log P_{\text{locmix}}`` is precomputed on a grid (`log_marginal_likelihood_locmix`).
     The plug-in is exact only in the limit where the prior is flat over the posterior width of
     ``\boldsymbol\theta``. The exact mixture integral (`log_ml_locmix`) is implemented and used
     by the diagnostics, but the grid plug-in is the production path.
+
+## Inhomogeneous Poisson process prior (`:ipp`)
+
+`:ipp` is partition-invariant (under the conditions below) and calibrated for dense fields, but under-splits isolated structures (rulers, origami, single-structure fields), where `:locmix` is the better choice.
+
+`:ipp` models emitters as a marked inhomogeneous Poisson process with intensity
+``\lambda(\boldsymbol\theta) = \rho\, g(\boldsymbol\theta)``: ``\rho`` is the global emitter
+density (learned, see [Hierarchical Learning](hierarchical.md)) and ``g`` a **fixed** pilot
+shape built once from all localizations, before partitioning:
+
+```math
+g(\boldsymbol\theta) = \frac{A_{\text{field}}}{N_{\text{all}}}\,
+\frac{\sum_{j}\mathcal{N}(\boldsymbol\theta;\ \mathbf{x}_j,\ h^2 I)}{m_h(\boldsymbol\theta)},
+\qquad \int_{\text{box}} g = A_{\text{field}},
+```
+
+with kernel bandwidth ``h`` = `intensity_bandwidth` (default 0.2 μm), ``m_h`` the kernel mass inside
+the field's bounding box (edge correction), and the final lookup normalized numerically. Like
+locmix the sampler evaluates ``g`` at the cluster posterior mean (saddle point), and it adds the
+Poisson``(\rho A_i')`` prior on ``K`` as under `:flat`, so a cluster scores
+
+```math
+\log p_{\text{ipp}}(\mathbf{x}_{1:n} \mid c) = \log p_{\text{flat}}(\mathbf{x}_{1:n}) + \log g(\hat{\boldsymbol\theta}),
+```
+
+paired with ``K\log(\rho A_i')`` so the area cancels and each emitter contributes ``\rho\, g(\hat{\boldsymbol\theta})``.
+Because ``g`` and ``\rho`` are global and the partition exposures ``A_i' = A_{\text{field}} n_i/N_{\text{all}}``
+sum to the field, the target of separated groups factorizes: it does not depend on how the field
+is partitioned. This is exact only under DM allocation with ``\gamma`` = shape (the default
+coupling), the Poisson ``K`` prior on, fixed hyperparameters and a fixed map, and groups
+separated beyond the map/likelihood reach with no overlap copies; other allocation settings do
+not inherit it. With ``g \equiv 1`` it is exactly `:flat` + Poisson``(\rho A)``. The full statement
+(normalization, conventions, limits) is `docs/math_reference.md` §4.6.
 
 ## Predictive probability
 
