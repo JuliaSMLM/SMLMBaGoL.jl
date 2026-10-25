@@ -8,9 +8,9 @@
     AbstractAccumulator
 
 Base type for MCMC accumulators. Subtypes must implement:
-- `update!(acc, state, locs, μ, shape, iter)` — add one iteration
-- `result(acc)` — extract final result
-- `merge!(acc_target, acc_source)` — combine results from two partitions
+- `accumulator_update!(acc, state, locs, μ, shape, iter)` — add one iteration
+- `accumulator_result(acc)` — extract final result
+- `accumulator_merge!(acc_target, acc_source)` — combine results from two partitions
 """
 abstract type AbstractAccumulator end
 

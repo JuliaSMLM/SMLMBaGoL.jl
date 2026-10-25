@@ -36,8 +36,9 @@ n_iterations = 4000
 burn_in = 2000
 sync_interval = 100         # iterations between global hierarchical μ/shape/ρ updates
 allocation_model = :dm      # :dm (Dirichlet-Multinomial) | :decoupled | :categorical
-spatial_model = :locmix     # :locmix (localization mixture) | :flat
-k_prior = :auto             # :auto | :poisson (only valid with :flat) | :none
+spatial_model = :locmix     # :locmix (default; per-partition normalization) | :ipp (inhomogeneous Poisson process, partition-invariant, under-splits isolated structures) | :flat
+intensity_bandwidth = 0.2   # kernel bandwidth h (μm) of the :ipp pilot intensity map
+k_prior = :auto             # :auto | :poisson (valid with :ipp and :flat) | :none
 n_restricted_scans = 5      # Jain-Neal restricted Gibbs scans for split/merge
 n_bd_substeps = 5           # birth/death substeps per BD selection
 
@@ -51,6 +52,8 @@ min_partition_size = 0
 max_partition_size = 1000   # METIS-split partitions larger than this
 skip_partition_size = typemax(Int)
 overlap = :auto             # boundary overlap width (:auto or Float64 μm)
+bridge_ratio = 0.0          # optional DBSCAN bridge refinement
+min_split_size = 3          # minimum core component size for bridge refinement
 
 # Uncertainty correction (standalone runs only; leave 0.0 in the integrated pipeline)
 se_adjust = 0.0             # 0.0 | :auto (run estimate_se_adjust finder) | τ (scalar/tuple/vector, μm) in quadrature σ²+τ²
@@ -68,8 +71,12 @@ verbose = true
 
 `BaGoLConfig` — `Base.@kwdef struct` (serializable to TOML) mirroring the `run_bagol`
 kwargs for the integrated SMLMAnalysis pipeline. Note its default `se_adjust = :auto`
-(vs `0.0` for the bare `run_bagol` function). Fields `bridge_ratio` / `min_split_size`
-exist on the struct but are not currently forwarded by `run_bagol`.
+(vs `0.0` for the bare `run_bagol` function). This difference is deliberate: bare and
+test calls do not run the finder.
+Its `μ=10.0` equals the keyword entry point's prior-mean start with default hyperpriors.
+All config fields, including `bridge_ratio` and `min_split_size`, are forwarded.
+Hyperpriors (`μ_prior_shape`, `μ_prior_scale`, `shape_prior_shape`, `shape_prior_scale`,
+`ρ_prior_shape`, `ρ_prior_rate`) are bare `run_bagol` keywords, not config fields.
 
 `BaGoLDiagnostics` fields: `n_emitters`, `posterior_k`, `acceptance_rates`, `final_μ`,
 `final_shape`, `n_partitions`, `posterior_image`, `se_adjust`, `convergence_trace`,
@@ -210,3 +217,24 @@ Correctness/mixing tools (see `docs/math_reference.md` and `src/diagnostics/`):
 - Detailed balance: `check_detailed_balance`, `DetailedBalanceResult`.
 - Mixing: `effective_sample_size`, `autocorrelation`, `split_gelman_rubin`,
   `indicator_ess`, `run_mixing_test`, `ChainDiagnosticAccumulator`.
+
+## IPP map and exposure
+
+`IntensityMap` stores `logg`, grid origin `x0, y0`, one `spacing`,
+`box::UniformSpatialPrior`, `n_all`, and `bandwidth` (μm). Build one shared map with
+`build_intensity_map(locs, box; bandwidth=0.2)`. Grids above `2^27` cells (1 GiB for
+the Float64 grid) throw an error naming the bandwidth and field; increase the
+bandwidth or reduce the field.
+
+`field_box(locs)` returns the unpadded bounding box, or `nothing` for empty or
+zero-extent input. `field_area(map)` returns its normalization area;
+`exposure(map, n_locs)` returns `field_area(map) * n_locs / map.n_all`.
+`IntensitySpatial(map, n_locs)` uses that exposure with the shared map.
+`exposure(box::UniformSpatialPrior, n_locs, n_all)` supplies the same share for flat runs.
+`IPPTarget(map)` returns the labeled density; `exact_posterior` adds `K!` by default,
+using `label_multiplicity=:factorial` for all targets.
+
+Archive replay needs no accumulator declaration. Assignment and moment accumulators
+replay recorded models unchanged. Spatial-model accumulators must pass the original
+partition model and exposure via `spatial=`; recorded archives throw on spatial use
+without it. Unrecorded code-0 archives retain the legacy flat placeholder.

@@ -93,6 +93,7 @@ end
 spatial_area(fs::FeatureSet) = spatial_area(fs.priors[1])
 spatial_log_area(fs::FeatureSet) = spatial_log_area(fs.priors[1])
 _uses_poisson_k_prior(fs::FeatureSet) = _uses_poisson_k_prior(fs.priors[1])
+_data_scaled_rho_start(fs::FeatureSet) = _data_scaled_rho_start(fs.priors[1])
 
 # Dimension/feature-derived empties.
 _block_type(::Type{LocPrecision{D,L}}) where {D,L} = ClusterStats{D,L}

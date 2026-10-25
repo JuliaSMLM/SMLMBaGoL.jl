@@ -51,16 +51,30 @@
 # _log_count_posterior, log_prior_k_poisson, spatial_ml, spatial_pred,
 # check_detailed_balance, log_target) -- no re-derivation of the density math.
 #
-# Usage:  julia --project=. dev/detailed_balance_check.jl [M]
+# DIAGNOSTICS CONVENTION (all targets): the cancelled canonical target, i.e. the
+# sampler's Poisson(rho*A) K prior with its -log K! removed by the K! labeled-occupant
+# correction of the K-moves: log pi = log_target + log K! for flat and IPP targets;
+# locmix uses log_target as is (no K prior).
+#
+# TWO MODES. Default: :flat and :locmix targets on exactly co-located localizations.
+# `ipp` argument (julia ... dev/detailed_balance_check.jl [M] ipp): the :ipp target
+# (IntensitySpatial + IPPTarget) with a NON-constant pilot intensity map (bandwidth 4 nm)
+# on localizations spread over ~15 nm, so log g(theta-hat) differs between the clusters
+# of every compared partition (co-located data would evaluate g at a single point).
+#
+# Usage:  julia --project=. dev/detailed_balance_check.jl [M] [ipp]
 #         M = MC samples per kernel estimate in Part D (default 2_000_000).
 
 using SMLMBaGoL
 using SMLMData
 using Printf
 using Random
+using SpecialFunctions: logfactorial
 using LinearAlgebra: I
 
 const S = SMLMBaGoL
+
+const MODE = "ipp" in ARGS ? :ipp : :flat
 
 # ---------------------------------------------------------------------------
 # Fixed model parameters (values are irrelevant to whether DB holds; DB must
@@ -80,20 +94,45 @@ const GAMMA = SHAPE           # dm_gamma(DMAllocation(nothing), shape) = shape
 #              (sampler config spatial=:locmix, allocation=:dm, k_prior=:none)
 # Both are exact acceptance targets of propose_split_merge!/propose_birth_death!
 # under the corresponding state configuration.
-const TD = S.DMFlatTarget()
-const SP = S.FlatSpatial(LOG_AREA)
+const TD_FLAT = S.DMFlatTarget()
+const SP_FLAT = S.FlatSpatial(LOG_AREA)
 const AM = S.DMAllocation()
 const AREA = exp(LOG_AREA)
 
-colocated_locs(N) =
+# Localizations. :flat mode: exactly co-located. :ipp mode: a golden-angle spiral of radius
+# ~0.8*sigma*sqrt(i) (about 15 nm for N=11), so every loc has its own position.
+spread_xy(i) = (0.8 * SIGMA * sqrt(i) * cos(2.399963 * i), 0.8 * SIGMA * sqrt(i) * sin(2.399963 * i))
+colocated_locs(N) = MODE === :ipp ?
+    [SMLMData.Emitter2DFit(spread_xy(i)..., 1000.0, 0.0, SIGMA, SIGMA, 0.0, 0.0, 0.0, 1, 1, 0, i) for i in 1:N] :
     [SMLMData.Emitter2DFit(0.0, 0.0, 1000.0, 0.0, SIGMA, SIGMA, 0.0, 0.0, 0.0, 1, 1, 0, i) for i in 1:N]
+
+# ONE fixed non-constant pilot intensity map for the whole run (built from a fixed cloud
+# of spiral points, bandwidth 4 nm ~ 0.7 sigma, over a 0.1 x 0.1 um box). The exposure
+# stays LOG_AREA; DB holds for ANY fixed g, so the map need not match the locs of a part.
+const MAP_IPP = let box = S.UniformSpatialPrior(-0.05, 0.05, -0.05, 0.05)
+    cloud = [SMLMData.Emitter2DFit(spread_xy(i)..., 1000.0, 0.0, SIGMA, SIGMA, 0.0, 0.0, 0.0, 1, 1, 0, i) for i in 1:40]
+    S.build_intensity_map(cloud, box; bandwidth = 0.004)
+end
+const SP_IPP = S.IntensitySpatial(LOG_AREA, MAP_IPP)
+const TD_IPP = S.IPPTarget(MAP_IPP)
+
+# Mode-selected target/spatial for the parts that use one fixed config (A, B, B2, C).
+const TD = MODE === :ipp ? TD_IPP : TD_FLAT
+const SP = MODE === :ipp ? SP_IPP : SP_FLAT
+const SPATIALS = MODE === :ipp ? (:ipp,) : (:flat, :locmix)
 
 "Resolve (sp, td, use_kprior) for a spatial config symbol given this run's lps."
 function spatial_config(spatial::Symbol, lps)
-    spatial === :flat   && return SP, TD, true
+    spatial === :flat   && return SP_FLAT, TD_FLAT, true
+    spatial === :ipp    && return SP_IPP, TD_IPP, true
     spatial === :locmix && return S.LocmixSpatial(lps), S.DMLocmixTarget(), false
     error("unknown spatial config $spatial")
 end
+
+# K! labeled-occupant correction that cancels the Poisson prior's -log K! (the sampler's
+# Delta_Kfac): both flat and IPP targets use labeled densities; locmix has no K prior.
+kcancel(::Union{S.DMFlatTarget,S.IPPTarget}, K) = logfactorial(K)
+kcancel(::S.AbstractTargetDensity, K) = 0.0
 
 # ---------------------------------------------------------------------------
 # Gate bookkeeping: every hard requirement registers through gate!.
@@ -109,9 +148,25 @@ end
 #   log_target(DMFlatTarget)  vs  the code's own component functions
 #   (spatial_ml sum + partition_prior + _log_count_posterior + log_prior_k_poisson)
 # ---------------------------------------------------------------------------
-"log pi via the diagnostic target density (flat config)."
+"log pi (cancelled canonical convention) of any target via the diagnostic target density."
+logpi(td, z, lps, sp) = S.log_target(td, z, lps, sp, MU, SHAPE, RHO) + kcancel(td, length(unique(z)))
+
+"log pi via the diagnostic target density (mode-selected config)."
 function logpi_target(z, lps)
-    return S.log_target(TD, z, lps, LOG_AREA, MU, SHAPE, RHO)
+    return S.log_target(TD, z, lps, LOG_AREA, MU, SHAPE, RHO) + kcancel(TD, length(unique(z)))
+end
+
+"""
+`check_detailed_balance` for the cancelled convention: the library `log_target` of the T1 flat
+target lacks the +log K!, which is folded into the proposal terms here (K_to into q_rev,
+K_from into q_fwd), so log_ratio_direct = Delta(cancelled pi) + log q_rev - log q_fwd.
+"""
+function dbcheck(z_from, z_to, lps, logqf, logqr, logcode; tol=1e-8)
+    return S.check_detailed_balance(z_from, z_to, lps, LOG_AREA, TD;
+        μ=MU, shape=SHAPE, ρ=RHO,
+        log_q_fwd=logqf + kcancel(TD, length(unique(z_from))),
+        log_q_rev=logqr + kcancel(TD, length(unique(z_to))),
+        log_ratio_code=logcode, tol=tol)
 end
 
 "log pi via the SAMPLER's own component functions (state-based)."
@@ -122,7 +177,8 @@ function logpi_code_components(z, locs)
     lml   = S._total_spatial_lml(st)
     dm    = S.partition_prior(AM, st, N, SHAPE)
     count = S._log_count_posterior(K, N, SHAPE, MU)
-    kpri  = S.log_prior_k_poisson(K, RHO, AREA)
+    # Poisson(rho A) prior + the K! occupied-label correction (the sampler's Delta_Kfac)
+    kpri  = S.log_prior_k_poisson(K, RHO, AREA) + logfactorial(K)
     return lml + dm + count + kpri, (lml=lml, dm=dm, count=count, kpri=kpri, K=K)
 end
 
@@ -486,10 +542,7 @@ function part_A()
     logα_split = Δtarget + (logqr_split - logqf_split)
 
     loc_precs = lps
-    r = S.check_detailed_balance(z_c, z_cp, loc_precs, LOG_AREA, TD;
-            μ=MU, shape=SHAPE, ρ=RHO,
-            log_q_fwd=logqf_split, log_q_rev=logqr_split,
-            log_ratio_code=logα_split, tol=1e-8)
+    r = dbcheck(z_c, z_cp, loc_precs, logqf_split, logqr_split, logα_split)
 
     println("\n  ", "-"^84)
     @printf("  %-14s %-9s %14s %14s %14s %10s %6s\n",
@@ -504,37 +557,25 @@ function part_A()
     logqf_merge = log(d_Kp1) - log(npairs)
     logqr_merge = log(b_K) - log(K) + log(q_alloc)
     logα_merge = (lt_c - lt_cp) + (logqr_merge - logqf_merge)
-    rm = S.check_detailed_balance(z_cp, z_c, loc_precs, LOG_AREA, TD;
-            μ=MU, shape=SHAPE, ρ=RHO,
-            log_q_fwd=logqf_merge, log_q_rev=logqr_merge,
-            log_ratio_code=logα_merge, tol=1e-8)
+    rm = dbcheck(z_cp, z_c, loc_precs, logqf_merge, logqr_merge, logα_merge)
     @printf("  %-14s %-9s %14.6f %14.6f %14.2e %10.4f %6s\n",
             "merge", "8->7", lt_c - lt_cp, logqr_merge - logqf_merge, rm.difference, rm.log_ratio_direct, rm.pass ? "yes" : "NO")
     gate!(rm.pass, "A: merge 8->7 check_detailed_balance (compatible seeds)")
 
     # --- birth 7->8 and death 8->7 ---
     bd = birth_death_db(K=7, m=4)
-    rb = S.check_detailed_balance(bd.z_c, bd.z_cp, bd.lps, LOG_AREA, TD;
-            μ=MU, shape=SHAPE, ρ=RHO,
-            log_q_fwd=bd.logqf_birth, log_q_rev=bd.logqr_birth,
-            log_ratio_code=bd.logR_birth, tol=1e-8)
+    rb = dbcheck(bd.z_c, bd.z_cp, bd.lps, bd.logqf_birth, bd.logqr_birth, bd.logR_birth)
     @printf("  %-14s %-9s %14.6f %14.6f %14.2e %10.4f %6s\n",
             "birth", "7->8", bd.Tt, bd.logqr_birth - bd.logqf_birth, rb.difference, rb.log_ratio_direct, rb.pass ? "yes" : "NO")
     gate!(rb.pass, "A: birth 7->8 check_detailed_balance")
-    rd = S.check_detailed_balance(bd.z_cp, bd.z_c, bd.lps, LOG_AREA, TD;
-            μ=MU, shape=SHAPE, ρ=RHO,
-            log_q_fwd=bd.logqf_death, log_q_rev=bd.logqr_death,
-            log_ratio_code=bd.logR_death, tol=1e-8)
+    rd = dbcheck(bd.z_cp, bd.z_c, bd.lps, bd.logqf_death, bd.logqr_death, bd.logR_death)
     @printf("  %-14s %-9s %14.6f %14.6f %14.2e %10.4f %6s\n",
             "death", "8->7", -bd.Tt, bd.logqr_death - bd.logqf_death, rd.difference, rd.log_ratio_direct, rd.pass ? "yes" : "NO")
     gate!(rd.pass, "A: death 8->7 check_detailed_balance")
     println("  ", "-"^84)
 
     # --- SELF-VALIDATION: perturb a passing case's log_ratio_code by +0.5 -> must FAIL ---
-    rbad = S.check_detailed_balance(z_c, z_cp, loc_precs, LOG_AREA, TD;
-            μ=MU, shape=SHAPE, ρ=RHO,
-            log_q_fwd=logqf_split, log_q_rev=logqr_split,
-            log_ratio_code=logα_split + 0.5, tol=1e-8)
+    rbad = dbcheck(z_c, z_cp, loc_precs, logqf_split, logqr_split, logα_split + 0.5)
     @printf("\n  SELF-VALIDATION: split with log_ratio_code += 0.5 -> |diff|=%.4f  pass=%s (want NO)\n",
             rbad.difference, rbad.pass ? "yes(BAD)" : "NO(good)")
     gate!(!rbad.pass && abs(rbad.difference - 0.5) < 1e-6,
@@ -703,8 +744,8 @@ function seed_marginal_kernels(; K::Int, m::Int, nB::Int, n_scans::Int,
     N, locs, lps, z_c, z_cp = seed_setup(K=K, m=m, nB=nB)
     sp, td, _ = spatial_config(spatial, lps)
     union_ = collect(K:N)
-    logpi_c = S.log_target(td, z_c, lps, sp, MU, SHAPE, RHO)
-    logpi_cp = S.log_target(td, z_cp, lps, sp, MU, SHAPE, RHO)
+    logpi_c = logpi(td, z_c, lps, sp)
+    logpi_cp = logpi(td, z_cp, lps, sp)
     Δt = logpi_cp - logpi_c
     b_K = 0.5; d_Kp1 = 0.5                     # interior K
     npairs = (K + 1) * K / 2
@@ -859,10 +900,11 @@ function part_F()
     println("  acceptance path (guard -> zero flux on incompatible draws); K_merge_FAB is the")
     println("  pre-fix fabricated-q_rev kernel, reported as reference. REQUIRE rel_FIXED ~ 0.")
     println("="^88)
-    for spatial in (:flat, :locmix)
+    for spatial in SPATIALS
         println()
         println("  spatial = $(spatial)  " *
                 (spatial === :flat ? "(DMFlatTarget: :flat/:dm/:poisson)" :
+                 spatial === :ipp  ? "(IPPTarget: :ipp/:dm/:poisson, non-constant map)" :
                                      "(DMLocmixTarget: :locmix/:dm/:none)"))
         @printf("  %-9s %-7s %13s %13s %10s %13s %10s %9s\n",
                 "(nA,nB)", "n_scans", "pi(c)Ksplit", "pi(c')Km_FIX", "rel_FIX",
@@ -935,10 +977,10 @@ function part_D(; M::Int=2_000_000)
     z_cp = copy(z_c); z_cp[N] = K+1                      # c' = (3,1): loc N detached
     cc = canon(z_c)
 
-    for spatial in (:flat, :locmix)
+    for spatial in SPATIALS
         lps = S.precompute_loc_precisions(locs, SP)
         sp, td, use_kprior = spatial_config(spatial, lps)
-        Mrun = spatial === :flat ? M : max(M ÷ 2, 500_000)
+        Mrun = spatial === :locmix ? max(M ÷ 2, 500_000) : M
         r = seed_marginal_kernels(K=7, m=4, nB=1, n_scans=5, spatial=spatial)
         sm5!(st) = (S.propose_split_merge!(st, locs, MU, SHAPE, RHO; n_restricted_scans=5); nothing)
         KrMC = mc_kernel(z_cp, cc, locs, sm5!, Mrun; seed=202, sp=sp, use_kprior=use_kprior)
@@ -973,7 +1015,9 @@ end
 function main(; M::Int=2_000_000)
     println("#"^88)
     println("# GATE-3 DETAILED-BALANCE CHECKER for K-changing moves at K=7<->8")
-    println("# targets: DMFlatTarget (:flat/:dm/:poisson) + DMLocmixTarget (:locmix/:dm/:none)")
+    println(MODE === :ipp ?
+        "# target: IPPTarget (:ipp/:dm/:poisson), NON-constant map (bw 4 nm), spread locs; cancelled convention" :
+        "# targets: DMFlatTarget (:flat/:dm/:poisson) + DMLocmixTarget (:locmix/:dm/:none); cancelled convention (+log K!)")
     @printf("# mu=%.1f shape=%.1f rho=%.1f  sigma=%.4f um  log_area=%.4f  M=%d\n",
             MU, SHAPE, RHO, SIGMA, LOG_AREA, M)
     println("#"^88)
@@ -1014,5 +1058,6 @@ function main(; M::Int=2_000_000)
     return length(FAILURES)
 end
 
-nfail = main(M=(isempty(ARGS) ? 2_000_000 : parse(Int, ARGS[1])))
+nums = filter(a -> tryparse(Int, a) !== nothing, ARGS)
+nfail = main(M=(isempty(nums) ? 2_000_000 : parse(Int, nums[1])))
 exit(nfail == 0 ? 0 : 1)

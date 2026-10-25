@@ -68,14 +68,17 @@ In single-molecule localization microscopy (SMLM), fluorescent emitters activate
 
 ## 3. Generative Model
 
-BaGoL supports two spatial targets:
+BaGoL supports three spatial targets:
 
-- `spatial_model=:locmix` (default): no explicit prior on $K$; $K$ is regularized by the count model.
-- `spatial_model=:flat` (legacy): $K \sim \text{Poisson}(\rho A)$ with a flat spatial prior over area $A$.
+- `spatial_model=:ipp` (option since 0.4.6): emitters form an inhomogeneous Poisson process, intensity $\rho\, g(\theta)$ with a fixed pilot shape $g$ and a learned global density $\rho$; $K \sim \text{Poisson}(\rho A)$ (Section 4.6).
+- `spatial_model=:locmix` (default): no explicit prior on $K$; $K$ is regularized by the count model. Its per-emitter factor depends on how the field is partitioned (Section 4.1).
+- `spatial_model=:flat`: $K \sim \text{Poisson}(\rho A)$ with a flat spatial prior over area $A$.
+
+`:locmix` (default) normalizes its position prior per partition, so its output depends on the partitioning (dense fields, where precision-DBSCAN percolates into large partitions, are under-counted; measured on matched simulations). `:ipp` is partition-invariant and calibrated for dense fields, but under-splits isolated structures (rulers, origami, single-structure fields), where `:locmix` is the better choice.
 
 $$n_k \mid \mu, \alpha \stackrel{\text{iid}}{\sim} \text{NegBin}(\alpha,\; p), \quad p = \frac{\alpha}{\alpha+\mu}$$
 
-For the default locmix target:
+For the locmix target:
 
 $$\theta_k \sim \pi_{\text{locmix}}(\theta) = \frac{1}{N}\sum_{j=1}^{N}\mathcal{N}(\theta;\, d_j,\, \Sigma_j)$$
 
@@ -99,7 +102,7 @@ The total count $N = \sum_k n_k \sim \text{NegBin}(K\alpha, p)$ by the NegBin su
 
 The sampler targets the collapsed posterior with positions integrated out:
 
-### 4.1 Default locmix target
+### 4.1 Locmix target (default)
 
 $$\boxed{P(z, K \mid \text{data}) \;\propto\; P_{\text{count}}(N \mid K) \;\times\; P_{\text{DM}}(z \mid K, N) \;\times\; \prod_{k=1}^{K} \text{ML}_{\text{locmix},k}(z)}$$
 
@@ -119,6 +122,15 @@ current sampler routes all spatial marginal likelihoods and predictives through:
 
 so `LocmixSpatial` uses `log_marginal_likelihood_locmix` and
 `log_predictive_locmix`, while `FlatSpatial` uses the uniform-area formulas.
+
+**Partition dependence.** Per partition $P$ the
+locmix per-emitter term is $\log\pi_{\text{locmix},P}(\hat\theta_k)$ with
+$\pi_{\text{locmix},P}$ the mixture of $P$'s own $N_P$ localizations (the $-\log N_P$ is part of
+the density), and there is no $K$ prior. The posterior of a field therefore depends on how it
+is cut: isolated pairs grouped into larger chains resolve worse, and dense fields, where
+DBSCAN percolates into METIS chunks of hundreds of localizations, undercount. `:locmix`
+stays the default, with this dependence documented; `:ipp` is the partition-invariant option,
+which under-splits isolated structures (rulers, origami), where `:locmix` is the better choice.
 
 ### 4.2 Flat legacy target
 
@@ -185,6 +197,124 @@ in `src/collapsed_moves.jl`.
 
 Thermodynamic integration (Round 11) confirmed the marginal peaks near Q-PAINT's MAP $K$, while individual allocations at that $K$ score lower than allocations at lower $K$. This creates a K-mixing challenge for the collapsed sampler (see Section 9.1).
 
+### 4.6 Inhomogeneous Poisson process target (`spatial_model=:ipp`, option)
+
+**Model.** Emitters are a marked inhomogeneous Poisson process on the field with intensity
+$\lambda(\theta) = \rho\, g(\theta)$. The marks are the localization counts
+$n_k \sim \text{NegBin}(\alpha, p)$. $\rho$ is the global emitter density (emitters per
+$\mu\text{m}^2$, learned), and $g$ is a **fixed**, dimensionless pilot shape built once from all
+localizations (after `se_adjust`, before partitioning):
+
+$$g(\theta) = \frac{A_{\text{field}}\,\kappa_h(\theta)}{N_{\text{all}}},\qquad
+\kappa_h(\theta) = \frac{\sum_{j=1}^{N_{\text{all}}} \mathcal{N}(\theta;\, d_j,\, h^2 I)}{m_h(\theta)}$$
+
+with $h$ = `intensity_bandwidth` (default $0.2\,\mu\text{m}$) and $m_h(\theta)$ the mass of the
+kernel at $\theta$ inside the field's bounding box (edge correction), so $g$ is not depleted at
+the field edge. $\mu$ does not enter $\lambda$. $g$ is stored on a grid of spacing $h/4$ covering
+the box plus $4h$ (kernels truncated at $4h$, floor at one isolated kernel's value at the
+truncation radius so $g>0$) and read by bilinear interpolation of the stored $\log g$ (one lookup per
+$\log g(\hat\theta)$, no $\log$ in the hot path). **Normalization:** the final lookup
+$\exp(\text{bilinear}(\log g))$ (floor, interpolation, edge correction in place) is shifted in $\log g$
+so that its integral over the box, computed by tensor 4-point Gauss--Legendre quadrature on each
+grid cell (clipped to the box), equals $A_{\text{field}}$ (unit test P2 checks it with an
+independent 8-point rule to $10^{-6}$). A finite realization of a homogeneous field has
+$g \approx 1$ only in expectation; $g$ at a localization includes that localization's own kernel
+(no leave-one-out), an inflation of about $1/(2\pi h^2 \rho_{\text{loc}})$ ($\rho_{\text{loc}}$
+the localization density), negligible in dense fields and noticeable in sparse ones.
+
+**Target.** For partition $i$ ($n_i$ localizations including overlap copies), with exposure
+$A_i' = A_{\text{field}}\, n_i/N_{\text{all}}$ in both its spatial area and its Poisson prior,
+
+$$\boxed{\log T_i(z) = \sum_{k}\big[\log\text{ML}_{\text{flat},k}^{(\text{no }A)} + \log\rho + \log g(\hat\theta_k)\big]
++ \log P_{\text{DM}}(z\mid K,N_i) + \log\text{NegBin}(N_i;\, K\alpha, p) - \rho A_i' + \text{const}}$$
+
+This is the sampler's target: `spatial_ml(cs, ::IntensitySpatial)` $= \log\text{ML}_{\text{flat}}(\text{cs}, \log A_i') + \log g(\hat\theta)$
+(the flat marginal carries $-\log A_i'$), the Poisson$(\rho A_i')$ prior carries
+$+K\log(\rho A_i')$, so the $A_i'^{\,K}$ cancels and each cluster contributes $\rho\, g(\hat\theta_k)\,\text{ML}^{(\text{no }A)}$.
+The $K!$ occupied-label correction ($\Delta_{K!}$, Section 4.2) cancels the prior's $-\log K!$
+exactly as for flat. $\hat\theta_k = \Lambda_k^{-1}\eta_k$ is the cluster posterior mean:
+$g$ enters as the saddle point of $\text{ML}\times E_{\text{post}}[g]$, accurate because $g$
+varies on the scale $h \gg$ the posterior spread. The spatial factor of an empty cluster is
+$0$; its predictive is $-\log A_i' + \log g(\text{position})$. MAP-N positions, covariances
+and posterior images keep the flat Gaussian cluster moments (a stated approximation).
+
+**Reduction.** For $g \equiv 1$ the target is exactly `:flat` with the Poisson$(\rho A)$ prior
+(Section 4.2): same per-cluster terms, same K-move ratios, same learned $\rho$
+(unit test P1; the standalone chain with a constant map reproduces `:flat` assignment by
+assignment).
+
+**$\rho$ conditional.** The pooled update is the corrected flat one:
+$\rho \mid z \sim \text{Gamma}(a + \sum_i K_i,\; 1/(b + \sum_i A_i'))$ with $K_i$ all active
+clusters of partition $i$ (no overlap masking). The exposure is $\sum_i A_i'$ because
+$\int_{\text{region } i} g \approx A_{\text{field}}\, n_i/N_{\text{all}}$ ($g \propto$ localization
+density), so the conditional is unchanged from flat. With `rho=nothing`, $\rho$ starts at
+$N_{\text{all}}/(\mu_0 A_{\text{field}})$ ($\mu_0$ the initial $\mu$) rather than the prior mean, so runs
+that never sync start from a data-scaled density; `rho=` fixes it (with `learn_rho=false`).
+
+**Partition consistency.** $g$ is one global map, $\rho$ is global and the exposures sum to the
+field, so for separated groups with no overlap the target of the union equals the product of the
+group targets up to a $z$-independent constant (the $\log N_i!$ of the count/DM factorization and
+$-\rho\sum A_i'$), whatever the cut (unit test P3). With overlap copies the product of partition
+targets approximates the unpartitioned posterior as for every model; $\sum K_i$ and
+$\sum A_i'$ both include the duplicates, so $\hat\rho$ carries a bias set by the duplicated
+emitter counts relative to the duplicated exposure (small; measure it rather than assume it).
+The $\mu$/shape overlap masks are unchanged and a separate approximation.
+
+Exact partition consistency holds under these conditions: DM allocation with $\gamma$ = shape (the
+default coupling), the Poisson $K$ prior on, fixed hyperparameters ($\mu$, shape, $\rho$) and a fixed
+map, and groups separated beyond the map/likelihood reach with no overlap copies. Other allocation
+settings (`:decoupled`, `:categorical`, or $\gamma \ne$ shape) do not inherit it, and neither does a
+run with learned hyperparameters or overlap copies beyond the approximation described above.
+
+**Retained convention.** $\rho$ is the density of emitters with at least one localization, and the
+per-cluster count terms are not zero-truncated (the existing flat + Poisson convention, no
+$e^{\lambda m}$ carry-through). The omitted term is $-K\log(1-p_0)$ in the count target
+(with matching terms in the $\mu$/shape conditionals), $p_0 = (\alpha/(\alpha+\mu))^\alpha$:
+about $0.01$ at $\alpha=3,\mu=10$ and $0.09$ at $\alpha=1$. The all-emitter alternative
+(exposure $A(1-p_0)$ for $\rho$) is future work (0.5 design), as is the cluster-process model.
+
+**Exposure and degenerate fields.** Partitioned `run_bagol` uses the unpadded bounding box of all
+localizations as $A_{\text{field}}$ (the map is normalized over it). A zero-extent field falls back to
+the padded per-partition areas with a warning, and the map is normalized over the padded box of all
+localizations. Standalone `run_collapsed_chain` uses the `UniformSpatialPrior` area (padded,
+floored, positive for singleton, collinear or co-located data) exactly as `:flat`, with the map
+normalized over the same box. With a supplied `intensity_map` the exposure is
+$A_{\text{field}}\, n/N_{\text{all}}$ of that map. `k_prior=:none` uses per-partition padded areas.
+
+**Motion.** With `motion=:linear` the motion model's own spatial prior is used (flat position,
+Gaussian velocity), as for every `spatial_model`; this is logged once per run.
+`k_prior=:poisson` adds a Poisson $K$ prior to the motion model's flat position prior.
+
+**Known limits.** The per-emitter factor $\rho g$ is the density of independent emitters at the
+observed density: dense random fields are calibrated, but isolated designed structures
+(rulers, origami, sparse oligomers) resolve somewhat worse than under the default locmix
+model, and the flat Occam volume factor $-\tfrac12\log|\Lambda_k|$ still penalizes splitting
+co-located emitters. `spatial_model=:locmix` selects that default prior.
+
+**Diagnostics.** `IPPTarget(map)` returns a labeled target, including $-\log K!$,
+like `DMFlatTarget`. `exact_posterior` uses `label_multiplicity=:factorial` by default
+for both, adding $\log K!$ to obtain the canonical target above. The detailed-balance
+and birth/death drivers likewise add that correction for flat and IPP targets with a
+prebuilt non-constant map. $\rho$'s conditional cannot be validated by fixed-$\rho$
+detailed balance and is unit-tested (P5).
+
+**Archive replay.** Built-in accumulators read assignments and Gaussian cluster moments
+and can replay every model. An accumulator that evaluates the spatial prior needs the
+original partition model and exposure via `spatial=`; otherwise recorded archives throw
+at first spatial use. Code-0 archives retain the legacy flat placeholder. Motion-model
+replay is unsupported.
+
+The map stores `logg`, grid origin `x0, y0`, one `spacing`, its normalization `box`,
+`n_all`, and `bandwidth`. Use `field_box(locs)` for the unpadded field box (`nothing`
+for zero extent), `field_area(map)` for its area, `exposure(map, n)` for a partition's
+share, and `IntensitySpatial(map, n)` to construct that partition's spatial model.
+Map construction rejects grids exceeding `2^27` cells (1 GiB for the Float64 grid);
+increase the bandwidth or reduce the field if this guard fires.
+
+**Code:** `IntensityMap`, `build_intensity_map`, `IntensitySpatial` in `src/intensity.jl`;
+`IPPTarget` in `src/diagnostics/target.jl`; exposure and map routing in `_run_bagol_collapsed`
+and `run_collapsed_chain`.
+
 ---
 
 ## 5. Collapsed Marginal Likelihood
@@ -226,6 +356,7 @@ Implementation dispatch:
 |---------------|-------------|---------------------|
 | `LocmixSpatial` | `log_marginal_likelihood_locmix` | `log_predictive_locmix` |
 | `FlatSpatial` | `log_marginal_likelihood` | `log_predictive` |
+| `IntensitySpatial` | `log_marginal_likelihood` $+ \log g(\hat\theta)$ | ratio of those; empty: $-\log A_i' + \log g(\text{pos})$ |
 
 **Code:** `spatial_ml`, `spatial_pred` in `src/cluster_stats.jl`.
 
@@ -306,11 +437,11 @@ The MH log ratio is the same as split/merge except there is no
 $\Delta_{\text{move-type}}$ term. Destination choices use `spatial_pred` so
 birth/death follows the selected spatial target.
 
-### 7.4 Hierarchical Updates ($\mu$, $\alpha$, and flat-only $\rho$)
+### 7.4 Hierarchical Updates ($\mu$, $\alpha$, and flat/ipp $\rho$)
 
 Every `sync_interval` iterations, $\mu$ and $\alpha$ are updated by a short
 **multiplicative random-walk MH burst** pooled across all partition states, and
-(flat target only) $\rho$ is conjugate-updated. Each burst runs $N$ steps
+(flat and ipp targets only) $\rho$ is conjugate-updated. Each burst runs $N$ steps
 (default 50), caching the count log-likelihood across steps so only the proposal
 is recomputed:
 
@@ -340,10 +471,31 @@ $\sim1.4$ nats measured). $\mu$ needs no such branch: it enters only the count m
 `_update_shape_collapsed`/`_update_shape_collapsed_global!`.
 
 **Hyperpriors:** $\mu \sim \text{Gamma}(2, 5)$, $\alpha \sim \text{Gamma}(2, 1)$.
+The bare `run_bagol` and `run_collapsed_chain` keywords `μ_prior_shape`, `μ_prior_scale`,
+`shape_prior_shape`, `shape_prior_scale`, `ρ_prior_shape`, and `ρ_prior_rate` control
+these priors (the last is a rate; the others use Gamma shape/scale). These are not
+`BaGoLConfig` fields.
 **Bounds:** $\mu \in [1, 500]$, $\alpha \in [0.5, 50]$.
 
-The density parameter $\rho$ is conjugate-updated only for `FlatSpatial`,
-because only that target contains $P_K(K\mid\rho,A)$. For `LocmixSpatial`,
+The density parameter $\rho$ is conjugate-updated when the target uses a Poisson $K$
+prior: by default for `FlatSpatial` and `IntensitySpatial` (Section 4.6), or explicitly
+with `k_prior=:poisson` under motion.
+In the partitioned `run_bagol` path with the flat or ipp target and Poisson $K$ prior, partition $i$ is given the
+area $A_i' = A_{\text{field}}\, n_i/N_{\text{all}}$ ($A_{\text{field}}$: bounding box
+of all localizations, computed once; $n_i$: localizations of partition $i$ including
+overlap copies; $N_{\text{all}}$: all input localizations) in both its flat spatial
+prior and its Poisson prior, so the areas cancel at fixed $\rho$ and the clustering
+target is unchanged. The full conditional is then exactly conjugate,
+$\rho \mid z \sim \text{Gamma}(a+\sum_i K_i,\, 1/(b+\sum_i A_i'))$, with $K_i$ all
+active clusters of partition $i$ (no overlap masking: halo copies carry their own area
+share) and $\sum_i A_i'$ the exposure, so $\rho$ is the emitter density. Summing the
+padded, floored, overlapping partition areas instead biases it low (the floor caps it
+near $1/(\mu\,9\pi\sigma^2)$). The default prior $\text{Gamma}(2,1)$ acts as
+$1\,\mu\text{m}^2$ of pseudo-area: negligible on whole cells, material below a few
+$\mu\text{m}^2$ (set the bare `run_bagol` keyword `ρ_prior_rate` on small fields;
+it is not a `BaGoLConfig` field). A zero-extent field falls back to
+the old areas with a warning; `k_prior=:none`, locmix and the single-chain path
+(`run_collapsed_chain`) are unchanged. For `LocmixSpatial`,
 $\rho$ is not part of the target and remains at its initialized value in
 diagnostics.
 
@@ -481,6 +633,7 @@ The finite-state diagnostics use explicit target marker types:
 | `DMFlatTarget` | flat | DM | $\text{Poisson}(\rho A)$ |
 | `DirectNegBinFlatTarget` | flat | direct NegBin assignment form | $\text{Poisson}(\rho A)$ |
 | `DecoupledTarget` | flat | decoupled | $\text{Poisson}(\rho A)$ |
+| `IPPTarget(map)` | ipp (fixed prebuilt map) | DM | $\text{Poisson}(\rho A)$, labeled convention |
 | `DMLocmixTarget` | locmix | DM | none |
 | `DirectNegBinLocmixTarget` | locmix | direct NegBin assignment form | none |
 | `DecoupledLocmixTarget` | locmix | decoupled | none |
@@ -488,8 +641,9 @@ The finite-state diagnostics use explicit target marker types:
 `DM*Target` and `DirectNegBin*Target` are algebraically identical within the
 same spatial model; tests verify their exact posterior distributions match.
 The diagnostics route sampler runs through `_diagnostic_sampler_kwargs(td)` so
-a flat target is tested against `spatial_model=:flat` and a locmix target is
-tested against `spatial_model=:locmix`.
+a flat target is tested against `spatial_model=:flat`, a locmix target against
+`spatial_model=:locmix`, and an `IPPTarget` against `spatial_model=:ipp` with the same
+`intensity_map`.
 
 ---
 

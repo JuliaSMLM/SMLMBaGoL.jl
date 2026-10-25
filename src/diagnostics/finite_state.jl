@@ -75,7 +75,7 @@ end
 Normalized exact posterior over canonical partitions.
 
 `label_multiplicity` controls how canonical partitions are weighted:
-- `:factorial` multiplies each K-cluster partition by `K!`
+- `:factorial` (default) multiplies each K-cluster partition by `K!`
 - `:none` uses a single canonical representative with no multiplicity factor
 """
 function exact_posterior(partitions::Vector{Vector{Int}},
@@ -86,8 +86,7 @@ function exact_posterior(partitions::Vector{Vector{Int}},
     isempty(partitions) && return (Float64[], Float64[])
 
     loc_precs = precompute_loc_precisions(locs)
-    spatial_prior = UniformSpatialPrior(locs)
-    log_area = log(area(spatial_prior))
+    log_area = _target_log_area(td, locs)
     sp = _target_spatial(td, loc_precs, log_area)
 
     n_parts = length(partitions)
@@ -174,7 +173,7 @@ function run_kernel_invariance_test(locs::Vector{<:SMLMData.AbstractEmitter},
                 μ_prior_shape=1.0, μ_prior_scale=μ,
                 shape=shape, learn_distribution=false,
                 hierarchical_interval=2,
-                ρ_prior_shape=ρ, ρ_prior_rate=1.0,
+                ρ_prior_shape=ρ, ρ_prior_rate=1.0, rho=ρ,
                 sampler_kwargs...,
                 accumulators=AbstractAccumulator[ps_acc],
                 verbose=false)
@@ -215,7 +214,7 @@ function run_kernel_invariance_test(locs::Vector{<:SMLMData.AbstractEmitter},
         μ_prior_shape=1.0, μ_prior_scale=μ,
         shape=shape, learn_distribution=false,
         hierarchical_interval=n_mcmc_iterations + 1,
-        ρ_prior_shape=ρ, ρ_prior_rate=1.0,
+        ρ_prior_shape=ρ, ρ_prior_rate=1.0, rho=ρ,
         sampler_kwargs...,
         accumulators=AbstractAccumulator[ps_acc, diag_acc],
         verbose=false)
@@ -555,8 +554,7 @@ function run_labeled_invariance_test(locs::Vector{<:SMLMData.AbstractEmitter},
 
     # Exact labeled posterior — no multiplicity correction
     loc_precs = precompute_loc_precisions(locs)
-    spatial_prior = UniformSpatialPrior(locs)
-    log_area = log(area(spatial_prior))
+    log_area = _target_log_area(td, locs)
     sp = _target_spatial(td, loc_precs, log_area)
 
     log_targets = [log_target(td, z, loc_precs, sp, μ, shape, ρ)
@@ -590,7 +588,7 @@ function run_labeled_invariance_test(locs::Vector{<:SMLMData.AbstractEmitter},
                 μ_prior_shape=1.0, μ_prior_scale=μ,
                 shape=shape, learn_distribution=false,
                 hierarchical_interval=2,
-                ρ_prior_shape=ρ, ρ_prior_rate=1.0,
+                ρ_prior_shape=ρ, ρ_prior_rate=1.0, rho=ρ,
                 sampler_kwargs...,
                 accumulators=AbstractAccumulator[ps_acc],
                 verbose=false)
