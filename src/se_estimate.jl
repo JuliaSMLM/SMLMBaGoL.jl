@@ -19,14 +19,18 @@
 #   M-step  on that FIXED grouping, the τ best matching Rayleigh(1) — the
 #           unscaled distances d are fixed, so this is a cheap 1-D KS search
 #           (no BaGoL), right-biased (see `_mstep_rb`) with the threshold crossing
-#           interpolated between grid points to remove grid quantization. m(g)
+#           interpolated between grid points to remove grid quantization. Extend
+#           the initial grid when its top qualifies, up to the numerical cap
+#           `tau_max_um` (default 50 nm); this evaluates the same KS rule. m(g)
 #           remains only approximately continuous (grouping changes, E-step noise).
 #   The estimate is the self-consistent τ, m(τ) = τ: the root of r(g) = m(g) − g.
 #   Start deliberately OVER-merged (`g_start`, a large se_adjust → the full
 #   same-molecule spread, no truncation, only catchable contamination); r is
 #   positive below the root and negative above it in measured maps. Safeguarded
 #   secant / regula falsi steps stop at an exact r = 0 or a measured sign-change
-#   bracket of width ≤ 2·stop_tol; τ̂ interpolates inside that bracket. For a root
+#   bracket of width ≤ 2·stop_tol; τ̂ interpolates inside that bracket. A still-
+#   qualifying M-step top at the cap is censored: τ̂ is a lower bound, not a root,
+#   and the search stops without convergence. For a root
 #   inside the bracket, |τ̂ − g*| ≤ its width ≤ 2·stop_tol. The bracket guarantees
 #   a sign change of measured r, not continuity or uniqueness. Start independence
 #   is measured behavior (genmab fields, sr-signaling), not a theorem. KS(τ) is
@@ -182,11 +186,45 @@ _mstep(d, s2, grid_nm, idxs) = grid_nm[argmin([_ks_rayleigh1(d, s2, τ, idxs) fo
 # point and the next one (none when the last qualifying point is the grid end).
 function _mstep_rb(d, s2, grid_nm, idxs; ks_noise = 0.01, interpolate = false)
     ks = [_ks_rayleigh1(d, s2, τ, idxs) for τ in grid_nm]
+    _mstep_rb_pick(ks, grid_nm; ks_noise, interpolate)
+end
+
+# Apply the same right-biased rule to precomputed KS values (also used after extension).
+function _mstep_rb_pick(ks, grid_nm; ks_noise = 0.01, interpolate = false)
     kmin = minimum(ks)
     thr = kmin + ks_noise
     j = argmax([ks[i] ≤ thr ? grid_nm[i] : -Inf for i in eachindex(grid_nm)])
     (!interpolate || j == lastindex(grid_nm) || !(ks[j + 1] > thr)) && return grid_nm[j]
     grid_nm[j] + (thr - ks[j]) / (ks[j + 1] - ks[j]) * (grid_nm[j + 1] - grid_nm[j])
+end
+
+# Extend only when the top qualifies, reusing all previously computed KS values.
+# Own the grid so independent bootstrap threads never mutate their shared input.
+function _mstep_rb_ext(d, s2, grid_nm, idxs; ks_noise = 0.01, cap_nm)
+    grid = collect(Float64, grid_nm)
+    length(grid) ≥ 2 || throw(ArgumentError("the M-step grid must have at least two points"))
+    cap_nm ≥ maximum(grid) || throw(ArgumentError("cap_nm must be at least the M-step grid top"))
+    ks = [_ks_rayleigh1(d, s2, τ, idxs) for τ in grid]
+    while ks[end] ≤ minimum(ks) + ks_noise && grid[end] < cap_nm
+        top = grid[end]
+        step = top - grid[end - 1]
+        step > 0 || throw(ArgumentError("the M-step grid must have a positive last step"))
+        target = min(cap_nm, max(2top, top + step))
+        new_points = collect((top + step):step:target)
+        if target == cap_nm
+            # Snap roundoff at the cap; include the cap even when it is off-grid.
+            if !isempty(new_points) && isapprox(new_points[end], cap_nm; rtol = 8eps(Float64))
+                new_points[end] = cap_nm
+            else
+                push!(new_points, Float64(cap_nm))
+            end
+        end
+        append!(grid, new_points)
+        append!(ks, [_ks_rayleigh1(d, s2, τ, idxs) for τ in new_points])
+    end
+    m = _mstep_rb_pick(ks, grid; ks_noise, interpolate = true)
+    censored = grid[end] == cap_nm && ks[end] ≤ minimum(ks) + ks_noise
+    (; m, grid, censored)
 end
 
 # UPPER-TAIL KS of z vs Rayleigh(1), over the [qlo,qhi] quantile band ONLY. The
@@ -238,11 +276,11 @@ function _block_indices(pos, block_um, rng)
     out
 end
 
-# Build the precision-DBSCAN neighbor graph ONCE for the τ-finder to reuse across
-# every E-step (build-once / threshold-many). Positions are fixed across the descent
-# — τ only changes the σ_eff neighbor threshold — so cache the candidate-pair geometry
-# at the COARSEST σ_eff (τ = descent ceiling), a provable superset for every reachable
-# τ. precision_dbscan re-thresholds the cache per step (exact, no KDTree rebuild).
+# Build a precision-DBSCAN neighbor graph for reuse within its τ ceiling.
+# Positions are fixed across the search — τ only changes the σ_eff neighbor
+# threshold — so cache the candidate-pair geometry
+# at the COARSEST σ_eff (τ = cache ceiling), a provable superset up to that τ.
+# Rebuild if a later E-step exceeds the ceiling; otherwise re-threshold exactly.
 # Returns nothing (→ per-call KDTree build, unchanged) for an empty SMLD or partition_sigma=Inf.
 function _build_finder_neighbor_graph(smld, tau_ceiling_um::Float64, partition_sigma::Float64)
     ems = smld.emitters
@@ -258,10 +296,12 @@ end
 
 # Root search for the finder's self-consistent τ (nm): the root g* of r(g) = m(g) − g.
 # `evalm(g)` runs the E-step at g and the M-step on its grouping and returns m(g) in
-# nm, or `nothing` when the E-step is empty (the search ends, `converged=false`). It
-# is the only place the search touches BaGoL, so tests drive it with synthetic maps.
-# Since m lies in the grid, r is nonnegative at the bottom and nonpositive at the
-# top; grouping changes and E-step noise can still make r discontinuous. Convergence
+# nm, or `nothing` when the E-step is empty or the M-step is censored at its cap
+# (the search ends, `converged=false`). It is the only place the search touches
+# BaGoL, so tests drive it with synthetic maps.
+# The search is bounded by `range_nm`, independently of the initial M-step grid.
+# A censored M-step must not supply a zero residual at the upper bound;
+# grouping changes and E-step noise can still make r discontinuous. Convergence
 # requires an exact r = 0 or a measured sign-change bracket [a, b] of width ≤ 2·tol.
 # τ̂ linearly interpolates inside the final bracket, giving |τ̂ − g*| ≤ b − a for a
 # root inside it. Steps: a separated jump, then secant on the last two points while
@@ -272,8 +312,8 @@ end
 # bracket (including an exact root found before bracketing). `path` holds the (g, m)
 # pairs and `method_path` how each g was chosen (:start, :jump, :secant, :illinois, :bisect).
 function _tau_root_search(evalm, g0_nm; grid_nm, stop_tol_nm, max_steps,
-                          probe_nm = 0.5, resolve_nm = 0.05)
-    lo, hi = extrema(grid_nm)
+                          range_nm = extrema(grid_nm), probe_nm = 0.5, resolve_nm = 0.05)
+    lo, hi = range_nm
     resolve = min(resolve_nm, stop_tol_nm / 2)     # resolve steps at the stopping scale
     g = clamp(Float64(g0_nm), lo, hi); prop = g; method = :start
     path = Tuple{Float64, Float64}[]; method_path = Symbol[]
@@ -338,7 +378,7 @@ function _tau_root_search(evalm, g0_nm; grid_nm, stop_tol_nm, max_steps,
             end
         end
         prop = x
-        # A clamped grid end can be closer than resolve and still be an
+        # A clamped search-range end can be closer than resolve and still be an
         # unevaluated exact root. Only stall if that end has already been tried.
         new_edge = (x == lo || x == hi) && !(x in gs)
         if near(x) && !new_edge
@@ -382,13 +422,20 @@ bracket guarantees a sign change of the measured `r(g) = m(g) − g`, not contin
 or uniqueness of its root. Start independence is measured behavior (genmab fields,
 sr-signaling), not a theorem.
 
+The initial M-step grid extends when its top qualifies, up to `tau_max_um`.
+Extension changes no statistic: it evaluates the same continuous right-biased KS
+rule over the range the data need. The cap is numerical, not a prior. If the
+M-step still prefers τ above the cap, the result is censored and `tau_hat_um` is
+the cap, a lower bound rather than a self-consistent root.
+
 `smld` must hold **raw-σ** localizations (e.g. frame-connected blinks). τ is the
 correction to *find*, so an already-σ-corrected input
 (`metadata["sigma_corrected"]==true`) is rejected.
 
 # Returns
 A `NamedTuple` with τ values in **μm**:
-- `tau_hat_um` — point estimate (feeds `run_bagol(; se_adjust = tau_hat_um)`)
+- `tau_hat_um` — point estimate (feeds `run_bagol(; se_adjust = tau_hat_um)`);
+  a censored result is a lower bound, not a root
 - `ci_lo_um`, `ci_hi_um` — spatial-block-bootstrap 95% CI, conditional on the grouping of
   the E-step nearest `tau_hat_um` (it omits E-step variability)
 - `ks_at_hat` — KS-to-Rayleigh(1) at the estimate (lower = better fit)
@@ -397,6 +444,11 @@ A `NamedTuple` with τ values in **μm**:
 - `converged` — `true` at an exact `r = 0` or when the measured sign-change bracket
   has width ≤ `2·stop_tol_um`; otherwise `false` (cap, empty/nonfinite E-step, or stalled
   search), and `tau_hat_um` is then the best estimate so far
+- `censored` — `true` if an E-step's M-step still qualifies at `tau_max_um`;
+  implies `converged = false`
+- `grid_top_um` — final M-step grid top (μm)
+- `tau_max_um` — numerical upper bound of the search and grid extension (μm)
+- `n_boot_censored` — number of bootstrap replicates censored at the same cap
 - `method_path` — how each step's g was chosen (`:start`, `:jump`, `:secant`, `:illinois`,
   `:bisect`)
 - `grouping` — the grouping backend used
@@ -409,12 +461,15 @@ A `NamedTuple` with τ values in **μm**:
   root `g*` inside `[a, b]`, `|tau_hat_um − g*| ≤ b − a ≤ 2·stop_tol_um` on a width stop.
 
 # Keyword arguments
-- `g_start_um = 0.008` — over-merged starting τ (μm), clamped into the grid range
+- `g_start_um = 0.008` — over-merged starting τ (μm), clamped into
+  `(minimum(grid_um), tau_max_um)`
 - `stop_tol_um = 1e-4` — the search stops when the root is bracketed within
   2·stop_tol_um; τ̂ interpolates inside that bracket (an exact `r = 0` also stops)
 - `max_steps = 12` — E-step cap; if it is reached without the stop rule, `converged = false`
 - `ks_noise = 0.01` — KS tie band for the right-biased M-step
-- `grid_um = 0.0:0.0001:0.014` — M-step τ grid (μm); also the range the search stays in
+- `grid_um = 0.0:0.0001:0.014` — initial M-step τ grid (μm), at least two points;
+  extended at its last step when the top qualifies, up to `tau_max_um`
+- `tau_max_um = 0.05` — numerical upper bound (50 nm), at least `maximum(grid_um)`
 - `n_iterations = 4000`, `burn_in = 2000` — per-E-step BaGoL chain length
 - `n_boot = 200` — bootstrap resamples for the CI
 - `block_um = 1.0` — spatial-block tile size (μm)
@@ -437,6 +492,7 @@ function estimate_se_adjust(smld::SMLMData.SMLD;
         max_steps::Int = 12,
         ks_noise::Float64 = 0.01,
         grid_um = 0.0:0.0001:0.014,
+        tau_max_um::Float64 = 0.05,
         n_iterations::Int = 4000,
         burn_in::Int = 2000,
         n_boot::Int = 200,
@@ -460,26 +516,31 @@ function estimate_se_adjust(smld::SMLMData.SMLD;
     end
 
     # Work in nm internally (preserves the validated numerics).
-    grid     = 1000 .* collect(Float64, grid_um)
-    g        = 1000 * g_start_um                 # nm — start over-merged
+    initial_grid_um = collect(Float64, grid_um)
+    length(initial_grid_um) ≥ 2 || throw(ArgumentError("grid_um must have at least two points"))
+    tau_max_um ≥ maximum(initial_grid_um) || throw(ArgumentError(
+        "tau_max_um must be at least maximum(grid_um)"))
+    grid     = 1000 .* initial_grid_um
+    cap_nm   = 1000 * tau_max_um
+    range_nm = (minimum(grid), cap_nm)
+    g        = clamp(1000 * g_start_um, range_nm...) # nm — start over-merged
     stop_tol = 1000 * stop_tol_um
 
     # ROOT SEARCH on r(g) = m(g) − g from an over-merged start (see `_tau_root_search`);
     # keep only bracket ends and the latest E-step for the CI grouping nearest τ̂.
     n_bagol = Ref{Int}(0)
+    censored = false
     evals = NamedTuple[]
     # Per-descent-g instrumentation. No sim reproduces the real-data collapse, so
     # the REAL ruler is the only gate: log every candidate stop-signal at τ=g and
     # pick the winner empirically — ks_full (faked low by over-split), ks_tail +
     # r_tail (over-split-proof: tail truncates), n_emit (over-split count/elbow).
     instr = NamedTuple[]
-    # Reuse ONE precision-DBSCAN neighbor graph across every E-step (build-once /
-    # threshold-many). Anchor the cached radius at the coarsest τ the descent can use
-    # (max of grid ceiling and g_start) → a superset for every reachable τ;
-    # precision_dbscan re-thresholds it per step (exact, no KDTree rebuild).
+    # Reuse the graph within its ceiling, doubling it when the search needs more.
     _kw_used = (; bagol_kwargs...)                     # settings the E-steps run with (reported below)
-    _ng = _build_finder_neighbor_graph(smld, max(maximum(grid_um), g_start_um),
-                                       Float64(get(bagol_kwargs, :partition_sigma, 3.0)))
+    graph_ceiling_nm = max(maximum(grid), g)
+    partition_sigma = Float64(get(bagol_kwargs, :partition_sigma, 3.0))
+    _ng = _build_finder_neighbor_graph(smld, graph_ceiling_nm / 1000, partition_sigma)
     if _ng !== nothing
         bagol_kwargs = (; bagol_kwargs..., neighbor_graph = _ng)
     end
@@ -487,10 +548,17 @@ function estimate_se_adjust(smld::SMLMData.SMLD;
     # quantization; grouping changes and E-step noise still affect continuity of m(g).
     function evalm(g)
         local d, s2, pos, n_emit, loglik
+        if _ng !== nothing && g > graph_ceiling_nm
+            graph_ceiling_nm = min(cap_nm, max(2graph_ceiling_nm, g))
+            _ng = _build_finder_neighbor_graph(smld, graph_ceiling_nm / 1000, partition_sigma)
+            bagol_kwargs = (; bagol_kwargs..., neighbor_graph = _ng)
+        end
         d, s2, pos, n_emit, loglik = _group_distances(smld, g; n_iterations, burn_in, grouping, bagol_kwargs)
         n_bagol[] += 1
         isempty(d) && return nothing
-        m = _mstep_rb(d, s2, grid, eachindex(d); ks_noise, interpolate = true)
+        step = _mstep_rb_ext(d, s2, grid, eachindex(d); ks_noise, cap_nm)
+        grid = step.grid
+        m = step.m
         _keep_finder_eval!(evals, (; g, m, d, s2, pos))
         ix = eachindex(d)
         # BIC/Occam evidence score = −2·loglik + k·log(N), k = 2·n_emit (x,y per
@@ -503,10 +571,15 @@ function estimate_se_adjust(smld::SMLMData.SMLD;
                       ks_full = _ks_rayleigh1(d, s2, g, ix),
                       ks_tail = _ks_rayleigh1_tail(d, s2, g, ix),
                       r_tail  = _r_tail(d, s2, g, ix)))
+        if step.censored
+            censored = true
+            @warn "No self-consistent τ at or below tau_max_um at this grouping: the M-step prefers τ above the cap (over-merging or a model mismatch). τ̂ is a censored lower bound, not a root." tau_max_um
+            return nothing
+        end
         m
     end
-    found = _tau_root_search(evalm, g; grid_nm = grid, stop_tol_nm = stop_tol, max_steps)
-    τ = found.tau_nm; path = found.path
+    found = _tau_root_search(evalm, g; grid_nm = grid, range_nm, stop_tol_nm = stop_tol, max_steps)
+    τ = censored ? cap_nm : found.tau_nm; path = found.path
 
     # CI, KS and diagnostics all use the arrays of the E-step whose g is nearest τ̂.
     if isempty(evals)
@@ -517,7 +590,7 @@ function estimate_se_adjust(smld::SMLMData.SMLD;
 
     # CI: reuse that grouping (so it is conditional on it: E-step variability is not in
     # it); bootstrap the right-biased M-step over spatial blocks (the independent unit).
-    # The n_boot bootstrap resamples are independent and `_mstep_rb` is pure (reads
+    # The n_boot bootstrap resamples are independent and `_mstep_rb_ext` is pure (reads
     # d/s2/grid, allocates its own scratch), so thread them. Draw the block-index sets
     # SERIALLY first — this keeps the exact MersenneTwister(seed) stream, so the CI is
     # bit-identical to the serial loop — then parallelize only the expensive M-steps.
@@ -526,11 +599,14 @@ function estimate_se_adjust(smld::SMLMData.SMLD;
     rng = MersenneTwister(seed)
     bis = [_block_indices(pos, block_um, rng) for _ in 1:n_boot]
     boots_raw = Vector{Float64}(undef, n_boot)
-    ok = falses(n_boot)
+    ok = fill(false, n_boot)
+    boot_censored = fill(false, n_boot)            # byte arrays: independent thread writes
     Threads.@threads for b in 1:n_boot
         bi = bis[b]
         if !isempty(bi)
-            boots_raw[b] = _mstep_rb(d, s2, grid, bi; ks_noise, interpolate = true)
+            step = _mstep_rb_ext(d, s2, grid, bi; ks_noise, cap_nm)
+            boots_raw[b] = step.m
+            boot_censored[b] = step.censored
             ok[b] = true
         end
     end
@@ -550,6 +626,8 @@ function estimate_se_adjust(smld::SMLMData.SMLD;
        ks_at_hat = ks_at, n_bagol = n_bagol[],
        path_um = [(gᵢ / 1000, mᵢ / 1000) for (gᵢ, mᵢ) in path],
        converged = found.converged, method_path = found.method_path,
+       censored, grid_top_um = maximum(grid) / 1000, tau_max_um,
+       n_boot_censored = count(boot_censored),
        instr, grouping, bagol_kwargs = _kw_used, diagnostics,
        bracket_um = (found.bracket_nm[1] / 1000, found.bracket_nm[2] / 1000))
 end

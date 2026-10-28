@@ -55,6 +55,9 @@ removed by preprocessing before BaGoL. Second, that the reported localization pr
 correct. This second assumption can be relaxed: where `σ` carries a uniform excess error,
 `estimate_se_adjust` estimates it from the data, and `se_adjust=:auto` folds the excess `τ`
 into each localization in quadrature (`σ² + τ²`) before grouping.
+The finder extends its initial 0–14 nm M-step grid as needed, up to the numerical
+`tau_max_um` cap (default 50 nm). A result with `censored=true` is a lower bound,
+not a converged root; `se_adjust=:auto` throws before applying a censored result.
 
 ## Installation
 

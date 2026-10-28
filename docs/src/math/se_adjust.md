@@ -48,7 +48,16 @@ two steps:
    removes grid quantization). Grouping changes and E-step noise mean ``m(g)`` is still
    only approximately continuous.
 
-The finder starts over-merged (clamping the start into the grid range) and searches for
+The initial M-step grid is `grid_um=0.0:0.0001:0.014` (0–14 nm). When its top
+qualifies under the right-biased KS rule, the grid extends at its own last step,
+reusing KS values and doubling its top up to `tau_max_um=0.05` (50 nm). This
+changes no statistic: it evaluates the same continuous right-biased KS rule over
+the range the data need. The cap is numerical, not a prior; it must be at least
+the initial grid top, and the grid must contain at least two points. Later
+E-steps reuse the extended grid, and their neighbor graph grows when needed.
+
+The finder starts over-merged (clamping the start into
+`(minimum(grid_um), tau_max_um)`) and searches for
 the root of ``r(g) = m(g) - g`` with secant steps and a sign-change bracket (Illinois
 regula falsi). The search stops when the root is bracketed within 2·stop_tol_um;
 τ̂ interpolates inside that bracket. More precisely, `converged=true` requires either
@@ -60,11 +69,20 @@ it, ``|\hat\tau - g^*| \le b - a \le 2\,\mathtt{stop\_tol\_um}`` on a width stop
 The result reports this bracket as `bracket_um`, or `(NaN, NaN)` without one (including
 an exact root found before bracketing).
 
+If an M-step's top still qualifies at the cap, the search stops with
+`censored=true` and `converged=false` and emits a warning: the grouping prefers
+τ above the cap, which can indicate over-merging or a model mismatch. The
+returned `tau_hat_um` is then the cap, a lower bound rather than a root. The result
+also reports `grid_top_um` (the final M-step grid top) and `tau_max_um`;
+diagnostic `grid_nm` and `ks_path` use that final grid.
+
 The bracket guarantees a sign change of the **measured** residual, not continuity or
 uniqueness of a root. Start independence is measured behavior on genmab fields and
 sr-signaling, not a theorem. A spatial-block bootstrap on the grouping nearest
-``\hat\tau`` provides a 95% confidence interval (conditional on that grouping). The
-estimator is **isotropic**: it uses one per-localization uncertainty (the reported
+``\hat\tau`` provides a 95% confidence interval (conditional on that grouping).
+The bootstrap uses the same extending M-step and cap independently in each replicate;
+`n_boot_censored` counts replicates censored at that cap. The estimator is
+**isotropic**: it uses one per-localization uncertainty (the reported
 ``\sigma_x``) and a single scalar ``\tau``, so it is intended for data with roughly
 isotropic localization precision.
 
@@ -78,9 +96,13 @@ isotropic localization precision.
 
 after which the corrected ``\sigma'`` propagates into every precision ``\Lambda_i`` of the
 [collapsed representation](collapsed.md). Set `se_adjust=:auto` to run the finder and apply
-its result, or pass a known number directly. The correction self-guards against
-double-applying: data already corrected upstream (metadata `sigma_corrected = true`) is
-skipped, and the finder refuses to run on already-corrected data.
+its result, or pass a known number directly. `:auto` throws an `ErrorException`
+before applying a censored result, since the cap is a lower bound that could
+over-merge the field. Pass a numeric `se_adjust` (μm), or estimate τ on a subset
+with `estimate_se_adjust`. Uncensored estimates are still applied when unconverged,
+with a progress-line note. The correction
+self-guards against double-applying: data already corrected upstream (metadata
+`sigma_corrected = true`) is skipped, and the finder refuses to run on already-corrected data.
 
 ![se_adjust=0 over-splits one emitter; the correction recovers it](../assets/se_prepost.png)
 

@@ -90,6 +90,16 @@ function _maybe_apply_se_adjust(locs, metadata, se_adjust, force_se_adjust::Bool
     return inflated, tau_applied, msg
 end
 
+# A censored finder result is a lower bound, unsuitable for automatic application.
+function _auto_se_adjust_from_finder(finder)
+    finder.censored && throw(ErrorException(
+        "se_adjust=:auto finder found no self-consistent tau at or below " *
+        "tau_max_um=$(finder.tau_max_um) μm (censored at the cap). " *
+        "This signals over-merging or a model mismatch. " *
+        "Pass a numeric se_adjust (μm), or estimate tau on a subset with estimate_se_adjust."))
+    finder.tau_hat_um
+end
+
 """
     apply_se_adjust(smld, se_adjust; force_se_adjust=false) -> BasicSMLD
 
@@ -144,6 +154,9 @@ n_j ~ Gamma(shape, μ/shape) where:
   run's partitioning and model settings (not `n_iterations`/`burn_in`) and is not
   supported with `motion=:linear` (throws; pass a numeric `se_adjust`); with
   `keep_se_finder=true` they are recorded in `diagnostics.se_finder.bagol_kwargs`.
+  A censored finder result throws an `ErrorException` before applying τ: pass a
+  numeric `se_adjust` (μm), or estimate τ on a subset with `estimate_se_adjust`.
+  An uncensored result is applied even if it did not converge, with a progress-line note.
 - `force_se_adjust=false`: Override the already-corrected guard (intentional double-count).
 
 # MCMC Arguments
@@ -432,8 +445,8 @@ function _run_bagol_collapsed(
     # Independent-error correction (standalone path). No-op when se_adjust=0 or
     # the SMLD is already σ-corrected upstream (apply-once guard).
     _se_md = hasproperty(smld, :metadata) ? smld.metadata : Dict{String,Any}()
-    # se_adjust=:auto → run the finder (estimate_se_adjust) and use τ̂. Skipped when
-    # the SMLD is already σ-corrected upstream (the finder requires raw σ), leaving τ=0.
+    # se_adjust=:auto → run the finder and use an uncensored τ̂; reject a censored cap.
+    # Skipped for an already σ-corrected SMLD (the finder requires raw σ), leaving τ=0.
     # se_finder: the full finder NamedTuple, retained only under :auto + keep_se_finder
     # (so plot_se_adjust can render it). nothing for explicit/zero τ or a σ-corrected SMLD.
     _se_finder = nothing
@@ -461,9 +474,10 @@ function _run_bagol_collapsed(
                 n_restricted_scans, n_bd_substeps,
                 μ_prior_shape, μ_prior_scale, shape_prior_shape, shape_prior_scale,
                 ρ_prior_shape, ρ_prior_rate)
-            se_adjust = _fres.tau_hat_um
+            se_adjust = _auto_se_adjust_from_finder(_fres)
             keep_se_finder && (_se_finder = _fres)
-            _log_progress("  finder τ̂ = $(round(1000 * se_adjust, digits=2)) nm; applying")
+            _finder_status = !_fres.converged ? "; not converged" : ""
+            _log_progress("  finder τ̂ = $(round(1000 * se_adjust, digits=2)) nm$(_finder_status); applying")
         end
     end
     locs, _se_tau, _se_msg = _maybe_apply_se_adjust(locs, _se_md, se_adjust, force_se_adjust)

@@ -151,7 +151,16 @@ diagnostics.se_adjust                                         # the (τx, τy) t
 ```
 
 The automatic estimator is **isotropic** — it finds a single scalar `τ`, then reports and
-applies it as `(τx, τy)` with `τx = τy`. You can also pass a known `τ` directly
+applies it as `(τx, τy)` with `τx = τy`. Its initial M-step grid is 0–14 nm and extends
+when the top qualifies, up to the numerical `tau_max_um` cap (default 50 nm).
+This evaluates the same right-biased KS rule over the range the data need.
+A result with `censored=true` has `converged=false`: `tau_hat_um` is a lower bound
+at the cap, not a root. `:auto` throws an `ErrorException` before applying a
+censored result: pass a numeric `se_adjust` (μm), or estimate τ on a subset with
+`estimate_se_adjust`. Uncensored estimates are still applied when unconverged,
+with a progress-line note. Direct finder results include `grid_top_um`,
+`tau_max_um`, and `n_boot_censored`, the count of bootstrap replicates censored at
+the same cap. You can also pass a known `τ` directly
 (`se_adjust=0.012`), or a per-axis tuple. The correction self-guards against double-applying
 to a localization set that was already corrected upstream. See
 [Uncertainty Correction](math/se_adjust.md) for the estimator.

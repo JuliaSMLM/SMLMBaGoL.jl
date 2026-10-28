@@ -2,6 +2,19 @@ using Test
 using SMLMBaGoL
 using Random
 
+@testset "automatic se_adjust rejects censored finder results" begin
+    # Synthetic finder results exercise the automatic-application policy without
+    # a finder E-step or BaGoL run. A censored result must be rejected before its
+    # tau_hat_um is even read.
+    censored = (; censored = true, converged = false, tau_max_um = 0.05)
+    @test_throws ErrorException SMLMBaGoL._auto_se_adjust_from_finder(censored)
+    @test_throws r"no self-consistent tau at or below tau_max_um=0\.05 μm \(censored at the cap\).*over-merging or a model mismatch.*numeric se_adjust \(μm\).*subset with estimate_se_adjust" SMLMBaGoL._auto_se_adjust_from_finder(censored)
+    for converged in (true, false)
+        found = (; censored = false, converged, tau_hat_um = 0.016, tau_max_um = 0.05)
+        @test SMLMBaGoL._auto_se_adjust_from_finder(found) == 0.016
+    end
+end
+
 # The finder searches for the self-consistent τ g* = m(g*) (E-step + M-step).
 # The tests drive the root search through its seam
 # `_tau_root_search` with synthetic maps m(g): no BaGoL runs, no sim.
@@ -330,4 +343,77 @@ end
     @test abs(mic - mi) ≤ 0.25
     # no interpolation when the last qualifying point is the grid end
     @test SMLMBaGoL._mstep_rb(d, s2, grid, ix; ks_noise = 1.0, interpolate = true) == last(grid)
+end
+
+@testset "right-biased M-step adaptive grid extension" begin
+    rng = MersenneTwister(20261028)
+    n = 4000
+    s2 = fill(2 * 13.0^2, n)
+    z = sqrt.(-2 .* log.(rand(rng, n)))
+    d16 = z .* sqrt.(s2 .+ 2 * 16.0^2)
+    d6 = z .* sqrt.(s2 .+ 2 * 6.0^2)
+    grid = collect(0.0:0.1:14.0)
+    original = copy(grid)
+    full_grid = collect(0.0:0.1:50.0)
+    ix = eachindex(d16)
+    full_m = SMLMBaGoL._mstep_rb(d16, s2, full_grid, ix; interpolate = true)
+
+    @testset "extends above the initial grid" begin
+        step = SMLMBaGoL._mstep_rb_ext(d16, s2, grid, ix; cap_nm = 50.0)
+        @test !step.censored
+        @test abs(step.m - full_m) ≤ 0.5
+        @test last(step.grid) ≥ 16.0
+        @test step.grid[eachindex(grid)] == original
+        @test grid == original
+    end
+
+    @testset "keeps a sufficient initial grid" begin
+        step = SMLMBaGoL._mstep_rb_ext(d6, s2, grid, ix; cap_nm = 50.0)
+        @test !step.censored
+        @test step.grid == grid == original
+        @test step.m == SMLMBaGoL._mstep_rb(d6, s2, grid, ix; interpolate = true)
+    end
+
+    @testset "censors at the exact cap" begin
+        small_grid = collect(0.0:0.1:10.0)
+        for cap in (12.0, 12.037, 12.1)
+            step = SMLMBaGoL._mstep_rb_ext(d16, s2, small_grid, ix; cap_nm = cap)
+            @test step.censored
+            @test step.m == last(step.grid) == cap
+            @test all(≤(cap), step.grid)
+            @test all(>(0), diff(step.grid))
+            @test small_grid == collect(0.0:0.1:10.0)
+        end
+    end
+
+    @testset "root search uses its extended range" begin
+        function evalm(g)
+            step = SMLMBaGoL._mstep_rb_ext(d16, s2, grid, ix; cap_nm = 50.0)
+            step.censored ? nothing : step.m
+        end
+        for start in (8.0, 20.0, 60.0, -1.0)
+            found = SMLMBaGoL._tau_root_search(evalm, start; grid_nm = grid,
+                range_nm = (0.0, 50.0), stop_tol_nm = 0.1, max_steps = 12)
+            @test found.converged
+            @test abs(found.tau_nm - full_m) ≤ 0.5
+            @test first(found.path)[1] == clamp(start, 0.0, 50.0)
+            @test all(p -> 0.0 ≤ first(p) ≤ 50.0, found.path)
+            @test grid == original
+        end
+    end
+
+    @testset "censored M-step cannot become a root" begin
+        small_grid = collect(0.0:0.1:10.0)
+        function eval_censored(g)
+            step = SMLMBaGoL._mstep_rb_ext(d16, s2, small_grid, ix; cap_nm = 12.0)
+            step.censored ? nothing : step.m
+        end
+        for start in (8.0, 12.0)
+            found = SMLMBaGoL._tau_root_search(eval_censored, start; grid_nm = small_grid,
+                range_nm = (0.0, 12.0), stop_tol_nm = 0.1, max_steps = 12)
+            @test !found.converged
+            @test found.n_evals == 0
+            @test found.tau_nm == start
+        end
+    end
 end
