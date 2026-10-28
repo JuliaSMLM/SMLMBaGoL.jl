@@ -40,7 +40,17 @@ upstream analysis pipeline — where one localization stands for two or more emi
 removed by preprocessing before BaGoL. Second, that the reported localization precision `σ` is
 correct. This second assumption can be relaxed: where `σ` carries a uniform excess error,
 [`estimate_se_adjust`](@ref) estimates it from the data, and `se_adjust=:auto` folds the excess
-`τ` into each localization in quadrature (`σ² + τ²`) before grouping. The
+`τ` into each localization in quadrature (`σ² + τ²`) before grouping. The finder
+extends its initial 0–14 nm M-step grid as needed up to `tau_max_um` (default 50 nm),
+a numerical cap. A `censored=true` result is a lower bound, not a converged root;
+`:auto` throws before applying a censored result.
+
+The method requires `g_start_um` above the root. The unchanged 8 nm default suits
+τ below 8 nm (dSTORM 4.5–5.7 nm; genmab fields 5.1–7.7 nm). For larger τ, such as
+SeqSR at about 16 nm, call [`estimate_se_adjust`](@ref) with `g_start_um=0.03`, then
+pass the estimate as a numeric `se_adjust`. A start below the root can find a
+spurious, too-small τ; the finder warns and reports `start_overmerged=false`
+when its first M-step has `m(g_start) ≥ g_start`. The
 [Mathematics](math/index.md) section describes the statistics in full.
 
 ![Raw localizations → BaGoL MAP-N](assets/intro_prepost.png)

@@ -2,6 +2,7 @@ using Test
 using SMLMBaGoL
 using SMLMData
 using Random
+import SMLMSim
 
 @testset "estimate_se_adjust τ finder" begin
     # M-step kernel: at the true τ the within-group scaled neighbor distances
@@ -40,6 +41,9 @@ using Random
     @test_throws ArgumentError estimate_se_adjust(smld_corr)                  # already σ-corrected
     smld_raw = SMLMData.BasicSMLD(elist, cam, 1, 1, Dict{String,Any}())
     @test_throws ArgumentError estimate_se_adjust(smld_raw; grouping=:nope)   # unknown grouping
+    @test_throws ArgumentError estimate_se_adjust(smld_raw; grid_um = Float64[])
+    @test_throws ArgumentError estimate_se_adjust(smld_raw; grid_um = [0.0])
+    @test_throws ArgumentError estimate_se_adjust(smld_raw; tau_max_um = 0.012)
 
     # :dahl grouping (now the default; wired via _dahl_out): group original loc
     # indices by global Dahl label, skipping overlap-dup label 0.
@@ -50,4 +54,42 @@ using Random
     pos = [(0.1i, 0.1j) for i in 1:5 for j in 1:5]
     bi = SMLMBaGoL._block_indices(pos, 1.0, Random.MersenneTwister(1))
     @test !isempty(bi) && all(1 .≤ bi .≤ length(pos))
+end
+
+@testset "estimate_se_adjust above the default grid ceiling" begin
+    # SMLMSim supplies both independent noise passes. The second pass overwrites
+    # the reported σ with 5 nm, leaving the first pass's planted 16 nm unreported.
+    Random.seed!(20261028)
+    photons = 1000.0
+    cam = SMLMData.IdealCamera(1:128, 1:128, 0.1)
+    em = SMLMData.Emitter2DFit{Float64}[]
+    for x in 1:10, y in 1:10, blink in 1:20
+        push!(em, SMLMData.Emitter2DFit(Float64(x), Float64(y), photons, 0.0,
+            0.0, 0.0, 0.0, 0.0, 0.0, blink, 1, 0, length(em) + 1))
+    end
+    truth = SMLMData.BasicSMLD(em, cam, 20, 1, Dict{String,Any}())
+    unreported = SMLMSim.apply_noise(truth, 0.016 * sqrt(photons))
+    smld = SMLMSim.apply_noise(unreported, 0.005 * sqrt(photons))
+    @test all(e -> e.σ_x ≈ 0.005 && e.σ_y ≈ 0.005, smld.emitters)
+
+    # Keep the default grid and cap, but start above the planted 16 nm root.
+    timed = @timed estimate_se_adjust(smld; g_start_um = 0.03,
+        n_iterations = 300, burn_in = 150, n_boot = 4)
+    found = timed.value
+    @info "τ finder above-default-grid regression runtime" seconds = round(timed.time; digits = 3)
+    @test found.converged
+    @test !found.censored
+    @test found.start_overmerged
+    @test abs(1000 * found.tau_hat_um - 16.0) ≤ 1.5
+    @test found.grid_top_um > 0.014
+    @test found.tau_max_um == 0.05
+    @test 0 ≤ found.n_boot_censored ≤ 4
+
+    # The default 8 nm start is below the planted root. One E-step is enough
+    # to diagnose the failed start premise, without searching for a spurious root.
+    below = @test_logs (:warn, r"finder start is not over-merged") match_mode = :any begin
+        estimate_se_adjust(smld; max_steps = 1, n_iterations = 300, burn_in = 150, n_boot = 0)
+    end
+    @test below.start_overmerged == false
+    @test below.n_bagol == 1
 end
