@@ -98,13 +98,25 @@ up to `tau_max_um=0.05` (50 nm). The extension evaluates the same right-biased K
 rule; the cap is numerical, not a prior. `g_start_um` is clamped into
 `(minimum(grid_um), tau_max_um)`.
 
-The result includes `tau_hat_um`, `converged`, `censored`, `grid_top_um`, `tau_max_um`,
-and `n_boot_censored` (bootstrap replicates censored at the cap), alongside the CI,
+The method requires `g_start_um` above the root. Its unchanged default `0.008`
+(8 nm) suits τ below 8 nm (dSTORM 4.5–5.7 nm; genmab fields 5.1–7.7 nm). For larger
+τ (e.g. SeqSR, about 16 nm), use `g_start_um=0.03` with `estimate_se_adjust` and
+pass the estimate as a numeric `se_adjust`. Starting below the root can find a
+spurious, too-small τ. `start_overmerged` is `m(g_start) < g_start` at the first
+E-step and false without an evaluation; `m(g_start) ≥ g_start` emits a warning.
+`:auto` adds "; start below the root" to its progress note when that field is false.
+
+The result includes `tau_hat_um`, `converged`, `censored`, `start_overmerged`,
+`grid_top_um`, `tau_max_um`, and `n_boot_censored` (bootstrap replicates censored
+at the cap), alongside the CI,
 search path and optional diagnostics. A censored `tau_hat_um` is a lower bound at
 the cap, not a root, and `converged=false`. `:auto` throws an `ErrorException` for a
 censored result: pass a numeric `se_adjust` (μm), or estimate τ on a subset with
 `estimate_se_adjust`. Uncensored estimates are still applied when unconverged,
 with a progress-line note.
+The CI, KS, diagnostics and bootstrap censor count use the E-step nearest the
+estimate, or the censoring E-step when censored. Nonfinite bootstrap estimates
+are excluded from the CI quantiles.
 
 ---
 

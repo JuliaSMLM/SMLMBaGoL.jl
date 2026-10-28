@@ -150,6 +150,15 @@ result_smld, diagnostics = run_bagol(smld; se_adjust=:auto)  # estimate τ, then
 diagnostics.se_adjust                                         # the (τx, τy) that was applied
 ```
 
+The method requires `g_start_um` above the root. The unchanged 8 nm default suits
+τ below 8 nm (dSTORM 4.5–5.7 nm; genmab fields 5.1–7.7 nm). For larger τ, such as
+SeqSR at about 16 nm, call `estimate_se_adjust(smld; g_start_um=0.03)` and pass the
+estimate as a numeric `se_adjust`. Starting below the root can find a spurious,
+too-small τ through under-merged groupings. The finder reports `start_overmerged`
+from `m(g_start) < g_start` at the first E-step (false if there is no evaluation).
+When `m(g_start) ≥ g_start`, it warns with both values in nm, and `:auto` adds
+"; start below the root" to its progress note.
+
 The automatic estimator is **isotropic** — it finds a single scalar `τ`, then reports and
 applies it as `(τx, τy)` with `τx = τy`. Its initial M-step grid is 0–14 nm and extends
 when the top qualifies, up to the numerical `tau_max_um` cap (default 50 nm).

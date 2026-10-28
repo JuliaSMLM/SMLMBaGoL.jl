@@ -48,6 +48,10 @@ two steps:
    removes grid quantization). Grouping changes and E-step noise mean ``m(g)`` is still
    only approximately continuous.
 
+Nonfinite KS grid values carry no information and are ignored in the right-biased
+pick and its threshold crossing; interpolation uses neighboring finite samples.
+If none are finite, the M-step returns NaN and the search stops without convergence.
+
 The initial M-step grid is `grid_um=0.0:0.0001:0.014` (0–14 nm). When its top
 qualifies under the right-biased KS rule, the grid extends at its own last step,
 reusing KS values and doubling its top up to `tau_max_um=0.05` (50 nm). This
@@ -56,8 +60,20 @@ the range the data need. The cap is numerical, not a prior; it must be at least
 the initial grid top, and the grid must contain at least two points. Later
 E-steps reuse the extended grid, and their neighbor graph grows when needed.
 
-The finder starts over-merged (clamping the start into
-`(minimum(grid_um), tau_max_um)`) and searches for
+The method requires an over-merged start, `g_start_um` above the root, clamped into
+`(minimum(grid_um), tau_max_um)`. The unchanged default `g_start_um=0.008` (8 nm)
+suits τ below 8 nm (dSTORM 4.5–5.7 nm; genmab fields 5.1–7.7 nm). For larger τ,
+such as SeqSR at about 16 nm, pass a larger start such as `g_start_um=0.03`.
+Starting below the root can climb through under-merged groupings that are
+self-consistent at a too-small τ. The result reports `start_overmerged=true`
+only when the first E-step has `m(g_start) < g_start` (false without an evaluation).
+When `m(g_start) ≥ g_start`, the finder warns with both values in nm and advises
+a start above the expected τ. `run_bagol(se_adjust=:auto)` adds
+"; start below the root" to its progress note when `start_overmerged=false`.
+For a larger start, call `estimate_se_adjust` directly and pass its estimate as
+a numeric `se_adjust` to `run_bagol`.
+
+The finder searches for
 the root of ``r(g) = m(g) - g`` with secant steps and a sign-change bracket (Illinois
 regula falsi). The search stops when the root is bracketed within 2·stop_tol_um;
 τ̂ interpolates inside that bracket. More precisely, `converged=true` requires either
@@ -77,10 +93,13 @@ also reports `grid_top_um` (the final M-step grid top) and `tau_max_um`;
 diagnostic `grid_nm` and `ks_path` use that final grid.
 
 The bracket guarantees a sign change of the **measured** residual, not continuity or
-uniqueness of a root. Start independence is measured behavior on genmab fields and
-sr-signaling, not a theorem. A spatial-block bootstrap on the grouping nearest
-``\hat\tau`` provides a 95% confidence interval (conditional on that grouping).
-The bootstrap uses the same extending M-step and cap independently in each replicate;
+uniqueness of a root. Agreement across starts is measured behavior on genmab
+fields and sr-signaling, not a guarantee for starts below the root. A spatial-block
+bootstrap uses the grouping nearest ``\hat\tau``, or the censoring E-step's grouping
+when censored, for a 95% confidence interval conditional on that grouping. The
+same grouping supplies `ks_at_hat`, diagnostics and bootstrap censor counts.
+The bootstrap uses the same extending M-step and cap independently in each replicate
+and excludes nonfinite replicate estimates before calculating quantiles;
 `n_boot_censored` counts replicates censored at that cap. The estimator is
 **isotropic**: it uses one per-localization uncertainty (the reported
 ``\sigma_x``) and a single scalar ``\tau``, so it is intended for data with roughly

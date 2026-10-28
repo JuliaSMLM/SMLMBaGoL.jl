@@ -25,15 +25,18 @@
 #           remains only approximately continuous (grouping changes, E-step noise).
 #   The estimate is the self-consistent τ, m(τ) = τ: the root of r(g) = m(g) − g.
 #   Start deliberately OVER-merged (`g_start`, a large se_adjust → the full
-#   same-molecule spread, no truncation, only catchable contamination); r is
-#   positive below the root and negative above it in measured maps. Safeguarded
+#   same-molecule spread, no truncation, only catchable contamination). Starting
+#   below the root can instead find a spurious, nearly self-consistent under-merged
+#   grouping. Report whether the first M-step has m(g_start) < g_start and warn
+#   otherwise. Safeguarded
 #   secant / regula falsi steps stop at an exact r = 0 or a measured sign-change
 #   bracket of width ≤ 2·stop_tol; τ̂ interpolates inside that bracket. A still-
 #   qualifying M-step top at the cap is censored: τ̂ is a lower bound, not a root,
 #   and the search stops without convergence. For a root
 #   inside the bracket, |τ̂ − g*| ≤ its width ≤ 2·stop_tol. The bracket guarantees
-#   a sign change of measured r, not continuity or uniqueness. Start independence
-#   is measured behavior (genmab fields, sr-signaling), not a theorem. KS(τ) is
+#   a sign change of measured r, not continuity or uniqueness. Agreement across
+#   starts is measured behavior on genmab fields and sr-signaling, not a guarantee
+#   for starts below the root (planted 16 nm data have spurious roots near 8–11 nm). KS(τ) is
 #   not provably unimodal (discrete grouping + BaGoL stochasticity), so a
 #   golden-section search is unsafe.
 #
@@ -190,13 +193,23 @@ function _mstep_rb(d, s2, grid_nm, idxs; ks_noise = 0.01, interpolate = false)
 end
 
 # Apply the same right-biased rule to precomputed KS values (also used after extension).
+# Nonfinite points carry no information; interpolate between neighboring finite points.
 function _mstep_rb_pick(ks, grid_nm; ks_noise = 0.01, interpolate = false)
-    kmin = minimum(ks)
+    finite = findall(isfinite, ks)
+    isempty(finite) && return NaN
+    kmin = minimum(ks[i] for i in finite)
     thr = kmin + ks_noise
-    j = argmax([ks[i] ≤ thr ? grid_nm[i] : -Inf for i in eachindex(grid_nm)])
-    (!interpolate || j == lastindex(grid_nm) || !(ks[j + 1] > thr)) && return grid_nm[j]
-    grid_nm[j] + (thr - ks[j]) / (ks[j + 1] - ks[j]) * (grid_nm[j + 1] - grid_nm[j])
+    p = argmax([ks[i] ≤ thr ? grid_nm[i] : -Inf for i in finite])
+    j = finite[p]
+    (!interpolate || p == lastindex(finite)) && return grid_nm[j]
+    k = finite[p + 1]
+    !(ks[k] > thr) && return grid_nm[j]
+    grid_nm[j] + (thr - ks[j]) / (ks[k] - ks[j]) * (grid_nm[k] - grid_nm[j])
 end
+
+# A finite top also guarantees a nonempty set for the finite-only minimum.
+_ks_top_qualifies(ks, ks_noise) =
+    isfinite(ks[end]) && ks[end] ≤ minimum(k for k in ks if isfinite(k)) + ks_noise
 
 # Extend only when the top qualifies, reusing all previously computed KS values.
 # Own the grid so independent bootstrap threads never mutate their shared input.
@@ -205,7 +218,7 @@ function _mstep_rb_ext(d, s2, grid_nm, idxs; ks_noise = 0.01, cap_nm)
     length(grid) ≥ 2 || throw(ArgumentError("the M-step grid must have at least two points"))
     cap_nm ≥ maximum(grid) || throw(ArgumentError("cap_nm must be at least the M-step grid top"))
     ks = [_ks_rayleigh1(d, s2, τ, idxs) for τ in grid]
-    while ks[end] ≤ minimum(ks) + ks_noise && grid[end] < cap_nm
+    while _ks_top_qualifies(ks, ks_noise) && grid[end] < cap_nm
         top = grid[end]
         step = top - grid[end - 1]
         step > 0 || throw(ArgumentError("the M-step grid must have a positive last step"))
@@ -223,7 +236,7 @@ function _mstep_rb_ext(d, s2, grid_nm, idxs; ks_noise = 0.01, cap_nm)
         append!(ks, [_ks_rayleigh1(d, s2, τ, idxs) for τ in new_points])
     end
     m = _mstep_rb_pick(ks, grid; ks_noise, interpolate = true)
-    censored = grid[end] == cap_nm && ks[end] ≤ minimum(ks) + ks_noise
+    censored = grid[end] == cap_nm && _ks_top_qualifies(ks, ks_noise)
     (; m, grid, censored)
 end
 
@@ -407,6 +420,13 @@ function _keep_finder_eval!(evals, e)
     evals
 end
 
+# A censored τ̂ is the cap, not a root: use the E-step that triggered censoring,
+# rather than selecting an older grouping nearer that cap after pruning.
+function _select_finder_eval(evals, tau_nm, censored)
+    isempty(evals) && return nothing
+    censored ? last(evals) : evals[argmin([abs(e.g - tau_nm) for e in evals])]
+end
+
 """
     estimate_se_adjust(smld::SMLMData.SMLD; kwargs...) -> NamedTuple
 
@@ -419,8 +439,9 @@ over-merged start. The "find" companion to [`apply_se_adjust`](@ref) /
 Interpolating the KS threshold crossing removes grid quantization; `m(g)` remains
 only approximately continuous because groupings change and E-steps are noisy. The
 bracket guarantees a sign change of the measured `r(g) = m(g) − g`, not continuity
-or uniqueness of its root. Start independence is measured behavior (genmab fields,
-sr-signaling), not a theorem.
+or uniqueness of its root. Agreement across starts is measured behavior on genmab
+fields and sr-signaling, not a guarantee for starts below the root: under-merged
+groupings can be self-consistent at a too-small τ. Start above the expected τ.
 
 The initial M-step grid extends when its top qualifies, up to `tau_max_um`.
 Extension changes no statistic: it evaluates the same continuous right-biased KS
@@ -437,7 +458,8 @@ A `NamedTuple` with τ values in **μm**:
 - `tau_hat_um` — point estimate (feeds `run_bagol(; se_adjust = tau_hat_um)`);
   a censored result is a lower bound, not a root
 - `ci_lo_um`, `ci_hi_um` — spatial-block-bootstrap 95% CI, conditional on the grouping of
-  the E-step nearest `tau_hat_um` (it omits E-step variability)
+  the E-step nearest `tau_hat_um`, or the censoring E-step when `censored=true`
+  (it omits E-step variability; nonfinite bootstrap estimates are excluded)
 - `ks_at_hat` — KS-to-Rayleigh(1) at the estimate (lower = better fit)
 - `n_bagol` — number of BaGoL E-steps run (the search length)
 - `path_um` — the search trajectory as `(g, m)` pairs (grouping τ, M-step τ)
@@ -446,6 +468,8 @@ A `NamedTuple` with τ values in **μm**:
   search), and `tau_hat_um` is then the best estimate so far
 - `censored` — `true` if an E-step's M-step still qualifies at `tau_max_um`;
   implies `converged = false`
+- `start_overmerged` — `true` iff the first E-step has `m(g_start) < g_start`;
+  `false` when there is no evaluation. A start at or below the root emits a warning
 - `grid_top_um` — final M-step grid top (μm)
 - `tau_max_um` — numerical upper bound of the search and grid extension (μm)
 - `n_boot_censored` — number of bootstrap replicates censored at the same cap
@@ -461,8 +485,10 @@ A `NamedTuple` with τ values in **μm**:
   root `g*` inside `[a, b]`, `|tau_hat_um − g*| ≤ b − a ≤ 2·stop_tol_um` on a width stop.
 
 # Keyword arguments
-- `g_start_um = 0.008` — over-merged starting τ (μm), clamped into
-  `(minimum(grid_um), tau_max_um)`
+- `g_start_um = 0.008` — starting τ (μm), which must be above the root (the method's
+  premise), clamped into `(minimum(grid_um), tau_max_um)`. The 8 nm default suits
+  data whose τ is below 8 nm (dSTORM 4.5–5.7 nm; genmab fields 5.1–7.7 nm).
+  For data whose τ may be larger (e.g. SeqSR, about 16 nm), pass a larger start such as `0.03`
 - `stop_tol_um = 1e-4` — the search stops when the root is bracketed within
   2·stop_tol_um; τ̂ interpolates inside that bracket (an exact `r = 0` also stops)
 - `max_steps = 12` — E-step cap; if it is reached without the stop rule, `converged = false`
@@ -530,6 +556,7 @@ function estimate_se_adjust(smld::SMLMData.SMLD;
     # keep only bracket ends and the latest E-step for the CI grouping nearest τ̂.
     n_bagol = Ref{Int}(0)
     censored = false
+    start_overmerged = false
     evals = NamedTuple[]
     # Per-descent-g instrumentation. No sim reproduces the real-data collapse, so
     # the REAL ruler is the only gate: log every candidate stop-signal at τ=g and
@@ -559,6 +586,12 @@ function estimate_se_adjust(smld::SMLMData.SMLD;
         step = _mstep_rb_ext(d, s2, grid, eachindex(d); ks_noise, cap_nm)
         grid = step.grid
         m = step.m
+        if n_bagol[] == 1
+            start_overmerged = m < g
+            if m ≥ g
+                @warn "The finder start is not over-merged (below or at the self-consistent tau): g_start=$(g) nm, m(g_start)=$(m) nm. The search then climbs through under-merged groupings, which can be self-consistent at a too-small tau. Pass a g_start_um above the expected tau."
+            end
+        end
         _keep_finder_eval!(evals, (; g, m, d, s2, pos))
         ix = eachindex(d)
         # BIC/Occam evidence score = −2·loglik + k·log(N), k = 2·n_emit (x,y per
@@ -581,11 +614,12 @@ function estimate_se_adjust(smld::SMLMData.SMLD;
     found = _tau_root_search(evalm, g; grid_nm = grid, range_nm, stop_tol_nm = stop_tol, max_steps)
     τ = censored ? cap_nm : found.tau_nm; path = found.path
 
-    # CI, KS and diagnostics all use the arrays of the E-step whose g is nearest τ̂.
-    if isempty(evals)
+    # CI, KS, bootstrap censor counts and diagnostics share the selected grouping.
+    selected = _select_finder_eval(evals, τ, censored)
+    if selected === nothing
         d = Float64[]; s2 = Float64[]; pos = NTuple{2, Float64}[]
     else
-        (; d, s2, pos) = evals[argmin([abs(e.g - τ) for e in evals])]
+        (; d, s2, pos) = selected
     end
 
     # CI: reuse that grouping (so it is conditional on it: E-step variability is not in
@@ -607,7 +641,7 @@ function estimate_se_adjust(smld::SMLMData.SMLD;
             step = _mstep_rb_ext(d, s2, grid, bi; ks_noise, cap_nm)
             boots_raw[b] = step.m
             boot_censored[b] = step.censored
-            ok[b] = true
+            ok[b] = isfinite(step.m)
         end
     end
     boots = boots_raw[ok]
@@ -626,7 +660,7 @@ function estimate_se_adjust(smld::SMLMData.SMLD;
        ks_at_hat = ks_at, n_bagol = n_bagol[],
        path_um = [(gᵢ / 1000, mᵢ / 1000) for (gᵢ, mᵢ) in path],
        converged = found.converged, method_path = found.method_path,
-       censored, grid_top_um = maximum(grid) / 1000, tau_max_um,
+       censored, start_overmerged, grid_top_um = maximum(grid) / 1000, tau_max_um,
        n_boot_censored = count(boot_censored),
        instr, grouping, bagol_kwargs = _kw_used, diagnostics,
        bracket_um = (found.bracket_nm[1] / 1000, found.bracket_nm[2] / 1000))

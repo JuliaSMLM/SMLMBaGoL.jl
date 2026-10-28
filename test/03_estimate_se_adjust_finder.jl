@@ -72,14 +72,24 @@ end
     smld = SMLMSim.apply_noise(unreported, 0.005 * sqrt(photons))
     @test all(e -> e.σ_x ≈ 0.005 && e.σ_y ≈ 0.005, smld.emitters)
 
-    # Keep the public grid, start, cap and other settings at their defaults.
-    timed = @timed estimate_se_adjust(smld; n_iterations = 300, burn_in = 150, n_boot = 4)
+    # Keep the default grid and cap, but start above the planted 16 nm root.
+    timed = @timed estimate_se_adjust(smld; g_start_um = 0.03,
+        n_iterations = 300, burn_in = 150, n_boot = 4)
     found = timed.value
     @info "τ finder above-default-grid regression runtime" seconds = round(timed.time; digits = 3)
     @test found.converged
     @test !found.censored
+    @test found.start_overmerged
     @test abs(1000 * found.tau_hat_um - 16.0) ≤ 1.5
     @test found.grid_top_um > 0.014
     @test found.tau_max_um == 0.05
     @test 0 ≤ found.n_boot_censored ≤ 4
+
+    # The default 8 nm start is below the planted root. One E-step is enough
+    # to diagnose the failed start premise, without searching for a spurious root.
+    below = @test_logs (:warn, r"finder start is not over-merged") match_mode = :any begin
+        estimate_se_adjust(smld; max_steps = 1, n_iterations = 300, burn_in = 150, n_boot = 0)
+    end
+    @test below.start_overmerged == false
+    @test below.n_bagol == 1
 end

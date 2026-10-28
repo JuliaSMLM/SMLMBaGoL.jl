@@ -157,6 +157,11 @@ n_j ~ Gamma(shape, μ/shape) where:
   A censored finder result throws an `ErrorException` before applying τ: pass a
   numeric `se_adjust` (μm), or estimate τ on a subset with `estimate_se_adjust`.
   An uncensored result is applied even if it did not converge, with a progress-line note.
+  The finder assumes a start above the root: its default 8 nm suits τ below 8 nm
+  (dSTORM 4.5–5.7 nm; genmab fields 5.1–7.7 nm). For larger τ (e.g. SeqSR, about 16 nm),
+  call `estimate_se_adjust` with `g_start_um=0.03` and pass its estimate numerically.
+  A first E-step with `m(g_start) ≥ g_start` warns and adds "; start below the root"
+  to the progress note.
 - `force_se_adjust=false`: Override the already-corrected guard (intentional double-count).
 
 # MCMC Arguments
@@ -477,6 +482,7 @@ function _run_bagol_collapsed(
             se_adjust = _auto_se_adjust_from_finder(_fres)
             keep_se_finder && (_se_finder = _fres)
             _finder_status = !_fres.converged ? "; not converged" : ""
+            !_fres.start_overmerged && (_finder_status *= "; start below the root")
             _log_progress("  finder τ̂ = $(round(1000 * se_adjust, digits=2)) nm$(_finder_status); applying")
         end
     end

@@ -299,7 +299,7 @@ end
             @test length(found.path) > length(evals)
         end
         g_nearest = first(found.path[argmin([abs(g - found.tau_nm) for (g, _) in found.path])])
-        kept = evals[argmin([abs(e.g - found.tau_nm) for e in evals])]
+        kept = SMLMBaGoL._select_finder_eval(evals, found.tau_nm, false)
         @test kept.g == g_nearest
         @test kept.d == [g_nearest]
         @test kept.s2 == [g_nearest^2]
@@ -315,6 +315,62 @@ end
     @test [e.g for e in evals] == [4.0, 8.0, 6.0]
     SMLMBaGoL._keep_finder_eval!(evals, (; g = 6.5, m = 6.2, d = [6.5]))
     @test [e.g for e in evals] == [4.0, 6.5]
+end
+
+@testset "τ finder censored grouping selection after pruning" begin
+    evals = NamedTuple[]
+    for (g, m) in ((8.0, 6.45), (6.45, 4.59))
+        SMLMBaGoL._keep_finder_eval!(evals,
+            (; g, m, d = [g], s2 = [g^2], pos = [(g, g)]))
+    end
+    @test [e.g for e in evals] == [6.45]          # the original 8 nm grouping was pruned
+    censoring = (; g = 4.59, m = 50.0, d = [4.59], s2 = [4.59^2], pos = [(4.59, 4.59)])
+    SMLMBaGoL._keep_finder_eval!(evals, censoring)
+    @test [e.g for e in evals] == [6.45, 4.59]
+
+    # The cap is nearer the older retained grouping, but censoring must select
+    # the latest E-step's pair arrays for the CI, KS, diagnostics and bootstrap.
+    selected = SMLMBaGoL._select_finder_eval(evals, 50.0, true)
+    @test selected === censoring
+    @test selected.d === censoring.d
+    @test selected.s2 === censoring.s2
+    @test selected.pos === censoring.pos
+    @test SMLMBaGoL._select_finder_eval(evals, 50.0, false) === first(evals)
+    @test SMLMBaGoL._select_finder_eval(evals, 4.8, false) === censoring
+    for censored in (false, true)
+        @test SMLMBaGoL._select_finder_eval(NamedTuple[], 50.0, censored) === nothing
+    end
+end
+
+@testset "right-biased M-step ignores nonfinite KS points" begin
+    grid = [0.0, 1.0, 2.0, 3.0]
+    ks = [NaN, 0.2, 0.1, 0.3]
+    for interpolate in (false, true)
+        picked = SMLMBaGoL._mstep_rb_pick(ks, grid; ks_noise = 0.05, interpolate)
+        without_zero = SMLMBaGoL._mstep_rb_pick(ks[2:end], grid[2:end];
+            ks_noise = 0.05, interpolate)
+        @test picked == without_zero
+        @test picked ≈ (interpolate ? 2.25 : 2.0)
+        @test isnan(SMLMBaGoL._mstep_rb_pick(fill(NaN, 4), grid; interpolate))
+        @test isnan(SMLMBaGoL._mstep_rb_pick([NaN, Inf, -Inf, NaN], grid; interpolate))
+    end
+
+    # Nonfinite points also carry no information at a threshold crossing;
+    # interpolate using the neighboring finite samples on either side.
+    for missing_ks in (NaN, Inf, -Inf)
+        @test SMLMBaGoL._mstep_rb_pick([NaN, 0.1, missing_ks, 0.3], grid;
+            ks_noise = 0.05, interpolate = true) ≈ 1.5
+    end
+
+    # At τ=0 this degenerate pair produces 0/0 and hence NaN KS. The remaining
+    # finite KS values all qualify, so extension must reach the cap and censor.
+    d = [0.0]; s2 = [0.0]
+    initial_grid = collect(0.0:0.1:1.0)
+    step = SMLMBaGoL._mstep_rb_ext(d, s2, initial_grid, eachindex(d); cap_nm = 2.0)
+    @test !(isfinite(step.m) && !step.censored)
+    @test step.censored
+    @test step.m == last(step.grid) == 2.0
+    @test initial_grid == collect(0.0:0.1:1.0)
 end
 
 # The M-step locates the KS-threshold crossing between grid points; the grid rule is

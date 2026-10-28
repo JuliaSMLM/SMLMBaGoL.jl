@@ -59,6 +59,13 @@ The finder extends its initial 0–14 nm M-step grid as needed, up to the numeri
 `tau_max_um` cap (default 50 nm). A result with `censored=true` is a lower bound,
 not a converged root; `se_adjust=:auto` throws before applying a censored result.
 
+The method requires `g_start_um` above the root. The unchanged 8 nm default suits
+τ below 8 nm (dSTORM 4.5–5.7 nm; genmab fields 5.1–7.7 nm). For larger τ, such as
+SeqSR at about 16 nm, call `estimate_se_adjust` with `g_start_um=0.03`, then pass
+the estimate as a numeric `se_adjust`. A start below the root can find a spurious,
+too-small τ; the finder warns and reports `start_overmerged=false` when its first
+M-step has `m(g_start) ≥ g_start`.
+
 ## Installation
 
 ```julia
