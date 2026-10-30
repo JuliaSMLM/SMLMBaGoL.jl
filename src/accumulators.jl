@@ -330,17 +330,21 @@ co-assigned to the same cluster.
 
 Uses cluster-based iteration for efficiency: O(Σ n_k²) per iteration
 rather than O(N²), since only locs in the same cluster contribute.
+Counts use a packed UInt16 upper triangle including the diagonal, widening
+to UInt32 when the accumulated sample count outgrows UInt16.
 
 Result: (psm=Matrix{Float64}, n_samples=Int)
 """
 mutable struct PSMAccumulator <: AbstractAccumulator
-    counts::Matrix{UInt32}   # Upper-triangular co-assignment counts
+    counts::Union{Vector{UInt16}, Vector{UInt32}}  # Packed upper triangle, including diagonal
     n_samples::Int           # Number of iterations accumulated
     n_locs::Int              # Set on first update
     _members::Vector{Int}    # Workspace: cluster member indices
 end
 
-PSMAccumulator() = PSMAccumulator(zeros(UInt32, 0, 0), 0, 0, Int[])
+PSMAccumulator() = PSMAccumulator(UInt16[], 0, 0, Int[])
+
+@inline _psm_index(i::Int, j::Int) = j * (j - 1) ÷ 2 + i  # i ≤ j, packed by column
 
 function accumulator_update!(acc::PSMAccumulator, state::CollapsedState,
                              locs::Vector{<:SMLMData.AbstractEmitter},
@@ -350,36 +354,43 @@ function accumulator_update!(acc::PSMAccumulator, state::CollapsedState,
     # Initialize on first call
     if acc.n_locs == 0
         acc.n_locs = n
-        acc.counts = zeros(UInt32, n, n)
+        acc.counts = zeros(UInt16, n * (n + 1) ÷ 2)
         sizehint!(acc._members, n)
     end
 
+    # Every count is bounded by n_samples; widen once before UInt16 could overflow.
+    if acc.n_samples >= typemax(UInt16) && acc.counts isa Vector{UInt16}
+        acc.counts = UInt32.(acc.counts)
+    end
+    _update_psm_counts!(acc.counts, acc._members, state, n)
+    acc.n_samples += 1
+end
+
+function _update_psm_counts!(counts::Vector{T}, members, state, n) where T
     # Iterate active clusters, collect members, increment pairs
     @inbounds for (j, cs) in enumerate(state.clusters)
         state.active[j] || continue
         cs.n == 0 && continue
 
         # Collect member indices for this cluster
-        empty!(acc._members)
+        empty!(members)
         for i in 1:n
             if state.assignments[i] == j
-                push!(acc._members, i)
+                push!(members, i)
             end
         end
 
         # Increment co-assignment counts for all pairs in this cluster
-        nm = length(acc._members)
+        nm = length(members)
         for a in 1:nm
-            ia = acc._members[a]
-            acc.counts[ia, ia] += UInt32(1)  # diagonal
+            ia = members[a]
+            counts[_psm_index(ia, ia)] += one(T)  # diagonal
             for b in (a+1):nm
-                ib = acc._members[b]
-                acc.counts[ia, ib] += UInt32(1)
+                ib = members[b]
+                counts[_psm_index(ia, ib)] += one(T)
             end
         end
     end
-
-    acc.n_samples += 1
 end
 
 function accumulator_result(acc::PSMAccumulator)
@@ -393,7 +404,7 @@ function accumulator_result(acc::PSMAccumulator)
     @inbounds for i in 1:n
         psm[i, i] = 1.0
         for j in (i+1):n
-            v = Float64(acc.counts[i, j]) * inv_t
+            v = Float64(acc.counts[_psm_index(i, j)]) * inv_t
             psm[i, j] = v
             psm[j, i] = v
         end
