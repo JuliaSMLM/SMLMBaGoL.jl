@@ -301,8 +301,10 @@ function precision_dbscan(
     # Reuse path: a prebuilt precision neighbor graph (the τ-finder shares ONE graph
     # across all E-steps — positions are fixed, only σ_eff changes per step). Re-threshold
     # the cached candidate pairs at this step's σ_eff = mean_sigma(loc) and re-label.
-    # Restricted to min_pts==0 (connected components) — that case is order-free union-find,
-    # proven bit-identical to the fresh KDTree path. For min_pts≥1 the primitive's
+    # Restricted to min_pts==0 (connected components) — order-free union-find.
+    # Labels can differ from the fresh path only for pairs at the threshold to rounding,
+    # far below E-step run-to-run variability. On 0.86 M Float32 locs (run 14 cycle 1),
+    # labels agreed at τ = 0, 8, 16 and 30 nm. For min_pts≥1 the primitive's
     # core-point border rule may differ from the legacy seed-set, so fall through to the
     # KDTree path (unchanged behavior; the default finder path is min_pts==0 anyway).
     # check_superset guards against a too-tight cached radius.
@@ -504,6 +506,7 @@ function split_partition(
         end
     end
 
+    overlap_seen = falses(n)
     for (ci, core_indices) in enumerate(components)
         if overlap > 0.0
             # Find overlap locs: locs in sibling components within proximity
@@ -515,12 +518,13 @@ function split_partition(
                 radius = overlap > 0 ? overlap : 3 * σ_i
                 nearby = inrange(tree, coords[:, core_idx], radius)
                 for j in nearby
-                    if loc_component[j] != ci && j ∉ overlap_indices
+                    if loc_component[j] != ci && !overlap_seen[j]
                         push!(overlap_indices, j)
+                        overlap_seen[j] = true
                     end
                 end
             end
-            unique!(overlap_indices)
+            overlap_seen[overlap_indices] .= false   # clear only this component's marks
 
             # Combine core + overlap
             all_indices = vcat(core_indices, overlap_indices)
