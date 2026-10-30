@@ -511,7 +511,6 @@ function split_partition(
         if overlap > 0.0
             # Find overlap locs: locs in sibling components within proximity
             overlap_indices = Int[]
-            fill!(overlap_seen, false)
             for core_idx in core_indices
                 loc_i = locs[core_idx]
                 σ_i = mean_sigma(loc_i)
@@ -525,6 +524,7 @@ function split_partition(
                     end
                 end
             end
+            overlap_seen[overlap_indices] .= false   # clear only this component's marks
 
             # Combine core + overlap
             all_indices = vcat(core_indices, overlap_indices)
