@@ -528,6 +528,7 @@ function estimate_se_adjust(smld::SMLMData.SMLD;
         return_diagnostics::Bool = false,
         bagol_kwargs...)
 
+    _require_2d(smld.emitters, "estimate_se_adjust")
     # τ is the σ-correction to FIND; finding it on already-corrected σ is ill-posed.
     md = hasproperty(smld, :metadata) ? smld.metadata : Dict{String, Any}()
     if get(md, "sigma_corrected", false) == true
@@ -746,6 +747,7 @@ function estimate_se_adjust_peraxis(smld::SMLMData.SMLD;
         g_start_um = 0.008, stop_tol_um::Float64 = 5e-4, max_steps::Int = 8,
         ks_noise::Float64 = 0.0, grid_um = 0.0:0.0001:0.014,
         n_iterations::Int = 4000, burn_in::Int = 2000, bagol_kwargs...)
+    _require_2d(smld.emitters, "estimate_se_adjust_peraxis")
     md = hasproperty(smld, :metadata) ? smld.metadata : Dict{String, Any}()
     if get(md, "sigma_corrected", false) == true
         throw(ArgumentError("estimate_se_adjust_peraxis expects raw-σ localizations, but the input SMLD " *

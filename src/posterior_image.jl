@@ -1,41 +1,53 @@
 # Posterior image utilities
 
 """
-    _histogram_positions(xs, ys, pixel_size, xlim, ylim)
+    _resample_mass(post, x_min, x_max, y_min, y_max, W, H) -> Matrix{Float64}
 
-Internal: bin positions into a 2D integer histogram.
+Internal: the posterior image `post` (NamedTuple with `image[ix, iy]`, `edges_x`,
+`edges_y`, `pixel_size`, μm) put on a W×H grid spanning [x_min, x_max]×[y_min, y_max]
+μm, `[ix, iy]` layout. Each output pixel gets the image mass inside its footprint:
+every source pixel's mass is split among the output pixels it overlaps in proportion
+to the overlap area. Mass is conserved at any ratio of the two pixel sizes, so an
+emitter keeps its brightness whatever the render pixel (picking the source pixel
+under each output pixel's center made a sharp emitter's brightness depend on where it
+sat within a pixel).
 """
-function _histogram_positions(xs::Vector{Float64}, ys::Vector{Float64},
-                              pixel_size::Float64,
-                              xlim::Union{Nothing, Tuple{Float64, Float64}},
-                              ylim::Union{Nothing, Tuple{Float64, Float64}})
-    if isempty(xs)
-        edges_x = Float64[0.0, pixel_size]
-        edges_y = Float64[0.0, pixel_size]
-        image = zeros(Int, 1, 1)
-        return (image=image, edges_x=edges_x, edges_y=edges_y, pixel_size=pixel_size)
-    end
-
-    xmin, xmax = xlim !== nothing ? xlim : (minimum(xs), maximum(xs))
-    ymin, ymax = ylim !== nothing ? ylim : (minimum(ys), maximum(ys))
-
-    # Build edge vectors
-    edges_x = collect(xmin:pixel_size:(xmax + pixel_size))
-    edges_y = collect(ymin:pixel_size:(ymax + pixel_size))
-
-    nx = length(edges_x) - 1
-    ny = length(edges_y) - 1
-    image = zeros(Int, nx, ny)
-
-    for k in eachindex(xs)
-        ix = floor(Int, (xs[k] - xmin) / pixel_size) + 1
-        iy = floor(Int, (ys[k] - ymin) / pixel_size) + 1
-        if 1 <= ix <= nx && 1 <= iy <= ny
-            image[ix, iy] += 1
+function _resample_mass(post::NamedTuple, x_min, x_max, y_min, y_max, W::Int, H::Int)
+    src = post.image
+    nx, ny = size(src)
+    sp = Float64(post.pixel_size)
+    wx = _overlap_weights(Float64(post.edges_x[1]), sp, nx, Float64(x_min), (x_max - x_min) / W, W)
+    wy = _overlap_weights(Float64(post.edges_y[1]), sp, ny, Float64(y_min), (y_max - y_min) / H, H)
+    out = zeros(W, H)
+    @inbounds for iy in 1:ny
+        isempty(wy[iy]) && continue
+        for ix in 1:nx
+            v = Float64(src[ix, iy])
+            (v == 0 || isempty(wx[ix])) && continue
+            for (oy, fy) in wy[iy], (ox, fx) in wx[ix]
+                out[ox, oy] += v * fx * fy
+            end
         end
     end
+    return out
+end
 
-    return (image=image, edges_x=edges_x, edges_y=edges_y, pixel_size=pixel_size)
+# Internal (1D): for source pixel i, edges s0 + (i-1)·sp .. s0 + i·sp, the output pixels j,
+# edges o0 + (j-1)·op .. o0 + j·op, that it overlaps and the fraction of it in each.
+function _overlap_weights(s0::Float64, sp::Float64, n::Int, o0::Float64, op::Float64, m::Int)
+    w = [Tuple{Int, Float64}[] for _ in 1:n]
+    for i in 1:n
+        a = s0 + (i - 1) * sp
+        b = a + sp
+        jlo = max(1, floor(Int, (a - o0) / op) + 1)
+        jhi = min(m, floor(Int, (b - o0) / op) + 1)
+        for j in jlo:jhi
+            lo = max(a, o0 + (j - 1) * op)
+            hi = min(b, o0 + j * op)
+            hi > lo && push!(w[i], (j, (hi - lo) / sp))
+        end
+    end
+    return w
 end
 
 # ============================================================================
@@ -52,7 +64,8 @@ Values above the percentile are clipped to 255.
 
 # Arguments
 - `filename`: Output path (should end in .png)
-- `post`: NamedTuple from `posterior_image()`
+- `post`: a posterior image NamedTuple (`image`, `edges_x`, `edges_y`, `pixel_size`), e.g.
+  `diagnostics.posterior_image`
 - `percentile`: Percentile of non-zero pixels for max scaling (default 0.99)
 - `colormap`: `:inferno` (default), `:hot`, or `:gray`
 """

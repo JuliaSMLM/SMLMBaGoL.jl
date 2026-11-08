@@ -38,8 +38,9 @@ not config fields.
 
 # MCMC
 - `n_iterations=4000`: Total MCMC iterations
-- `burn_in=2000`: Burn-in before accumulating
-- `sync_interval=100`: Iterations between global hierarchical updates
+- `burn_in=2000`: Burn-in before accumulating (`n_iterations - burn_in` at least 5;
+  `run_bagol` checks it before any work starts)
+- `sync_interval=100`: Iterations between global hierarchical updates (at least 1)
 - `allocation_model=:dm`: `:dm` (Dirichlet-Multinomial), `:decoupled`
   (no partition prior), or `:categorical` (labeled K^(-N) — Fazel-equivalent
   when paired with `spatial_model=:flat` + `k_prior=:none`)

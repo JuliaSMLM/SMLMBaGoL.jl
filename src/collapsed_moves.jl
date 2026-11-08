@@ -176,9 +176,8 @@ No separate prior on K — the NegBin likelihood regularizes K through its
 shape parameter Kα. Under the localization mixture prior there is no spatial
 Poisson process, so no Poisson(λA) prior on K exists.
 
-Uses fixed μ₀ (prior mean) rather than adaptive μ to prevent the μ-K
-positive feedback loop where adaptive μ tracks K, making the count model
-non-informative for K changes.
+Callers pass the current μ (fixed, or learned at each sync when
+`learn_distribution` includes μ).
 """
 function _log_count_posterior(K::Int, N::Int,
                               shape::Float64, μ::Float64)
@@ -981,9 +980,9 @@ function propose_split_merge!(state::CollapsedState,
     # The coherent Poisson-emitter posterior over K carries the K! labeling factor that
     # the canonical (T1) kernel drops; equivalently, this cancels the Poisson K prior's
     # −log K!. Add +[log K_new! − log K!]  (= +log(K+1) for split, −log(K) for merge).
-    # Coherent ONLY under a proper Poisson K prior, so gate on it (locmix's improper
-    # pK≡1 is not coherent under this term). EXACT at fixed hyperparameters (no e^{λm}
-    # carry-through, which only matters when learning μ/shape/ρ).
+    # Gated on the Poisson K prior; :locmix (pK ≡ 1) leaves it out by modeling choice
+    # (K ≤ N, so a K!-weighted :locmix target would still be proper). EXACT at fixed
+    # hyperparameters (no e^{λm} carry-through, which only matters when learning μ/shape/ρ).
     Δ_Kfac = _uses_poisson_k_prior(state) ? (logfactorial(K_new) - logfactorial(K)) : 0.0
     log_α = Δ_spatial + Δ_partition + Δ_proposal + Δ_count + Δ_K_prior + Δ_move_type + Δ_Kfac
 

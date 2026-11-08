@@ -28,6 +28,38 @@ function get_coords(loc::SMLMData.AbstractEmitter)
 end
 
 """
+    _require_2d(locs, caller)
+
+Internal: refuse localizations that carry a z coordinate. `run_bagol`'s pipeline
+(partitioning, MAP-N, boundary merge, posterior image, `Emitter2DFit` output) is
+2D, so a 3D fit would otherwise be grouped on x, y alone and come back without z,
+merging molecules that differ only in depth. 3D is decided by the presence of a
+`z` field, not by one emitter type, so any 3D fit type (SMLMData's
+`Emitter3DFit`, a fitter's own 3D type) is refused the same way.
+"""
+function _require_2d(locs::AbstractVector, caller::AbstractString)
+    T = eltype(locs)
+    bad = if isconcretetype(T)
+        hasfield(T, :z) ? T : nothing
+    else
+        i = findfirst(l -> hasproperty(l, :z), locs)
+        i === nothing ? nothing : typeof(locs[i])
+    end
+    bad === nothing && return nothing
+    _throw_3d(bad, caller)
+end
+
+# Internal: the one refusal message for a 3D localization type reaching a 2D path
+# (`_require_2d` at the entry points, the generic 2D `_loc_precision` underneath).
+@noinline function _throw_3d(T::Type, caller::AbstractString = "BaGoL's 2D sampler")
+    throw(ArgumentError("$caller supports 2D localizations only, but the input holds $T, " *
+        "which carries a z coordinate. BaGoL would group on x and y alone and drop z, " *
+        "merging molecules that differ only in depth. Convert to a 2D type " *
+        "(e.g. SMLMData.Emitter2DFit) if dropping z is intended; the chain itself " *
+        "(run_collapsed_chain) runs 3D fits given as SMLMData.Emitter3DFit."))
+end
+
+"""
     get_sigma(loc)
 
 Extract uncertainty as a static vector. Works with any emitter type.

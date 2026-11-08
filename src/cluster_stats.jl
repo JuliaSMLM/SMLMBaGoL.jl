@@ -87,8 +87,14 @@ Extract the 2D precision contribution from a single localization, via the
 `Emitter2DFit`, GaussMLE `Emitter2DFitSigma`, …). Builds the 2×2 precision
 matrix, natural parameter, quadratic form, and log-determinant of the
 covariance. `Emitter3DFit` dispatches to its own (more specific) method below.
+
+Any other type that carries a `z` field is a 3D fit this 2D method would treat as
+2D (dropping z, merging molecules that differ only in depth), so it is refused
+here, where every sampler path builds its per-localization precision. The check
+folds to a constant per concrete type.
 """
 @inline function _loc_precision(loc::SMLMData.AbstractEmitter)
+    hasfield(typeof(loc), :z) && _throw_3d(typeof(loc))
     s = get_sigma(loc)
     var_x = s[1]^2
     var_y = s[2]^2
