@@ -164,8 +164,8 @@ function refine_bridge_clusters(
 
     coords = coords_matrix(locs)
     tree = KDTree(coords)
-    max_sigma = maximum(mean_sigma(loc) for loc in locs)
-    max_radius = nsigma * 2 * max_sigma
+    σ = Float64[mean_sigma(loc) for loc in locs]
+    max_radius = nsigma * 2 * maximum(σ)
 
     refined = zeros(Int, n)
     next_label = 0
@@ -185,7 +185,7 @@ function refine_bridge_clusters(
         degrees = zeros(Int, m)
 
         for (li, gi) in enumerate(cluster_indices)
-            for gj in precision_neighbors(tree, locs, gi, nsigma, max_radius)
+            for gj in precision_neighbors(tree, coords, σ, gi, nsigma, max_radius)
                 labels[gj] == cid || continue
                 lj = local_index[gj]
                 push!(neighbors[li], lj)
@@ -281,8 +281,9 @@ end
 
 Precision-weighted DBSCAN clustering.
 
-Two localizations are neighbors if d_eff(i, j) < nsigma where
-d_eff = ||p_i - p_j|| / (σ_i + σ_j).
+Two localizations are neighbors if ||p_i - p_j|| < nsigma·(σ_i + σ_j), evaluated in
+Float64 with σ = `mean_sigma(loc)` (the precision-weighted distance below nsigma). A
+`neighbor_graph` (with `min_pts == 0`) gives labels identical to the per-call search.
 
 # Returns
 Vector of cluster labels (0 = noise, 1..n = cluster IDs)
@@ -301,8 +302,9 @@ function precision_dbscan(
     # Reuse path: a prebuilt precision neighbor graph (the τ-finder shares ONE graph
     # across all E-steps — positions are fixed, only σ_eff changes per step). Re-threshold
     # the cached candidate pairs at this step's σ_eff = mean_sigma(loc) and re-label.
-    # Restricted to min_pts==0 (connected components) — that case is order-free union-find,
-    # proven bit-identical to the fresh KDTree path. For min_pts≥1 the primitive's
+    # Restricted to min_pts==0 (connected components) — order-free union-find, with the
+    # same Float64 neighbor test as `precision_neighbors`, so labels are identical to the
+    # per-call path below. For min_pts≥1 the primitive's
     # core-point border rule may differ from the legacy seed-set, so fall through to the
     # KDTree path (unchanged behavior; the default finder path is min_pts==0 anyway).
     # check_superset guards against a too-tight cached radius.
@@ -317,11 +319,11 @@ function precision_dbscan(
     # Build KDTree for fast neighbor queries
     coords = coords_matrix(locs)
     tree = KDTree(coords)
+    σ = Float64[mean_sigma(loc) for loc in locs]
 
     # Maximum physical distance for any pair to be neighbors
     # (happens when both have max sigma)
-    max_sigma = maximum(mean_sigma(loc) for loc in locs)
-    max_radius = nsigma * 2 * max_sigma
+    max_radius = nsigma * 2 * maximum(σ)
 
     labels = zeros(Int, n)  # 0 = unvisited/noise
     cluster_id = 0
@@ -330,7 +332,7 @@ function precision_dbscan(
         labels[i] != 0 && continue  # Already assigned
 
         # Find precision-weighted neighbors
-        neighbors = precision_neighbors(tree, locs, i, nsigma, max_radius)
+        neighbors = precision_neighbors(tree, coords, σ, i, nsigma, max_radius)
 
         if length(neighbors) < min_pts
             labels[i] = 0  # Mark as noise (may be claimed later)
@@ -357,7 +359,7 @@ function precision_dbscan(
             labels[j] = cluster_id
 
             # Find neighbors of j
-            j_neighbors = precision_neighbors(tree, locs, j, nsigma, max_radius)
+            j_neighbors = precision_neighbors(tree, coords, σ, j, nsigma, max_radius)
 
             if length(j_neighbors) >= min_pts
                 # Add new neighbors to seed set
@@ -373,33 +375,43 @@ function precision_dbscan(
     return labels
 end
 
-"""
-    precision_neighbors(tree, locs, i, nsigma, max_radius)
+# Relative slack on every KDTree candidate radius (the per-call query here and the finder's
+# cache build): the exact test decides, so extra candidates are harmless, while a pair the
+# test accepts at the largest σ must never be lost to the tree's own rounding of the radius.
+const _NEIGHBOR_RADIUS_SLACK = 1 + 1e-9
 
-Find all localizations that are precision-weighted neighbors of loc i.
-Uses KDTree for initial range query, then filters by precision-weighted distance.
+"""
+    precision_neighbors(tree, coords, σ, i, nsigma, max_radius)
+
+Find all localizations that are precision-weighted neighbors of loc i: every j ≠ i with
+`d(i, j) < nsigma·(σ[i] + σ[j])`, in Float64. `coords` is the Float64 coordinate matrix
+the KDTree was built on and `σ` holds `Float64(mean_sigma(loc))` per loc.
+
+This is the same test, on the same Float64 distance summed axis by axis, that
+SMLMClustering's neighbor cache applies, so the per-call and cached paths of
+`precision_dbscan` give identical labels.
 """
 function precision_neighbors(
     tree::KDTree,
-    locs::Vector{<:SMLMData.AbstractEmitter},
+    coords::Matrix{Float64},
+    σ::Vector{Float64},
     i::Int,
     nsigma::Float64,
     max_radius::Float64
 )
-    loc_i = locs[i]
-    coords_i = get_coords(loc_i)
+    # Range query for candidates, with the shared radius slack.
+    candidates = inrange(tree, view(coords, :, i), max_radius * _NEIGHBOR_RADIUS_SLACK)
 
-    # Range query for candidates
-    candidates = inrange(tree, coords_i, max_radius)
-
-    # Filter by precision-weighted distance
     neighbors = Int[]
+    σi = σ[i]
     for j in candidates
         j == i && continue
-        d_eff = precision_weighted_distance(loc_i, locs[j])
-        if d_eff < nsigma
-            push!(neighbors, j)
+        acc = 0.0
+        @inbounds for a in axes(coords, 1)
+            δ = coords[a, i] - coords[a, j]
+            acc += δ * δ
         end
+        sqrt(acc) < nsigma * (σi + σ[j]) && push!(neighbors, j)
     end
 
     return neighbors
@@ -504,6 +516,7 @@ function split_partition(
         end
     end
 
+    overlap_seen = falses(n)
     for (ci, core_indices) in enumerate(components)
         if overlap > 0.0
             # Find overlap locs: locs in sibling components within proximity
@@ -515,12 +528,13 @@ function split_partition(
                 radius = overlap > 0 ? overlap : 3 * σ_i
                 nearby = inrange(tree, coords[:, core_idx], radius)
                 for j in nearby
-                    if loc_component[j] != ci && j ∉ overlap_indices
+                    if loc_component[j] != ci && !overlap_seen[j]
                         push!(overlap_indices, j)
+                        overlap_seen[j] = true
                     end
                 end
             end
-            unique!(overlap_indices)
+            overlap_seen[overlap_indices] .= false   # clear only this component's marks
 
             # Combine core + overlap
             all_indices = vcat(core_indices, overlap_indices)

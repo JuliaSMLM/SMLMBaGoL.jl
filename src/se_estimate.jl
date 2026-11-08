@@ -18,7 +18,7 @@
 #   E-step  group the localizations with BaGoL at the current τ (expensive).
 #   M-step  on that FIXED grouping, the τ best matching Rayleigh(1) — the
 #           unscaled distances d are fixed, so this is a cheap 1-D KS search
-#           (no BaGoL), right-biased (see `_mstep_rb`) with the threshold crossing
+#           (no BaGoL), right-biased (see `_mstep_rb_pick`) with the threshold crossing
 #           interpolated between grid points to remove grid quantization. Extend
 #           the initial grid when its top qualifies, up to the numerical cap
 #           `tau_max_um` (default 50 nm); this evaluates the same KS rule. m(g)
@@ -167,32 +167,46 @@ function _group_distances(smld, tau_nm; n_iterations, burn_in, grouping, bagol_k
 end
 
 # KS of the scaled-distance distribution against Rayleigh(1), at assumed τ (nm),
-# over an index set (cheap — the M-step kernel).
-function _ks_rayleigh1(d, s2, tau_nm, idxs)
+# over an index set (cheap — the M-step kernel). `z` and `buf` are optional reused
+# buffers for the scaled distances and the sort's workspace; they are used only when
+# their element type is the kernel's.
+function _ks_rayleigh1(d, s2, tau_nm, idxs, z = nothing, buf = nothing)
     isempty(idxs) && return NaN
     t2 = tau_nm^2
-    z = sort!([d[k] / sqrt(s2[k] + 2t2) for k in idxs])
+    if z === nothing || eltype(z) !== Base.promote_op(
+            (x, s, t) -> x / sqrt(s + 2t), eltype(d), eltype(s2), typeof(t2))
+        return _ks_rayleigh1_sorted!([d[k] / sqrt(s2[k] + 2t2) for k in idxs], nothing)
+    end
+    for (i, k) in enumerate(idxs)
+        z[i] = d[k] / sqrt(s2[k] + 2t2)
+    end
+    _ks_rayleigh1_sorted!(z, buf)
+end
+
+function _ks_rayleigh1_sorted!(z, buf)
+    sort!(z; scratch = buf)
     n = length(z)
     maximum(abs(i / n - (1 - exp(-z[i]^2 / 2))) for i in 1:n)
 end
 
-# M-step: τ minimizing the KS over a fine grid (nm), no BaGoL. The basic kernel.
-_mstep(d, s2, grid_nm, idxs) = grid_nm[argmin([_ks_rayleigh1(d, s2, τ, idxs) for τ in grid_nm])]
-
-# RIGHT-BIASED M-step (Codex's tie rule): among τ within `ks_noise` of the min
-# KS, take the LARGEST — preserves the same-molecule spread and avoids the
-# under-group truncation that causes the ascending creep. This is the M-step the
-# descent and the bootstrap use. The rule is a statement about continuous τ; the
-# grid only discretizes it, and a grid-quantized m has plateaus where several g are
-# exact fixed points of the finder's map. `interpolate=true` locates the threshold
-# crossing by linear interpolation of the KS curve between the last qualifying grid
-# point and the next one (none when the last qualifying point is the grid end).
-function _mstep_rb(d, s2, grid_nm, idxs; ks_noise = 0.01, interpolate = false)
-    ks = [_ks_rayleigh1(d, s2, τ, idxs) for τ in grid_nm]
-    _mstep_rb_pick(ks, grid_nm; ks_noise, interpolate)
+# KS over a grid of τ (nm). One call allocates one scaled-distance buffer and one sort
+# workspace, both the size of the index set, and reuses them for every grid point.
+function _ks_rayleigh1_curve(d, s2, grid_nm, idxs)
+    t2 = first(grid_nm)^2
+    z = [d[k] / sqrt(s2[k] + 2t2) for k in idxs]
+    buf = similar(z)
+    [_ks_rayleigh1(d, s2, τ, idxs, z, buf) for τ in grid_nm]
 end
 
-# Apply the same right-biased rule to precomputed KS values (also used after extension).
+# RIGHT-BIASED M-step rule (Codex's tie rule), applied to KS values over a grid: among
+# τ within `ks_noise` of the min KS, take the LARGEST — preserves the same-molecule
+# spread and avoids the under-group truncation that causes the ascending creep. The
+# descent and the bootstrap use it through `_mstep_rb_ext`. The rule is a statement
+# about continuous τ; the grid only discretizes it, and a grid-quantized m has plateaus
+# where several g are exact fixed points of the finder's map. `interpolate=true` locates
+# the threshold crossing by linear interpolation of the KS curve between the last
+# qualifying grid point and the next one (none when the last qualifying point is the
+# grid end).
 # Nonfinite points carry no information; interpolate between neighboring finite points.
 function _mstep_rb_pick(ks, grid_nm; ks_noise = 0.01, interpolate = false)
     finite = findall(isfinite, ks)
@@ -217,7 +231,7 @@ function _mstep_rb_ext(d, s2, grid_nm, idxs; ks_noise = 0.01, cap_nm)
     grid = collect(Float64, grid_nm)
     length(grid) ≥ 2 || throw(ArgumentError("the M-step grid must have at least two points"))
     cap_nm ≥ maximum(grid) || throw(ArgumentError("cap_nm must be at least the M-step grid top"))
-    ks = [_ks_rayleigh1(d, s2, τ, idxs) for τ in grid]
+    ks = _ks_rayleigh1_curve(d, s2, grid, idxs)
     while _ks_top_qualifies(ks, ks_noise) && grid[end] < cap_nm
         top = grid[end]
         step = top - grid[end - 1]
@@ -233,7 +247,7 @@ function _mstep_rb_ext(d, s2, grid_nm, idxs; ks_noise = 0.01, cap_nm)
             end
         end
         append!(grid, new_points)
-        append!(ks, [_ks_rayleigh1(d, s2, τ, idxs) for τ in new_points])
+        append!(ks, _ks_rayleigh1_curve(d, s2, new_points, idxs))
     end
     m = _mstep_rb_pick(ks, grid; ks_noise, interpolate = true)
     censored = grid[end] == cap_nm && _ks_top_qualifies(ks, ks_noise)
@@ -274,36 +288,91 @@ end
 # Spatial-block bootstrap: resample `block_um` tiles of pair-midpoints (the
 # independent unit — pairs within a group are NOT independent) → a resampled
 # index list for the M-step.
-function _block_indices(pos, block_um, rng)
-    isempty(pos) && return Int[]
+function _block_tiles(pos, block_um)
+    isempty(pos) && return Vector{Int}[]
     x0 = minimum(p[1] for p in pos); y0 = minimum(p[2] for p in pos)
     tile(p) = (floor(Int, (p[1] - x0) / block_um), floor(Int, (p[2] - y0) / block_um))
     tiles = Dict{Tuple{Int, Int}, Vector{Int}}()
     for (i, p) in enumerate(pos)
         push!(get!(tiles, tile(p), Int[]), i)
     end
-    kv = collect(keys(tiles)); out = Int[]
-    for _ in 1:length(kv)
-        append!(out, tiles[kv[rand(rng, 1:length(kv))]])
+    [tiles[k] for k in keys(tiles)]
+end
+
+function _expand_block_indices(tiles, picks)
+    out = Int[]
+    for k in picks
+        append!(out, tiles[k])
     end
     out
+end
+
+function _block_indices(pos, block_um, rng)
+    tiles = _block_tiles(pos, block_um)
+    picks = [rand(rng, 1:length(tiles)) for _ in eachindex(tiles)]
+    _expand_block_indices(tiles, picks)
+end
+
+# Draw tile numbers serially to preserve the RNG stream; only active resamples
+# expand pair indices and allocate M-step scratch on the worker threads.
+# Returns the finite replicate estimates and the number of replicates censored at the cap.
+function _bootstrap_msteps(d, s2, pos, grid; n_boot, block_um, seed, ks_noise, cap_nm)
+    n_boot == 0 && return (Float64[], 0)
+    rng = MersenneTwister(seed)
+    tiles = _block_tiles(pos, block_um)
+    picks = [[rand(rng, 1:length(tiles)) for _ in eachindex(tiles)] for _ in 1:n_boot]
+    boots_raw = Vector{Float64}(undef, n_boot)
+    ok = fill(false, n_boot)
+    boot_censored = fill(false, n_boot)            # byte arrays: independent thread writes
+    Threads.@threads for b in 1:n_boot
+        bi = _expand_block_indices(tiles, picks[b])
+        if !isempty(bi)
+            step = _mstep_rb_ext(d, s2, grid, bi; ks_noise, cap_nm)
+            boots_raw[b] = step.m
+            boot_censored[b] = step.censored
+            ok[b] = isfinite(step.m)
+        end
+    end
+    boots_raw[ok], count(boot_censored)
 end
 
 # Build a precision-DBSCAN neighbor graph for reuse within its τ ceiling.
 # Positions are fixed across the search — τ only changes the σ_eff neighbor
 # threshold — so cache the candidate-pair geometry
 # at the COARSEST σ_eff (τ = cache ceiling), a provable superset up to that τ.
-# Rebuild if a later E-step exceeds the ceiling; otherwise re-threshold exactly.
-# Returns nothing (→ per-call KDTree build, unchanged) for an empty SMLD or partition_sigma=Inf.
-function _build_finder_neighbor_graph(smld, tau_ceiling_um::Float64, partition_sigma::Float64)
+# Rebuild if a later E-step exceeds the ceiling; otherwise precision_dbscan
+# re-thresholds the cache per step without a KDTree rebuild.
+# Cached and per-call labels are identical: both paths apply the same Float64 test.
+# The budget bounds the build's peak, estimated as _GRAPH_BUILD_PEAK times the stored
+# size: the builder holds its per-point lists and the compact copy at once (measured
+# 2.6-3.0× the stored size on synthetic fields of 0.2 M and 1 M points).
+# Returns nothing (→ per-call KDTree build) when over budget, empty, or partition_sigma=Inf.
+const _GRAPH_BUILD_PEAK = 3.0
+
+function _build_finder_neighbor_graph(smld, tau_ceiling_um::Float64, partition_sigma::Float64;
+                                      graph_max_gb::Real = 4.0, graph_est_gb = Ref(NaN))
+    graph_max_gb >= 0 || throw(ArgumentError("graph_max_gb must be non-negative (got $graph_max_gb)"))
+    graph_est_gb[] = NaN
+    graph_max_gb == 0 && return nothing
     ems = smld.emitters
     (isempty(ems) || !isfinite(partition_sigma)) && return nothing
     md = hasproperty(smld, :metadata) ? smld.metadata : Dict{String, Any}()
     # σ_eff at the ceiling τ, via the SAME per-axis inflation the E-steps apply.
     infl, _, _ = _maybe_apply_se_adjust(ems, md, (tau_ceiling_um, tau_ceiling_um), true)
     σ_eff_ceiling = maximum(mean_sigma(e) for e in infl)
-    max_radius = partition_sigma * 2 * σ_eff_ceiling
+    # The same radius slack as the per-call query, so the cache holds every pair the
+    # per-call search can find.
+    max_radius = partition_sigma * 2 * σ_eff_ceiling * _NEIGHBOR_RADIUS_SLACK
     coords = Float64.(coords_matrix(ems))
+    tree = KDTree(coords)
+    n = length(ems)
+    sample = 1:max(1, cld(n, 2048)):n
+    mean_neighbors = sum(inrangecount(tree, view(coords, :, i), max_radius) - 1 for i in sample) / length(sample)
+    # Full adjacency: one Int index and one Float64 distance in each direction; the
+    # estimate is the build's peak.
+    graph_est_gb[] = _GRAPH_BUILD_PEAK * (sizeof(Int) + sizeof(Float64)) *
+                     Float64(n) * mean_neighbors / 1e9
+    graph_est_gb[] <= graph_max_gb || return nothing
     return build_precision_neighbor_graph(coords, max_radius)
 end
 
@@ -478,6 +547,14 @@ A `NamedTuple` with τ values in **μm**:
 - `grouping` — the grouping backend used
 - `bagol_kwargs` — the BaGoL kwargs the E-steps ran with (a `NamedTuple`; excludes the
   internal neighbor graph)
+- `graph_cached::Bool` — whether the search ended with the E-steps on the neighbor cache:
+  `false` when none was built, or when a rebuild for a larger τ went over `graph_max_gb`
+  and the later E-steps searched neighbors per call
+- `graph_est_gb::Float64` — estimated peak memory in GB (10⁹ bytes) of building the
+  neighbor cache at the largest ceiling the search needed, about three times the cache's
+  stored size; the number compared with `graph_max_gb`. `NaN` when no estimate was made
+  (`graph_max_gb = 0`, empty input, `partition_sigma = Inf`, or `min_partition_size ≥ 2`,
+  where partitioning never uses the cache)
 - `diagnostics` — `nothing`, or (with `return_diagnostics=true`) the arrays the
   `BaGoLMakieExt` plots consume, so the extension never re-runs BaGoL.
 - `bracket_um::Tuple{Float64,Float64}` — final measured sign-change bracket;
@@ -499,6 +576,11 @@ A `NamedTuple` with τ values in **μm**:
 - `n_iterations = 4000`, `burn_in = 2000` — per-E-step BaGoL chain length
 - `n_boot = 200` — bootstrap resamples for the CI
 - `block_um = 1.0` — spatial-block tile size (μm)
+- `graph_max_gb = 4.0` — memory budget in GB for the neighbor cache that lets the E-steps
+  share one neighbor search: the cache is built only when the estimated peak of building
+  it (`graph_est_gb`) fits. `Inf` always builds it; `0` skips both the cache and the
+  estimate. Only memory and time change: the cached and per-call neighbor searches apply
+  the same test, so labels and seeded results are identical either way
 - `seed = 1` — bootstrap RNG seed (a local RNG). Each E-step's BaGoL run seeds its
   partition chains from one draw of the caller's random stream, so `Random.seed!` before
   the call fixes the E-steps too
@@ -524,12 +606,14 @@ function estimate_se_adjust(smld::SMLMData.SMLD;
         burn_in::Int = 2000,
         n_boot::Int = 200,
         block_um::Float64 = 1.0,
+        graph_max_gb::Real = 4.0,
         seed::Int = 1,
         grouping::Symbol = :dahl,
         return_diagnostics::Bool = false,
         bagol_kwargs...)
 
     _require_2d(smld.emitters, "estimate_se_adjust")
+    graph_max_gb >= 0 || throw(ArgumentError("graph_max_gb must be non-negative (got $graph_max_gb)"))
     # τ is the σ-correction to FIND; finding it on already-corrected σ is ill-posed.
     md = hasproperty(smld, :metadata) ? smld.metadata : Dict{String, Any}()
     if get(md, "sigma_corrected", false) == true
@@ -565,11 +649,18 @@ function estimate_se_adjust(smld::SMLMData.SMLD;
     # pick the winner empirically — ks_full (faked low by over-split), ks_tail +
     # r_tail (over-split-proof: tail truncates), n_emit (over-split count/elbow).
     instr = NamedTuple[]
-    # Reuse the graph within its ceiling, doubling it when the search needs more.
+    # Reuse the graph within its ceiling, doubling it when the search needs more
+    # (precision_dbscan re-thresholds it per step with the per-call path's own test).
+    # Over the memory budget no graph is built and the E-steps use the per-call KDTree
+    # path. Partitioning uses the graph only for min_points 0 (min_partition_size ≤ 1),
+    # so no graph is built otherwise.
     _kw_used = (; bagol_kwargs...)                     # settings the E-steps run with (reported below)
     graph_ceiling_nm = max(maximum(grid), g)
     partition_sigma = Float64(get(bagol_kwargs, :partition_sigma, 3.0))
-    _ng = _build_finder_neighbor_graph(smld, graph_ceiling_nm / 1000, partition_sigma)
+    graph_budget = get(bagol_kwargs, :min_partition_size, 0) > 1 ? 0.0 : graph_max_gb
+    graph_est = Ref(NaN)
+    _ng = _build_finder_neighbor_graph(smld, graph_ceiling_nm / 1000, partition_sigma;
+                                       graph_max_gb = graph_budget, graph_est_gb = graph_est)
     if _ng !== nothing
         bagol_kwargs = (; bagol_kwargs..., neighbor_graph = _ng)
     end
@@ -579,7 +670,12 @@ function estimate_se_adjust(smld::SMLMData.SMLD;
         local d, s2, pos, n_emit, loglik
         if _ng !== nothing && g > graph_ceiling_nm
             graph_ceiling_nm = min(cap_nm, max(2graph_ceiling_nm, g))
-            _ng = _build_finder_neighbor_graph(smld, graph_ceiling_nm / 1000, partition_sigma)
+            # Free the old graph before building the larger one, so the two never coexist.
+            _ng = nothing
+            bagol_kwargs = (; bagol_kwargs..., neighbor_graph = nothing)
+            GC.gc()
+            _ng = _build_finder_neighbor_graph(smld, graph_ceiling_nm / 1000,
+                partition_sigma; graph_max_gb = graph_budget, graph_est_gb = graph_est)
             bagol_kwargs = (; bagol_kwargs..., neighbor_graph = _ng)
         end
         d, s2, pos, n_emit, loglik = _group_distances(smld, g; n_iterations, burn_in, grouping, bagol_kwargs)
@@ -626,27 +722,12 @@ function estimate_se_adjust(smld::SMLMData.SMLD;
 
     # CI: reuse that grouping (so it is conditional on it: E-step variability is not in
     # it); bootstrap the right-biased M-step over spatial blocks (the independent unit).
-    # The n_boot bootstrap resamples are independent and `_mstep_rb_ext` is pure (reads
-    # d/s2/grid, allocates its own scratch), so thread them. Draw the block-index sets
-    # SERIALLY first — this keeps the exact MersenneTwister(seed) stream, so the CI is
-    # bit-identical to the serial loop — then parallelize only the expensive M-steps.
-    # This was the dominant single-threaded tail of the finder (200 sequential grid×KS
-    # searches pinned one core for minutes on large cells).
-    rng = MersenneTwister(seed)
-    bis = [_block_indices(pos, block_um, rng) for _ in 1:n_boot]
-    boots_raw = Vector{Float64}(undef, n_boot)
-    ok = fill(false, n_boot)
-    boot_censored = fill(false, n_boot)            # byte arrays: independent thread writes
-    Threads.@threads for b in 1:n_boot
-        bi = bis[b]
-        if !isempty(bi)
-            step = _mstep_rb_ext(d, s2, grid, bi; ks_noise, cap_nm)
-            boots_raw[b] = step.m
-            boot_censored[b] = step.censored
-            ok[b] = isfinite(step.m)
-        end
-    end
-    boots = boots_raw[ok]
+    # The resamples are independent and `_mstep_rb_ext` is pure (reads d/s2/grid,
+    # allocates its own scratch), so `_bootstrap_msteps` threads them after drawing
+    # every block pick SERIALLY: the exact MersenneTwister(seed) stream, so the CI is
+    # bit-identical to a serial loop.
+    boots, n_boot_censored = _bootstrap_msteps(d, s2, pos, grid; n_boot, block_um, seed,
+                                               ks_noise, cap_nm)
     lo, hi = isempty(boots) ? (NaN, NaN) : quantile(boots, [0.025, 0.975])
     ks_at = isempty(d) ? NaN : _ks_rayleigh1(d, s2, τ, eachindex(d))
 
@@ -655,7 +736,7 @@ function estimate_se_adjust(smld::SMLMData.SMLD;
         # Compact arrays for BaGoLMakieExt — it PLOTS these, never re-runs BaGoL.
         diagnostics = (; d_nm = d, s2_nm2 = s2, pos_um = pos, tau_hat_nm = τ,
                        grid_nm = grid,
-                       ks_path = [_ks_rayleigh1(d, s2, τ′, eachindex(d)) for τ′ in grid])
+                       ks_path = _ks_rayleigh1_curve(d, s2, grid, eachindex(d)))
     end
 
     (; tau_hat_um = τ / 1000, ci_lo_um = lo / 1000, ci_hi_um = hi / 1000,
@@ -663,8 +744,9 @@ function estimate_se_adjust(smld::SMLMData.SMLD;
        path_um = [(gᵢ / 1000, mᵢ / 1000) for (gᵢ, mᵢ) in path],
        converged = found.converged, method_path = found.method_path,
        censored, start_overmerged, grid_top_um = maximum(grid) / 1000, tau_max_um,
-       n_boot_censored = count(boot_censored),
+       n_boot_censored,
        instr, grouping, bagol_kwargs = _kw_used, diagnostics,
+       graph_cached = _ng !== nothing, graph_est_gb = graph_est[],
        bracket_um = (found.bracket_nm[1] / 1000, found.bracket_nm[2] / 1000))
 end
 
@@ -695,7 +777,7 @@ end
 
 # Per-axis M-step: g minimizing the Half-Normal KS over the grid. `ks_noise>0`
 # applies the right-biased tie rule (largest g within ks_noise of the min) — the
-# per-axis analog of the isotropic `_mstep_rb`, to counter within-group truncation
+# per-axis analog of the isotropic `_mstep_rb_pick`, to counter within-group truncation
 # under-bias (smlmclustering flagged g_y biased low). Default 0 ≈ argmin (faithful
 # to the validated sim).
 function _mstep_ax(d, s2, grid_nm, idxs; ks_noise = 0.0)

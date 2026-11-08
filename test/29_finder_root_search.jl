@@ -2,6 +2,11 @@ using Test
 using SMLMBaGoL
 using Random
 
+# The right-biased M-step on one grid, composed from the package's KS curve and pick rule.
+rootsearch_mstep_rb(d, s2, grid, ix; ks_noise = 0.01, interpolate = false) =
+    SMLMBaGoL._mstep_rb_pick(SMLMBaGoL._ks_rayleigh1_curve(d, s2, grid, ix), grid;
+                             ks_noise, interpolate)
+
 @testset "automatic se_adjust rejects censored finder results" begin
     # Synthetic finder results exercise the automatic-application policy without
     # a finder E-step or BaGoL run. A censored result must be rejected before its
@@ -322,9 +327,9 @@ end
     d = sqrt.(-2 .* log.(rand(rng, n))) .* sqrt.(s2 .+ 2 * 6.0^2)
     grid = collect(0.0:0.1:14.0)
     ix = eachindex(d)
-    mg = SMLMBaGoL._mstep_rb(d, s2, grid, ix)
-    @test SMLMBaGoL._mstep_rb(d, s2, grid, ix; interpolate = false) == mg
-    mi = SMLMBaGoL._mstep_rb(d, s2, grid, ix; interpolate = true)
+    mg = rootsearch_mstep_rb(d, s2, grid, ix)
+    @test rootsearch_mstep_rb(d, s2, grid, ix; interpolate = false) == mg
+    mi = rootsearch_mstep_rb(d, s2, grid, ix; interpolate = true)
     @test mg ≤ mi ≤ mg + 0.1
     ks = [SMLMBaGoL._ks_rayleigh1(d, s2, τ, ix) for τ in grid]
     thr = minimum(ks) + 0.01
@@ -333,12 +338,12 @@ end
     # a coarse grid: the interpolated crossing lies in the interval above the grid rule's
     # point and stays near the fine-grid crossing
     coarse = collect(0.0:0.5:14.0)
-    mgc = SMLMBaGoL._mstep_rb(d, s2, coarse, ix)
-    mic = SMLMBaGoL._mstep_rb(d, s2, coarse, ix; interpolate = true)
+    mgc = rootsearch_mstep_rb(d, s2, coarse, ix)
+    mic = rootsearch_mstep_rb(d, s2, coarse, ix; interpolate = true)
     @test mgc ≤ mic ≤ mgc + 0.5
     @test abs(mic - mi) ≤ 0.25
     # no interpolation when the last qualifying point is the grid end
-    @test SMLMBaGoL._mstep_rb(d, s2, grid, ix; ks_noise = 1.0, interpolate = true) == last(grid)
+    @test rootsearch_mstep_rb(d, s2, grid, ix; ks_noise = 1.0, interpolate = true) == last(grid)
 end
 
 @testset "right-biased M-step adaptive grid extension" begin
@@ -352,7 +357,7 @@ end
     original = copy(grid)
     full_grid = collect(0.0:0.1:50.0)
     ix = eachindex(d16)
-    full_m = SMLMBaGoL._mstep_rb(d16, s2, full_grid, ix; interpolate = true)
+    full_m = rootsearch_mstep_rb(d16, s2, full_grid, ix; interpolate = true)
 
     @testset "extends above the initial grid" begin
         step = SMLMBaGoL._mstep_rb_ext(d16, s2, grid, ix; cap_nm = 50.0)
@@ -367,7 +372,7 @@ end
         step = SMLMBaGoL._mstep_rb_ext(d6, s2, grid, ix; cap_nm = 50.0)
         @test !step.censored
         @test step.grid == grid == original
-        @test step.m == SMLMBaGoL._mstep_rb(d6, s2, grid, ix; interpolate = true)
+        @test step.m == rootsearch_mstep_rb(d6, s2, grid, ix; interpolate = true)
     end
 
     @testset "censors at the exact cap" begin
