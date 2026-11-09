@@ -112,11 +112,20 @@ result_smld, diagnostics = run_bagol(smld;
 Alongside the grouped `BasicSMLD`, `run_bagol` returns a [`BaGoLDiagnostics`](@ref) with:
 
 - `n_emitters` — MAP-N number of emitters
-- `posterior_k` — emitter-count histogram over the chain (`posterior_k[k+1]` = iterations
-  with `K=k`; normalize for the posterior distribution over `K`)
+- `posterior_k` — posterior over the total emitter count of the field: `posterior_k[k+1]` =
+  recorded iterations whose total `K` (summed over partitions) was `k`; normalize for `P(K)`.
+  Where a large region is cut into pieces with overlap copies, each cluster counts as the
+  fraction of its localizations that are its own piece's, so each emitter whose
+  localizations straddle a cut counts about once (it would count twice without the
+  weighting; 1.04-1.07 on average in one simulated test, as overlap bands are partial)
 - `acceptance_rates` — per-move MCMC acceptance rates
 - `final_μ`, `final_shape` — learned count-distribution parameters
-- `posterior_image` — Rao-Blackwellized super-resolution posterior image (or `nothing`)
+- `posterior_image` — Rao-Blackwellized super-resolution posterior image (or `nothing`):
+  each cluster's posterior position density integrated over each pixel and summed over the
+  recorded iterations (`Float64`, emitters per pixel; divide by `n_iterations - burn_in` for
+  the expected emitter count per pixel); clusters are weighted by core fraction, as in `posterior_k`.
+  It is a dense matrix over the field, 8 bytes per pixel: 5.0 GB (4.7 GiB) for a 25 µm × 25 µm field at the
+  default 1 nm pixel, 0.2 GB at 5 nm
 - `se_adjust` — the applied uncertainty correction `(τx, τy)` in μm, or `nothing`
 - `convergence_trace` — per-sync `K`/μ/shape trace for burn-in assessment
 
@@ -124,9 +133,9 @@ Alongside the grouped `BasicSMLD`, `run_bagol` returns a [`BaGoLDiagnostics`](@r
 
 A quick checklist on the returned `diagnostics`:
 
-- **`posterior_k`** — is the emitter count concentrated or smeared across many `K`? Normalize
-  it for `P(K)` with `posterior_k ./ sum(posterior_k)`; a broad histogram means the data does
-  not pin down `K`. (The [convergence trace](math/hierarchical.md) shows the same thing over
+- **`posterior_k`** — is the field's emitter count concentrated or smeared across many `K`?
+  Normalize it for `P(K)` with `posterior_k ./ sum(posterior_k)`; a broad histogram means the
+  data does not pin down `K`. (The [convergence trace](math/hierarchical.md) shows the same thing over
   iterations.)
 - **`acceptance_rates`** — the split / merge / birth / death rates should be nonzero, i.e. the
   chain is actually exploring `K`. All-zero `K`-move acceptance means it is stuck at one `K`.
@@ -229,7 +238,7 @@ result = run_collapsed_chain(locs;
 Accumulators collect statistics from the chain without storing full samples:
 
 - [`EmitterCountHist`](@ref) — histogram of `K` per iteration
-- [`PosteriorImage`](@ref) — Rao-Blackwellized posterior image (Gaussian blobs per cluster)
+- [`PosteriorImage`](@ref) — Rao-Blackwellized posterior image (each cluster's posterior density integrated over each pixel)
 - [`NNDistHist`](@ref) — nearest-neighbor distance histogram between emitter positions
 - [`PartitionSamples`](@ref) — thinned assignment vectors for MAP-N estimation
 - [`PSMAccumulator`](@ref) — posterior similarity matrix (co-assignment frequencies) for

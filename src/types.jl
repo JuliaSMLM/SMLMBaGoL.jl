@@ -9,7 +9,7 @@ Diagnostics from BaGoL analysis for QC and visualization.
 """
 struct BaGoLDiagnostics
     n_emitters::Int
-    posterior_k::Vector{Int}
+    posterior_k::Vector{Int}    # posterior_k[k+1] = recorded iterations whose field total K was k
     acceptance_rates::Dict{Symbol, Float64}
     final_μ::Float64
     final_shape::Float64
@@ -17,10 +17,13 @@ struct BaGoLDiagnostics
     n_partitions::Int  # 1 for non-partitioned runs
     cluster_sizes::Vector{Int}  # active cluster sizes from final state (what Gamma was fit to)
     partition_k::Vector{Int}    # emitters found per partition (from MAP-N extraction)
-    partition_ids::Vector{Int}  # partition ID per localization (0 = unassigned)
-    posterior_image::Union{Nothing, NamedTuple{(:image, :edges_x, :edges_y, :pixel_size), Tuple{Matrix{Int}, Vector{Float64}, Vector{Float64}, Float64}}}
+    partition_ids::Vector{Int}  # partition in which each localization is core (0 = unassigned)
+    # Σ over recorded iterations of each cluster's posterior density integrated over each pixel
+    # (emitters per pixel; ÷ (n_iterations − burn_in) for the expected count per pixel)
+    posterior_image::Union{Nothing, NamedTuple{(:image, :edges_x, :edges_y, :pixel_size), Tuple{Matrix{Float64}, Vector{Float64}, Vector{Float64}, Float64}}}
     se_adjust::Union{Nothing, Tuple{Float64, Float64}}  # applied (τx, τy) in μm (quadrature σ-inflation), or nothing
-    # Per-sync MCMC convergence trace (global K + learned hyperparams vs iteration).
+    # Per-sync MCMC convergence trace (field total K, clusters weighted by core fraction, + learned
+    # hyperparams vs iteration).
     # Resolution = sync_interval; empty for the 0/1-2-loc fallback. For burn-in/mixing
     # assessment plot it (BaGoLMakieExt convergence panel) — a still-trending K ⇒ still in burn-in.
     convergence_trace::@NamedTuple{iters::Vector{Int}, K::Vector{Int}, mu::Vector{Float64}, shape::Vector{Float64}, rho::Vector{Float64}, burn_in::Int}

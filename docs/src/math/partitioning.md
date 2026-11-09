@@ -59,7 +59,7 @@ by Hungarian assignment within a ``2\sigma`` gate and merged into one.*
 
 ## Synchronization
 
-Partitions run under `Threads.@threads`, but the [hierarchical updates](hierarchical.md) are
-**global**: every `sync_interval` iterations the threads join and ``\mu`` / shape are updated
+Partitions run as spawned tasks (`Threads.@spawn`), but the [hierarchical updates](hierarchical.md) are
+**global**: every `sync_interval` iterations the tasks join and ``\mu`` / shape are updated
 from the pooled counts across all partitions, so the whole field shares one learned count
 distribution. Run with `julia --threads=auto` to use the parallelism.

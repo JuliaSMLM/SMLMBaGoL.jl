@@ -1,5 +1,27 @@
 # Main BaGoL API
 
+# One assignment sample is kept for the emitter list every _MAPN_THIN recorded iterations.
+const _MAPN_THIN = 5
+
+"""
+    _with_rng(f, rng::Xoshiro)
+
+Run `f()` with the current task drawing from `rng`: the task's random stream is set to
+`rng`'s state, the advanced state is stored back in `rng` afterwards, and the task's own
+stream is restored. Lets a partition chain keep one stream across the tasks that run it.
+"""
+function _with_rng(f, rng::Xoshiro)
+    task_rng = Random.default_rng()
+    saved = copy(task_rng)
+    copy!(task_rng, rng)
+    try
+        return f()
+    finally
+        copy!(rng, task_rng)
+        copy!(task_rng, saved)
+    end
+end
+
 # ============================================================================
 # se_adjust — independent (residual) localization-error correction
 # σ²_eff = σ²_CRLB + τ²  (quadrature variance add, per axis; τ in μm). Standalone
@@ -129,10 +151,10 @@ Uses precision-weighted DBSCAN to partition localizations, then runs parallel
 collapsed Gibbs MCMC on each partition with global hierarchical updates.
 
 # Count Model
-n_j ~ Gamma(shape, μ/shape) where:
+n_j ~ NegBin(shape, shape/(shape + μ)) localizations per emitter (mean μ), where:
 - `μ=nothing`: Mean locs per emitter; starts at `μ_prior_shape * μ_prior_scale`
   (10.0 with default hyperpriors, matching `BaGoLConfig().μ`).
-- shape = 1: exponential (dSTORM), shape > 1: peaked (DNA-PAINT)
+- shape = 1: geometric (dSTORM), shape > 1: peaked (DNA-PAINT)
 
 # Partitioning Arguments
 - `partition_sigma=3.0`: DBSCAN threshold in sigma units (Inf = no partitioning)
@@ -165,9 +187,11 @@ n_j ~ Gamma(shape, μ/shape) where:
 - `force_se_adjust=false`: Override the already-corrected guard (intentional double-count).
 
 # MCMC Arguments
-- `sync_interval=100`: Iterations between global μ/shape updates
+- `sync_interval=100`: Iterations between global μ/shape updates (at least 1)
 - `n_iterations=4000`: Total MCMC iterations
-- `burn_in=2000`: Burn-in iterations before recording
+- `burn_in=2000`: Burn-in iterations before recording. `n_iterations - burn_in` must be at
+  least 5, since the emitter list is built from one assignment sample every 5 recorded
+  iterations; both settings are checked before any work starts (ArgumentError).
 - `shape=2.0`: Initial Gamma shape (1=exponential, higher=more peaked)
 - `learn_distribution=true`: Control count distribution learning.
   `true`=learn both μ and shape, `false`=fix both,
@@ -211,7 +235,13 @@ n_j ~ Gamma(shape, μ/shape) where:
 - `verbose=true`: Print progress
 
 # Posterior Image
-- `posterior_pixel_size=0.001`: Rao-Blackwellized posterior image pixel size in μm (0.0 to disable)
+- `posterior_pixel_size=0.001`: Rao-Blackwellized posterior image pixel size in μm (0.0 to disable).
+  The image (`diagnostics.posterior_image`, `Float64`) sums over recorded iterations each
+  cluster's posterior position density integrated over each pixel; overlap copies between
+  METIS pieces count about once, not twice (each cluster weighted by its fraction of core
+  localizations; partial overlap bands left a straddling emitter at 1.04-1.07 on average in one simulated test).
+  The image is a dense matrix over the field, 8 bytes per pixel (5.0 GB, 4.7 GiB, for a 25 µm × 25 µm field
+  at 1 nm, 0.2 GB at 5 nm); each partition's image is stored only where it deposits.
 - `posterior_xlim=nothing`: Override x bounds for posterior image
 - `posterior_ylim=nothing`: Override y bounds for posterior image
 
@@ -225,7 +255,16 @@ n_j ~ Gamma(shape, μ/shape) where:
 
 # Returns
 - `BasicSMLD`: Grouped emitter positions with uncertainties
-- `BaGoLDiagnostics`: n_emitters, posterior_k, acceptance_rates, final parameters
+- `BaGoLDiagnostics`: n_emitters, posterior_k (histogram of the field's total K over recorded
+  iterations: `posterior_k[k+1]` iterations with total K = k; clusters weighted by core fraction),
+  acceptance_rates, final parameters; `partition_ids[i]` is the partition in which
+  localization i is core (a neighbor's overlap copy does not relabel it)
+
+Input must be 2D: localizations that carry a z coordinate are refused (ArgumentError).
+
+Reproducible: `Random.seed!(s)` before the call fixes the result whatever the number of
+threads, since each partition chain draws from its own stream, seeded from one draw of the
+caller's random stream.
 """
 function run_bagol(
     smld::SMLMData.SMLD;
@@ -422,6 +461,15 @@ function _run_bagol_collapsed(
     posterior_xlim = posterior_xlim === nothing ? nothing : (Float64(posterior_xlim[1]), Float64(posterior_xlim[2]))
     posterior_ylim = posterior_ylim === nothing ? nothing : (Float64(posterior_ylim[1]), Float64(posterior_ylim[2]))
 
+    # Chain lengths, checked before the τ finder or any sampling runs: the emitter list needs
+    # at least one assignment sample, kept every _MAPN_THIN recorded iterations.
+    sync_interval >= 1 ||
+        throw(ArgumentError("sync_interval must be at least 1 (got $sync_interval)"))
+    n_iterations - max(burn_in, 0) >= _MAPN_THIN || throw(ArgumentError(
+        "n_iterations - burn_in must be at least $_MAPN_THIN: the emitter list is built from " *
+        "one assignment sample every $_MAPN_THIN recorded iterations " *
+        "(got n_iterations=$n_iterations, burn_in=$burn_in)"))
+
     # Validate learn_distribution
     if learn_distribution isa Symbol && learn_distribution ∉ (:mu, :shape)
         throw(ArgumentError("learn_distribution must be true, false, :mu, or :shape (got :$learn_distribution)"))
@@ -434,6 +482,7 @@ function _run_bagol_collapsed(
 
     locs = smld.emitters
     camera = smld.camera
+    _require_2d(locs, "run_bagol")
 
     # Progress logging: write directly to file (bypasses stdout buffering)
     _t_start = time()
@@ -584,9 +633,21 @@ function _run_bagol_collapsed(
     end
     states = Vector{CollapsedState{_sp_type, _am_type}}(undef, n_partitions)
     partition_accumulators = Vector{Vector{AbstractAccumulator}}(undef, n_partitions)
-    count_hists = Vector{EmitterCountHist}(undef, n_partitions)
+    count_bufs = Vector{_CoreCountBuffer}(undef, n_partitions)
     partition_samples = Vector{PartitionSamples}(undef, n_partitions)
     partition_psms = Vector{PSMAccumulator}(undef, n_partitions)
+
+    # Full-field posterior image grid (user bounds or the data bounds). Every partition's
+    # image is built on this grid's pixel lattice, so the merge places pixels exactly.
+    xlim_final = posterior_xlim
+    ylim_final = posterior_ylim
+    if posterior_pixel_size > 0.0 && (xlim_final === nothing || ylim_final === nothing)
+        all_x = [loc.x for loc in locs]
+        all_y = [loc.y for loc in locs]
+        pad = 3 * median([mean_sigma(loc) for loc in locs])
+        xlim_final = (Float64(minimum(all_x) - pad), Float64(maximum(all_x) + pad))
+        ylim_final = (Float64(minimum(all_y) - pad), Float64(maximum(all_y) + pad))
+    end
 
     # Validate k_prior compatibility with spatial model BEFORE the @spawn
     # loop — otherwise the ArgumentError gets wrapped in CompositeException
@@ -611,8 +672,18 @@ function _run_bagol_collapsed(
         nothing
     end
 
+    # Random streams: one per partition chain, seeded from one draw of the caller's stream and
+    # installed in whichever task runs that chain (_with_rng). A spawned task's own stream
+    # depends on how many tasks its parent has spawned since Random.seed!, so without this the
+    # result changed with the thread count and with any task spawned before the call. The
+    # global hyperparameter updates run on the calling task and draw from the caller's stream,
+    # which spawning does not advance. The setup and MAP-N tasks run on the partition's stream
+    # too, so a random step added there would keep the result fixed by the seed.
+    _master_rng = Xoshiro(rand(UInt64))
+    part_rngs = [Xoshiro(rand(_master_rng, UInt64)) for _ in 1:n_partitions]
+
     @sync for i in 1:n_partitions
-        Threads.@spawn begin
+        Threads.@spawn _with_rng(part_rngs[i]) do
             p_locs = partitions[i].locs
             sp = if motion === :linear
                 motion_spatial(p_locs, motion_sigma,
@@ -644,11 +715,12 @@ function _run_bagol_collapsed(
 
             # Per-partition accumulators
             accs = AbstractAccumulator[]
-            count_hist = EmitterCountHist()
-            push!(accs, count_hist)
-            count_hists[i] = count_hist
+            # one slot per iteration of a sync block (a run shorter than one block needs fewer)
+            count_buf = _CoreCountBuffer(partitions[i].is_overlap, min(sync_interval, n_iterations))
+            push!(accs, count_buf)
+            count_bufs[i] = count_buf
 
-            ps_acc = PartitionSamples(thin=5)
+            ps_acc = PartitionSamples(thin=_MAPN_THIN)
             push!(accs, ps_acc)
             partition_samples[i] = ps_acc
 
@@ -657,9 +729,14 @@ function _run_bagol_collapsed(
             partition_psms[i] = psm_acc
 
             if posterior_pixel_size > 0.0
-                # Each partition gets a local posterior image (auto-sized from its locs).
-                # These are merged into a full-field image after sampling.
-                push!(accs, PosteriorImage(pixel_size=posterior_pixel_size))
+                # Each partition gets a local posterior image, auto-sized from its locs on
+                # the full-field pixel lattice and stored as tiles where deposits land (a
+                # sprawling partition's bounding box can be most of the field), merged into
+                # the full-field image after sampling. Clusters are weighted by their core
+                # fraction so overlap copies of a neighbor's localizations are not rendered twice.
+                push!(accs, _TiledPosteriorImage(pixel_size=posterior_pixel_size,
+                                                 is_overlap=partitions[i].is_overlap,
+                                                 origin=(xlim_final[1], ylim_final[1])))
             end
 
             partition_accumulators[i] = accs
@@ -717,6 +794,9 @@ function _run_bagol_collapsed(
 
     # Convergence trace — global K + learned hyperparams recorded at each sync (resolution = sync_interval)
     trace_iters = Int[]; trace_K = Int[]; trace_mu = Float64[]; trace_shape = Float64[]; trace_rho = Float64[]
+    # posterior_k: field_k_counts[k+1] = recorded iterations whose field total K (summed over
+    # partitions, each cluster weighted by its core fraction) rounds to k
+    field_k_counts = Int[]
     # Adaptive MH proposal scales for the hyperparameters (tuned during burn-in, then frozen)
     mu_scale = 0.3; shape_scale = 0.3
 
@@ -724,17 +804,21 @@ function _run_bagol_collapsed(
         @sync for i in 1:n_partitions
             Threads.@spawn begin
                 t0 = time_ns()
-                iter_counters[i] = run_collapsed_iterations!(
-                    states[i], partitions[i].locs, sync_interval,
-                    μ, current_shape, ρ,
-                    partition_accumulators[i], burn_in, iter_counters[i];
-                    acceptance=partition_acceptance[i],
-                    n_restricted_scans=n_restricted_scans,
-                    n_bd_substeps=n_bd_substeps
-                )
+                iter_counters[i] = _with_rng(part_rngs[i]) do
+                    run_collapsed_iterations!(
+                        states[i], partitions[i].locs, sync_interval,
+                        μ, current_shape, ρ,
+                        partition_accumulators[i], burn_in, iter_counters[i];
+                        acceptance=partition_acceptance[i],
+                        n_restricted_scans=n_restricted_scans,
+                        n_bd_substeps=n_bd_substeps
+                    )
+                end
                 partition_times_ns[i] += time_ns() - t0
             end
         end
+        _record_field_k!(field_k_counts, count_bufs, (outer - 1) * sync_interval + 1,
+                         outer * sync_interval, burn_in)
 
         # Write archive samples if past burn-in
         if archive !== nothing && (outer * sync_interval) > burn_in
@@ -767,7 +851,7 @@ function _run_bagol_collapsed(
             ρ
         end
 
-        total_K = sum(s.n_active for s in states)
+        total_K = _field_k(states, partitions, count_bufs)
         shape_str = _learn_shape ? ", shape=$(round(current_shape, digits=2))" : ""
         iter_done = outer * sync_interval
         _log_progress("Sync $outer/$n_outer (iter $iter_done): K=$total_K, μ=$(round(μ, digits=2))$shape_str, ρ=$(round(ρ, digits=4))")
@@ -780,21 +864,25 @@ function _run_bagol_collapsed(
     if remaining > 0
         @sync for i in 1:n_partitions
             Threads.@spawn begin
-                iter_counters[i] = run_collapsed_iterations!(
-                    states[i], partitions[i].locs, remaining,
-                    μ, current_shape, ρ,
-                    partition_accumulators[i], burn_in, iter_counters[i];
-                    acceptance=partition_acceptance[i],
-                    n_restricted_scans=n_restricted_scans,
-                    n_bd_substeps=n_bd_substeps
-                )
+                iter_counters[i] = _with_rng(part_rngs[i]) do
+                    run_collapsed_iterations!(
+                        states[i], partitions[i].locs, remaining,
+                        μ, current_shape, ρ,
+                        partition_accumulators[i], burn_in, iter_counters[i];
+                        acceptance=partition_acceptance[i],
+                        n_restricted_scans=n_restricted_scans,
+                        n_bd_substeps=n_bd_substeps
+                    )
+                end
             end
         end
+        _record_field_k!(field_k_counts, count_bufs, n_outer * sync_interval + 1,
+                         n_iterations, burn_in)
     end
 
     # Final trace point at n_iterations (after the remaining partial-sync iterations)
     if remaining > 0
-        push!(trace_iters, n_iterations); push!(trace_K, sum(s.n_active for s in states))
+        push!(trace_iters, n_iterations); push!(trace_K, _field_k(states, partitions, count_bufs))
         push!(trace_mu, μ); push!(trace_shape, current_shape); push!(trace_rho, ρ)
     end
 
@@ -824,15 +912,11 @@ function _run_bagol_collapsed(
     mapn_t0 = time()
 
     @sync for pid in pid_order
-        Threads.@spawn begin
+        Threads.@spawn _with_rng(part_rngs[pid]) do
             partition = partitions[pid]
             ps_acc = partition_samples[pid]
             psm_acc = partition_psms[pid]
             samples = accumulator_result(ps_acc)
-            if isempty(samples)
-                error("Partition $pid ($(length(partition.locs)) locs): no assignment samples collected. " *
-                      "Check burn_in ($burn_in) < n_iterations ($n_iterations).")
-            end
             # Dahl+overlap MAP-N: Dahl consensus partition + overlap Hungarian matching
             psm_result = accumulator_result(psm_acc)
             psm = psm_result.psm
@@ -902,27 +986,18 @@ function _run_bagol_collapsed(
         _dahl_out[] = global_labels
     end
 
-    # Filter overlap emitters via Dahl membership: discard emitters whose
-    # member locs are majority-overlap (they belong to a sibling partition).
-    # Uses the Dahl consensus assignment to determine which locs compose each emitter.
+    # Filter overlap emitters by position: keep an emitter when its nearest localization in
+    # the partition is core, discard it when that localization is an overlap copy (the
+    # sibling partition that holds it as core reports the emitter).
     n_overlap_discarded = 0
     for pid in 1:n_partitions
         any(partitions[pid].is_overlap) || continue  # no overlap locs in this partition
         partition = partitions[pid]
-        ps_acc = partition_samples[pid]
-        psm_acc = partition_psms[pid]
-        # Dahl assignments already computed above — recompute from stored result
-        # (samples were cleared, but we stored the emitters; use emitter positions
-        # to determine core/overlap membership)
         is_ov = partition.is_overlap
         keep = Bool[]
         for e in partition_emitters[pid]
-            # Find which locs are closest to this emitter (within its cluster)
-            # Simple heuristic: emitter position near overlap region → discard
-            # Better: check if emitter's position is closer to core locs than overlap locs
-            # Best: use Dahl assignment to count core vs overlap members
-            # For now: use position-based check — emitter is "core" if its nearest
-            # core loc is closer than its nearest overlap loc
+            # the emitter is "core" if its nearest core loc is at least as close as its
+            # nearest overlap loc
             min_d_core = Inf
             min_d_overlap = Inf
             for (li, loc) in enumerate(partition.locs)
@@ -944,7 +1019,7 @@ function _run_bagol_collapsed(
         end
     end
     if n_overlap_discarded > 0
-        _log_progress("  Overlap discard: $n_overlap_discarded emitters removed (majority-overlap membership)")
+        _log_progress("  Overlap discard: $n_overlap_discarded emitters removed (nearest localization is an overlap copy)")
     end
 
     # Flatten results (preserving partition order)
@@ -979,41 +1054,27 @@ function _run_bagol_collapsed(
     n_deduped = n_pre_dedup - length(merged_emitters)
     _log_progress("  Dedup: $n_pre_dedup → $(length(merged_emitters)) emitters ($n_deduped removed, $n_boundary near boundary)")
 
-    # Merge count histograms for posterior_k
-    merged_count_hist = EmitterCountHist()
-    for ch in count_hists
-        accumulator_merge!(merged_count_hist, ch)
-    end
-    posterior_k = accumulator_result(merged_count_hist)
+    # posterior_k: the field's total K per recorded iteration (recorded after each sync block)
+    posterior_k = field_k_counts
 
     # Merge posterior images if requested
     post_img = nothing
     if posterior_pixel_size > 0.0
-        # Create full-field target image from user-specified or data-derived bounds
-        xlim_final = posterior_xlim
-        ylim_final = posterior_ylim
-        if xlim_final === nothing || ylim_final === nothing
-            all_x = [loc.x for loc in locs]
-            all_y = [loc.y for loc in locs]
-            pad = 3 * median([mean_sigma(loc) for loc in locs])
-            xlim_final = (Float64(minimum(all_x) - pad), Float64(maximum(all_x) + pad))
-            ylim_final = (Float64(minimum(all_y) - pad), Float64(maximum(all_y) + pad))
-        end
+        # Full-field image on the grid fixed before sampling (xlim_final/ylim_final); the
+        # partition images share its pixel lattice, so the merge adds pixels in place.
         merged_post = PosteriorImage(pixel_size=posterior_pixel_size,
                                       xlim=xlim_final, ylim=ylim_final)
         for accs in partition_accumulators
             for acc in accs
-                if acc isa PosteriorImage
+                if acc isa _TiledPosteriorImage
                     accumulator_merge!(merged_post, acc)
                 end
             end
         end
         pi_result = accumulator_result(merged_post)
-        # Convert to integer counts for backward compat
-        int_image = round.(Int, pi_result.image)
-        post_img = (image=int_image, edges_x=pi_result.edges_x,
+        post_img = (image=pi_result.image, edges_x=pi_result.edges_x,
                    edges_y=pi_result.edges_y, pixel_size=pi_result.pixel_size)
-        _log_progress("  Posterior image merged ($(size(int_image,1))×$(size(int_image,2)) px)")
+        _log_progress("  Posterior image merged ($(size(pi_result.image,1))×$(size(pi_result.image,2)) px)")
     end
 
     # Aggregate acceptance rates across all partitions
@@ -1043,11 +1104,13 @@ function _run_bagol_collapsed(
     # Per-partition emitter counts (from MAP-N extraction, before deduplication)
     partition_k = [length(partition_emitters[pid]) for pid in 1:n_partitions]
 
-    # Per-localization partition IDs (for partition-colored renders)
+    # Per-localization partition IDs (for partition-colored renders): the partition in which
+    # each localization is core; a neighbor's overlap copy does not relabel it
     loc_partition_ids = zeros(Int, length(locs))
     for pid in 1:n_partitions
-        for idx in partitions[pid].original_indices
-            loc_partition_ids[idx] = pid
+        p = partitions[pid]
+        for (j, idx) in enumerate(p.original_indices)
+            p.is_overlap[j] || (loc_partition_ids[idx] = pid)
         end
     end
 

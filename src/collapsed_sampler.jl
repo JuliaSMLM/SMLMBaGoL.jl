@@ -140,11 +140,11 @@ Run the collapsed Gibbs sampler on a set of localizations.
 - `intensity_map=nothing`: A prebuilt [`IntensityMap`](@ref) for `:ipp` (built over a
   larger field and shared by several chains); its exposure is
   `exposure(map, length(locs))`.
-- `hierarchical_interval=100`: Iterations between μ/shape MH updates
+- `hierarchical_interval=100`: Iterations between μ/shape MH updates (at least 1)
 - `accumulators=AbstractAccumulator[]`: List of accumulators to update after burn-in
 - `verbose=false`: Print progress
 - `callback`: Optional callback `(iter, state, μ, shape) -> nothing`
-- `callback_interval=1`: How often to call callback
+- `callback_interval=1`: How often to call callback (at least 1 when a callback is given)
 # Move distribution
 - 50%: Allocation Gibbs sweep (full sweep per iteration)
 - 25%: Split/merge (K ± 1, restricted Gibbs scan)
@@ -214,6 +214,11 @@ function run_collapsed_chain(
     if rho !== nothing && rho <= 0.0
         throw(ArgumentError("rho must be positive when provided (got $rho)"))
     end
+    # Both intervals divide the iteration count; refuse zero before any sampling.
+    hierarchical_interval >= 1 || throw(ArgumentError(
+        "hierarchical_interval must be at least 1 (got $hierarchical_interval)"))
+    callback === nothing || callback_interval >= 1 || throw(ArgumentError(
+        "callback_interval must be at least 1 with a callback (got $callback_interval)"))
 
     # Construct spatial model
     spatial_model in (:ipp, :locmix, :flat) ||

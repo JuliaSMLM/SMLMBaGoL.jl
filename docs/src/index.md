@@ -79,7 +79,7 @@ result_smld.emitters
 
 # Posterior summary
 diagnostics.n_emitters    # MAP-N number of emitters
-diagnostics.posterior_k   # emitter-count histogram over the chain (normalize for P(K))
+diagnostics.posterior_k   # histogram of the field's total emitter count over the chain (normalize for P(K))
 ```
 
 [`run_bagol`](@ref) also accepts a `Vector` of localizations directly, given a camera:

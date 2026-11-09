@@ -172,38 +172,16 @@ end
 # Helpers
 # ============================================================================
 
-# Resample a posterior-image NamedTuple (image[nx,ny] + edges_x/edges_y/pixel_size in μm) onto a
-# W×H grid spanning [x_min,x_max]×[y_min,y_max] μm (nearest-neighbour, mapped by physical
-# coordinate so it is robust to a bounds/pixel-size mismatch between the posterior grid and the
-# render target). Returns Int[W,H] in the [ix,iy] layout save_posterior_png expects, so the
-# posterior PNG lands at EXACTLY the render target's pixel dimensions and overlays every panel.
-function _resample_posterior(post::NamedTuple, x_min, x_max, y_min, y_max, W::Int, H::Int)
-    src = post.image
-    nx, ny = size(src)
-    sx0 = post.edges_x[1]
-    sy0 = post.edges_y[1]
-    spx = post.pixel_size
-    px = (x_max - x_min) / W
-    py = (y_max - y_min) / H
-    out = zeros(Int, W, H)
-    @inbounds for iy in 1:H
-        yc = y_min + (iy - 0.5) * py
-        siy = floor(Int, (yc - sy0) / spx) + 1
-        (1 <= siy <= ny) || continue
-        for ix in 1:W
-            xc = x_min + (ix - 0.5) * px
-            six = floor(Int, (xc - sx0) / spx) + 1
-            (1 <= six <= nx) || continue
-            out[ix, iy] = src[six, siy]
-        end
-    end
-    return out
-end
+# Resample a posterior-image NamedTuple onto the W×H render grid spanning [x_min,x_max]×[y_min,y_max]
+# μm, conserving mass (area-weighted; see SMLMBaGoL._resample_mass), in the [ix,iy] layout the
+# colorizer expects, so the posterior PNG lands at exactly the render target's pixel dimensions.
+_resample_posterior(post::NamedTuple, x_min, x_max, y_min, y_max, W::Int, H::Int) =
+    SMLMBaGoL._resample_mass(post, x_min, x_max, y_min, y_max, W, H)
 
-# Colorize a resampled posterior count image (Int[nx,ny] = [ix,iy]) into a Matrix{RGB}[ny,nx]
+# Colorize a resampled posterior image (Real[nx,ny] = [ix,iy], emitter mass per pixel) into a Matrix{RGB}[ny,nx]
 # (row=y from top, col=x — matching the other panels' orientation) with percentile-scaled
 # `:inferno`, using SMLMRender's colormap. Returned to save_image ⇒ libpng-compressed PNG.
-function _posterior_rgb(img::Matrix{Int}; percentile::Float64 = 0.99, colormap::Symbol = :inferno)
+function _posterior_rgb(img::AbstractMatrix{<:Real}; percentile::Float64 = 0.99, colormap::Symbol = :inferno)
     nx, ny = size(img)
     lut = SMLMRender.get_colormap_lut(colormap)
     zero_color = SMLMRender.colormap_lookup(lut, 0.0)   # empty pixels → colormap floor (as in save_posterior_png)

@@ -56,6 +56,9 @@ exposure(box::UniformSpatialPrior, n_locs, n_all) = area(box) * n_locs / n_all
 # Kernel truncation radius in bandwidths, grid spacing in bandwidths.
 const _IPP_TRUNC = 4.0
 const _IPP_GRID = 0.25
+# Grid columns per strip of the threaded intensity integral (fixed, so its sum does not
+# depend on the thread count).
+const _IPP_STRIP_COLS = 16
 
 # At most 2^27 Float64 cells (1 GiB for the grid itself).
 const _MAX_INTENSITY_CELLS = 2^27
@@ -113,8 +116,8 @@ function build_intensity_map(locs::Vector{<:SMLMData.AbstractEmitter},
     inv2h2 = 1 / (2h^2)
     norm = 1 / (2π * h^2)
     nw = _IPP_TRUNC / _IPP_GRID           # half-window in nodes
-    nstrip = max(1, min(nx, 4 * Threads.nthreads()))
-    bounds = round.(Int, range(0, nx; length = nstrip + 1))
+    nstrip = cld(nx, _IPP_STRIP_COLS)
+    bounds = [min(nx, s * _IPP_STRIP_COLS) for s in 0:nstrip]
     Threads.@threads for s in 1:nstrip
         c1 = bounds[s] + 1; c2 = bounds[s + 1]
         c1 > c2 && continue
@@ -188,7 +191,9 @@ const _GL4_W = (0.3478548451374538, 0.6521451548625461, 0.6521451548625461,
 Integral of the lookup `g = exp(bilinear(log g))` over a rectangle (clipped to the grid):
 tensor 4-point Gauss-Legendre quadrature on each grid cell overlapped, over the part of the
 cell inside the rectangle (relative error far below 1e-8 for cells of a `h/4` grid).
-Threaded over column strips; the result is deterministic.
+Threaded over column strips of a fixed width, so the strip subtotals and their sum are the
+same with any number of threads (a strip count that grew with the thread count changed the
+sum's last digits, and so the map's normalization and a seeded run's result).
 """
 function intensity_integral(m::IntensityMap, xlo::Real, xhi::Real, ylo::Real, yhi::Real)
     ixa = max(1, floor(Int, (xlo - m.x0) / m.spacing) + 1)
@@ -197,8 +202,8 @@ function intensity_integral(m::IntensityMap, xlo::Real, xhi::Real, ylo::Real, yh
     iyb = min(size(m.logg, 1) - 1, floor(Int, (yhi - m.y0) / m.spacing) + 1)
     ixb < ixa && return 0.0
     ncol = ixb - ixa + 1
-    nstrip = max(1, min(ncol, 4 * Threads.nthreads()))
-    bounds = round.(Int, range(0, ncol; length = nstrip + 1))
+    nstrip = cld(ncol, _IPP_STRIP_COLS)
+    bounds = [min(ncol, s * _IPP_STRIP_COLS) for s in 0:nstrip]
     partial = zeros(nstrip)
     Threads.@threads for s in 1:nstrip
         acc = 0.0

@@ -87,7 +87,7 @@ result_smld.emitters
 
 # Posterior summary
 diagnostics.n_emitters    # MAP-N number of emitters
-diagnostics.posterior_k   # emitter-count histogram over the chain (normalize for P(K))
+diagnostics.posterior_k   # histogram of the field's total emitter count over the chain (normalize for P(K))
 ```
 
 `run_bagol` also accepts a `Vector` of localizations directly, given a camera:
@@ -136,10 +136,10 @@ isolated structures (rulers, origami, single-structure fields), where `:locmix` 
 Alongside the grouped `BasicSMLD`, `run_bagol` returns a `BaGoLDiagnostics` with:
 
 - `n_emitters` — MAP-N number of emitters
-- `posterior_k` — emitter-count histogram over the chain (`posterior_k[k+1]` = iterations with `K=k`; normalize for the posterior distribution)
+- `posterior_k` — posterior over the field's total emitter count (`posterior_k[k+1]` = recorded iterations whose total `K`, summed over partitions, was `k`; normalize for `P(K)`; where a large region is cut into pieces, each cluster counts as the fraction of its localizations that are its own piece's, so an emitter straddling a cut counts about once rather than twice)
 - `acceptance_rates` — per-move MCMC acceptance rates
 - `final_μ`, `final_shape` — learned count-distribution parameters
-- `posterior_image` — Rao-Blackwellized super-resolution posterior image (or `nothing`)
+- `posterior_image` — Rao-Blackwellized super-resolution posterior image (or `nothing`): each cluster's posterior density integrated over each pixel, summed over recorded iterations (`Float64`; divide by `n_iterations - burn_in` for emitters per pixel). It is a dense matrix over the field, 8 bytes per pixel: 5.0 GB (4.7 GiB) for a 25 µm × 25 µm field at the default 1 nm pixel, 0.2 GB at 5 nm
 - `se_adjust` — the applied uncertainty correction `(τx, τy)` in μm, or `nothing`
 - `convergence_trace` — per-sync `K`/μ/shape trace for burn-in assessment
 

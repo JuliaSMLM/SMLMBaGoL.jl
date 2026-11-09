@@ -499,8 +499,9 @@ A `NamedTuple` with τ values in **μm**:
 - `n_iterations = 4000`, `burn_in = 2000` — per-E-step BaGoL chain length
 - `n_boot = 200` — bootstrap resamples for the CI
 - `block_um = 1.0` — spatial-block tile size (μm)
-- `seed = 1` — bootstrap RNG seed (a local RNG; BaGoL's own E-step stochasticity
-  is only controlled as far as the sampler permits)
+- `seed = 1` — bootstrap RNG seed (a local RNG). Each E-step's BaGoL run seeds its
+  partition chains from one draw of the caller's random stream, so `Random.seed!` before
+  the call fixes the E-steps too
 - `grouping = :dahl` — `:dahl` (BaGoL consensus assignment, default) or `:mapn_proxy` (legacy nearest-emitter proxy)
 - `return_diagnostics = false` — attach the diagnostic arrays
 - `bagol_kwargs...` — forwarded to `run_bagol` (e.g. `partition_sigma`, `shape`,
@@ -528,6 +529,7 @@ function estimate_se_adjust(smld::SMLMData.SMLD;
         return_diagnostics::Bool = false,
         bagol_kwargs...)
 
+    _require_2d(smld.emitters, "estimate_se_adjust")
     # τ is the σ-correction to FIND; finding it on already-corrected σ is ill-posed.
     md = hasproperty(smld, :metadata) ? smld.metadata : Dict{String, Any}()
     if get(md, "sigma_corrected", false) == true
@@ -746,6 +748,7 @@ function estimate_se_adjust_peraxis(smld::SMLMData.SMLD;
         g_start_um = 0.008, stop_tol_um::Float64 = 5e-4, max_steps::Int = 8,
         ks_noise::Float64 = 0.0, grid_um = 0.0:0.0001:0.014,
         n_iterations::Int = 4000, burn_in::Int = 2000, bagol_kwargs...)
+    _require_2d(smld.emitters, "estimate_se_adjust_peraxis")
     md = hasproperty(smld, :metadata) ? smld.metadata : Dict{String, Any}()
     if get(md, "sigma_corrected", false) == true
         throw(ArgumentError("estimate_se_adjust_peraxis expects raw-σ localizations, but the input SMLD " *

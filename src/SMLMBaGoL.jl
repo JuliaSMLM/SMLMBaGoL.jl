@@ -17,7 +17,7 @@ using NearestNeighbors
 using Random
 using SMLMData
 using SparseArrays
-using SpecialFunctions: logfactorial, logabsbinomial, loggamma, erf
+using SpecialFunctions: logfactorial, logabsbinomial, loggamma, erf, erfc
 using StaticArrays
 using Statistics
 using SMLMClustering: build_precision_neighbor_graph, precision_dbscan_labels, PrecisionNeighborGraph
