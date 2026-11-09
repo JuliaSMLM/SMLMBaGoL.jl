@@ -48,9 +48,14 @@ import SMLMSim
     end
 
     @testset "P2 homogeneous SMLMSim field" begin
-        # a homogeneous SMLMSim field: mean g over the localizations is ≈ 1, edges included
+        # a homogeneous SMLMSim field: mean g over the localizations is ≈ 1, edges included.
+        # 2.1 μm field (was 1.1 μm): the edge/inner check below has a seed-to-seed spread of
+        # ~0.15 on a 1.1 μm field, as large as its tolerance, and failed on main with SMLMSim
+        # 0.7.3 (seeded runs differ from 0.7.2). On 2.1 μm it is 0.91 ± 0.04 over 10 seeds (the
+        # data's real edge thinning: fewer detected emitters and blur across the edge; the
+        # map's edge correction itself is unbiased, 0.999 ± 0.023 on uniform points).
         Random.seed!(1)
-        cam = SMLMData.IdealCamera(1:11, 1:11, 0.1)
+        cam = SMLMData.IdealCamera(1:21, 1:21, 0.1)
         params = SMLMSim.StaticSMLMConfig(; density = 250, nframes = 300, framerate = 50.0,
             ndatasets = 1, σ_psf = 0.13, minphotons = 30)
         smld_h, _ = SMLMSim.simulate(params; pattern = SMLMSim.Nmer2D(n = 1, d = 0.0),
