@@ -119,12 +119,13 @@ estimate, or the censoring E-step when censored. Nonfinite bootstrap estimates
 are excluded from the CI quantiles.
 
 `graph_max_gb=4.0` is the memory budget (GB) for a neighbor cache the E-steps share:
-it is built only when its estimated build peak, about three times its stored size,
-fits (`Inf` always builds, `0` never). The cache changes only memory and time; the
-cached and per-call neighbor searches apply the same test, so seeded results are
-identical. The result reports `graph_cached` (whether the search ended on the cache)
-and `graph_est_gb` (the estimated build peak compared with the budget; `NaN` when not
-estimated). No cache is built for `min_partition_size ≥ 2`, which partitioning never
+it is built only when a conservative estimate of its build peak fits, 250 bytes per
+localization plus 64 per neighbor pair, with the pairs counted exactly (`Inf` always
+builds, `0` never).
+The cache changes only memory and time; the cached and per-call neighbor searches apply
+the same test, so seeded results are identical. The result reports `graph_cached`
+(whether the search ended on the cache) and `graph_est_gb` (the estimate compared with
+the budget; `NaN` when not computed). No cache is built for `min_partition_size ≥ 2`, which partitioning never
 serves from it. `run_bagol(...; se_adjust=:auto)` runs the finder with the default budget.
 
 ---

@@ -291,8 +291,7 @@ end
     g = SMLMBaGoL._build_finder_neighbor_graph(smld, 0.030, 3.0;
             graph_max_gb = Inf, graph_est_gb = est)
     @test g !== nothing
-    actual_gb = 32 * (length(g.neighbors) ÷ 2) / 1e9
-    @test abs(est[] / (SMLMBaGoL._GRAPH_BUILD_PEAK * actual_gb) - 1) < 0.10
+    @test est[] == SMLMBaGoL._graph_peak_bytes(length(em), length(g.neighbors)) / 1e9
     @test SMLMBaGoL._build_finder_neighbor_graph(smld, 0.030, 3.0;
               graph_max_gb = est[] / 2) === nothing
     @test SMLMBaGoL._build_finder_neighbor_graph(smld, 0.030, 3.0;
@@ -326,6 +325,20 @@ end
     @test em32[1].x isa Float32
     smld32 = SMLMData.BasicSMLD(em32, cam, 1, 1, Dict{String, Any}())
     g32 = SMLMBaGoL._build_finder_neighbor_graph(smld32, 0.030, 3.0; graph_max_gb = Inf)
+    # The identity rests on the cache storing exactly the distance precision_neighbors
+    # computes: sqrt of the axis-ordered sum of squared Float64 differences.
+    X32 = SMLMBaGoL.coords_matrix(em32)
+    @test all(eachindex(em32)) do i
+        all(g32.offsets[i]:(g32.offsets[i + 1] - 1)) do t
+            j = g32.neighbors[t]
+            acc = 0.0
+            for a in axes(X32, 1)
+                δ = X32[a, i] - X32[a, j]
+                acc += δ * δ
+            end
+            g32.dists[t] === sqrt(acc)
+        end
+    end
     for tau in (0.0, 0.008, 0.030)
         infl, _, _ = SMLMBaGoL._maybe_apply_se_adjust(em32, smld32.metadata, (tau, tau), true)
         coords = SMLMBaGoL.coords_matrix(infl)
@@ -372,6 +385,30 @@ end
     tcached = SMLMBaGoL.precision_dbscan(tinfl, 1.0, 0; neighbor_graph = tg)
     @test tcached == SMLMBaGoL.precision_dbscan(tinfl, 1.0, 0)
     @test tcached[lo] == tcached[hi]
+
+    # One dense aggregate holding most of the pairs, in three localization orders (one that
+    # a strided sample of every tenth localization never sees): the bound counts every
+    # cached pair, so it is never below the stored pairs times the per-pair factor.
+    bigcam = SMLMData.IdealCamera(1:256, 1:256, 0.1)
+    sparse_em = [SMLMData.Emitter2DFit(20rand(rng), 20rand(rng), 1000.0, 0.0, 0.01, 0.01,
+                     0.0, 0.0, 0.0, 1, i, 0, 1) for i in 1:18_000]
+    agg_em = [SMLMData.Emitter2DFit(10 + 0.02randn(rng), 10 + 0.02randn(rng), 1000.0, 0.0,
+                  0.01, 0.01, 0.0, 0.0, 0.0, 1, i, 0, 1) for i in 1:2_000]
+    hidden = [i for i in 1:20_000 if mod(i, 10) != 1][1:2_000]   # never ≡ 1 mod 10
+    orders = Vector{Vector{eltype(sparse_em)}}()
+    v = Vector{eltype(sparse_em)}(undef, 20_000)
+    v[hidden] = agg_em; v[setdiff(1:20_000, hidden)] = sparse_em; push!(orders, v)
+    push!(orders, vcat(agg_em, sparse_em))
+    push!(orders, shuffle(rng, vcat(agg_em, sparse_em)))
+    for o in orders
+        osmld = SMLMData.BasicSMLD(o, bigcam, 1, 1, Dict{String, Any}())
+        oest = Ref(NaN)
+        og = SMLMBaGoL._build_finder_neighbor_graph(osmld, 0.010, 3.0;
+                 graph_max_gb = Inf, graph_est_gb = oest)
+        @test length(og.neighbors) > 3_000_000                 # the aggregate dominates
+        @test oest[] * 1e9 ≥ 3 * 16 * length(og.neighbors)     # never under the stored pairs × 3
+        @test oest[] == SMLMBaGoL._graph_peak_bytes(length(o), length(og.neighbors)) / 1e9
+    end
 
     empty_smld = SMLMData.BasicSMLD(empty(em), cam, 1, 1, Dict{String, Any}())
     for (data, sigma) in ((empty_smld, 3.0), (smld, Inf))

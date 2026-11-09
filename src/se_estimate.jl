@@ -343,11 +343,38 @@ end
 # Rebuild if a later E-step exceeds the ceiling; otherwise precision_dbscan
 # re-thresholds the cache per step without a KDTree rebuild.
 # Cached and per-call labels are identical: both paths apply the same Float64 test.
-# The budget bounds the build's peak, estimated as _GRAPH_BUILD_PEAK times the stored
-# size: the builder holds its per-point lists and the compact copy at once (measured
-# 2.6-3.0× the stored size on synthetic fields of 0.2 M and 1 M points).
+# The budget is compared with a conservative estimate of this function's peak memory:
+# the pairs are counted exactly first (no sampling, so one dense aggregate cannot hide),
+# and the cache is built only when _graph_peak_bytes(n, pairs) fits. Its two terms cover
+# the per-localization working set (coordinates, two KDTrees, the builder's per-point list
+# headers) and the per-pair cost (the builder holds its per-point lists, with their growth
+# slack, and the compact copy at once). It is not a proven bound (it has no fixed term, so
+# a tiny input exceeds it by a few hundred bytes). Measured on synthetic fields (0.2-4 M
+# localizations, mean neighbor count 1-250, uniform or with one dense aggregate holding
+# most of the pairs; 1 and 8 threads): peak RSS growth 3.1-11.6× the stored size, and
+# 0.68-0.88 of this estimate.
 # Returns nothing (→ per-call KDTree build) when over budget, empty, or partition_sigma=Inf.
-const _GRAPH_BUILD_PEAK = 3.0
+const _GRAPH_BYTES_PER_LOC = 250.0
+const _GRAPH_BYTES_PER_PAIR = 64.0   # 4 × the 16 stored bytes of a directed pair
+
+_graph_peak_bytes(n, pairs) = _GRAPH_BYTES_PER_LOC * n + _GRAPH_BYTES_PER_PAIR * pairs
+
+# Exact number of directed pairs the cache stores: each localization's neighbors within
+# `radius`, itself excluded, exactly as the builder lists them. Threaded over blocks;
+# allocates nothing.
+function _count_cache_pairs(tree, coords, radius)
+    n = size(coords, 2)
+    block = 1024
+    counts = zeros(Int, cld(n, block))
+    Threads.@threads for b in eachindex(counts)
+        s = 0
+        for i in ((b - 1) * block + 1):min(n, b * block)
+            s += inrangecount(tree, view(coords, :, i), radius) - 1
+        end
+        counts[b] = s
+    end
+    sum(counts)
+end
 
 function _build_finder_neighbor_graph(smld, tau_ceiling_um::Float64, partition_sigma::Float64;
                                       graph_max_gb::Real = 4.0, graph_est_gb = Ref(NaN))
@@ -356,22 +383,18 @@ function _build_finder_neighbor_graph(smld, tau_ceiling_um::Float64, partition_s
     graph_max_gb == 0 && return nothing
     ems = smld.emitters
     (isempty(ems) || !isfinite(partition_sigma)) && return nothing
-    md = hasproperty(smld, :metadata) ? smld.metadata : Dict{String, Any}()
-    # σ_eff at the ceiling τ, via the SAME per-axis inflation the E-steps apply.
-    infl, _, _ = _maybe_apply_se_adjust(ems, md, (tau_ceiling_um, tau_ceiling_um), true)
-    σ_eff_ceiling = maximum(mean_sigma(e) for e in infl)
+    # σ_eff at the ceiling τ, via the SAME per-axis inflation the E-steps apply, one
+    # localization at a time (no copy of the emitters).
+    τ = tau_ceiling_um
+    σ_eff_ceiling = τ > 0 ? maximum(e -> mean_sigma(_inflate_sigma(e, τ, τ)), ems) :
+                            maximum(mean_sigma, ems)
     # The same radius slack as the per-call query, so the cache holds every pair the
     # per-call search can find.
     max_radius = partition_sigma * 2 * σ_eff_ceiling * _NEIGHBOR_RADIUS_SLACK
-    coords = Float64.(coords_matrix(ems))
-    tree = KDTree(coords)
+    coords = coords_matrix(ems)
     n = length(ems)
-    sample = 1:max(1, cld(n, 2048)):n
-    mean_neighbors = sum(inrangecount(tree, view(coords, :, i), max_radius) - 1 for i in sample) / length(sample)
-    # Full adjacency: one Int index and one Float64 distance in each direction; the
-    # estimate is the build's peak.
-    graph_est_gb[] = _GRAPH_BUILD_PEAK * (sizeof(Int) + sizeof(Float64)) *
-                     Float64(n) * mean_neighbors / 1e9
+    pairs = _count_cache_pairs(KDTree(coords), coords, max_radius)
+    graph_est_gb[] = _graph_peak_bytes(n, pairs) / 1e9
     graph_est_gb[] <= graph_max_gb || return nothing
     return build_precision_neighbor_graph(coords, max_radius)
 end
@@ -550,9 +573,10 @@ A `NamedTuple` with τ values in **μm**:
 - `graph_cached::Bool` — whether the search ended with the E-steps on the neighbor cache:
   `false` when none was built, or when a rebuild for a larger τ went over `graph_max_gb`
   and the later E-steps searched neighbors per call
-- `graph_est_gb::Float64` — estimated peak memory in GB (10⁹ bytes) of building the
-  neighbor cache at the largest ceiling the search needed, about three times the cache's
-  stored size; the number compared with `graph_max_gb`. `NaN` when no estimate was made
+- `graph_est_gb::Float64` — conservative estimate in GB (10⁹ bytes) of the peak memory of
+  building the neighbor cache at the largest ceiling the search needed: 250 bytes per
+  localization plus 64 per cached neighbor pair, counted exactly (the cache itself stores
+  16 per pair); the number compared with `graph_max_gb`. `NaN` when no estimate was made
   (`graph_max_gb = 0`, empty input, `partition_sigma = Inf`, or `min_partition_size ≥ 2`,
   where partitioning never uses the cache)
 - `diagnostics` — `nothing`, or (with `return_diagnostics=true`) the arrays the
@@ -578,9 +602,11 @@ A `NamedTuple` with τ values in **μm**:
 - `block_um = 1.0` — spatial-block tile size (μm)
 - `graph_max_gb = 4.0` — memory budget in GB for the neighbor cache that lets the E-steps
   share one neighbor search: the cache is built only when the estimated peak of building
-  it (`graph_est_gb`) fits. `Inf` always builds it; `0` skips both the cache and the
-  estimate. Only memory and time change: the cached and per-call neighbor searches apply
-  the same test, so labels and seeded results are identical either way
+  it (`graph_est_gb`) fits. Measured peaks were 0.68-0.88 of that estimate on synthetic
+  fields of 0.2-4 M localizations, uniform or with one dense aggregate. `Inf` always builds it; `0` skips
+  both the cache and the count. Only memory and time change: the cached and per-call
+  neighbor searches apply the same test, so labels and seeded results are identical
+  either way
 - `seed = 1` — bootstrap RNG seed (a local RNG). Each E-step's BaGoL run seeds its
   partition chains from one draw of the caller's random stream, so `Random.seed!` before
   the call fixes the E-steps too
