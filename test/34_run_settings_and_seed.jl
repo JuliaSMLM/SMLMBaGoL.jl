@@ -36,6 +36,19 @@ site(x, y, i) = SMLMData.Emitter2DFit{Float64}(x, y, 1.0, 0.0, 0.0, 0.0, 0.0, 0.
     @test d.n_emitters == length(r.emitters) > 0
 end
 
+# run_collapsed_chain divides the iteration count by both intervals; zero threw DivideError.
+@testset "run_collapsed_chain checks its intervals before any work" begin
+    locs = sim_field([site(0.6 + 0.06 * k, 0.6, k) for k in 0:2]; seed = 11).emitters
+    chain(; kw...) = run_collapsed_chain(locs; n_iterations = 20, burn_in = 10, kw...)
+    @test_throws ArgumentError chain(; hierarchical_interval = 0)
+    @test_throws ArgumentError chain(; callback = (args...) -> nothing, callback_interval = 0)
+    # without a callback the callback interval is unused
+    @test chain(; callback_interval = 0) isa SMLMBaGoL.CollapsedChainResult
+    calls = Ref(0)
+    chain(; callback = (args...) -> (calls[] += 1), callback_interval = 5)
+    @test calls[] == 4
+end
+
 @testset "Random.seed! fixes run_bagol's result, whatever tasks were spawned before" begin
     # METIS-split field (several partitions, several chain tasks)
     sites = [site(0.5 + 0.05 * i, 0.5 + 0.05 * j, 15i + j + 1) for i in 0:9 for j in 0:9]

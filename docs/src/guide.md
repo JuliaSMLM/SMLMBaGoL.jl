@@ -124,8 +124,8 @@ Alongside the grouped `BasicSMLD`, `run_bagol` returns a [`BaGoLDiagnostics`](@r
   each cluster's posterior position density integrated over each pixel and summed over the
   recorded iterations (`Float64`, emitters per pixel; divide by `n_iterations - burn_in` for
   the expected emitter count per pixel); clusters are weighted by core fraction, as in `posterior_k`.
-  It is a dense matrix over the field, 8 bytes per pixel: 4.7 GB for a 25 µm × 25 µm field at the default
-  1 nm pixel, 0.2 GB at 5 nm
+  It is a dense matrix over the field, 8 bytes per pixel: 5.0 GB (4.7 GiB) for a 25 µm × 25 µm field at the
+  default 1 nm pixel, 0.2 GB at 5 nm
 - `se_adjust` — the applied uncertainty correction `(τx, τy)` in μm, or `nothing`
 - `convergence_trace` — per-sync `K`/μ/shape trace for burn-in assessment
 

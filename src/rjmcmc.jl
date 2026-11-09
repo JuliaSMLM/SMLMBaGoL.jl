@@ -154,7 +154,7 @@ collapsed Gibbs MCMC on each partition with global hierarchical updates.
 n_j ~ NegBin(shape, shape/(shape + μ)) localizations per emitter (mean μ), where:
 - `μ=nothing`: Mean locs per emitter; starts at `μ_prior_shape * μ_prior_scale`
   (10.0 with default hyperpriors, matching `BaGoLConfig().μ`).
-- shape = 1: exponential (dSTORM), shape > 1: peaked (DNA-PAINT)
+- shape = 1: geometric (dSTORM), shape > 1: peaked (DNA-PAINT)
 
 # Partitioning Arguments
 - `partition_sigma=3.0`: DBSCAN threshold in sigma units (Inf = no partitioning)
@@ -240,8 +240,8 @@ n_j ~ NegBin(shape, shape/(shape + μ)) localizations per emitter (mean μ), whe
   cluster's posterior position density integrated over each pixel; overlap copies between
   METIS pieces count about once, not twice (each cluster weighted by its fraction of core
   localizations; partial overlap bands left a straddling emitter at 1.04-1.07 on average in one simulated test).
-  The image is a dense matrix over the field, 8 bytes per pixel (4.7 GB for a 25 µm × 25 µm field at
-  1 nm, 0.2 GB at 5 nm); each partition's image is stored only where it deposits.
+  The image is a dense matrix over the field, 8 bytes per pixel (5.0 GB, 4.7 GiB, for a 25 µm × 25 µm field
+  at 1 nm, 0.2 GB at 5 nm); each partition's image is stored only where it deposits.
 - `posterior_xlim=nothing`: Override x bounds for posterior image
 - `posterior_ylim=nothing`: Override y bounds for posterior image
 
@@ -677,12 +677,13 @@ function _run_bagol_collapsed(
     # depends on how many tasks its parent has spawned since Random.seed!, so without this the
     # result changed with the thread count and with any task spawned before the call. The
     # global hyperparameter updates run on the calling task and draw from the caller's stream,
-    # which spawning does not advance.
+    # which spawning does not advance. The setup and MAP-N tasks run on the partition's stream
+    # too, so a random step added there would keep the result fixed by the seed.
     _master_rng = Xoshiro(rand(UInt64))
     part_rngs = [Xoshiro(rand(_master_rng, UInt64)) for _ in 1:n_partitions]
 
     @sync for i in 1:n_partitions
-        Threads.@spawn begin
+        Threads.@spawn _with_rng(part_rngs[i]) do
             p_locs = partitions[i].locs
             sp = if motion === :linear
                 motion_spatial(p_locs, motion_sigma,
@@ -911,15 +912,11 @@ function _run_bagol_collapsed(
     mapn_t0 = time()
 
     @sync for pid in pid_order
-        Threads.@spawn begin
+        Threads.@spawn _with_rng(part_rngs[pid]) do
             partition = partitions[pid]
             ps_acc = partition_samples[pid]
             psm_acc = partition_psms[pid]
             samples = accumulator_result(ps_acc)
-            if isempty(samples)
-                error("Partition $pid ($(length(partition.locs)) locs): no assignment samples collected. " *
-                      "Check burn_in ($burn_in) < n_iterations ($n_iterations).")
-            end
             # Dahl+overlap MAP-N: Dahl consensus partition + overlap Hungarian matching
             psm_result = accumulator_result(psm_acc)
             psm = psm_result.psm

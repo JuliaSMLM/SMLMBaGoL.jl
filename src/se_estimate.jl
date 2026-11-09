@@ -499,8 +499,9 @@ A `NamedTuple` with τ values in **μm**:
 - `n_iterations = 4000`, `burn_in = 2000` — per-E-step BaGoL chain length
 - `n_boot = 200` — bootstrap resamples for the CI
 - `block_um = 1.0` — spatial-block tile size (μm)
-- `seed = 1` — bootstrap RNG seed (a local RNG; BaGoL's own E-step stochasticity
-  is only controlled as far as the sampler permits)
+- `seed = 1` — bootstrap RNG seed (a local RNG). Each E-step's BaGoL run seeds its
+  partition chains from one draw of the caller's random stream, so `Random.seed!` before
+  the call fixes the E-steps too
 - `grouping = :dahl` — `:dahl` (BaGoL consensus assignment, default) or `:mapn_proxy` (legacy nearest-emitter proxy)
 - `return_diagnostics = false` — attach the diagnostic arrays
 - `bagol_kwargs...` — forwarded to `run_bagol` (e.g. `partition_sigma`, `shape`,
