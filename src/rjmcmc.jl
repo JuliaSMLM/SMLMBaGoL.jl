@@ -157,8 +157,9 @@ n_j ~ Gamma(shape, μ/shape) where:
   A censored finder result throws an `ErrorException` before applying τ: pass a
   numeric `se_adjust` (μm), or estimate τ on a subset with `estimate_se_adjust`.
   An uncensored result is applied even if it did not converge, with a progress-line note.
-  The finder assumes a start above the root: its default 8 nm suits τ below 8 nm. For larger τ (e.g. 16 nm),
-  call `estimate_se_adjust` with `g_start_um=0.03` and pass its estimate numerically.
+  The finder assumes a start above the root: its default 8 nm suits τ below 8 nm.
+  For larger τ (e.g. 16 nm), call `estimate_se_adjust` with `g_start_um=0.03` and pass
+  its estimate numerically.
   A first E-step with `m(g_start) ≥ g_start` warns and adds "; start below the root"
   to the progress note.
 - `force_se_adjust=false`: Override the already-corrected guard (intentional double-count).
