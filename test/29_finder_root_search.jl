@@ -413,3 +413,25 @@ end
         end
     end
 end
+
+# Each evaluation is a full BaGoL run, so the number of evaluations is the finder's cost.
+# Budgets are the current counts on constructed maps (affine and kinked, slopes 0.3-0.8);
+# the root search before its bracket-closing steps took up to 10 on the same maps.
+@testset "τ root search evaluation budget (constructed maps)" begin
+    grid = collect(0.0:0.1:14.0)
+    affine(gs, s) = g -> gs + s * (g - gs)
+    kinked(gs, s1, s2, knee) =
+        g -> g <= knee ? gs + s1 * (g - gs) : gs + s1 * (knee - gs) + s2 * (g - knee)
+    cases = Tuple{Function, Float64, Int}[
+        (affine(gs, s), gs, 4) for s in (0.6, 0.8) for gs in (3.7, 6.3)]
+    append!(cases, [(kinked(5.2, 0.7, 0.4, 9.0), 5.2, 6),
+                    (kinked(7.2, 0.56, 0.78, 10.0), 7.2, 5),
+                    (kinked(5.0, 0.78, 0.3, 7.0), 5.0, 6)])
+    for (m, root, budget) in cases, start in (3.0, 8.0, 14.0), tol in (0.1, 0.03, 0.01)
+        found = SMLMBaGoL._tau_root_search(m, start; grid_nm = grid, stop_tol_nm = tol,
+            max_steps = 24)
+        @test found.converged
+        @test abs(found.tau_nm - root) ≤ 2tol
+        @test found.n_evals ≤ budget
+    end
+end
