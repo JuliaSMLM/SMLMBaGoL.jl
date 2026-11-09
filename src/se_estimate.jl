@@ -29,7 +29,7 @@
 #   bracket of width ≤ 2·stop_tol; τ̂ interpolates inside that bracket. For a root
 #   inside the bracket, |τ̂ − g*| ≤ its width ≤ 2·stop_tol. The bracket guarantees
 #   a sign change of measured r, not continuity or uniqueness. Start independence
-#   is measured behavior (the lab's sr-signaling fields), not a theorem. KS(τ) is
+#   is measured behavior on real data, not a theorem. KS(τ) is
 #   not provably unimodal (discrete grouping + BaGoL stochasticity), so a
 #   golden-section search is unsafe.
 #
@@ -379,8 +379,8 @@ over-merged start. The "find" companion to [`apply_se_adjust`](@ref) /
 Interpolating the KS threshold crossing removes grid quantization; `m(g)` remains
 only approximately continuous because groupings change and E-steps are noisy. The
 bracket guarantees a sign change of the measured `r(g) = m(g) − g`, not continuity
-or uniqueness of its root. Start independence is measured behavior (the lab's
-sr-signaling fields), not a theorem.
+or uniqueness of its root. Start independence is measured behavior on real data,
+not a theorem.
 
 `smld` must hold **raw-σ** localizations (e.g. frame-connected blinks). τ is the
 correction to *find*, so an already-σ-corrected input
