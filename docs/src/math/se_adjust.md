@@ -61,7 +61,7 @@ The result reports this bracket as `bracket_um`, or `(NaN, NaN)` without one (in
 an exact root found before bracketing).
 
 The bracket guarantees a sign change of the **measured** residual, not continuity or
-uniqueness of a root. Start independence is measured behavior on real data, not a
+uniqueness of a root. Start independence is an empirical property, not a
 theorem. A spatial-block bootstrap on the grouping nearest
 ``\hat\tau`` provides a 95% confidence interval (conditional on that grouping). The
 estimator is **isotropic**: it uses one per-localization uncertainty (the reported
