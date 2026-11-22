@@ -74,7 +74,7 @@ BaGoL supports three spatial targets:
 - `spatial_model=:locmix` (default): no explicit prior on $K$; $K$ is regularized by the count model. Its per-emitter factor depends on how the field is partitioned (Section 4.1).
 - `spatial_model=:flat`: $K \sim \text{Poisson}(\rho A)$ with a flat spatial prior over area $A$.
 
-`:locmix` (default) normalizes its position prior per partition, so its output depends on the partitioning (dense fields, where precision-DBSCAN percolates into large partitions, are under-counted; measured on matched simulations). `:ipp` is partition-invariant and calibrated for dense fields, but under-splits isolated structures (rulers, origami, single-structure fields), where `:locmix` is the better choice.
+`:locmix` (default) normalizes its position prior per partition, so its output depends on the partitioning (dense fields, where precision-DBSCAN percolates into large partitions, are under-counted; measured on dense simulated fields). `:ipp` is partition-invariant and calibrated for dense fields, but under-splits isolated structures (rulers, origami, single-structure fields), where `:locmix` is the better choice.
 
 $$n_k \mid \mu, \alpha \stackrel{\text{iid}}{\sim} \text{NegBin}(\alpha,\; p), \quad p = \frac{\alpha}{\alpha+\mu}$$
 

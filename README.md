@@ -114,8 +114,8 @@ allocation model (`allocation_model = :dm`, `:decoupled`, or `:categorical`), an
 
 **Spatial prior (0.4.6).** `spatial_model = :locmix` stays the default. It normalizes its position
 prior per partition, so its output depends on the partitioning: dense fields, where
-precision-DBSCAN percolates into large partitions, are under-counted (measured on matched
-simulations). The new option `spatial_model = :ipp` is an inhomogeneous Poisson process:
+precision-DBSCAN percolates into large partitions, are under-counted (measured on dense
+simulated fields). The new option `spatial_model = :ipp` is an inhomogeneous Poisson process:
 emitters have intensity ρ·g(θ), with the shape g a fixed pilot intensity map estimated once from
 all localizations (bandwidth `intensity_bandwidth`, default 0.2 μm) and ρ the learned global
 emitter density. It is partition-invariant (exactly, for separated groups under the default DM allocation with the Poisson K prior, fixed hyperparameters and no overlap copies) and calibrated for dense fields, but under-splits
